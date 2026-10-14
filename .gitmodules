@@ -1,0 +1,3 @@
+[submodule "decomp"]
+	path = decomp
+	url = https://github.com/denzi-gh/crashwoc-decomp-ps2.git
