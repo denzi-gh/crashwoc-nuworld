@@ -1,0 +1,79 @@
+# Synthetic decomp registry for the NuWorld generator tests.
+
+[[function]]
+index = 0
+name = '_start'
+address = 0x00100008
+unit = 0
+
+[[function]]
+index = 1
+name = 'FixAdd'
+address = 0x00100100
+unit = 1
+
+[[function]]
+index = 2
+name = 'FixNear'
+address = 0x00100120
+unit = 1
+
+[[function]]
+index = 3
+name = 'FixMissing'
+address = 0x00100140
+unit = 1
+
+[[function]]
+index = 4
+name = 'FixLoad'
+address = 0x00100160
+unit = 1
+
+[[function]]
+index = 5
+name = 'FixHelper'
+address = 0x00100180
+unit = 1
+
+[[function]]
+index = 6
+name = 'FixGhost'
+address = 0x001001a0
+unit = 1
+
+[[function]]
+index = 7
+name = 'FixOther'
+address = 0x001001c0
+unit = 1
+
+[[function]]
+index = 8
+name = 'FixAsmA'
+address = 0x00100200
+unit = 2
+
+[[function]]
+index = 9
+name = 'FixAsmB'
+address = 0x00100220
+unit = 2
+
+[[function]]
+index = 10
+name = 'main'
+address = 0x00100300
+unit = 3
+
+[[function]]
+index = 11
+name = 'FixGameTick'
+address = 0x00100320
+unit = 3
+
+[[function]]
+index = 12
+name = 'FixDeadA'
+address = 0x00100400
+unit = 5

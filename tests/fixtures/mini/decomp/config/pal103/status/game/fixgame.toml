@@ -1,0 +1,13 @@
+schema = 1
+unit = "pal103:unit-0003"
+source = "src/game/fixgame.c"
+profile = "default"
+complete = false
+
+[[function]]
+id = "pal103:unit-0003:00100300:main"
+state = "asm"
+
+[[function]]
+id = "pal103:unit-0003:00100320:FixGameTick"
+state = "equivalent"
