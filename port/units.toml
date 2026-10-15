@@ -1,0 +1,141 @@
+# Host treatment per decomp unit; checked by `python tools/gen_stubs.py --check`.
+# treatment: compile | editor (stubs unless built with the editor) | hle |
+#            replace | dead (stubs) | shim
+# override/keep: globs the port implements instead of the decomp C; rename: decomp -> host name
+
+schema = 1
+
+[units]
+# nucore
+"nucore/nufile" = { treatment = "compile", override = ["NuDat*"] }
+"nucore/nufpar" = { treatment = "compile" }
+"nucore/nuerror" = { treatment = "compile" }
+"nucore/numem" = { treatment = "compile" }
+"nucore/numemblk" = { treatment = "compile" }
+"nucore/numemhi" = { treatment = "compile" }
+"nucore/nulist" = { treatment = "compile" }
+"nucore/nustring" = { treatment = "compile" }
+"nucore/asmmem" = { treatment = "hle" }
+"nucore/rnc" = { treatment = "compile" }
+
+# numath
+"numath/nuvec" = { treatment = "compile" }
+"numath/nuvec4" = { treatment = "compile" }
+"numath/numtx" = { treatment = "compile" }
+"numath/nutrig" = { treatment = "compile" }
+"numath/nufloat" = { treatment = "compile" }
+"numath/nuquat" = { treatment = "compile" }
+"numath/nuplane" = { treatment = "compile" }
+"numath/numtxvu0" = { treatment = "hle" }
+"numath/nuvecvu0" = { treatment = "hle" }
+"numath/nuplnvu0" = { treatment = "hle" }
+"numath/nurand" = { treatment = "compile" }
+"numath/nupatch" = { treatment = "compile" }
+"numath/numath" = { treatment = "hle" }
+
+# nu3d
+"nu3d/nustream" = { treatment = "compile", override = ["*"] }
+"nu3d/nucamera" = { treatment = "compile" }
+"nu3d/nucamvu0" = { treatment = "hle" }
+"nu3d/nuvport" = { treatment = "compile" }
+"nu3d/nugobj" = { treatment = "compile" }
+"nu3d/nunode" = { treatment = "compile" }
+"nu3d/nuscene" = { treatment = "compile" }
+"nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlUpdateEx"] }
+"nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
+"nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint"] }
+"nu3d/nufont" = { treatment = "compile" }
+"nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
+"nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimData2FixPtrs"] }
+"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary", "NuGScnRndr*"] }
+"nu3d/asmstrm" = { treatment = "hle" }
+"nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj"] }
+"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"] }
+"nu3d/nucvtskn" = { treatment = "dead", override = ["NuCvtSknInstFix"] }
+"nu3d/asmgobj" = { treatment = "hle" }
+"nu3d/nutexanm" = { treatment = "compile" }
+"nu3d/nufpatch" = { treatment = "dead" }
+"nu3d/nutexcmp" = { treatment = "dead" }
+"nu3d/nuwater" = { treatment = "compile" }
+"nu3d/bitconv" = { treatment = "compile" }
+
+# nups2
+"nups2/ps2txtr" = { treatment = "replace" }
+"nups2/ps2video" = { treatment = "replace" }
+"nups2/vu1man" = { treatment = "replace" }
+"nups2/ps2dma" = { treatment = "replace" }
+"nups2/ps2ctl" = { treatment = "compile" }
+"nups2/ptl" = { treatment = "replace" }
+"nups2/asmdma" = { treatment = "replace" }
+"nups2/clipping" = { treatment = "compile" }
+
+# gamelib
+"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
+"gamelib/debris" = { treatment = "compile" }
+"gamelib/edptl" = { treatment = "editor" }
+"gamelib/edobj" = { treatment = "editor" }
+"gamelib/glutils" = { treatment = "compile" }
+"gamelib/edanim" = { treatment = "editor" }
+"gamelib/edbits" = { treatment = "editor" }
+"gamelib/edfile" = { treatment = "editor" }
+"gamelib/specterr" = { treatment = "compile" }
+"gamelib/saveload" = { treatment = "replace" }
+"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad"] }
+"gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
+"gamelib/sceneman" = { treatment = "dead" }
+"gamelib/nubridge" = { treatment = "compile", override = ["NuBridgeStreamRope"] }
+"gamelib/nuwind" = { treatment = "compile" }
+"gamelib/edgra" = { treatment = "editor" }
+
+# edtools
+"edtools/edmain" = { treatment = "editor" }
+"edtools/edui" = { treatment = "editor" }
+"edtools/edcam" = { treatment = "editor" }
+
+# nusound
+"nusound/nusound" = { treatment = "compile" }
+
+# game
+"game/main" = { treatment = "compile", rename = { main = "nw_game_main" } }
+"game/particle" = { treatment = "compile" }
+"game/listman" = { treatment = "compile" }
+"game/creature" = { treatment = "compile" }
+"game/inst" = { treatment = "compile" }
+"game/camera" = { treatment = "compile" }
+"game/game" = { treatment = "compile" }
+"game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
+"game/game_obj" = { treatment = "compile" }
+"game/visi" = { treatment = "compile" }
+"game/vehicle" = { treatment = "compile" }
+"game/vehsupp" = { treatment = "compile" }
+"game/vehterr" = { treatment = "compile" }
+"game/jeep" = { treatment = "compile" }
+"game/edcrate" = { treatment = "editor" }
+"game/ai" = { treatment = "compile" }
+"game/edwumpa" = { treatment = "editor" }
+"game/edai" = { treatment = "editor" }
+"game/font3d" = { treatment = "compile" }
+"game/glass" = { treatment = "compile" }
+"game/panel" = { treatment = "compile" }
+"game/text" = { treatment = "compile" }
+"game/edlight" = { treatment = "editor" }
+"game/lights" = { treatment = "compile" }
+"game/deb3" = { treatment = "compile" }
+"game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"] }
+"game/visidat" = { treatment = "compile" }
+"game/cloudfx" = { treatment = "compile", override = ["cloudInit", "cloudRender", "TimeTunnelInit"] }
+"game/sfx" = { treatment = "compile" }
+"game/move" = { treatment = "compile" }
+"game/chase" = { treatment = "compile" }
+"game/loadsave" = { treatment = "compile" }
+"game/bgload" = { treatment = "compile" }
+"game/cut" = { treatment = "compile" }
+"game/bug" = { treatment = "compile" }
+"game/game_deb" = { treatment = "compile" }
+"game/credits" = { treatment = "compile" }
+"game/vu" = { treatment = "replace" }
+
+# sdk: fdlibm and rand are built for the host (same libm everywhere, PS2 RAND_MAX)
+"sdk/*" = { treatment = "shim" }
+"sdk/newlib/libm/*" = { treatment = "compile" }
+"sdk/newlib/libc/stdlib/rand" = { treatment = "compile" }

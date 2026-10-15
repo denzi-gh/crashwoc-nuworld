@@ -1,0 +1,9 @@
+schema = 1
+unit = "pal103:unit-0005"
+source = "src/game/fixdead.c"
+profile = "default"
+complete = false
+
+[[function]]
+id = "pal103:unit-0005:00100400:FixDeadA"
+state = "matching"

@@ -12,6 +12,23 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 tools/deny_gamedata.py
 
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Check port/units.toml against the decomp
+        run: python3 tools/gen_stubs.py --check
+      - name: Generate stubs and function map
+        run: |
+          python3 tools/gen_stubs.py --out build/gen
+          python3 tools/gen_funcmap.py --out build/gen
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+        env:
+          CC: clang
+
   linux:
     runs-on: ubuntu-22.04
     steps:

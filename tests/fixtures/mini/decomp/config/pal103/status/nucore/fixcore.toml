@@ -1,0 +1,33 @@
+schema = 1
+unit = "pal103:unit-0001"
+source = "src/nucore/fixcore.c"
+profile = "default"
+complete = false
+
+[[function]]
+id = "pal103:unit-0001:00100100:FixAdd"
+state = "matching"
+
+[[function]]
+id = "pal103:unit-0001:00100120:FixNear"
+state = "asm"
+
+[[function]]
+id = "pal103:unit-0001:00100140:FixMissing"
+state = "asm"
+
+[[function]]
+id = "pal103:unit-0001:00100160:FixLoad"
+state = "matching"
+
+[[function]]
+id = "pal103:unit-0001:00100180:FixHelper"
+state = "matching"
+
+[[function]]
+id = "pal103:unit-0001:001001a0:FixGhost"
+state = "asm"
+
+[[function]]
+id = "pal103:unit-0001:001001c0:FixOther"
+state = "asm"

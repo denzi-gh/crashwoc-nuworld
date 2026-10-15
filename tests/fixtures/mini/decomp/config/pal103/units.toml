@@ -1,0 +1,25 @@
+# Synthetic decomp registry for the NuWorld generator tests.
+
+[[unit]]
+index = 0
+name = '/usr/local/sce/ee/lib/crt0.s'
+
+[[unit]]
+index = 1
+name = '..\nu2crash.ps2\nucore\fixcore.c'
+
+[[unit]]
+index = 2
+name = '..\nu2crash.ps2\numath\fixasm.s'
+
+[[unit]]
+index = 3
+name = '.\fixgame.c'
+
+[[unit]]
+index = 4
+name = '.\fixgame.h'
+
+[[unit]]
+index = 5
+name = '.\fixdead.c'
