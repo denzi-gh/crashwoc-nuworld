@@ -1,7 +1,7 @@
 schema = 1
 
 [units]
-"nucore/fixcore" = { treatment = "compile", override = ["FixLoad"] }
+"nucore/fixcore" = { treatment = "compile", override = ["FixLoad", "FixLocal"] }
 "numath/fixasm" = { treatment = "hle" }
 "game/fixgame" = { treatment = "compile", rename = { main = "nw_game_main" } }
 "game/fixdead" = { treatment = "dead" }

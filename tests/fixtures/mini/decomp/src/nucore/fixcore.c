@@ -19,3 +19,15 @@ s32 FixLoad(const char *name)
 {
     return name[0];
 }
+
+/* No prototype in a header: callers below see the definition only. */
+s32
+FixLocal(s32 v)
+{
+    return v;
+}
+
+s32 FixCallLocal(s32 v)
+{
+    return FixLocal(v) + 1;
+}

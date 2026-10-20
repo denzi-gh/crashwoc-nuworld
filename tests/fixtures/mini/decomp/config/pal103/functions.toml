@@ -49,6 +49,18 @@ address = 0x001001c0
 unit = 1
 
 [[function]]
+index = 13
+name = 'FixLocal'
+address = 0x001001e0
+unit = 1
+
+[[function]]
+index = 14
+name = 'FixCallLocal'
+address = 0x001001f0
+unit = 1
+
+[[function]]
 index = 8
 name = 'FixAsmA'
 address = 0x00100200
