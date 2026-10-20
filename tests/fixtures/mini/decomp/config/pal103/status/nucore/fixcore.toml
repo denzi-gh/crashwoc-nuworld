@@ -31,3 +31,11 @@ state = "asm"
 [[function]]
 id = "pal103:unit-0001:001001c0:FixOther"
 state = "asm"
+
+[[function]]
+id = "pal103:unit-0001:001001e0:FixLocal"
+state = "matching"
+
+[[function]]
+id = "pal103:unit-0001:001001f0:FixCallLocal"
+state = "matching"
