@@ -1,5 +1,6 @@
-/* VFS tests: SHA-256 vectors, synthetic disc images built at run time (.iso, raw Mode 2 / Mode 1 .bin, .cue)
-   and disc verification against an injected manifest. Usage: test_vfs <scratch dir>.
+/* VFS tests: SHA-256 vectors, synthetic disc images built at run time (.iso, raw Mode 2 / Mode 1 .bin, .cue),
+   disc verification and import against an injected manifest, data folder resolution.
+   Usage: test_vfs <scratch dir>.
    NUWORLD_TEST_DISC=<image or cue> also hashes every file of a real PAL v1.03 disc against the committed manifest. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,7 +8,9 @@
 
 #include <SDL3/SDL.h>
 
+#include "platform/paths.h"
 #include "vfs/disc.h"
+#include "vfs/extract.h"
 #include "vfs/iso9660.h"
 #include "vfs/manifest.h"
 #include "vfs/sha256.h"
@@ -545,6 +548,119 @@ static void test_refused(void)
     free(img);
 }
 
+/* ---- Import and data folder ----------------------------------------------------------------------------- */
+
+static bool exists(const char *path)
+{
+    return SDL_GetPathInfo(path, NULL);
+}
+
+static bool file_is(const char *path, const void *data, size_t size)
+{
+    size_t got;
+    void *bytes = SDL_LoadFile(path, &got);
+    bool same = bytes && got == size && memcmp(bytes, data, size) == 0;
+    SDL_free(bytes);
+    return same;
+}
+
+static void test_import(void)
+{
+    TestManifest t;
+    NwDisc disc;
+    NwIso iso;
+    SDL_PathInfo info;
+    Spec spec = { pal_cnf, 0, 0, 0, false };
+    uint64_t last[2] = { 0, 0 };
+    char root[1024], path[1024];
+
+#define AT(name) (SDL_snprintf(path, sizeof(path), "%s%s", root, name), path)
+    SDL_snprintf(root, sizeof(root), "%s/data/", scratch);
+    if (!open_spec(&spec, &disc, &iso)) {
+        CHECK(!"open_spec");
+        return;
+    }
+    manifest_build(&t);
+    CHECK(nw_extract_disc(&disc, &iso, &t.m, root, progress_cb, last));
+    CHECK(last[0] == last[1] && last[1] == ELF_SIZE + GSC_SIZE + strlen(pal_cnf));
+    CHECK(file_is(AT("disc/LEVELS/B/HUB/HUB.GSC"), gsc_data, GSC_SIZE));
+    CHECK(file_is(AT("disc/SLES_503.86"), elf_data, ELF_SIZE));
+    CHECK(file_is(AT("disc/SYSTEM.CNF"), pal_cnf, strlen(pal_cnf)));
+    CHECK(SDL_GetPathInfo(AT("disc/EMPTY.BIN"), &info) && info.size == 0);
+    CHECK(!exists(AT("disc/DUMMY.DAT")));
+    CHECK(exists(AT("disc/" NW_DISC_STAMP)));
+    CHECK(!exists(AT("disc.partial")));
+    CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
+
+    /* --verify notices a changed file. */
+    SDL_SaveFile(AT("disc/LEVELS/B/HUB/HUB.GSC"), "changed", 7);
+    CHECK_FAILS(nw_extract_verify(root, &t.m, NULL, NULL), "LEVELS/B/HUB/HUB.GSC is 7 bytes, expected 4100");
+
+    /* A hash mismatch aborts the import: no disc.partial/ is left and the old disc/ is untouched. */
+    SDL_SaveFile(AT("disc/OLD.TXT"), "old", 3);
+    t.hex[2][0] = t.hex[2][0] == '0' ? '1' : '0';
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "LEVELS/B/HUB/HUB.GSC: SHA-256");
+    CHECK(!exists(AT("disc.partial")));
+    CHECK(exists(AT("disc/OLD.TXT")));
+
+    /* A good import replaces the old disc/. */
+    manifest_build(&t);
+    CHECK(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL));
+    CHECK(!exists(AT("disc/OLD.TXT")) && !exists(AT("disc.old")) && !exists(AT("disc.partial")));
+    CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
+    nw_iso_free(&iso);
+    nw_disc_close(&disc);
+
+    SDL_RemovePath(AT("disc/" NW_DISC_STAMP));
+    CHECK_FAILS(nw_extract_verify(root, &t.m, NULL, NULL), "no imported disc");
+
+    /* A refused disc creates nothing. */
+    SDL_snprintf(root, sizeof(root), "%s/data2/", scratch);
+    spec.cnf = "BOOT2 = cdrom0:\\SLES_503.86;1\r\nVER = 2.01\r\nVMODE = PAL\r\n";
+    if (open_spec(&spec, &disc, &iso)) {
+        CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "VER 2.01");
+        CHECK(!exists(AT("disc.partial")) && !exists(AT("disc")));
+        nw_iso_free(&iso);
+        nw_disc_close(&disc);
+    }
+#undef AT
+}
+
+static void test_paths(void)
+{
+    char base[1024], want[1024];
+    char *root, *saves, *dir;
+
+    SDL_snprintf(base, sizeof(base), "%s/exe/", scratch);
+    CHECK(SDL_CreateDirectory(base));
+    root = nw_paths_data_root(base, "pref/");
+    CHECK(root && strcmp(root, "pref/") == 0);
+    SDL_free(root);
+
+    /* portable.txt beside the exe: <exe dir>/user/. */
+    SDL_snprintf(want, sizeof(want), "%s" NW_PATHS_PORTABLE, base);
+    CHECK(SDL_SaveFile(want, "", 0));
+    root = nw_paths_data_root(base, "pref/");
+    SDL_snprintf(want, sizeof(want), "%suser/", base);
+    CHECK(root && strcmp(root, want) == 0);
+
+    saves = root ? nw_paths_dir(root, "saves", true) : NULL;
+    SDL_snprintf(want, sizeof(want), "%suser/saves/", base);
+    CHECK(saves && strcmp(saves, want) == 0 && exists(saves));
+    SDL_free(saves);
+    SDL_free(root);
+
+    dir = nw_paths_dir("a\\b", NULL, false);
+    CHECK(dir && strcmp(dir, "a\\b/") == 0);
+    SDL_free(dir);
+    dir = nw_paths_dir("a/", "disc", false);
+    CHECK(dir && strcmp(dir, "a/disc/") == 0);
+    SDL_free(dir);
+
+    CHECK(nw_paths_remove_tree(base) && !exists(base));
+    CHECK(nw_paths_remove_tree(base));
+}
+
 /* ---- Real disc (local only) ------------------------------------------------------------------------------ */
 
 static void real_progress(void *user, uint64_t done, uint64_t total)
@@ -590,18 +706,6 @@ static void test_real_disc(const char *path)
 
 /* ---- Main ----------------------------------------------------------------------------------------------- */
 
-static SDL_EnumerationResult SDLCALL remove_entry(void *user, const char *dir, const char *name)
-{
-    char path[1024];
-    SDL_PathInfo info;
-    (void)user;
-    SDL_snprintf(path, sizeof(path), "%s%s", dir, name);
-    if (SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_DIRECTORY) {
-        SDL_EnumerateDirectory(path, remove_entry, NULL);
-    }
-    return SDL_RemovePath(path) ? SDL_ENUM_CONTINUE : SDL_ENUM_FAILURE;
-}
-
 int main(int argc, char *argv[])
 {
     if (argc != 2) {
@@ -609,8 +713,7 @@ int main(int argc, char *argv[])
         return 2;
     }
     scratch = argv[1];
-    SDL_EnumerateDirectory(scratch, remove_entry, NULL);
-    if (!SDL_CreateDirectory(scratch)) {
+    if (!nw_paths_remove_tree(scratch) || !SDL_CreateDirectory(scratch)) {
         fprintf(stderr, "%s: %s\n", scratch, SDL_GetError());
         return 1;
     }
@@ -620,14 +723,15 @@ int main(int argc, char *argv[])
     test_formats();
     test_verify();
     test_refused();
+    test_import();
+    test_paths();
 
     const char *disc = getenv("NUWORLD_TEST_DISC");
     if (disc && *disc) {
         test_real_disc(disc);
     }
 
-    SDL_EnumerateDirectory(scratch, remove_entry, NULL);
-    SDL_RemovePath(scratch);
+    nw_paths_remove_tree(scratch);
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
