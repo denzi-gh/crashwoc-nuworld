@@ -5,7 +5,8 @@ A native PC source port of Crash Bandicoot: The Wrath of Cortex (PS2, PAL v1.03)
 
 NuWorld contains no game data. It needs your own copy of the game (PAL, SLES-50386).
 
-Status: early scaffold (window + OpenGL 3.3 context).
+Status: early. The executable opens an SDL3 / OpenGL 3.3 window and can import and verify your disc
+(see Game data); the decomp is not compiled in yet.
 
 ## Building
 
