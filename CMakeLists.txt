@@ -44,11 +44,13 @@ add_library(nuworld_port STATIC
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 
-# Disc images and the game file system.
+# Disc images, verification and the game file system.
 add_library(nuworld_vfs STATIC
   src/vfs/disc.c
   src/vfs/iso9660.c
-  src/vfs/sha256.c)
+  src/vfs/manifest.c
+  src/vfs/sha256.c
+  src/vfs/verify.c)
 target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
