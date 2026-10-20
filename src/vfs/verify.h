@@ -22,7 +22,10 @@ typedef void (*NwProgressFn)(void *user, uint64_t done, uint64_t total);
 /* SYSTEM.CNF names BOOT2 cdrom0:\SLES_503.86;1, VER 1.03, VMODE PAL; it and the boot ELF match the manifest. */
 bool nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *m);
 
-/* The disc holds exactly the manifest's files, with its sizes and hashes. */
+/* The disc holds exactly the manifest's files with its sizes (no hashing). */
+bool nw_verify_listing(const NwIso *iso, const NwManifest *m);
+
+/* nw_verify_listing, then every file's hash. */
 bool nw_verify_files(NwDisc *disc, const NwIso *iso, const NwManifest *m, unsigned flags, NwProgressFn progress,
                      void *user);
 

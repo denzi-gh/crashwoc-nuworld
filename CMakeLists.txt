@@ -49,6 +49,7 @@ target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 add_library(nuworld_vfs STATIC
   src/platform/paths.c
   src/vfs/disc.c
+  src/vfs/extract.c
   src/vfs/iso9660.c
   src/vfs/manifest.c
   src/vfs/sha256.c

@@ -189,12 +189,8 @@ static bool nw_verify_hashed(const NwManifestEntry *e, unsigned flags)
     return !(e->flags & NW_MANIFEST_SKIP) || (flags & NW_VERIFY_SKIPPED);
 }
 
-bool nw_verify_files(NwDisc *disc, const NwIso *iso, const NwManifest *m, unsigned flags, NwProgressFn fn,
-                     void *user)
+bool nw_verify_listing(const NwIso *iso, const NwManifest *m)
 {
-    NwProgress progress = { fn, user, 0, 0 };
-    uint8_t digest[NW_SHA256_SIZE];
-
     for (uint32_t i = 0; i < iso->count; i++) {
         if (!nw_manifest_find(m, iso->files[i].path)) {
             return SDL_SetError("%s is not part of PAL v" NW_DISC_VER, iso->files[i].path);
@@ -209,8 +205,22 @@ bool nw_verify_files(NwDisc *disc, const NwIso *iso, const NwManifest *m, unsign
         if (f->size != e->size) {
             return SDL_SetError("%s is %u bytes, expected %llu", e->path, f->size, (unsigned long long)e->size);
         }
-        if (nw_verify_hashed(e, flags)) {
-            progress.total += e->size;
+    }
+    return true;
+}
+
+bool nw_verify_files(NwDisc *disc, const NwIso *iso, const NwManifest *m, unsigned flags, NwProgressFn fn,
+                     void *user)
+{
+    NwProgress progress = { fn, user, 0, 0 };
+    uint8_t digest[NW_SHA256_SIZE];
+
+    if (!nw_verify_listing(iso, m)) {
+        return false;
+    }
+    for (size_t i = 0; i < m->count; i++) {
+        if (nw_verify_hashed(&m->entries[i], flags)) {
+            progress.total += m->entries[i].size;
         }
     }
 
