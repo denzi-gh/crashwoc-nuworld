@@ -11,40 +11,15 @@ from __future__ import annotations
 
 import argparse
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import nwclang  # noqa: E402
 import nwunits  # noqa: E402
 
-try:
-    from clang import cindex
-except ImportError:
-    cindex = None
+cindex = nwclang.cindex
 
 SUFFIX = "__ps2"
-
-# Just enough libc for the NW_HOST view of the decomp headers: deterministic on
-# every host, no system headers needed. Bodies may still have errors; only
-# the positions of definitions matter here.
-SYSROOT = {
-    "stddef.h": "typedef __SIZE_TYPE__ size_t;\ntypedef __PTRDIFF_TYPE__ ptrdiff_t;\n"
-                "#define NULL ((void *)0)\n#define offsetof(t, m) __builtin_offsetof(t, m)\n",
-    "stdint.h": "".join(f"typedef __{p}INT{n}_TYPE__ {p.lower()}int{n}_t;\n"
-                        for p in ("", "U") for n in (8, 16, 32, 64))
-                + "typedef __INTPTR_TYPE__ intptr_t;\ntypedef __UINTPTR_TYPE__ uintptr_t;\n",
-    "stdarg.h": "typedef __builtin_va_list va_list;\n"
-                "#define va_start(ap, last) __builtin_va_start(ap, last)\n"
-                "#define va_arg(ap, t) __builtin_va_arg(ap, t)\n"
-                "#define va_end(ap) __builtin_va_end(ap)\n",
-    "stdio.h": "#include <stddef.h>\ntypedef struct nw_file FILE;\n",
-    "stdlib.h": "#include <stddef.h>\n",
-    "string.h": "#include <stddef.h>\n",
-    "strings.h": "#include <stddef.h>\n",
-    "math.h": "",
-}
-PARSE_FLAGS = ["-x", "c", "-std=gnu11", "-fgnu89-inline", "-fsigned-char",
-               "--target=x86_64-linux-gnu", "-nostdinc", "-DNW_HOST", "-ferror-limit=0", "-w"]
 INLINE_WORDS = frozenset(("inline", "__inline", "__inline__"))
 
 
@@ -53,26 +28,24 @@ class FilterError(Exception):
 
 
 class Parser:
-    """libclang over the decomp's include/ with the stand-in libc headers."""
+    """The host view of each unit; bodies may have errors, only the positions
+    of definitions matter here."""
 
     def __init__(self, decomp: Path):
-        if cindex is None:
-            raise FilterError("libclang is missing: python -m pip install -r tools/requirements.txt")
-        self._tmp = tempfile.TemporaryDirectory(prefix="nw_tu_filter_")
-        for name, text in SYSROOT.items():
-            (Path(self._tmp.name) / name).write_text(text)
-        self.args = PARSE_FLAGS + ["-isystem", self._tmp.name, "-I", str(decomp / "include")]
-        self.index = cindex.Index.create()
+        try:
+            self.clang = nwclang.Clang(decomp, "host")
+        except nwclang.ClangError as e:
+            raise FilterError(str(e)) from None
 
     def close(self) -> None:
-        self._tmp.cleanup()
+        self.clang.close()
 
     def definitions(self, path: Path) -> dict:
         """Top-level function definitions in the file itself, by name."""
-        tu = self.index.parse(str(path), args=self.args)
-        fatal = [d for d in tu.diagnostics if d.severity >= cindex.Diagnostic.Fatal]
-        if fatal:
-            raise FilterError(f"{path}: {fatal[0]}")
+        try:
+            tu = self.clang.parse(path)
+        except nwclang.ClangError as e:
+            raise FilterError(str(e)) from None
         main = Path(tu.spelling).resolve()
         out = {}
         for c in tu.cursor.get_children():
