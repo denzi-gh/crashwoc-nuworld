@@ -45,8 +45,9 @@ add_library(nuworld_port STATIC
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 
-# Disc images, verification and the game file system.
+# Disc images, the data folder and the game file system.
 add_library(nuworld_vfs STATIC
+  src/platform/paths.c
   src/vfs/disc.c
   src/vfs/iso9660.c
   src/vfs/manifest.c
