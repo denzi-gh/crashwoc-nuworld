@@ -1,5 +1,6 @@
 #include "platform/platform.h"
 
+#include "app.h"
 #include "gfx/gl.h"
 
 static void nw_platform_fail(const char *what)
@@ -7,7 +8,7 @@ static void nw_platform_fail(const char *what)
     char msg[512];
     SDL_snprintf(msg, sizeof(msg), "%s:\n%s", what, SDL_GetError());
     SDL_Log("%s", msg);
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NuWorld", msg, NULL);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, NW_APP_NAME, msg, NULL);
 }
 
 bool nw_platform_init(NwPlatform *p, const char *title, int width, int height)

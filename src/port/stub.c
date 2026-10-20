@@ -1,4 +1,5 @@
 #include "port/stub.h"
+#include "app.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -20,11 +21,11 @@ void nw_stub_hit(NwStubSite *site)
     if (site->hits++ == 0) {
         site->next = nw_stub_hits;
         nw_stub_hits = site;
-        fprintf(stderr, "NuWorld: stub hit: %s (%s, 0x%08x) has no C yet\n",
+        fprintf(stderr, NW_APP_NAME ": stub hit: %s (%s, 0x%08x) has no C yet\n",
                 site->name, site->unit, (unsigned)site->address);
     }
     if (!nw_stub_continue()) {
-        fprintf(stderr, "NuWorld: aborting; set NUWORLD_STUBS=continue to log stub hits and go on\n");
+        fprintf(stderr, NW_APP_NAME ": aborting; set NUWORLD_STUBS=continue to log stub hits and go on\n");
         fflush(stderr);
         abort();
     }

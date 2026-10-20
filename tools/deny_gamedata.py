@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail if any tracked file looks like data from the game disc.
 
-NuWorld never ships game content; everything comes from the user's own disc
+CrashWOC: NuWorld never ships game content; everything comes from the user's own disc
 at runtime. This check runs in CI on every push and pull request.
 """
 import os

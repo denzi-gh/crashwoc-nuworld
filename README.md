@@ -1,9 +1,9 @@
-# NuWorld
+# CrashWOC: NuWorld
 
 A native PC source port of Crash Bandicoot: The Wrath of Cortex (PS2, PAL v1.03), built on the
 [crashwoc-decomp-ps2](https://github.com/denzi-gh/crashwoc-decomp-ps2) decompilation (`decomp/` submodule).
 
-NuWorld contains no game data. It needs your own copy of the game (PAL, SLES-50386).
+CrashWOC: NuWorld contains no game data. It needs your own copy of the game (PAL, SLES-50386).
 
 Status: early. The executable opens an SDL3 / OpenGL 3.3 window and can import and verify your disc
 (see Game data); the decomp is not compiled in yet.
@@ -13,7 +13,8 @@ Status: early. The executable opens an SDL3 / OpenGL 3.3 window and can import a
 Clone with the submodule:
 
 ```sh
-git clone --recursive https://github.com/denzi-gh/nuworld.git
+git clone --recursive https://github.com/denzi-gh/crashwoc-nuworld.git
+cd crashwoc-nuworld
 ```
 
 Requirements: Clang, CMake 3.25+, Ninja. SDL3 is downloaded and built automatically
@@ -25,20 +26,23 @@ Requirements: Clang, CMake 3.25+, Ninja. SDL3 is downloaded and built automatica
 ```sh
 cmake --preset release
 cmake --build --preset release
-./build/release/nuworld
+./build/release/crashwoc-nuworld
 ctest --test-dir build/release
 ```
+
+On Windows, the executable is `build/release/crashwoc-nuworld.exe`.
 
 ## Game data
 
 Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):
 
 ```sh
-./build/release/nuworld --import "Crash Bandicoot - The Wrath of Cortex (Europe).cue"
+./build/release/crashwoc-nuworld --import "Crash Bandicoot - The Wrath of Cortex (Europe).cue"
 ```
 
-Every file is checked against a SHA-256 manifest and copied to the data folder: `%APPDATA%\NuWorld\` on Windows,
-`~/.local/share/NuWorld/` on Linux, or `user/` beside the executable when a `portable.txt` is there.
+Every file is checked against a SHA-256 manifest and copied to the data folder: `%APPDATA%\crashwoc-nuworld\` on Windows,
+`~/.local/share/crashwoc-nuworld/` on Linux (or `$XDG_DATA_HOME/crashwoc-nuworld/` when set),
+or `user/` beside the executable when a `portable.txt` is there.
 `--verify` re-checks the imported files; `--data-dir <dir>` uses another folder.
 
 ## License

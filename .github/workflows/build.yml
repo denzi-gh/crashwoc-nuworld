@@ -78,11 +78,21 @@ jobs:
       - run: cmake --preset release
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
-      - run: ./build/release/nuworld --version
+      - run: |
+          test "$(./build/release/crashwoc-nuworld --version)" = "CrashWOC: NuWorld 0.1.0"
+      - name: Check default data folder
+        run: |
+          data_home="$(mktemp -d)"
+          status=0
+          XDG_DATA_HOME="$data_home" ./build/release/crashwoc-nuworld --verify > "$data_home/verify.log" 2>&1 || status=$?
+          test "$status" = 1
+          test -d "$data_home/crashwoc-nuworld"
+          test ! -e "$data_home/NuWorld"
+          grep -F "$data_home/crashwoc-nuworld/disc/" "$data_home/verify.log"
       - uses: actions/upload-artifact@v4
         with:
-          name: nuworld-linux-x86_64
-          path: build/release/nuworld
+          name: crashwoc-nuworld-linux-x86_64
+          path: build/release/crashwoc-nuworld
 
   windows:
     runs-on: windows-latest
@@ -105,8 +115,9 @@ jobs:
       - run: cmake --preset release
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
-      - run: ./build/release/nuworld.exe --version
+      - run: |
+          test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.1.0"
       - uses: actions/upload-artifact@v4
         with:
-          name: nuworld-windows-x64
-          path: build/release/nuworld.exe
+          name: crashwoc-nuworld-windows-x64
+          path: build/release/crashwoc-nuworld.exe
