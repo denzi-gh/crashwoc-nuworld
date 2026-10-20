@@ -18,10 +18,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install libclang
+        run: python3 -m pip install -r tools/requirements.txt
       - name: Check port/units.toml against the decomp
         run: python3 tools/gen_stubs.py --check
-      - name: Generate stubs and function map
+      - name: Generate wrappers, stubs and function map
         run: |
+          python3 tools/tu_filter.py --out build/gen
           python3 tools/gen_stubs.py --out build/gen
           python3 tools/gen_funcmap.py --out build/gen
       - name: Unit tests
