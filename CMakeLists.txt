@@ -48,6 +48,7 @@ target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 # Disc images, the data folder and the game file system.
 add_library(nuworld_vfs STATIC
   src/platform/paths.c
+  src/vfs/dat.c
   src/vfs/disc.c
   src/vfs/extract.c
   src/vfs/iso9660.c
