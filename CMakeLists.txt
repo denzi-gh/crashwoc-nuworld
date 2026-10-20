@@ -36,7 +36,7 @@ add_executable(nuworld
 target_include_directories(nuworld PRIVATE src)
 target_compile_definitions(nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
 target_compile_options(nuworld PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld PRIVATE SDL3::SDL3)
+target_link_libraries(nuworld PRIVATE nuworld_vfs SDL3::SDL3)
 
 # Runtime for the generated stubs and function map; linked into nuworld in M1.
 add_library(nuworld_port STATIC

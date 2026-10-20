@@ -6,20 +6,120 @@
 #include <SDL3/SDL_main.h>
 
 #include "gfx/gl.h"
+#include "platform/paths.h"
 #include "platform/platform.h"
+#include "vfs/extract.h"
+
+static void nw_print_progress(void *user, uint64_t done, uint64_t total)
+{
+    int *percent = user;
+    int now = total ? (int)(done * 100 / total) : 100;
+    if (now != *percent) {
+        *percent = now;
+        printf("\r  %3d%%  %llu / %llu MB", now, (unsigned long long)(done >> 20), (unsigned long long)(total >> 20));
+        fflush(stdout);
+    }
+}
+
+/* --data-dir, else <exe dir>/user/ in portable mode, else the pref path. */
+static char *nw_data_root(const char *data_dir)
+{
+    char *root = data_dir ? nw_paths_dir(data_dir, NULL, true) : nw_paths_data_root(SDL_GetBasePath(), NULL);
+    if (!root) {
+        fprintf(stderr, "NuWorld: no data folder: %s\n", SDL_GetError());
+    }
+    return root;
+}
+
+/* Headless disc import; returns the exit code. */
+static int nw_import(const char *image, const char *data_dir)
+{
+    NwDisc disc;
+    NwIso iso;
+    int percent = -1;
+    char *root = nw_data_root(data_dir);
+    if (!root) {
+        return 1;
+    }
+
+    printf("Importing %s\n", image);
+    bool ok = nw_disc_open(&disc, image);
+    if (ok) {
+        ok = nw_iso_index(&iso, &disc);
+        if (ok) {
+            printf("  %s, %u sectors, %u files\n", nw_disc_format_name(disc.format), disc.sectors, iso.count);
+            ok = nw_extract_disc(&disc, &iso, &nw_disc_manifest, root, nw_print_progress, &percent);
+            if (percent >= 0) {
+                printf("\n");
+            }
+            nw_iso_free(&iso);
+        }
+        nw_disc_close(&disc);
+    }
+    if (ok) {
+        printf("Imported into %s" NW_DISC_DIR "/\n", root);
+    } else {
+        fflush(stdout);
+        fprintf(stderr, "NuWorld: import failed: %s\n", SDL_GetError());
+    }
+    SDL_free(root);
+    return ok ? 0 : 1;
+}
+
+/* Re-hashes the imported disc; returns the exit code. */
+static int nw_verify(const char *data_dir)
+{
+    int percent = -1;
+    char *root = nw_data_root(data_dir);
+    if (!root) {
+        return 1;
+    }
+
+    printf("Verifying %s" NW_DISC_DIR "/\n", root);
+    bool ok = nw_extract_verify(root, &nw_disc_manifest, nw_print_progress, &percent);
+    if (percent >= 0) {
+        printf("\n");
+    }
+    if (ok) {
+        printf("All files match PAL v" NW_DISC_VER "\n");
+    } else {
+        fflush(stdout);
+        fprintf(stderr, "NuWorld: verify failed: %s\n", SDL_GetError());
+    }
+    SDL_free(root);
+    return ok ? 0 : 1;
+}
 
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
+    const char *import = NULL, *data_dir = NULL;
+    bool verify = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
             printf("NuWorld %s\n", NUWORLD_VERSION);
             return 0;
         }
+        if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0) && i + 1 >= argc) {
+            fprintf(stderr, "NuWorld: %s needs a value\n", argv[i]);
+            return 2;
+        }
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--import") == 0) {
+            import = argv[++i];
+        } else if (strcmp(argv[i], "--data-dir") == 0) {
+            data_dir = argv[++i];
+        } else if (strcmp(argv[i], "--verify") == 0) {
+            verify = true;
         }
+    }
+    if (import) {
+        return nw_import(import, data_dir);
+    }
+    if (verify) {
+        return nw_verify(data_dir);
     }
 
     NwPlatform platform;
