@@ -1,7 +1,10 @@
 /* VFS tests: SHA-256 vectors, synthetic disc images built at run time (.iso, raw Mode 2 / Mode 1 .bin, .cue),
-   disc verification and import against an injected manifest, data folder resolution.
-   Usage: test_vfs <scratch dir>.
-   NUWORLD_TEST_DISC=<image or cue> also hashes every file of a real PAL v1.03 disc against the committed manifest. */
+   disc verification and import against an injected manifest, data folder resolution, game path mapping and a
+   synthetic .DAT archive. Usage: test_vfs <scratch dir>.
+   Local only, with your own disc:
+   NUWORLD_TEST_DISC=<image or cue> hashes every file of a real PAL v1.03 disc against the committed manifest;
+   NUWORLD_TEST_DATA=<extracted disc dir> checks ATS.DAT, CHARS.DAT and SFX.DAT, and NUWORLD_TEST_DAT_LIST=<file>
+   writes their listings (archive, index, path, offset, size, unpacked size, flags). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,12 +12,14 @@
 #include <SDL3/SDL.h>
 
 #include "platform/paths.h"
+#include "vfs/dat.h"
 #include "vfs/disc.h"
 #include "vfs/extract.h"
 #include "vfs/iso9660.h"
 #include "vfs/manifest.h"
 #include "vfs/sha256.h"
 #include "vfs/verify.h"
+#include "vfs/vfs.h"
 
 static int failures;
 static const char *scratch;
@@ -668,6 +673,275 @@ static void test_paths(void)
     CHECK(nw_paths_remove_tree(base));
 }
 
+/* ---- Game paths --------------------------------------------------------------------------------------- */
+
+static bool maps_to(const char *game_path, NwVfsDevice device, const char *want)
+{
+    NwVfsDevice got;
+    char out[NW_VFS_PATH_MAX];
+    return nw_vfs_map(game_path, &got, out) && got == device && strcmp(out, want) == 0;
+}
+
+static void test_map(void)
+{
+    NwVfsDevice device;
+    char out[NW_VFS_PATH_MAX];
+
+    /* NuFileOpen builds "cdrom0:\" + upper(path) + ";1" and "host0:" + upper(path). */
+    CHECK(maps_to("cdrom0:\\LEVELS\\B\\HUB\\HUB.GSC;1", NW_VFS_CDROM, "LEVELS/B/HUB/HUB.GSC"));
+    CHECK(maps_to("cdrom0:\\levels\\b\\hub\\hub.gsc;1", NW_VFS_CDROM, "LEVELS/B/HUB/HUB.GSC"));
+    CHECK(maps_to("CDROM0:\\SYS\\IOPRP23.IMG;1", NW_VFS_CDROM, "SYS/IOPRP23.IMG"));
+    CHECK(maps_to("host0:LEVELS\\B\\HUB\\HUB.GSC", NW_VFS_HOST, "LEVELS/B/HUB/HUB.GSC"));
+    CHECK(maps_to("host0:saves\\slot;0.bin", NW_VFS_HOST, "SAVES/SLOT;0.BIN"));
+    CHECK(maps_to("levels\\b\\hub\\hub.gsc", NW_VFS_CDROM, "LEVELS/B/HUB/HUB.GSC"));
+    CHECK(maps_to("cdrom0:\\\\STUFF//FONT.GSC;1", NW_VFS_CDROM, "STUFF/FONT.GSC"));
+    CHECK_FAILS(nw_vfs_map("mc0:/BESLES-50386/slot", &device, out), "unknown device");
+    CHECK_FAILS(nw_vfs_map("host0:..\\..\\secret", &device, out), "bad path component");
+    CHECK_FAILS(nw_vfs_map("cdrom0:\\;1", &device, out), "bad path component");
+    CHECK_FAILS(nw_vfs_map("cdrom0:\\", &device, out), "no file name");
+}
+
+static void test_vfs(void)
+{
+    char root[1024], path[1024], buf[16];
+    NwVfs vfs;
+    NwVfsFile *f;
+
+#define AT(name) (SDL_snprintf(path, sizeof(path), "%s%s", root, name), path)
+    SDL_snprintf(root, sizeof(root), "%s/vfs/", scratch);
+    CHECK_FAILS(nw_vfs_init(&vfs, root), "no imported disc");
+    CHECK(SDL_CreateDirectory(AT("disc/LEVELS/B/HUB")) && SDL_CreateDirectory(AT("disc/Stuff")));
+    CHECK(SDL_SaveFile(AT("disc/LEVELS/B/HUB/HUB.GSC"), "disc hub", 8));
+    CHECK(SDL_SaveFile(AT("disc/Stuff/Font.Gsc"), "font", 4));
+    CHECK(SDL_SaveFile(AT("disc/" NW_DISC_STAMP), "", 0));
+    if (!nw_vfs_init(&vfs, root)) {
+        CHECK(!"nw_vfs_init");
+        return;
+    }
+    CHECK(vfs.mounts[NW_VFS_DISC].count == 2);
+    CHECK(vfs.mounts[NW_VFS_OVERLAY].count == 0 && !vfs.mounts[NW_VFS_OVERLAY].root);
+
+    /* Case-insensitive lookups; open, read, seek, size, close. */
+    f = nw_vfs_open(&vfs, "cdrom0:\\STUFF\\FONT.GSC;1", NW_VFS_READ);
+    CHECK(f && nw_vfs_size(f) == 4 && nw_vfs_read(f, buf, sizeof(buf)) == 4 && memcmp(buf, "font", 4) == 0);
+    CHECK(f && nw_vfs_seek(f, 1, 0) == 1 && nw_vfs_read(f, buf, 2) == 2 && memcmp(buf, "on", 2) == 0);
+    CHECK(f && nw_vfs_seek(f, -1, 2) == 3 && nw_vfs_seek(f, -1, 1) == 2);
+    nw_vfs_close(f);
+    CHECK(!nw_vfs_open(&vfs, "cdrom0:\\STUFF\\NOPE.GSC;1", NW_VFS_READ) && SDL_strstr(SDL_GetError(), "not found"));
+    CHECK(!nw_vfs_open(&vfs, "cdrom0:\\STUFF\\FONT.GSC;1", NW_VFS_WRITE) &&
+          SDL_strstr(SDL_GetError(), "read-only"));
+    CHECK(!nw_vfs_open(&vfs, "cdrom0:\\.NUWORLD-DISC;1", NW_VFS_READ));
+
+    /* The overlay slot comes first. */
+    CHECK(SDL_CreateDirectory(AT("mod/levels/b/hub")));
+    CHECK(SDL_SaveFile(AT("mod/levels/b/hub/hub.gsc"), "mod hub", 7));
+    CHECK(nw_vfs_mount(&vfs, NW_VFS_OVERLAY, AT("mod")));
+    f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\B\\HUB\\HUB.GSC;1", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 7 && memcmp(buf, "mod hub", 7) == 0);
+    nw_vfs_close(f);
+    CHECK(nw_vfs_mount(&vfs, NW_VFS_OVERLAY, NULL));
+    f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\B\\HUB\\HUB.GSC;1", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 8 && memcmp(buf, "disc hub", 8) == 0);
+    nw_vfs_close(f);
+    CHECK_FAILS(nw_vfs_mount(&vfs, NW_VFS_OVERLAY, AT("missing")), "not a folder");
+
+    /* host0: is writable and uppercased like NuFileOpen. */
+    f = nw_vfs_open(&vfs, "host0:SAVES\\SLOT0.BIN", NW_VFS_WRITE);
+    CHECK(f && nw_vfs_write(f, "abc", 3) == 3);
+    nw_vfs_close(f);
+    f = nw_vfs_open(&vfs, "host0:saves\\slot0.bin", NW_VFS_APPEND);
+    CHECK(f && nw_vfs_write(f, "de", 2) == 2);
+    nw_vfs_close(f);
+    CHECK(file_is(AT("host0/SAVES/SLOT0.BIN"), "abcde", 5));
+    nw_vfs_shutdown(&vfs);
+#undef AT
+}
+
+/* ---- .DAT archives -------------------------------------------------------------------------------------- */
+
+typedef struct DatBuild {
+    uint8_t data[1024];
+    size_t size;
+    size_t dir_offset;
+    size_t dir_size;
+} DatBuild;
+
+static const char *const dat_payload[4] = { "top!", "RNC packed", "deep data", "why" };
+
+static void put_le32(uint8_t *p, uint32_t v)
+{
+    for (int i = 0; i < 4; i++) {
+        p[i] = (uint8_t)(v >> (8 * i));
+    }
+}
+
+/* Archive "arc": top.bin, a\x.bin (packed), a\Y.BIN, b\deep.bin. Node 2's sibling links back to the root,
+   as on the disc. */
+static void build_dat(DatBuild *d)
+{
+    static const struct {
+        int16_t child, sibling;
+        const char *name;
+    } nodes[] = {
+        { 0, 0, "" },          /* 0 */
+        { 4, 0, "arc" },       /* 1: root */
+        { 5, 1, "b" },         /* 2 */
+        { 0, 2, "top.bin" },   /* 3: file 0 */
+        { 6, 3, "a" },         /* 4 */
+        { -2, 0, "deep.bin" }, /* 5: file 2 */
+        { -1, 7, "x.bin" },    /* 6: file 1 */
+        { -3, 0, "Y.BIN" },    /* 7: file 3 */
+    };
+    uint32_t offsets[4];
+    size_t at = 8;
+
+    memset(d, 0, sizeof(*d));
+    for (int i = 0; i < 4; i++) {
+        offsets[i] = (uint32_t)at;
+        memcpy(d->data + at, dat_payload[i], strlen(dat_payload[i]));
+        at += strlen(dat_payload[i]);
+    }
+    d->dir_offset = at;
+    put_le32(d->data + at, 0xffffffffu);
+    put_le32(d->data + at + 4, 4);
+    at += 8;
+    for (int i = 0; i < 4; i++) {
+        uint32_t size = (uint32_t)strlen(dat_payload[i]);
+        put_le32(d->data + at, offsets[i]);
+        put_le32(d->data + at + 4, size);
+        put_le32(d->data + at + 8, i == 1 ? 100 : size);
+        put_le32(d->data + at + 12, i == 1 ? NW_DAT_PACKED : 0);
+        at += 16;
+    }
+    put_le32(d->data + at, SDL_arraysize(nodes));
+    at += 4;
+    size_t names_at = at + SDL_arraysize(nodes) * 8 + 4, name = 0;
+    for (size_t i = 0; i < SDL_arraysize(nodes); i++) {
+        d->data[at] = (uint8_t)nodes[i].child;
+        d->data[at + 1] = (uint8_t)((uint16_t)nodes[i].child >> 8);
+        d->data[at + 2] = (uint8_t)nodes[i].sibling;
+        d->data[at + 3] = (uint8_t)((uint16_t)nodes[i].sibling >> 8);
+        put_le32(d->data + at + 4, (uint32_t)name);
+        memcpy(d->data + names_at + name, nodes[i].name, strlen(nodes[i].name) + 1);
+        name += strlen(nodes[i].name) + 1;
+        at += 8;
+    }
+    put_le32(d->data + at, (uint32_t)name);
+    d->size = names_at + name;
+    d->dir_size = d->size - d->dir_offset;
+    put_le32(d->data, (uint32_t)d->dir_offset);
+    put_le32(d->data + 4, (uint32_t)d->dir_size);
+}
+
+typedef struct DatListing {
+    const NwDat *dat;
+    char paths[8][64];
+    int listed;
+    int roundtrip_failures;
+    uint32_t packed;
+    FILE *out;
+    const char *archive;
+} DatListing;
+
+static void dat_listed(void *user, int index, const char *path)
+{
+    DatListing *l = user;
+    const NwDatEntry *e = &l->dat->entries[index];
+    if (index < 8) {
+        SDL_strlcpy(l->paths[index], path, sizeof(l->paths[index]));
+    }
+    l->listed++;
+    l->packed += (e->flags & NW_DAT_PACKED) != 0;
+    if (nw_dat_find(l->dat, path) != index) {
+        l->roundtrip_failures++;
+    }
+    if (l->out) {
+        fprintf(l->out, "%s %d %s %u %u %u %u\n", l->archive, index, path, e->offset, e->size, e->unpacked_size,
+                e->flags);
+    }
+}
+
+static bool dat_parse_patched(const DatBuild *d, size_t at, uint32_t value)
+{
+    uint8_t dir[1024];
+    NwDat dat = { 0 };
+    memcpy(dir, d->data + d->dir_offset, d->dir_size);
+    put_le32(dir + at, value);
+    bool ok = nw_dat_parse(&dat, dir, d->dir_size, d->size);
+    nw_dat_close(&dat);
+    return ok;
+}
+
+static void test_dat(void)
+{
+    DatBuild d;
+    NwDat dat = { 0 };
+    DatListing listing = { 0 };
+
+    build_dat(&d);
+    if (!nw_dat_parse(&dat, d.data + d.dir_offset, d.dir_size, d.size)) {
+        CHECK(!"nw_dat_parse");
+        return;
+    }
+    CHECK(dat.count == 4 && dat.node_count == 8);
+    CHECK(nw_dat_find(&dat, "arc\\top.bin") == 0);
+    CHECK(nw_dat_find(&dat, "arc\\a\\x.bin") == 1);
+    CHECK(nw_dat_find(&dat, "ARC\\A\\X.BIN") == 1);
+    CHECK(nw_dat_find(&dat, "arc\\a\\y.bin") == 3);
+    CHECK(nw_dat_find(&dat, "arc\\b\\deep.bin") == 2);
+    CHECK(nw_dat_find(&dat, "arc\\a") == -1);            /* a directory */
+    CHECK(nw_dat_find(&dat, "arc\\missing.bin") == -1);  /* runs into the back link */
+    CHECK(nw_dat_find(&dat, "arc\\top.bin\\x") == -1);   /* a file mid-path */
+    CHECK(nw_dat_find(&dat, "arc/a/x.bin") == -1);       /* '\' only, like the engine */
+    CHECK(nw_dat_find(&dat, "other\\top.bin") == -1);
+    CHECK((dat.entries[1].flags & NW_DAT_PACKED) && dat.entries[1].unpacked_size == 100);
+    CHECK(!(dat.entries[0].flags & NW_DAT_PACKED) && dat.entries[0].unpacked_size == 4);
+
+    listing.dat = &dat;
+    CHECK(nw_dat_list(&dat, dat_listed, &listing));
+    CHECK(listing.listed == 4 && listing.roundtrip_failures == 0 && listing.packed == 1);
+    CHECK(strcmp(listing.paths[0], "arc\\top.bin") == 0 && strcmp(listing.paths[1], "arc\\a\\x.bin") == 0);
+    CHECK(strcmp(listing.paths[2], "arc\\b\\deep.bin") == 0 && strcmp(listing.paths[3], "arc\\a\\Y.BIN") == 0);
+    nw_dat_close(&dat);
+
+    /* Bounds checks. */
+    size_t nodes_at = 8 + 4 * 16 + 4;
+    CHECK(!dat_parse_patched(&d, 0, 0x12345678) && SDL_strstr(SDL_GetError(), "magic"));
+    CHECK(!dat_parse_patched(&d, 8 + 16, 2000) && SDL_strstr(SDL_GetError(), "outside the archive"));
+    CHECK(!dat_parse_patched(&d, nodes_at + 6 * 8, 0xfff7) && SDL_strstr(SDL_GetError(), "links out of range"));
+    CHECK(!dat_parse_patched(&d, nodes_at + 6 * 8 + 4, 999) && SDL_strstr(SDL_GetError(), "name out of range"));
+    CHECK(!dat_parse_patched(&d, nodes_at + 8 * 8, 1000) && SDL_strstr(SDL_GetError(), "names are"));
+    CHECK(!dat_parse_patched(&d, 4, 1000) && SDL_strstr(SDL_GetError(), "file table"));
+
+    /* Through the VFS. */
+    char root[1024], path[1024];
+    NwVfs vfs;
+    SDL_snprintf(root, sizeof(root), "%s/datvfs/", scratch);
+    SDL_snprintf(path, sizeof(path), "%sdisc", root);
+    CHECK(SDL_CreateDirectory(path));
+    SDL_snprintf(path, sizeof(path), "%sdisc/" NW_DISC_STAMP, root);
+    CHECK(SDL_SaveFile(path, "", 0));
+    SDL_snprintf(path, sizeof(path), "%sdisc/TEST.DAT", root);
+    CHECK(SDL_SaveFile(path, d.data, d.size));
+    put_le32(d.data, 5000);
+    SDL_snprintf(path, sizeof(path), "%sdisc/BAD.DAT", root);
+    CHECK(SDL_SaveFile(path, d.data, d.size));
+    if (nw_vfs_init(&vfs, root)) {
+        CHECK(nw_dat_open(&dat, &vfs, "cdrom0:\\test.dat;1"));
+        int ix = nw_dat_find(&dat, "arc\\a\\x.bin");
+        void *bytes = nw_dat_load(&dat, ix);
+        CHECK(bytes && memcmp(bytes, dat_payload[1], strlen(dat_payload[1])) == 0);
+        SDL_free(bytes);
+        CHECK(!nw_dat_load(&dat, 4));
+        nw_dat_close(&dat);
+        CHECK_FAILS(nw_dat_open(&dat, &vfs, "cdrom0:\\BAD.DAT;1"), "runs past the file");
+        CHECK_FAILS(nw_dat_open(&dat, &vfs, "cdrom0:\\DUMMY.DAT;1"), "not an archive");
+        nw_vfs_shutdown(&vfs);
+    } else {
+        CHECK(!"nw_vfs_init");
+    }
+}
+
 /* ---- Real disc (local only) ------------------------------------------------------------------------------ */
 
 static void real_progress(void *user, uint64_t done, uint64_t total)
@@ -711,6 +985,51 @@ static void test_real_disc(const char *path)
     nw_disc_close(&disc);
 }
 
+static void test_real_dats(const char *dir)
+{
+    static const struct {
+        const char *name;
+        const char *path;
+        int count;
+        uint32_t packed;
+    } dats[] = {
+        { "ATS.DAT", "cdrom0:\\ATS.DAT;1", 34, 0 },
+        { "CHARS.DAT", "cdrom0:\\CHARS.DAT;1", 1076, 1066 },
+        { "SFX.DAT", "cdrom0:\\SFX.DAT;1", 782, 0 },
+    };
+    const char *list = getenv("NUWORLD_TEST_DAT_LIST");
+    FILE *out = list && *list ? fopen(list, "w") : NULL;
+    NwVfs vfs;
+
+    SDL_zero(vfs);
+    if (!nw_vfs_mount(&vfs, NW_VFS_DISC, dir)) {
+        fprintf(stderr, "NUWORLD_TEST_DATA: %s\n", SDL_GetError());
+        failures++;
+        return;
+    }
+    for (size_t i = 0; i < SDL_arraysize(dats); i++) {
+        NwDat dat;
+        DatListing listing = { 0 };
+        if (!nw_dat_open(&dat, &vfs, dats[i].path)) {
+            fprintf(stderr, "NUWORLD_TEST_DATA: %s\n", SDL_GetError());
+            failures++;
+            continue;
+        }
+        listing.dat = &dat;
+        listing.out = out;
+        listing.archive = dats[i].name;
+        CHECK(nw_dat_list(&dat, dat_listed, &listing));
+        CHECK(listing.listed == dats[i].count && (int)dat.count == dats[i].count);
+        CHECK(listing.packed == dats[i].packed && listing.roundtrip_failures == 0);
+        printf("%s: %d entries, %u packed\n", dats[i].name, listing.listed, listing.packed);
+        nw_dat_close(&dat);
+    }
+    if (out) {
+        fclose(out);
+    }
+    nw_vfs_shutdown(&vfs);
+}
+
 /* ---- Main ----------------------------------------------------------------------------------------------- */
 
 int main(int argc, char *argv[])
@@ -732,10 +1051,17 @@ int main(int argc, char *argv[])
     test_refused();
     test_import();
     test_paths();
+    test_map();
+    test_vfs();
+    test_dat();
 
     const char *disc = getenv("NUWORLD_TEST_DISC");
     if (disc && *disc) {
         test_real_disc(disc);
+    }
+    const char *data = getenv("NUWORLD_TEST_DATA");
+    if (data && *data) {
+        test_real_dats(data);
     }
 
     nw_paths_remove_tree(scratch);
