@@ -30,10 +30,36 @@ jobs:
           python3 tools/tu_filter.py --out build/gen
           python3 tools/gen_stubs.py --out build/gen
           python3 tools/gen_funcmap.py --out build/gen
+      - name: Type DB
+        run: python3 tools/typedb.py --out build/gen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typedb
+          path: build/gen/typedb.json
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
         env:
           CC: clang
+
+  typedb-probe:
+    needs: tools
+    runs-on: ubuntu-latest
+    container: ghcr.io/denzi-gh/crashwoc-decomp:latest
+    env:
+      NUWORLD_PROBE_DIRECT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: typedb
+          path: build/gen
+      - name: Install the decomp toolchain
+        working-directory: decomp
+        run: python3 tools/setup_toolchain.py --download
+      - name: Check the type DB against the PS2 compiler
+        run: python3 tools/typedb_probe.py
 
   linux:
     runs-on: ubuntu-22.04
