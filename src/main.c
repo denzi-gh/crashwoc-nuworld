@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include "app.h"
 #include "gfx/gl.h"
 #include "platform/paths.h"
 #include "platform/platform.h"
@@ -26,7 +27,7 @@ static char *nw_data_root(const char *data_dir)
 {
     char *root = data_dir ? nw_paths_dir(data_dir, NULL, true) : nw_paths_data_root(SDL_GetBasePath(), NULL);
     if (!root) {
-        fprintf(stderr, "NuWorld: no data folder: %s\n", SDL_GetError());
+        fprintf(stderr, NW_APP_NAME ": no data folder: %s\n", SDL_GetError());
     }
     return root;
 }
@@ -60,7 +61,7 @@ static int nw_import(const char *image, const char *data_dir)
         printf("Imported into %s" NW_DISC_DIR "/\n", root);
     } else {
         fflush(stdout);
-        fprintf(stderr, "NuWorld: import failed: %s\n", SDL_GetError());
+        fprintf(stderr, NW_APP_NAME ": import failed: %s\n", SDL_GetError());
     }
     SDL_free(root);
     return ok ? 0 : 1;
@@ -84,7 +85,7 @@ static int nw_verify(const char *data_dir)
         printf("All files match PAL v" NW_DISC_VER "\n");
     } else {
         fflush(stdout);
-        fprintf(stderr, "NuWorld: verify failed: %s\n", SDL_GetError());
+        fprintf(stderr, NW_APP_NAME ": verify failed: %s\n", SDL_GetError());
     }
     SDL_free(root);
     return ok ? 0 : 1;
@@ -98,11 +99,11 @@ int main(int argc, char *argv[])
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
-            printf("NuWorld %s\n", NUWORLD_VERSION);
+            printf(NW_APP_NAME " %s\n", NUWORLD_VERSION);
             return 0;
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0) && i + 1 >= argc) {
-            fprintf(stderr, "NuWorld: %s needs a value\n", argv[i]);
+            fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
         }
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -123,7 +124,7 @@ int main(int argc, char *argv[])
     }
 
     NwPlatform platform;
-    if (!nw_platform_init(&platform, "NuWorld", 1280, 720)) {
+    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
         return 1;
     }
 

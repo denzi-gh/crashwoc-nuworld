@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
-project(NuWorld VERSION 0.1.0 LANGUAGES C)
+project(crashwoc-nuworld VERSION 0.1.0 LANGUAGES C)
 
 if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
-  message(WARNING "NuWorld is built and tested with Clang (clang on Linux, CLANG64 on Windows).")
+  message(WARNING "${PROJECT_NAME} is built and tested with Clang (clang on Linux, CLANG64 on Windows).")
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -28,17 +28,17 @@ else()
   FetchContent_MakeAvailable(SDL3)
 endif()
 
-add_executable(nuworld
+add_executable(crashwoc-nuworld
   src/main.c
   src/platform/platform.c
   src/gfx/gl.c)
 
-target_include_directories(nuworld PRIVATE src)
-target_compile_definitions(nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
-target_compile_options(nuworld PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld PRIVATE nuworld_vfs SDL3::SDL3)
+target_include_directories(crashwoc-nuworld PRIVATE src)
+target_compile_definitions(crashwoc-nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
+target_compile_options(crashwoc-nuworld PRIVATE -Wall -Wextra)
+target_link_libraries(crashwoc-nuworld PRIVATE nuworld_vfs SDL3::SDL3)
 
-# Runtime for the generated stubs and function map; linked into nuworld in M1.
+# Runtime for the generated stubs and function map; linked into crashwoc-nuworld in M1.
 add_library(nuworld_port STATIC
   src/port/stub.c
   src/port/funcmap.c)

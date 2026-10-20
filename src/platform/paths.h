@@ -5,11 +5,11 @@
 
 #include <stdbool.h>
 
-#define NW_PATHS_APP "NuWorld"
+#define NW_PATHS_APP "crashwoc-nuworld"
 #define NW_PATHS_PORTABLE "portable.txt"
 
 /* <base_dir>user/ when <base_dir>portable.txt exists (portable mode), else pref_dir
-   (NULL: SDL_GetPrefPath(NULL, "NuWorld")). */
+   (NULL: SDL_GetPrefPath(NULL, NW_PATHS_APP)). */
 char *nw_paths_data_root(const char *base_dir, const char *pref_dir);
 
 /* <dir><name>/ (name may be NULL), created with its parents when create is set. */
