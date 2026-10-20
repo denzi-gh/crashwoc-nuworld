@@ -11,6 +11,7 @@ set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned release" OFF)
+option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -35,7 +36,7 @@ add_executable(nuworld
 target_include_directories(nuworld PRIVATE src)
 target_compile_definitions(nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
 target_compile_options(nuworld PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld PRIVATE SDL3::SDL3)
+target_link_libraries(nuworld PRIVATE nuworld_vfs SDL3::SDL3)
 
 # Runtime for the generated stubs and function map; linked into nuworld in M1.
 add_library(nuworld_port STATIC
@@ -43,3 +44,26 @@ add_library(nuworld_port STATIC
   src/port/funcmap.c)
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
+
+# Disc images, the data folder and the game file system.
+add_library(nuworld_vfs STATIC
+  src/platform/paths.c
+  src/vfs/dat.c
+  src/vfs/disc.c
+  src/vfs/extract.c
+  src/vfs/iso9660.c
+  src/vfs/manifest.c
+  src/vfs/sha256.c
+  src/vfs/verify.c
+  src/vfs/vfs.c)
+target_include_directories(nuworld_vfs PUBLIC src)
+target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
+
+if(NUWORLD_TESTS)
+  enable_testing()
+  add_executable(nuworld_test_vfs tests/c/test_vfs.c)
+  target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_vfs PRIVATE nuworld_vfs)
+  add_test(NAME vfs COMMAND nuworld_test_vfs ${CMAKE_CURRENT_BINARY_DIR}/test-vfs)
+endif()

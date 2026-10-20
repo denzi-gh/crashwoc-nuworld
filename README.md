@@ -25,7 +25,20 @@ Requirements: Clang, CMake 3.25+, Ninja. SDL3 is downloaded and built automatica
 cmake --preset release
 cmake --build --preset release
 ./build/release/nuworld
+ctest --test-dir build/release
 ```
+
+## Game data
+
+Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):
+
+```sh
+./build/release/nuworld --import "Crash Bandicoot - The Wrath of Cortex (Europe).cue"
+```
+
+Every file is checked against a SHA-256 manifest and copied to the data folder: `%APPDATA%\NuWorld\` on Windows,
+`~/.local/share/NuWorld/` on Linux, or `user/` beside the executable when a `portable.txt` is there.
+`--verify` re-checks the imported files; `--data-dir <dir>` uses another folder.
 
 ## License
 
