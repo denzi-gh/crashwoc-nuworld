@@ -608,6 +608,13 @@ static void test_import(void)
     CHECK(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL));
     CHECK(!exists(AT("disc/OLD.TXT")) && !exists(AT("disc.old")) && !exists(AT("disc.partial")));
     CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
+#ifdef SDL_PLATFORM_WINDOWS
+    /* A file held open in disc/ blocks the swap: the import fails cleanly and keeps the old disc/. */
+    SDL_IOStream *held = SDL_IOFromFile(AT("disc/SYSTEM.CNF"), "rb");
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "cannot move aside");
+    CHECK(!exists(AT("disc.partial")) && !exists(AT("disc.old")) && exists(AT("disc/" NW_DISC_STAMP)));
+    SDL_CloseIO(held);
+#endif
     nw_iso_free(&iso);
     nw_disc_close(&disc);
 

@@ -145,14 +145,13 @@ bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const 
             ok = nw_extract_file(disc, nw_iso_find(iso, e->path), e, dir, &c);
         }
     }
-    ok = ok && nw_extract_stamp(dir, m, files);
+    ok = ok && nw_extract_stamp(dir, m, files) && nw_extract_swap(partial, final, old);
     if (!ok && partial) {
         char why[512];
         SDL_strlcpy(why, SDL_GetError(), sizeof(why));
         nw_paths_remove_tree(partial);
         SDL_SetError("%s", why);
     }
-    ok = ok && nw_extract_swap(partial, final, old);
 
     SDL_free(c.buf);
     SDL_free(dir);
