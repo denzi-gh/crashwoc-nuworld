@@ -11,6 +11,7 @@ set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned release" OFF)
+option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -54,3 +55,11 @@ add_library(nuworld_vfs STATIC
 target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
+
+if(NUWORLD_TESTS)
+  enable_testing()
+  add_executable(nuworld_test_vfs tests/c/test_vfs.c)
+  target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_vfs PRIVATE nuworld_vfs)
+  add_test(NAME vfs COMMAND nuworld_test_vfs ${CMAKE_CURRENT_BINARY_DIR}/test-vfs)
+endif()
