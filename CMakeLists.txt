@@ -53,7 +53,8 @@ add_library(nuworld_vfs STATIC
   src/vfs/iso9660.c
   src/vfs/manifest.c
   src/vfs/sha256.c
-  src/vfs/verify.c)
+  src/vfs/verify.c
+  src/vfs/vfs.c)
 target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
