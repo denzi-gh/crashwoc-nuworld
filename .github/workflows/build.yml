@@ -30,6 +30,12 @@ jobs:
           python3 tools/tu_filter.py --out build/gen
           python3 tools/gen_stubs.py --out build/gen
           python3 tools/gen_funcmap.py --out build/gen
+      - name: Type DB
+        run: python3 tools/typedb.py --out build/gen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typedb
+          path: build/gen/typedb.json
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
         env:
