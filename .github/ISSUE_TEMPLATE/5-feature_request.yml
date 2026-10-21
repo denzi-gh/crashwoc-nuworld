@@ -34,13 +34,6 @@ body:
     validations:
       required: true
   - type: textarea
-    id: problem
-    attributes:
-      label: What problem does this solve?
-      placeholder: "Example: The game only renders in 4:3, so the image is stretched on a 16:9 screen."
-    validations:
-      required: true
-  - type: textarea
     id: solution
     attributes:
       label: What should the feature do?
@@ -57,15 +50,6 @@ body:
         - "I'm not sure"
     validations:
       required: true
-  - type: textarea
-    id: alternatives
-    attributes:
-      label: Alternatives you considered
-  - type: textarea
-    id: examples
-    attributes:
-      label: Examples from other ports
-      description: Links or screenshots from other ports or remasters that do this well.
   - type: textarea
     id: context
     attributes:
