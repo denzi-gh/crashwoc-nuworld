@@ -1,7 +1,11 @@
 # Host treatment per decomp unit; checked by `python tools/gen_stubs.py --check`.
 # treatment: compile | editor (stubs unless built with the editor) | hle |
 #            replace | dead (stubs) | shim
-# override/keep: globs the port implements instead of the decomp C; rename: decomp -> host name
+# override/keep: globs the port implements instead of the decomp C (the decomp definition is
+#   dropped; without a port definition the function is a stub); rename: decomp -> host name, for
+#   the function's declarations, definition and calls in its unit
+# Overrides marked "dead" are functions retail never reaches, or reaches only through overridden
+# code, whose C does not build for the host: stubs instead of upstream fixes in dead code.
 
 schema = 1
 
@@ -40,16 +44,21 @@ schema = 1
 "nu3d/nuvport" = { treatment = "compile" }
 "nu3d/nugobj" = { treatment = "compile" }
 "nu3d/nunode" = { treatment = "compile" }
-"nu3d/nuscene" = { treatment = "compile" }
+# nugscn defines a global ReadNuIFFGeomVtx too; dead: NuNodeRead, ReadNuIFFTextureSet
+"nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlUpdateEx"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimData2FixPtrs"] }
-"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary", "NuGScnRndr*"] }
+# dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
+"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary", "NuGScnRndr*",
+    "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
+    "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }
-"nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj"] }
+# dead: the NuGHGWrite* writer, ReadNuIFFCollideData
+"nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuGHGWrite*", "ReadNuIFFCollideData"] }
 "nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"] }
 "nu3d/nucvtskn" = { treatment = "dead", override = ["NuCvtSknInstFix"] }
 "nu3d/asmgobj" = { treatment = "hle" }
