@@ -1,16 +1,6 @@
 # The decomp units on the host: the generators write <build>/gen, nuworld_decomp compiles every wrapper
 # and stub unit with the decomp flags and the -Werror set.
 
-# TODO: Units that still fail the -Werror set, each waiting for a host fix upstream. Their ctest
-# expects the compile to fail, so a unit that builds must leave the list.
-set(NW_HOST_PENDING
-  nucore/nufile nucore/numem nucore/numemblk nucore/numemhi
-  numath/nutrig
-  nu3d/nuanim nu3d/nugscn nu3d/nulight nu3d/numtl nu3d/nunode nu3d/nutex nu3d/nutexanm nu3d/nuwater
-  nups2/ps2ctl
-  gamelib/debris gamelib/gcutscn
-  game/ai game/camera game/cut game/jeep game/lights game/main game/move game/sfx game/vehicle game/visidat)
-
 # The interpreter on the PATH first (on Windows the registry would win, often one without libclang).
 set(Python3_FIND_REGISTRY LAST)
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
@@ -84,15 +74,7 @@ foreach(fn sin cos tan asin acos atan atan2 exp log log10 pow fmod)
 endforeach()
 set(nw_decomp_includes ${nw_decomp}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-set(nw_pending_wrappers)
-foreach(unit IN LISTS NW_HOST_PENDING)
-  if(NOT ${nw_gen}/${unit}.wrap.c IN_LIST nw_wrappers)
-    message(FATAL_ERROR "NW_HOST_PENDING: ${unit} is not a compiled decomp unit")
-  endif()
-  list(APPEND nw_pending_wrappers ${nw_gen}/${unit}.wrap.c)
-endforeach()
 set(nw_sources ${nw_wrappers} ${nw_stubs} ${nw_funcmaps})
-list(REMOVE_ITEM nw_sources ${nw_pending_wrappers})
 list(FILTER nw_sources INCLUDE REGEX "\\.c$")
 
 add_library(nuworld_decomp OBJECT ${nw_sources})
@@ -101,13 +83,6 @@ target_include_directories(nuworld_decomp PRIVATE ${nw_decomp_includes})
 target_compile_options(nuworld_decomp PRIVATE ${nw_decomp_flags})
 
 if(NUWORLD_TESTS)
-  list(TRANSFORM nw_decomp_includes PREPEND -I OUTPUT_VARIABLE nw_include_flags)
-  foreach(unit IN LISTS NW_HOST_PENDING)
-    add_test(NAME host-pending/${unit}
-      COMMAND ${CMAKE_C_COMPILER} ${nw_decomp_flags} ${nw_include_flags} -fsyntax-only ${nw_gen}/${unit}.wrap.c)
-    set_tests_properties(host-pending/${unit} PROPERTIES WILL_FAIL TRUE)
-  endforeach()
-
   get_filename_component(nw_cc_dir ${CMAKE_C_COMPILER} DIRECTORY)
   find_program(NW_LLVM_NM llvm-nm HINTS ${nw_cc_dir})
   if(NW_LLVM_NM)
