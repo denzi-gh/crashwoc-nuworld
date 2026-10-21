@@ -26,7 +26,26 @@ struct fixnode_s {
     unsigned int x : 3, : 2, y : 4;
     char name[2][3];
     fixcb_t cb;
+};
+
+struct fixlong_s {
     long wide;
+};
+
+enum fixsign_e { FIXS_NEG = -1, FIXS_POS = 1 };
+
+struct fixopaque_s;
+
+struct fixmisc_s {
+    const char *label;
+    struct fixnode_s **nodes;
+    s32 (*rows)[4];
+    fixcb_t *cbs;
+    nuintptr addr;
+    enum fixmode2_e mode;
+    enum fixsign_e sign;
+    unsigned char lo : 4, hi : 4;
+    struct fixopaque_s *opaque;
 };
 
 typedef struct {

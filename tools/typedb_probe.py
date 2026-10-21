@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check typedb.json against the PS2 compiler: compile every named record
 with the decomp's `default` profile (SN ee-gcc 2.95.2, which built the game
-and engine units) at -O0 -g and compare its STABS layouts with libclang's.
+and engine units) at -O0 -g and compare its STABS layouts and types with
+libclang's.
 The `sce` profile (EE GCC 2.9, Sony SDK units only) cannot parse the game
 headers: its C front end has no anonymous struct/union members.
 
@@ -28,7 +29,9 @@ IMAGE = os.environ.get("CRASHWOC_IMAGE", "crashwoc-decomp")
 PREFIX = "nw_probe_"
 STABS_RE = re.compile(r'^\s*\.stabs\s+"((?:[^"\\]|\\.)*)"')
 
+sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(DECOMP / "tools"))  # cc, declib (the decomp's own tools)
+import typedb  # noqa: E402
 
 
 def in_container() -> bool:
@@ -141,6 +144,7 @@ class Checker:
             label = f["name"] or "<anonymous>"
             if (bit, bits) != (pos, size):
                 self.bad(rid, label, "bit offset/size", (bit, bits), (pos, size))
+            self.desc(rid, label, f, ref)
             sub = self.ref(f)
             if sub and "$" in sub:
                 st2 = self.struct(ref)
@@ -154,6 +158,85 @@ class Checker:
         while f.get("kind") == "array":
             f = f["element"]
         return f.get("ref")
+
+    def names(self, ref) -> tuple[set, set]:
+        from declib.stabs import Alias, Qualified, XRef
+        typedefs, tags = set(), set()
+        for _ in range(32):
+            if ref.num in self.table.typedefs:
+                typedefs.add(self.table.typedefs[ref.num])
+            if ref.num in self.table.tags:
+                tags.add(self.table.tags[ref.num])
+            typ = ref.get()
+            if isinstance(typ, XRef):
+                tags.add(typ.tag)
+            if not isinstance(typ, (Alias, Qualified)):
+                break
+            ref = typ.target
+        return typedefs, tags
+
+    def spell(self, ref) -> str:
+        from declib.stabs import StabsError
+        try:
+            return self.table.c_type(ref)
+        except StabsError:
+            return type(self.table.resolve(ref)).__name__
+
+    def desc(self, rid: str, path: str, d: dict, ref) -> None:
+        from declib.stabs import Array, Basic, Enum, Function, Pointer, Struct, XRef
+        typedefs, tags = self.names(ref)
+        typ = self.table.resolve(ref)
+        tagged = typedefs & typedb.TAGGED_TYPEDEFS
+        if tagged != ({d["typedef"]} if "typedef" in d else set()):
+            self.bad(rid, path, "typedef", d.get("typedef"), ", ".join(sorted(tagged)) or None)
+        kind, ok = d["kind"], True
+        if kind in ("int", "u128", "float"):
+            ok = isinstance(typ, Basic) and not typ.is_void and \
+                (typ.is_float, typ.size, typ.signed) == (kind == "float", d["size"],
+                                                          bool(d.get("signed")))
+        elif kind == "enum":
+            ok = isinstance(typ, Enum) and any(v < 0 for _n, v in typ.values) == d["signed"]
+        elif kind == "void":
+            ok = isinstance(typ, Basic) and typ.is_void
+        elif kind == "fnptr":
+            ok = isinstance(typ, Pointer) and isinstance(self.table.resolve(typ.target), Function)
+        elif kind == "pointer":
+            ok = isinstance(typ, Pointer)
+            if ok:
+                self.desc(rid, path + "*", d["pointee"], typ.target)
+        elif kind == "array":
+            ok = isinstance(typ, Array) and (typ.count or 0) == d["count"]
+            if ok:
+                self.desc(rid, path + "[]", d["element"], typ.element)
+        elif kind == "record":
+            rid2 = d["ref"]
+            want = self.db["records"].get(rid2, {}).get("kind") or rid2.split()[0]
+            got = typ.kind if isinstance(typ, Struct) else getattr(typ, "tag_kind", None)
+            ok = got == want and isinstance(typ, (Struct, XRef))
+            if ok and "$" not in rid2:
+                ok = rid2.split(" ", 1)[1] in tags if rid2.startswith(("struct ", "union ")) \
+                    else rid2 in typedefs
+        elif kind != "long":                # `long` is typedb lint
+            ok = False
+        if not ok:
+            self.bad(rid, path, "type", summary(d), self.spell(ref))
+
+
+def summary(d: dict) -> str:
+    kind = d["kind"]
+    if kind in ("int", "u128"):
+        return f"{'s' if d['signed'] else 'u'}{d['size'] * 8}"
+    if kind == "float":
+        return f"f{d['size'] * 8}"
+    if kind == "enum":
+        return f"{d['ref']} ({'signed' if d['signed'] else 'unsigned'})"
+    if kind == "record":
+        return d["ref"]
+    if kind == "pointer":
+        return summary(d["pointee"]) + " *"
+    if kind == "array":
+        return f"{summary(d['element'])}[{d['count']}]"
+    return kind
 
 
 def check(db: dict, profile: str, keep: Path | None) -> Checker:
@@ -190,6 +273,10 @@ def main() -> int:
               "(run it in the decomp image)", file=sys.stderr)
         return 2
     db = json.loads((REPO / args.typedb).read_text())
+    if db.get("schema") != typedb.SCHEMA:
+        print(f"error: {args.typedb} has schema {db.get('schema')}, the probe reads schema "
+              f"{typedb.SCHEMA}: regenerate it with tools/typedb.py", file=sys.stderr)
+        return 2
     try:
         checker = check(db, PROFILE, args.keep and REPO / args.keep)
     except RuntimeError as e:
