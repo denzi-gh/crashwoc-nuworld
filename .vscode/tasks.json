@@ -1,0 +1,119 @@
+{
+  // Needs cmake, ctest, ninja and clang on the PATH (see README "Building"). On Windows, the default MSYS2
+  // CLANG64 folder is added in front of the PATH.
+  "version": "2.0.0",
+  "windows": {
+    "options": {
+      "env": { "PATH": "C:\\msys64\\clang64\\bin;${env:PATH}" }
+    }
+  },
+  "tasks": [
+    // ---- Build -------------------------------------------------------------------------------------------
+    {
+      "label": "Build (release)",
+      "detail": "Compile the optimized exe into build/release",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "release"],
+      "dependsOn": "Configure (release, if needed)",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": { "base": "$gcc", "fileLocation": ["autoDetect", "${workspaceFolder}/build/release"] }
+    },
+    {
+      "label": "Build (debug)",
+      "detail": "Compile with debug info into build/debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset", "debug"],
+      "dependsOn": "Configure (debug, if needed)",
+      "group": "build",
+      "problemMatcher": { "base": "$gcc", "fileLocation": ["autoDetect", "${workspaceFolder}/build/debug"] }
+    },
+    {
+      "label": "Configure (fresh)",
+      "detail": "Reconfigure build/release from scratch",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset", "release", "--fresh"],
+      "problemMatcher": []
+    },
+
+    // ---- Run ---------------------------------------------------------------------------------------------
+    {
+      "label": "Run",
+      "detail": "Build, then start the game with your data folder",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "dependsOn": "Build (release)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run setup wizard",
+      "detail": "Build, then open the disc import wizard",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "args": ["--setup"],
+      "dependsOn": "Build (release)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run first-time setup",
+      "detail": "Build, then start with an empty scratch data folder",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "args": ["--data-dir", "${workspaceFolder}/build/scratch-data"],
+      "dependsOn": ["Build (release)", "Clear scratch data"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Verify disc",
+      "detail": "Re-check the imported disc files against the SHA-256 list",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "args": ["--verify"],
+      "dependsOn": "Build (release)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test",
+      "detail": "Build, then run the C tests (ctest)",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--test-dir", "build/release", "--output-on-failure"],
+      "dependsOn": "Build (release)",
+      "group": "test",
+      "problemMatcher": []
+    },
+
+    // ---- Helpers (hidden) --------------------------------------------------------------------------------
+    {
+      "label": "Configure (release, if needed)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["-P", "${workspaceFolder}/cmake/configure_once.cmake", "release"],
+      "hide": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Configure (debug, if needed)",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["-P", "${workspaceFolder}/cmake/configure_once.cmake", "debug"],
+      "hide": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Clear scratch data",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["-E", "rm", "-rf", "${workspaceFolder}/build/scratch-data"],
+      "hide": true,
+      "problemMatcher": []
+    }
+  ]
+}

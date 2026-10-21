@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Decompilation issues
+    url: https://github.com/denzi-gh/crashwoc-decomp-ps2/issues
+    about: Problems with the decompilation itself (matching, splits, symbols) belong in crashwoc-decomp-ps2

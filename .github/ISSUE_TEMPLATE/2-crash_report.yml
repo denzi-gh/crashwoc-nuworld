@@ -1,0 +1,104 @@
+name: Crash / freeze / won't start
+description: The port crashes, freezes, hangs or does not start.
+title: "[Crash]: "
+labels: ["bug", "crash"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the port crashes on startup, update your graphics driver first. Old drivers cause most startup crashes.
+
+        Never attach or link game files or disc images. Issues that do are closed.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before opening this issue
+      options:
+        - label: I use my own PAL v1.03 disc (SLES-50386) and `--verify` passes.
+          required: true
+        - label: My graphics driver is up to date.
+          required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened?
+      options:
+        - Crash (the window closed)
+        - Freeze / hang (the window stays open but stops responding)
+        - Won't start
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What were you doing right before?
+      placeholder: "Example: Collected the last crystal in Arctic Antics and the level end screen started"
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Can you reproduce it?
+      options:
+        - Always
+        - Sometimes
+        - It happened once
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Enter warp room 1
+        2. Go to ...
+        3. Crash
+  - type: input
+    id: location
+    attributes:
+      label: Level / area
+      placeholder: "Example: Warp room 2, Avalanche"
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots, video or save file
+      description: Drag files in here.
+  - type: input
+    id: version
+    attributes:
+      label: NuWorld version
+      description: The output of `crashwoc-nuworld --version` and the commit (`git rev-parse --short HEAD` if you built it yourself).
+      placeholder: "Example: CrashWOC: NuWorld 0.1.0, commit ba306ef"
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Where did you get this build?
+      options:
+        - Release download
+        - CI artifact
+        - Built it myself
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux (name the distro below)
+        - Other (name it below)
+    validations:
+      required: true
+  - type: input
+    id: os-details
+    attributes:
+      label: Linux distro / other OS
+      placeholder: "Example: Arch Linux, Wayland"
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Non-default settings, other software running (overlays, ReShade), anything else that might help.

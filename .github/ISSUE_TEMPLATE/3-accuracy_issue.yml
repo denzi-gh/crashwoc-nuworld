@@ -1,0 +1,86 @@
+name: Accuracy issue
+description: NuWorld behaves, looks or sounds different from the original PS2 game.
+title: "[Accuracy]: "
+labels: ["accuracy"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        NuWorld aims to match the PAL v1.03 PS2 release. Use this template when something differs from it:
+        physics, timing, animations, effects, sound, text.
+
+        Footage of the original game makes these issues much easier to fix. Say where it came from
+        (real PS2, PCSX2, a YouTube video).
+
+        Never attach or link game files or disc images. Issues that do are closed.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before opening this issue
+      options:
+        - label: I use my own PAL v1.03 disc (SLES-50386)
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What is different?
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Level / area
+      placeholder: "Example: Warp room 2, Avalanche"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to see it
+      placeholder: |
+        1. Enter ...
+        2. Do ...
+        3. Compare ...
+    validations:
+      required: true
+  - type: textarea
+    id: nuworld-media
+    attributes:
+      label: Screenshots or video from NuWorld
+    validations:
+      required: true
+  - type: textarea
+    id: original-media
+    attributes:
+      label: Screenshots or video from the original game
+      description: Say where this came from (real PS2, PCSX2 with which settings, a link to a video).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: NuWorld version
+      placeholder: "Example: CrashWOC: NuWorld 0.1.0, commit ba306ef"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver version
+      description: Mostly relevant for visual differences.
+      placeholder: "Example: NVIDIA RTX 3060, driver 581.57"
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?

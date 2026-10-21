@@ -1,0 +1,72 @@
+name: Feature request
+description: A bigger addition to the port (widescreen, high framerate, rebinding, mod support).
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Small convenience changes go in a Quality of Life suggestion.
+
+        NuWorld plays like the original by default. Changes to the original behaviour are added as options.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before opening this issue
+      options:
+        - label: This issue contains one feature only
+          required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Graphics
+        - Framerate / performance
+        - Controls / input
+        - Audio
+        - Camera
+        - UI / menus
+        - Accessibility
+        - Modding
+        - Platform support
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      placeholder: "Example: The game only renders in 4:3, so the image is stretched on a 16:9 screen."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What should the feature do?
+    validations:
+      required: true
+  - type: dropdown
+    id: vanilla
+    attributes:
+      label: Does this change how the original game looks or plays?
+      description: If yes, it would be added as an option that is off by default.
+      options:
+        - "No"
+        - "Yes, it should be an option"
+        - "I'm not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples from other ports
+      description: Links or screenshots from other ports or remasters that do this well.
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
