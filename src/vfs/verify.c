@@ -98,8 +98,8 @@ static bool nw_verify_hash(NwDisc *disc, const NwIsoFile *f, uint8_t *buf, uint8
         offset += n;
         if (progress) {
             progress->done += n;
-            if (progress->fn) {
-                progress->fn(progress->user, progress->done, progress->total);
+            if (progress->fn && !progress->fn(progress->user, progress->done, progress->total)) {
+                return SDL_SetError("cancelled");
             }
         }
     }

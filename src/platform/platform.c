@@ -15,7 +15,7 @@ bool nw_platform_init(NwPlatform *p, const char *title, int width, int height)
 {
     SDL_zerop(p);
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD)) {
         nw_platform_fail("SDL could not start");
         return false;
     }

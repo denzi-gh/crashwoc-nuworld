@@ -16,8 +16,8 @@
 
 #define NW_VERIFY_SKIPPED 1u /* also hash NW_MANIFEST_SKIP entries */
 
-/* Bytes hashed so far of the total. */
-typedef void (*NwProgressFn)(void *user, uint64_t done, uint64_t total);
+/* Bytes hashed so far of the total. Returning false cancels the operation with the error "cancelled". */
+typedef bool (*NwProgressFn)(void *user, uint64_t done, uint64_t total);
 
 /* SYSTEM.CNF names BOOT2 cdrom0:\SLES_503.86;1, VER 1.03, VMODE PAL; it and the boot ELF match the manifest. */
 bool nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *m);

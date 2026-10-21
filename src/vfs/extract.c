@@ -31,12 +31,10 @@ static char *nw_extract_path(const char *root, const char *name)
     return SDL_asprintf(&path, "%s%s%s", root, sep ? "" : "/", name) < 0 ? NULL : path;
 }
 
-static void nw_extract_progress(NwCopy *c, size_t n)
+static bool nw_extract_progress(NwCopy *c, size_t n)
 {
     c->done += n;
-    if (c->fn) {
-        c->fn(c->user, c->done, c->total);
-    }
+    return !c->fn || c->fn(c->user, c->done, c->total) || SDL_SetError("cancelled");
 }
 
 static bool nw_extract_file(NwDisc *disc, const NwIsoFile *f, const NwManifestEntry *e, const char *dir, NwCopy *c)
@@ -67,7 +65,7 @@ static bool nw_extract_file(NwDisc *disc, const NwIsoFile *f, const NwManifestEn
         if (ok) {
             nw_sha256_update(&sha, c->buf, n);
             offset += n;
-            nw_extract_progress(c, n);
+            ok = nw_extract_progress(c, n);
         }
     }
     if (out && !SDL_CloseIO(out) && ok) {
@@ -161,6 +159,14 @@ bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const 
     return ok;
 }
 
+bool nw_extract_has_disc(const char *root)
+{
+    char *stamp = nw_extract_path(root, NW_DISC_DIR "/" NW_DISC_STAMP);
+    bool found = stamp && SDL_GetPathInfo(stamp, NULL);
+    SDL_free(stamp);
+    return found;
+}
+
 bool nw_extract_verify(const char *root, const NwManifest *m, NwProgressFn fn, void *user)
 {
     NwCopy c = { fn, user, 0, 0, NULL };
@@ -206,7 +212,10 @@ bool nw_extract_verify(const char *root, const NwManifest *m, NwProgressFn fn, v
             }
             nw_sha256_update(&sha, c.buf, n);
             offset += n;
-            nw_extract_progress(&c, n);
+            if (!nw_extract_progress(&c, n)) {
+                ok = false;
+                break;
+            }
         }
         SDL_CloseIO(in);
         if (ok) {

@@ -45,6 +45,19 @@ char *nw_paths_dir(const char *dir, const char *name, bool create)
     return path;
 }
 
+bool nw_paths_create_layout(const char *root)
+{
+    static const char *const names[] = { NULL, NW_PATHS_IMPORT, NW_PATHS_SAVES };
+    for (size_t i = 0; i < SDL_arraysize(names); i++) {
+        char *dir = nw_paths_dir(root, names[i], true);
+        if (!dir) {
+            return false;
+        }
+        SDL_free(dir);
+    }
+    return true;
+}
+
 static SDL_EnumerationResult SDLCALL nw_paths_collect(void *user, const char *dir, const char *name)
 {
     NwNames *list = user;

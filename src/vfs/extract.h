@@ -17,6 +17,9 @@
 bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const char *root, NwProgressFn progress,
                      void *user);
 
+/* <root>disc/ holds a finished import (its stamp exists); nothing is hashed. */
+bool nw_extract_has_disc(const char *root);
+
 /* Re-hashes an imported <root>disc/ against the manifest. */
 bool nw_extract_verify(const char *root, const NwManifest *m, NwProgressFn progress, void *user);
 

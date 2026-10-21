@@ -1,6 +1,7 @@
 /* VFS tests: SHA-256 vectors, synthetic disc images built at run time (.iso, raw Mode 2 / Mode 1 .bin, .cue),
    disc verification and import against an injected manifest, data folder resolution, game path mapping and a
-   synthetic .DAT archive. Usage: test_vfs <scratch dir>.
+   synthetic .DAT archive, the import folder listing and the wizard's background import job.
+   Usage: test_vfs <scratch dir>.
    Local only, with your own disc:
    NUWORLD_TEST_DISC=<image or cue> hashes every file of a real PAL v1.03 disc against the committed manifest;
    NUWORLD_TEST_DATA=<extracted disc dir> checks ATS.DAT, CHARS.DAT and SFX.DAT, and NUWORLD_TEST_DAT_LIST=<file>
@@ -11,6 +12,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "frontend/import.h"
 #include "platform/paths.h"
 #include "vfs/dat.h"
 #include "vfs/disc.h"
@@ -419,12 +421,20 @@ static void test_formats(void)
     free(img);
 }
 
-static void progress_cb(void *user, uint64_t done, uint64_t total)
+static bool progress_cb(void *user, uint64_t done, uint64_t total)
 {
     uint64_t *last = user;
     CHECK(done > last[0] && done <= total);
     last[0] = done;
     last[1] = total;
+    return true;
+}
+
+/* Cancels once more than *user bytes are done. */
+static bool cancel_cb(void *user, uint64_t done, uint64_t total)
+{
+    (void)total;
+    return done <= *(uint64_t *)user;
 }
 
 /* Opens a synthetic image of spec as .iso and indexes it. */
@@ -613,6 +623,17 @@ static void test_import(void)
     CHECK(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL));
     CHECK(!exists(AT("disc/OLD.TXT")) && !exists(AT("disc.old")) && !exists(AT("disc.partial")));
     CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
+
+    /* Cancelling from the progress callback stops the import like a failure; verify can be cancelled too. */
+    uint64_t limit = 0;
+    SDL_SaveFile(AT("disc/OLD.TXT"), "old", 3);
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, cancel_cb, &limit), "cancelled");
+    CHECK(!exists(AT("disc.partial")) && exists(AT("disc/OLD.TXT")) && nw_extract_has_disc(root));
+    CHECK_FAILS(nw_extract_verify(root, &t.m, cancel_cb, &limit), "cancelled");
+    limit = GSC_SIZE;
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, cancel_cb, &limit), "cancelled");
+    CHECK(!exists(AT("disc.partial")) && exists(AT("disc/OLD.TXT")));
+    SDL_RemovePath(AT("disc/OLD.TXT"));
 #ifdef SDL_PLATFORM_WINDOWS
     /* A file held open in disc/ blocks the swap: the import fails cleanly and keeps the old disc/. */
     SDL_IOStream *held = SDL_IOFromFile(AT("disc/SYSTEM.CNF"), "rb");
@@ -624,6 +645,7 @@ static void test_import(void)
     nw_disc_close(&disc);
 
     SDL_RemovePath(AT("disc/" NW_DISC_STAMP));
+    CHECK(!nw_extract_has_disc(root));
     CHECK_FAILS(nw_extract_verify(root, &t.m, NULL, NULL), "no imported disc");
 
     /* A refused disc creates nothing. */
@@ -661,6 +683,16 @@ static void test_paths(void)
     CHECK(saves && strcmp(saves, want) == 0 && exists(saves));
     SDL_free(saves);
     SDL_free(root);
+
+    /* The data folder layout: root, import/ and saves/, also when root does not exist yet. */
+    SDL_snprintf(want, sizeof(want), "%sfresh/data", base);
+    CHECK(nw_paths_create_layout(want));
+    SDL_snprintf(want, sizeof(want), "%sfresh/data/" NW_PATHS_IMPORT, base);
+    CHECK(exists(want));
+    SDL_snprintf(want, sizeof(want), "%sfresh/data/" NW_PATHS_SAVES, base);
+    CHECK(exists(want));
+    SDL_snprintf(want, sizeof(want), "%sfresh/data/", base);
+    CHECK(nw_paths_create_layout(want));
 
     dir = nw_paths_dir("a\\b", NULL, false);
     CHECK(dir && strcmp(dir, "a\\b/") == 0);
@@ -942,9 +974,120 @@ static void test_dat(void)
     }
 }
 
+/* ---- Import folder and job (wizard) ------------------------------------------------------------------- */
+
+static bool listed(const NwImageList *list, const char *const *names, size_t count)
+{
+    if (list->count != count) {
+        return false;
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (strcmp(list->names[i], names[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Polls a job until it ends (10 s at most). */
+static NwImportState job_wait(NwImport *job, uint64_t *done, uint64_t *total)
+{
+    NwImportState state = NW_IMPORT_RUNNING;
+    for (int i = 0; i < 10000 && (state = nw_import_poll(job, done, total)) == NW_IMPORT_RUNNING; i++) {
+        SDL_Delay(1);
+    }
+    return state;
+}
+
+static void test_import_folder(void)
+{
+    static const char *const want[] = { "a.ISO", "b.cue", "c.bin", "d.Bin", "e.iso" };
+    static const char *const files[] = { "e.iso", "b.cue", "b.BIN", "c.bin", "a.ISO", "d.Bin", "d.txt", "notes.txt",
+                                         ".hidden.iso", "iso", ".bin" };
+    NwImageList list;
+    char dir[1024], path[1024];
+
+    CHECK(nw_import_is_image("X.CUE") && nw_import_is_image("x.iso") && nw_import_is_image("x.Bin"));
+    CHECK(!nw_import_is_image("x.img") && !nw_import_is_image("iso") && !nw_import_is_image("x.iso.txt"));
+
+    SDL_snprintf(dir, sizeof(dir), "%s/import/", scratch);
+    CHECK(nw_import_scan(dir, &list) && list.count == 0); /* missing folder */
+    nw_import_list_free(&list);
+
+    CHECK(SDL_CreateDirectory(dir));
+    for (size_t i = 0; i < SDL_arraysize(files); i++) {
+        SDL_snprintf(path, sizeof(path), "%s%s", dir, files[i]);
+        CHECK(SDL_SaveFile(path, "x", 1));
+    }
+    SDL_snprintf(path, sizeof(path), "%sfolder.iso", dir);
+    CHECK(SDL_CreateDirectory(path));
+    /* b.BIN belongs to b.cue; directories and dot files are left out. */
+    CHECK(nw_import_scan(dir, &list) && listed(&list, want, SDL_arraysize(want)));
+    nw_import_list_free(&list);
+    dir[strlen(dir) - 1] = '\0'; /* without the trailing separator */
+    CHECK(nw_import_scan(dir, &list) && listed(&list, want, SDL_arraysize(want)));
+    nw_import_list_free(&list);
+}
+
+static void test_import_job(void)
+{
+    TestManifest t;
+    NwDisc disc;
+    NwIso iso;
+    Spec spec = { pal_cnf, 0, 0, 0, false };
+    uint64_t done, total;
+    char root[1024], path[1024];
+
+    SDL_snprintf(root, sizeof(root), "%s/jobdata/", scratch);
+    if (!open_spec(&spec, &disc, &iso)) {
+        CHECK(!"open_spec");
+        return;
+    }
+    nw_iso_free(&iso);
+    nw_disc_close(&disc);
+    manifest_build(&t);
+
+    NwImport *job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    CHECK(job);
+    if (job) {
+        CHECK(job_wait(job, &done, &total) == NW_IMPORT_DONE);
+        CHECK(done == total && total == ELF_SIZE + GSC_SIZE + strlen(pal_cnf));
+        CHECK(nw_extract_has_disc(root) && nw_extract_verify(root, &t.m, NULL, NULL));
+        SDL_snprintf(path, sizeof(path), "%sdisc/LEVELS/B/HUB/HUB.GSC", root);
+        CHECK(file_is(path, gsc_data, GSC_SIZE));
+        nw_import_free(job);
+    }
+
+    /* Errors come from the job's thread. */
+    job = nw_import_start(scratch_path("missing.iso"), root, &t.m);
+    CHECK(job);
+    if (job) {
+        CHECK(job_wait(job, &done, &total) == NW_IMPORT_FAILED);
+        CHECK(SDL_strstr(nw_import_error(job), "missing.iso"));
+        nw_import_free(job);
+    }
+    t.hex[2][0] = t.hex[2][0] == '0' ? '1' : '0';
+    job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    CHECK(job);
+    if (job) {
+        CHECK(job_wait(job, &done, &total) == NW_IMPORT_FAILED);
+        CHECK(SDL_strstr(nw_import_error(job), "LEVELS/B/HUB/HUB.GSC: SHA-256"));
+        nw_import_free(job);
+    }
+    CHECK(nw_extract_has_disc(root)); /* the earlier import is kept */
+
+    /* Freeing a running job cancels it and waits; whatever it got to, no disc.partial/ is left. */
+    manifest_build(&t);
+    job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    CHECK(job);
+    nw_import_free(job);
+    SDL_snprintf(path, sizeof(path), "%sdisc.partial", root);
+    CHECK(!exists(path) && nw_extract_has_disc(root));
+}
+
 /* ---- Real disc (local only) ------------------------------------------------------------------------------ */
 
-static void real_progress(void *user, uint64_t done, uint64_t total)
+static bool real_progress(void *user, uint64_t done, uint64_t total)
 {
     int *percent = user;
     int now = (int)(done * 100 / total);
@@ -953,6 +1096,7 @@ static void real_progress(void *user, uint64_t done, uint64_t total)
         printf("\r  %3d%%", now);
         fflush(stdout);
     }
+    return true;
 }
 
 static void test_real_disc(const char *path)
@@ -1054,6 +1198,8 @@ int main(int argc, char *argv[])
     test_map();
     test_vfs();
     test_dat();
+    test_import_folder();
+    test_import_job();
 
     const char *disc = getenv("NUWORLD_TEST_DISC");
     if (disc && *disc) {

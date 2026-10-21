@@ -201,7 +201,7 @@ static bool nw_disc_not_iso(NwDisc *disc)
             return SDL_SetError("Wii disc image (%.6s), not a PS2 disc", (const char *)head);
         }
     }
-    return SDL_SetError("not an ISO9660 image (no primary volume descriptor at sector 16)");
+    return SDL_SetError("not an ISO9660 image");
 }
 
 bool nw_disc_open(NwDisc *disc, const char *path)
