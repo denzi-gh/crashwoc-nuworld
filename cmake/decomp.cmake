@@ -1,5 +1,6 @@
 # The decomp units on the host: the generators write <build>/gen, nuworld_decomp compiles every wrapper
-# and stub unit with the decomp flags and the -Werror set.
+# and stub unit with the decomp flags and the -Werror set. nuworld_types generates the type DB and the PS2
+# mirror structs from the decomp headers.
 
 # The interpreter on the PATH first (on Windows the registry would win, often one without libclang).
 set(Python3_FIND_REGISTRY LAST)
@@ -16,6 +17,7 @@ set(nw_decomp ${CMAKE_CURRENT_SOURCE_DIR}/decomp)
 set(nw_gen ${CMAKE_CURRENT_BINARY_DIR}/gen)
 
 file(GLOB_RECURSE nw_decomp_sources CONFIGURE_DEPENDS ${nw_decomp}/src/*.c ${nw_decomp}/include/*.h)
+file(GLOB_RECURSE nw_decomp_headers CONFIGURE_DEPENDS ${nw_decomp}/include/*.h)
 file(GLOB_RECURSE nw_port_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
 file(GLOB_RECURSE nw_registries CONFIGURE_DEPENDS ${nw_decomp}/config/pal103/status/*.toml)
 list(APPEND nw_registries ${nw_decomp}/config/pal103/units.toml ${nw_decomp}/config/pal103/functions.toml
@@ -38,6 +40,7 @@ endfunction()
 nw_gen_outputs(tu_filter.py nw_wrappers)
 nw_gen_outputs(gen_stubs.py nw_stubs)
 nw_gen_outputs(gen_funcmap.py nw_funcmaps)
+nw_gen_outputs(gen_ps2types.py nw_ps2types)
 
 # The tools rewrite only changed files, so an unchanged wrapper is not recompiled.
 add_custom_command(OUTPUT ${nw_gen}/wrappers.stamp
@@ -58,6 +61,16 @@ add_custom_command(OUTPUT ${nw_gen}/stubs.stamp
   COMMENT "Generating the stubs and the function map"
   VERBATIM)
 add_custom_target(nuworld_gen DEPENDS ${nw_gen}/wrappers.stamp ${nw_gen}/stubs.stamp)
+add_custom_command(OUTPUT ${nw_gen}/types.stamp
+  BYPRODUCTS ${nw_gen}/typedb.json ${nw_ps2types}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/typedb.py --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_ps2types.py --typedb ${nw_gen}/typedb.json --out ${nw_gen}
+  COMMAND ${CMAKE_COMMAND} -E touch ${nw_gen}/types.stamp
+  DEPENDS ${nw_tools}/typedb.py ${nw_tools}/gen_ps2types.py ${nw_tools}/nwunits.py ${nw_tools}/nwclang.py
+    ${nw_decomp_headers}
+  COMMENT "Generating the type DB and the PS2 mirror structs"
+  VERBATIM)
+add_custom_target(nuworld_types DEPENDS ${nw_gen}/types.stamp)
 
 set(nw_decomp_flags
   -std=gnu11 -fgnu89-inline -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks -ffp-contract=off
@@ -83,6 +96,16 @@ target_include_directories(nuworld_decomp PRIVATE ${nw_decomp_includes})
 target_compile_options(nuworld_decomp PRIVATE ${nw_decomp_flags})
 
 if(NUWORLD_TESTS)
+  # Building it proves the mirror layouts (_Static_asserts); running it checks the bitfields.
+  add_executable(nuworld_test_ps2types tests/c/test_ps2types.c)
+  add_dependencies(nuworld_test_ps2types nuworld_types)
+  target_include_directories(nuworld_test_ps2types PRIVATE ${nw_gen})
+  target_compile_options(nuworld_test_ps2types PRIVATE -Wall -Wextra)
+  if(MINGW)
+    target_compile_options(nuworld_test_ps2types PRIVATE -mno-ms-bitfields)
+  endif()
+  add_test(NAME ps2types COMMAND nuworld_test_ps2types)
+
   get_filename_component(nw_cc_dir ${CMAKE_C_COMPILER} DIRECTORY)
   find_program(NW_LLVM_NM llvm-nm HINTS ${nw_cc_dir})
   if(NW_LLVM_NM)

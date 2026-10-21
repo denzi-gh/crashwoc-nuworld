@@ -4,8 +4,8 @@ PS2 layout (mipsel, as the decomp compiles) and host layout (x86_64, NW_HOST).
 
 Writes typedb.json under --out. Records are keyed by tag (`struct nuvec_s`),
 unnamed ones by `<parent>$<n>` in declaration order. Offsets are bytes; a
-bitfield also has `bit` (from the record start) and `bits`. Lint: `long`
-(8 bytes on the EE, 4 in o32, so not modelled) and u128 fields.
+bitfield also has `bit` (from the record start), `bits` and `unit`. Lint:
+`long` (8 bytes on the EE, 4 in o32, so not modelled) and u128 fields.
 """
 from __future__ import annotations
 
@@ -22,9 +22,18 @@ import nwunits  # noqa: E402
 
 cindex = nwclang.cindex
 
-SCHEMA = 1
+SCHEMA = 2
 TU_NAME = "__nw_typedb__.c"
 UNNAMED = re.compile(r"\((?:anonymous|unnamed)\b[^)]*\)")
+# Integers that are pointer-sized on the host (nuintptr may hold an address).
+TAGGED_TYPEDEFS = frozenset({"nuintptr", "nusintptr", "size_t", "ptrdiff_t"})
+
+_K = cindex.TypeKind if cindex else None
+INTS = frozenset() if _K is None else frozenset({
+    _K.BOOL, _K.CHAR_U, _K.UCHAR, _K.CHAR_S, _K.SCHAR, _K.USHORT, _K.SHORT, _K.UINT, _K.INT,
+    _K.ULONGLONG, _K.LONGLONG, _K.CHAR16, _K.CHAR32, _K.WCHAR})
+SIGNED = frozenset() if _K is None else frozenset({
+    _K.CHAR_S, _K.SCHAR, _K.SHORT, _K.INT, _K.LONGLONG, _K.WCHAR, _K.LONG, _K.INT128})
 
 
 class TypeDBError(Exception):
@@ -62,8 +71,8 @@ class View:
                                              **self.describe(t)}
             elif c.kind == cindex.CursorKind.ENUM_DECL and c.is_definition():
                 consts = {e.spelling: e.enum_value for e in c.get_children()}
-                tag = c.spelling if not c.is_anonymous() else "$" + next(iter(consts), "")
-                self.enums[f"enum {tag}"] = {"where": self.where(c), "constants": consts}
+                self.enums[self.enum_id(c)] = {"where": self.where(c), "constants": consts,
+                                               **self.enum_int(c)}
 
     def where(self, c) -> str | None:
         f = c.location.file
@@ -114,7 +123,11 @@ class View:
             name = f.spelling if f.spelling.isidentifier() else ""
             layout = {"offset": f.get_field_offsetof() // 8, "size": f.type.get_size()}
             if f.is_bitfield():
-                layout.update(bit=f.get_field_offsetof(), bits=f.get_bitfield_width())
+                bit, bits, size = f.get_field_offsetof(), f.get_bitfield_width(), layout["size"]
+                unit = bit // (size * 8) * size
+                if bit + bits > (unit + size) * 8:
+                    raise TypeDBError(f"{self.where(f)}: {rid}.{name} straddles its storage unit")
+                layout.update(bit=bit, bits=bits, unit=unit)
             desc = self.describe(f.type)
             fields.append({"name": name, "type": self.spell(f.type), "where": self.where(f),
                            "layout": layout, **desc})
@@ -132,7 +145,7 @@ class View:
     def kinds(desc: dict):
         while desc:
             yield desc["kind"]
-            desc = desc.get("element")
+            desc = desc.get("element") or desc.get("pointee")
 
     def ref(self, t) -> str:
         decl = t.get_canonical().get_declaration()
@@ -153,35 +166,72 @@ class View:
             return self.spell(canon.get_pointee()) + " *"
         return UNNAMED.sub("$", s)
 
+    @staticmethod
+    def enum_id(c) -> str:
+        tag = c.spelling if not c.is_anonymous() else "$" + next(
+            (e.spelling for e in c.get_children()), "")
+        return f"enum {tag}"
+
+    @staticmethod
+    def enum_int(c) -> dict:
+        t = c.enum_type.get_canonical()
+        return {"signed": t.kind in SIGNED, "size": t.get_size()}
+
+    @staticmethod
+    def desugar(t):
+        tag = None
+        while True:
+            if t.kind == cindex.TypeKind.ELABORATED:
+                t = t.get_named_type()
+            elif t.kind == cindex.TypeKind.TYPEDEF:
+                decl = t.get_declaration()
+                if tag is None and decl.spelling in TAGGED_TYPEDEFS:
+                    tag = decl.spelling
+                t = decl.underlying_typedef_type
+            else:
+                return tag, t
+
     def describe(self, t) -> dict:
+        tag, t = self.desugar(t)
+        canon = t.get_canonical()
+        # Keep the sugar of pointees and elements unless clang wraps the type in other sugar.
+        out = self.shape(t if t.kind == canon.kind else canon)
+        if tag:
+            out["typedef"] = tag
+        if canon.is_const_qualified():
+            out["const"] = True
+        if canon.is_volatile_qualified():
+            out["volatile"] = True
+        return out
+
+    def shape(self, t) -> dict:
         canon = t.get_canonical()
         k = canon.kind
         T = cindex.TypeKind
         if k == T.POINTER:
-            pointee = canon.get_pointee().get_canonical()
-            if pointee.kind in (T.FUNCTIONPROTO, T.FUNCTIONNOPROTO):
+            pointee = t.get_pointee()
+            if pointee.get_canonical().kind in (T.FUNCTIONPROTO, T.FUNCTIONNOPROTO):
                 return {"kind": "fnptr"}
-            out = {"kind": "pointer", "pointee": self.spell(pointee)}
-            if pointee.kind == T.RECORD:
-                out["pointee"] = self.ref(pointee)
-            return out
+            return {"kind": "pointer", "pointee": self.describe(pointee)}
         if k in (T.CONSTANTARRAY, T.INCOMPLETEARRAY):
             count = canon.element_count if k == T.CONSTANTARRAY else 0
-            return {"kind": "array", "count": count, "element": self.describe(canon.element_type)}
+            return {"kind": "array", "count": count, "element": self.describe(t.element_type)}
         if k == T.RECORD:
             return {"kind": "record", "ref": self.ref(canon)}
         if k == T.ENUM:
-            return {"kind": "enum"}
+            decl = canon.get_declaration()
+            return {"kind": "enum", "ref": self.enum_id(decl), **self.enum_int(decl)}
+        if k == T.VOID:
+            return {"kind": "void"}
+        size = canon.get_size()
         if k in (T.FLOAT, T.DOUBLE, T.LONGDOUBLE):
-            return {"kind": "float"}
+            return {"kind": "float", "size": size}
         if k in (T.INT128, T.UINT128):
-            return {"kind": "u128"}
+            return {"kind": "u128", "signed": k in SIGNED, "size": size}
         if k in (T.LONG, T.ULONG):
-            return {"kind": "long"}
-        if k in (T.BOOL, T.CHAR_U, T.UCHAR, T.CHAR_S, T.SCHAR, T.USHORT, T.SHORT, T.UINT,
-                 T.INT, T.ULONGLONG, T.LONGLONG, T.CHAR16, T.CHAR32, T.WCHAR):
-            return {"kind": "int", "signed": k in (T.CHAR_S, T.SCHAR, T.SHORT, T.INT,
-                                                   T.LONGLONG, T.WCHAR)}
+            return {"kind": "long", "signed": k in SIGNED, "size": size}
+        if k in INTS:
+            return {"kind": "int", "signed": k in SIGNED, "size": size}
         return {"kind": "other"}
 
 
