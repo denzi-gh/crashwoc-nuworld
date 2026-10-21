@@ -17,8 +17,11 @@ git clone --recursive https://github.com/denzi-gh/crashwoc-nuworld.git
 cd crashwoc-nuworld
 ```
 
-Requirements: Clang, CMake 3.25+, Ninja. SDL3 is downloaded and built automatically
-(pass `-DNUWORLD_SYSTEM_SDL3=ON` to use an installed one).
+Requirements: Clang, CMake 3.25+, Ninja, and Python 3.11+ with libclang (`python -m pip install -r
+tools/requirements.txt`) for the generators that turn the decomp units into host sources. CMake takes the first
+Python on the PATH; pick another with `-DPython3_EXECUTABLE=<python>`, or skip the decomp units with
+`-DNUWORLD_DECOMP=OFF`. SDL3 is downloaded and built automatically (pass `-DNUWORLD_SYSTEM_SDL3=ON` to use an
+installed one).
 
 - **Windows:** use an MSYS2 CLANG64 shell with `mingw-w64-clang-x86_64-{clang,cmake,ninja}`.
 - **Linux:** install clang, cmake, ninja and the SDL3 build dependencies (X11/Wayland, GL, audio dev packages).

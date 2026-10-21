@@ -88,6 +88,9 @@ def main() -> int:
     if not nwunits.report(model, sys.stderr):
         return 1
     built = [u for u in model.units if u.kind != "none"]
+    if args.list_outputs:
+        nwunits.print_outputs(args.out, (output_path(args.out, u) for u in built))
+        return 0
     stubs = [f for f in model.functions() if f.provider == "stub"]
     if args.list:
         for f in stubs:

@@ -595,6 +595,12 @@ def write_if_changed(path: Path, text: str) -> bool:
     return True
 
 
+def print_outputs(out: Path, paths) -> None:
+    """--list-outputs: the files a generator writes, relative to --out (read by CMake)."""
+    for p in paths:
+        print(p.relative_to(out).as_posix())
+
+
 def add_common_args(parser) -> None:
     parser.add_argument("--decomp", type=Path, default=DEFAULT_DECOMP,
                         help="decomp checkout (default: the decomp/ submodule)")
@@ -604,6 +610,8 @@ def add_common_args(parser) -> None:
                         help="the port's sources, scanned for definitions (default: src/)")
     parser.add_argument("--editor", action="store_true",
                         help="build the editor units (default: they are stubs)")
+    parser.add_argument("--list-outputs", action="store_true",
+                        help="print the files that would be written, relative to --out")
 
 
 def report(model: Model, out) -> bool:

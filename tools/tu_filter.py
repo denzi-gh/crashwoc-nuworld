@@ -214,6 +214,9 @@ def main() -> int:
     if not nwunits.report(model, sys.stderr):
         return 1
     wrappers = [u for u in model.units if u.kind == "wrapper"]
+    if args.list_outputs:
+        nwunits.print_outputs(args.out, (output_path(args.out, u) for u in wrappers))
+        return 0
     errors, written, changed = [], 0, 0
     try:
         clang = Parser(args.decomp)
