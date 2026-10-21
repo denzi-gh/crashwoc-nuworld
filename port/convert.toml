@@ -1,0 +1,20 @@
+# Converter annotations; checked by `python tools/gen_converters.py --check`.
+# unions: a union that mixes pointers with other members converts through `member`, or with
+#   `hook = true` through nw_xh_<T> / nw_xhr_<T> in src/data/xhooks.c (a nested one gets its named
+#   record; `$n` and `.` become `__` in the name)
+# arrays: a [0] or [] array needs `hook = true`
+# Anything else that needs an entry is a generator error, so a decomp bump cannot add one unnoticed.
+
+schema = 1
+
+[unions]
+# numtl/nuwater read only .s32 and .f32; .voidptr is never used.
+"union nufx_u" = { member = "u32" }
+# The per-curve flags decide; the .ani loader converts these (M4).
+"union nuanimcurve2_u" = { hook = true }
+# Editor-only: built at runtime, never in the retail data image.
+"struct eduiitem_s$1" = { hook = true }
+"struct eduiitem_s$2" = { hook = true }
+
+[arrays]
+"struct eduimenu_s.titlebuf" = { hook = true }
