@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Generate the wrapper TU of every compiled decomp unit.
 
-Writes <unit>.wrap.c under --out: the unit's source, then <unit>.stubs.inc and
-<unit>.funcmap.inc. libclang locates the definitions to rename: an overridden
-Foo becomes Foo__ps2 behind a prototype of the port's Foo (callers below it
-bind to the port), a `rename` entry gets its host name. #line keeps
-diagnostics and debug info on the decomp source.
+Writes <unit>.wrap.c under --out: the port prelude (engine and game units),
+the unit's source, then <unit>.stubs.inc and <unit>.funcmap.inc. libclang
+locates the definitions: an overridden Foo is dropped and only a prototype of
+the port's Foo (or its stub) stays, so callers bind to the port; a `rename`
+entry renames the function's declarations, definition and calls in the
+source. #line keeps diagnostics and debug info on the decomp source.
 """
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -19,8 +21,9 @@ import nwunits  # noqa: E402
 
 cindex = nwclang.cindex
 
-SUFFIX = "__ps2"
 INLINE_WORDS = frozenset(("inline", "__inline", "__inline__"))
+PRELUDE = "port/nw_prelude.h"
+DIRECTIVE = re.compile(rb"^[ \t]*#", re.M)
 
 
 class FilterError(Exception):
@@ -28,8 +31,7 @@ class FilterError(Exception):
 
 
 class Parser:
-    """The host view of each unit; bodies may have errors, only the positions
-    of definitions matter here."""
+    """The host view of each unit; only the positions of definitions matter."""
 
     def __init__(self, decomp: Path):
         try:
@@ -60,8 +62,7 @@ def _line_directive(line: int, path: str) -> str:
 
 
 def _join(tokens, swap: dict[int, str]) -> str:
-    """Token spellings, one space where the source had a gap (drops comments);
-    `swap` replaces the token at an offset."""
+    """Token spellings joined by single spaces; `swap` replaces the token at an offset."""
     out, end = [], None
     for t in tokens:
         start = t.extent.start.offset
@@ -93,11 +94,30 @@ def prototype(cursor, host: str) -> str:
     return _join(head, {name_at: host}) + ";"
 
 
+def references(cursor, name: str, size: int) -> list[int]:
+    """Offsets of the function's declarations, definition and calls in the main file."""
+    tu = cursor.translation_unit
+    extent = tu.get_extent(tu.spelling, (0, size))
+    out = []
+    for t in tu.get_tokens(extent=extent):
+        if t.kind != cindex.TokenKind.IDENTIFIER or t.spelling != name:
+            continue
+        ref = cindex.Cursor.from_location(tu, t.location).referenced
+        if ref is None:
+            raise FilterError(f"{name}: line {t.location.line} uses the name where libclang "
+                              "sees no declaration (macro?)")
+        if ref.kind == cindex.CursorKind.FUNCTION_DECL and ref.spelling == name:
+            out.append(t.extent.start.offset)
+    return out
+
+
 def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str) -> tuple[bytes, list[str]]:
-    """Rename the unit's overridden/renamed definitions; returns (text, renamed)."""
+    """Drop overridden definitions and apply renames; returns (text, changes)."""
     newline = b"\r\n" if b"\r\n" in data else b"\n"
     edits = []                              # (offset, delete, insert)
-    renamed = []
+    dropped = []                            # (start, end) of removed definitions
+    renames = []                            # (offset, old, new)
+    changes = []
     for f in unit.functions:
         if not (f.overridden or f.host != f.name):
             continue
@@ -108,22 +128,36 @@ def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str) -> t
         if data[off:off + len(f.name)] != f.name.encode():
             raise FilterError(f"{unit.name}: {f.name}: the name is not a plain token (macro?)")
         if f.overridden:
-            start = c.extent.start.offset
+            start, end = c.extent.start.offset, c.extent.end.offset
             line_start = data.rfind(b"\n", 0, start) + 1
             if data[line_start:start].strip():
                 raise FilterError(f"{unit.name}: {f.name}: the definition does not start a line")
+            line_end = data.find(b"\n", end)
+            line_end = len(data) if line_end < 0 else line_end + 1
+            if data[end:line_end].strip():
+                raise FilterError(f"{unit.name}: {f.name}: the definition does not end its line")
+            if DIRECTIVE.search(data, start, end):
+                raise FilterError(f"{unit.name}: {f.name}: preprocessor directive inside the "
+                                  "definition")
             insert = (prototype(c, f.host).encode() + newline
-                      + _line_directive(c.extent.start.line, source).encode() + newline)
-            edits.append((line_start, 0, insert))
-            new = f.name + SUFFIX
+                      + _line_directive(c.extent.end.line + 1, source).encode() + newline)
+            edits.append((line_start, line_end - line_start, insert))
+            dropped.append((line_start, line_end))
+            changes.append(f"{f.name} dropped" + ("" if f.host == f.name else f", -> {f.host}"))
         else:
-            new = f.host
-        edits.append((off, len(f.name), new.encode()))
-        renamed.append(f"{f.name} -> {new}")
+            changes.append(f"{f.name} -> {f.host}")
+        if f.host != f.name:
+            try:
+                offsets = references(c, f.name, len(data))
+            except FilterError as e:
+                raise FilterError(f"{unit.name}: {e}") from None
+            renames.extend((o, f.name, f.host) for o in offsets)
+    edits.extend((o, len(old), new.encode()) for o, old, new in renames
+                 if not any(s <= o < e for s, e in dropped))
     out = bytearray(data)
     for off, delete, insert in sorted(edits, key=lambda e: e[0], reverse=True):
         out[off:off + delete] = insert
-    return bytes(out), renamed
+    return bytes(out), changes
 
 
 def check(unit: nwunits.Unit, defs: dict, errors: list[str]) -> None:
@@ -134,19 +168,25 @@ def check(unit: nwunits.Unit, defs: dict, errors: list[str]) -> None:
             errors.append(f"{unit.name}: only {seen} sees a definition of {f.name}")
 
 
+def wants_prelude(unit: nwunits.Unit) -> bool:
+    """Engine and game units only: host <math.h> breaks libm's isinf/isnan/finite."""
+    return not unit.name.startswith("sdk/")
+
+
 def render(unit: nwunits.Unit, data: bytes, defs: dict, source: str,
            wrapper: str) -> tuple[bytes, list[str]]:
-    body, renamed = filter_source(data, unit, defs, source)
+    body, changes = filter_source(data, unit, defs, source)
     if not body.endswith(b"\n"):
         body += b"\n"
     head = (f"/* Generated by tools/tu_filter.py for decomp unit {unit.name}; do not edit. */\n"
+            + (f'#include "{PRELUDE}"\n' if wants_prelude(unit) else "")
             + _line_directive(1, source) + "\n").encode()
     text = head + body
     stem = unit.name.rsplit("/", 1)[-1]
     tail = (_line_directive(text.count(b"\n") + 2, wrapper) + "\n"
             f'#include "{stem}.stubs.inc"\n'
             f'#include "{stem}.funcmap.inc"\n')
-    return text + tail.encode(), renamed
+    return text + tail.encode(), changes
 
 
 def output_path(out: Path, unit: nwunits.Unit) -> Path:
@@ -166,14 +206,15 @@ def main() -> int:
     nwunits.add_common_args(parser)
     parser.add_argument("--out", type=Path, default=nwunits.REPO / "build" / "gen")
     parser.add_argument("--check", action="store_true", help="validate only, write nothing")
-    parser.add_argument("--list", action="store_true", help="print every renamed definition")
+    parser.add_argument("--list", action="store_true",
+                        help="print every dropped or renamed definition")
     args = parser.parse_args()
 
     model = nwunits.load(args.decomp, args.units, args.port_src, args.editor)
     if not nwunits.report(model, sys.stderr):
         return 1
     wrappers = [u for u in model.units if u.kind == "wrapper"]
-    errors, written, renamed = [], 0, 0
+    errors, written, changed = [], 0, 0
     try:
         clang = Parser(args.decomp)
     except FilterError as e:
@@ -191,7 +232,7 @@ def main() -> int:
             except FilterError as e:
                 errors.append(str(e))
                 continue
-            renamed += len(names)
+            changed += len(names)
             if args.list:
                 for n in names:
                     print(f"{unit.name:32} {n}")
@@ -203,7 +244,7 @@ def main() -> int:
         print(f"error: {e}", file=sys.stderr)
     if errors:
         return 1
-    print(f"{len(wrappers)} wrapper units, {renamed} definitions renamed"
+    print(f"{len(wrappers)} wrapper units, {changed} definitions dropped or renamed"
           + ("" if args.check else f"; {written} files written to {args.out}"))
     return 0
 

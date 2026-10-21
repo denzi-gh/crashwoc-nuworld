@@ -583,7 +583,8 @@ def _check_globals(model: Model, units: list[Unit], port_defs: dict[str, Decl]) 
                     f"compiles from the decomp; add it to that unit's override list")
     for host, where in sorted(owners.items()):
         if len(where) > 1:
-            model.warnings.append(f"global {host} is defined by several units: {', '.join(where)}")
+            model.errors.append(f"global {host} is defined by several units: {', '.join(where)}; "
+                                "rename it in all but one")
 
 
 def write_if_changed(path: Path, text: str) -> bool:
