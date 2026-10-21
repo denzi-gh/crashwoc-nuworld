@@ -146,14 +146,14 @@ class Mirror:
             lines.append(f"{indent}{decl};{note}")
         return lines
 
-    def asserts(self, top: str, rid: str, base: int, prefix: str) -> list[str]:
+    def asserts(self, top: str, rid: str, base: int, prefix: str, view: str = "ps2") -> list[str]:
         out = []
-        t = mirror_name(top)
+        t = mirror_name(top) if view == "ps2" else top
         for f in self.records[rid]["fields"]:
-            lay, path = f["ps2"], prefix + f["name"]
+            lay, path = f[view], prefix + f["name"]
             d, dims = leaf(f)
             if "bit" in lay:
-                if f["name"]:
+                if f["name"] and view == "ps2":
                     self.bitfields.append((top, path, lay["bits"], base * 8 + lay["bit"]))
                 continue
             if f["name"]:
@@ -161,7 +161,7 @@ class Mirror:
                            f"sizeof((({t} *)0)->{path}) == {lay['size']}, \"{top}.{path}\");")
             if d["kind"] == "record" and nested(d["ref"]):
                 inner = path + "[0]" * len(dims) + "." if f["name"] else prefix
-                out += self.asserts(top, d["ref"], base + lay["offset"], inner)
+                out += self.asserts(top, d["ref"], base + lay["offset"], inner, view)
         return out
 
     def render(self) -> tuple[str, str]:

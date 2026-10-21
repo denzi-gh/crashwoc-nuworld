@@ -1,0 +1,8 @@
+schema = 1
+
+[unions]
+"union fixmixed_u" = { member = "i" }
+"union fixhook_u" = { hook = true }
+
+[arrays]
+"struct fixunion_s.tail" = { hook = true }
