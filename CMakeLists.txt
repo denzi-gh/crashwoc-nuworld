@@ -15,6 +15,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned release" OFF)
 option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
+option(NUWORLD_DECOMP "Generate and compile the decomp units (needs Python 3.11+ with libclang)" ON)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -113,4 +114,8 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_vfs PRIVATE nuworld_frontend)
   add_test(NAME vfs COMMAND nuworld_test_vfs ${CMAKE_CURRENT_BINARY_DIR}/test-vfs)
+endif()
+
+if(NUWORLD_DECOMP)
+  include(cmake/decomp.cmake)
 endif()

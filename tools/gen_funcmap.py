@@ -54,6 +54,10 @@ def main() -> int:
             model.errors.append(f"unit symbol {symbol} is not unique")
     if not nwunits.report(model, sys.stderr):
         return 1
+    if args.list_outputs:
+        nwunits.print_outputs(args.out, [*(args.out / (u.name + ".funcmap.inc") for u in built),
+                                         args.out / "funcmap.c"])
+        return 0
     written = 0
     if not args.check:
         for unit in built:

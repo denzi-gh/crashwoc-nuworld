@@ -353,6 +353,26 @@ class TuFilter(unittest.TestCase):
         self.assertEqual(errors, ["nucore/fixcore: only nwunits sees a definition of FixAdd"])
 
 
+class ListOutputs(unittest.TestCase):
+    def outputs(self, tool):
+        run = subprocess.run([sys.executable, str(REPO / "tools" / tool), "--decomp", str(DECOMP),
+                              "--units", str(UNITS), "--port-src", str(PORT_SRC),
+                              "--out", "gen", "--list-outputs"],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        return run.stdout.split()
+
+    def test_generators(self):
+        self.assertEqual(self.outputs("tu_filter.py"),
+                         ["nucore/fixcore.wrap.c", "game/fixgame.wrap.c"])
+        self.assertEqual(self.outputs("gen_stubs.py"),
+                         ["nucore/fixcore.stubs.inc", "numath/fixasm.stubs.c",
+                          "game/fixgame.stubs.inc", "game/fixdead.stubs.c"])
+        self.assertEqual(self.outputs("gen_funcmap.py"),
+                         ["nucore/fixcore.funcmap.inc", "numath/fixasm.funcmap.inc",
+                          "game/fixgame.funcmap.inc", "game/fixdead.funcmap.inc", "funcmap.c"])
+
+
 class EndToEnd(unittest.TestCase):
     def test_generated_code_links_and_runs(self):
         cc = find_cc()
