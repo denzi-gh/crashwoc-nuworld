@@ -89,6 +89,7 @@ bool nw_game_start(NwGameEntry entry, int argc, char **argv)
     nw_game.argc = argc;
     nw_game.argv = argv;
     nw_game.state = NW_GAME_RUNNING;
+    nw_game.delivered = nw_clock_edges(&nw_game.clock); /* the game owes nothing to edges before it ran */
     SDL_PropertiesID props = SDL_CreateProperties();
     SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, (void *)nw_game_run);
     SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, "nw_game");
@@ -109,6 +110,11 @@ NwGameState nw_game_state(void)
     NwGameState state = nw_game.state;
     SDL_UnlockMutex(nw_game.lock);
     return state;
+}
+
+uint64_t nw_game_edges(void)
+{
+    return nw_clock_edges(&nw_game.clock);
 }
 
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms)

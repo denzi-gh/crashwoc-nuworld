@@ -129,8 +129,9 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Everything the decomp needs at link time: its objects, the data image and the SDK shims. The executable takes it
 # whole (nothing references nw_game_main yet, and the link is what proves the closure); tests pull what they use.
 # Never build it with LTO: the data image defines the roots as raw bytes.
-set(nw_game_sources ${nw_dataimage} src/port/game.c src/port/nudat.c src/port/ps2video.c src/shim/cdvd.c
-  src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
+set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/port/game.c src/port/nudat.c
+  src/port/nuerror.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c
+  src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
@@ -157,6 +158,11 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-data)
   set_tests_properties(data-image-retail PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: the game from the imported disc to 50 vblanks after its first screen swap.
+  add_test(NAME boot-check
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
+      --data-dir {root} --boot-check 50)
+  set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
   add_executable(nuworld_test_nudat tests/c/test_nudat.c)
