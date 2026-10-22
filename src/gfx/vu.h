@@ -31,10 +31,10 @@ typedef struct NwVuTexture {
     bool tcc; /* TEX0.TCC */
 } NwVuTexture;
 
-/* What a material gives the programs: diffuse VU 0x13 (x128), uvoff VU 0x14, the texture (NULL or 0: none), state. */
+/* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state. */
 typedef struct NwVuMaterial {
     float diffuse[4];
-    float uvoff[2];
+    float uvoff[4]; /* VU 0x14 u, v; the STROW row u, v (x4096) when the geom unpacks its texcoords under STMOD 1 */
     const NwVuTexture *tex;
     NwMtlState state;
 } NwVuMaterial;

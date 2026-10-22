@@ -41,10 +41,19 @@ typedef struct NwMtlPass {
     bool rgb, alpha, z;
 } NwMtlPass;
 
+/* A material's UV scroll as NuMtlAnimate keeps it in numtl_s. */
+typedef struct NwMtlScroll {
+    uint8_t umode, vmode; /* 0 none, 1 du, 2 du += su * dt wrapped to [0, 1), 3 sin(sinetime * su) * du, 4 cos */
+    float du, dv, su, sv;
+    float u, v; /* the offsets: VU 0x14 and, times 4096 and truncated, the STROW row */
+} NwMtlScroll;
+
 /* k, l: numtl_s.K and L; levels: the mip levels of the material's texture (0 untextured). */
 NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t levels);
 /* The passes the alpha test needs: the passing pixels, then (unless AFAIL is KEEP) what AFAIL writes of the rest. */
 uint32_t nw_mtl_passes(const NwMtlState *s, NwMtlPass pass[2]);
+/* NuMtlAnimate for one material; sinetime is its clock, already advanced by dt. */
+void nw_mtl_animate(NwMtlScroll *s, float sinetime, float dt);
 /* false for an ALPHA whose C is not As or whose factors have no GL blend. */
 bool nw_mtl_blend(uint8_t alpha, NwMtlBlend *b);
 

@@ -19,7 +19,7 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_ambient;\n"
     "uniform vec4 u_lightdir[3];\n"
     "uniform vec4 u_lightcol[3];\n"
-    "uniform vec4 u_uvoff;\n"
+    "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
     "void main()\n"
@@ -28,7 +28,7 @@ static const char nw_vu_vs[] =
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
     "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
     "    vec4 lit = u_lightcol[0] * nl.x + u_lightcol[1] * nl.y + u_lightcol[2] * nl.z;\n"
-    "    v_uv = a_tex.xy / 4096.0;\n"
+    "    v_uv = (a_tex.xy + u_uvoff.zw) / 4096.0;\n"
     "#if PROGRAM == 0\n" /* tri, tric: vertex colour plus the lit material diffuse */
     "    v_col = vec4(min(a_col.rgb + u_diffuse.rgb * (u_ambient.rgb + lit.rgb), 255.0), a_col.a);\n"
     "#elif PROGRAM == 1\n" /* tricu: unlit */
@@ -237,8 +237,7 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].ambient, 1, o->ambient);
     glUniform4fv(nw_vu[program].lightdir, 3, o->lightdir[0]);
     glUniform4fv(nw_vu[program].lightcol, 3, o->lightcol[0]);
-    const float uv[4] = { m->uvoff[0], m->uvoff[1], 0.0f, 0.0f };
-    glUniform4fv(nw_vu[program].uvoff, 1, uv);
+    glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
     bool textured = m->tex && m->tex->index;
     glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
                 m->state.wmt == 1);

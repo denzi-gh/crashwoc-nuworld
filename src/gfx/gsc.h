@@ -58,6 +58,8 @@ typedef struct NwGscMtl {
     float diffuse[3], alpha;
     int16_t k; /* the mipmap K (0x1AC) and L (0x1AE) */
     uint8_t l;
+    uint8_t umode, vmode;   /* uanmmode, vanmmode (0x1AF) */
+    float du, dv, su, sv;   /* 0x1B0 */
 } NwGscMtl;
 
 typedef struct NwGscInst {

@@ -15,6 +15,8 @@ typedef struct NwViewDraw {
     uint32_t first, count;
     NwVuProgram program;
     NwVuMaterial mtl;
+    uint32_t mtlid;
+    bool uvrow; /* the geom's texcoords add the material's STROW row */
 } NwViewDraw;
 
 /* An object's draws and the bounds of its vertices. */
@@ -29,6 +31,8 @@ typedef struct NwView {
     NwViewObject *objects;
     NwTex *decoded;        /* by tid until the upload; no levels where a texture did not decode */
     NwVuTexture *textures; /* by tid; zero where a texture did not decode */
+    NwMtlScroll *scroll;   /* by material */
+    float sinetime, tick;  /* NuMtlAnimate's clock, and the time to the next 50 Hz step */
     GLuint vao, vbo, ibo;
     float pos[3], yaw, pitch, speed, near, far;
 } NwView;
@@ -43,6 +47,7 @@ static void nw_view_free(NwView *v, const NwGsc *g)
     SDL_free(v->objects);
     SDL_free(v->decoded);
     SDL_free(v->textures);
+    SDL_free(v->scroll);
 }
 
 static bool nw_view_load(NwView *v, const NwGsc *g, const char *name)
@@ -51,8 +56,13 @@ static bool nw_view_load(NwView *v, const NwGsc *g, const char *name)
     v->objects = SDL_calloc(g->nobjects + 1, sizeof(*v->objects));
     v->decoded = SDL_calloc(g->ntextures + 1, sizeof(*v->decoded));
     v->textures = SDL_calloc(g->ntextures + 1, sizeof(*v->textures));
-    if (!v->draws || !v->objects || !v->decoded || !v->textures) {
+    v->scroll = SDL_calloc(g->nmtls + 1, sizeof(*v->scroll));
+    if (!v->draws || !v->objects || !v->decoded || !v->textures || !v->scroll) {
         return false;
+    }
+    for (uint32_t i = 0; i < g->nmtls; i++) {
+        NwGscMtl m = nw_gsc_mtl(g, i);
+        v->scroll[i] = (NwMtlScroll){ m.umode, m.vmode, m.du, m.dv, m.su, m.sv, 0.0f, 0.0f };
     }
     for (uint32_t i = 0; i < g->ntextures; i++) {
         if (!nw_gsc_texture(g, i, &v->decoded[i])) {
@@ -82,9 +92,11 @@ static bool nw_view_load(NwView *v, const NwGsc *g, const char *name)
             *d = (NwViewDraw){ tris, v->mesh.ntris - tris, nw_vu_program(nw_gsc_mtl_package(&m)),
                                { { m.diffuse[0] * 128.0f, m.diffuse[1] * 128.0f, m.diffuse[2] * 128.0f,
                                    m.alpha * 128.0f },
-                                 { 0.0f, 0.0f },
+                                 { 0.0f, 0.0f, 0.0f, 0.0f },
                                  textured ? &v->textures[m.tid] : NULL,
-                                 nw_mtl_state(m.attrib, m.k, m.l, textured ? v->decoded[m.tid].nlevels : 0) } };
+                                 nw_mtl_state(m.attrib, m.k, m.l, textured ? v->decoded[m.tid].nlevels : 0) },
+                               b->mtl,
+                               v->mesh.uvrow };
             for (uint32_t n = verts; n < v->mesh.nverts; n++) {
                 const float *p = v->mesh.verts[n].pos;
                 for (int k = 0; k < 3 && isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]); k++) {
@@ -218,6 +230,27 @@ static void nw_view_matrix(const NwView *v, float aspect, float out[16])
     memcpy(out, m.lv, sizeof(m.lv));
 }
 
+/* NuMtlAnimate as the game calls it, once a 50 Hz frame with dt 0.02 (a stall runs at most 0.25 s of them). */
+static void nw_view_animate(NwView *v, const NwGsc *g, float dt)
+{
+    for (v->tick += fminf(dt, 0.25f); v->tick >= 0.02f; v->tick -= 0.02f) {
+        v->sinetime += 0.02f;
+        for (uint32_t i = 0; i < g->nmtls; i++) {
+            nw_mtl_animate(&v->scroll[i], v->sinetime, 0.02f);
+        }
+    }
+}
+
+/* VU 0x14 and, for a geom whose texcoords take it, the STROW row (offset x4096, truncated as NuMtlAnimate does). */
+static void nw_view_uvoff(const NwView *v, NwViewDraw *d)
+{
+    const NwMtlScroll *s = &v->scroll[d->mtlid];
+    d->mtl.uvoff[0] = s->u;
+    d->mtl.uvoff[1] = s->v;
+    d->mtl.uvoff[2] = d->uvrow ? (float)(int32_t)(s->u * 4096.0f) : 0.0f;
+    d->mtl.uvoff[3] = d->uvrow ? (float)(int32_t)(s->v * 4096.0f) : 0.0f;
+}
+
 static void nw_view_move(NwView *v, float dt)
 {
     const bool *keys = SDL_GetKeyboardState(NULL);
@@ -265,6 +298,7 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
         }
         uint64_t now = SDL_GetTicksNS();
         nw_view_move(&v, (float)(now - last) * 1e-9f);
+        nw_view_animate(&v, g, (float)(now - last) * 1e-9f);
         last = now;
 
         int width, height;
@@ -288,6 +322,7 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
             nw_vu1init(&o, in.mtx, view);
             for (uint32_t d = obj->first; d < obj->first + obj->count; d++) {
                 NwMtlPass pass[2];
+                nw_view_uvoff(&v, &v.draws[d]);
                 uint32_t n = nw_vu_use(v.draws[d].program, &o, &v.draws[d].mtl, pass);
                 for (uint32_t k = 0; k < n; k++) {
                     nw_vu_pass(v.draws[d].program, &v.draws[d].mtl, &pass[k]);

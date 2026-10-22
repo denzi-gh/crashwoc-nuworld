@@ -179,7 +179,7 @@ static void test_long_strip(void)
     vif_free(&b);
 }
 
-/* Compressed V4-16 positions against the STROW span and VU 2 header; a UV row under STMOD 1 is ignored. */
+/* Compressed V4-16 positions against the STROW span and VU 2 header; texcoords under STMOD 1 flag the geom. */
 static void test_packed(void)
 {
     const float span[3] = { 4096.0f, 4096.0f, 4096.0f }, mid[3] = { 1.0f, 2.0f, 3.0f };
@@ -195,12 +195,21 @@ static void test_packed(void)
         vif_end(&b, 0);
         NwVifMesh m = { 0 };
         CHECK(decode(&m, &b));
-        CHECK(m.nbatches == 2 && m.nverts == 10 && m.ntris == 6);
+        CHECK(m.nbatches == 2 && m.nverts == 10 && m.ntris == 6 && m.uvrow == (flags != 0));
         CHECK(same_vertices(&m, 0, v, adc, 5, true, true));
         CHECK(same_vertices(&m, 5, v, adc, 5, true, false));
         nw_vif_free(&m);
         vif_free(&b);
     }
+    /* Both STMODs in one geom would need two rows. */
+    VifBuild b;
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 5, VIF_UV_ROW);
+    vif_batch(&b, v, adc, 5, 0);
+    vif_end(&b, 0);
+    NwVifMesh m = { 0 };
+    CHECK_FAILS(decode(&m, &b), "texcoords under STMOD 0 and 1 in one geom");
+    vif_free(&b);
 }
 
 /* The chain: a batch split by a NEXT tag over a gap, and the converter's stale bytes after the RET. */
@@ -338,11 +347,15 @@ static void test_gsc(void)
         }
     }
     const int16_t k = -90;
+    const float scroll[4] = { 0.5f, 0.25f, 2.0f, -1.0f };
     memcpy(b.buf + g.mtls + 0x1AC, &k, 2);
     b.buf[g.mtls + 0x1AE] = 1;
+    b.buf[g.mtls + 0x1AF] = 0x12;
+    memcpy(b.buf + g.mtls + 0x1B0, scroll, sizeof(scroll));
     NwGscMtl m = nw_gsc_mtl(&g, 0);
     CHECK(NW_GSC_ATTRIB_LIGHTING(m.attrib) == 2 && !NW_GSC_ATTRIB_OT(m.attrib) && m.tid == -1);
-    CHECK(m.k == -90 && m.l == 1);
+    CHECK(m.k == -90 && m.l == 1 && m.umode == 2 && m.vmode == 1);
+    CHECK(m.du == 0.5f && m.dv == 0.25f && m.su == 2.0f && m.sv == -1.0f);
     CHECK(m.diffuse[1] == 0.5f && m.alpha == 1.0f);
     m = nw_gsc_mtl(&g, 1);
     CHECK(NW_GSC_ATTRIB_COLOUR(m.attrib) == 1 && NW_GSC_ATTRIB_OT(m.attrib));
@@ -683,6 +696,22 @@ static void test_atest(void)
     CHECK(nw_mtl_passes(&s, pass) == 1);
 }
 
+/* NuMtlAnimate's modes per axis: none, constant, wrapped scroll, sine and cosine of the shared clock. */
+static void test_animate(void)
+{
+    NwMtlScroll s = { 2, 1, 0.9f, 0.25f, 0.5f, 0.0f, 0.0f, 0.0f };
+    nw_mtl_animate(&s, 0.5f, 0.5f);
+    CHECK(SDL_fabsf(s.u - 0.15f) < 1e-6f && SDL_fabsf(s.du - 0.15f) < 1e-6f && s.v == 0.25f);
+    nw_mtl_animate(&s, 1.0f, 0.5f);
+    CHECK(SDL_fabsf(s.u - 0.4f) < 1e-6f && s.v == 0.25f);
+    s = (NwMtlScroll){ 3, 4, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 0.0f };
+    nw_mtl_animate(&s, 0.25f, 0.02f); /* NuTrigTable[16384] = sin(pi / 2), [32768] = sin(pi) */
+    CHECK(SDL_fabsf(s.u - 0.5f) < 1e-6f && SDL_fabsf(s.v) < 1e-4f && s.du == 0.5f);
+    s = (NwMtlScroll){ 0, 0, 0.5f, 0.5f, 1.0f, 1.0f, 0.125f, 0.25f };
+    nw_mtl_animate(&s, 1.0f, 0.02f);
+    CHECK(s.u == 0.125f && s.v == 0.25f);
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -757,6 +786,7 @@ int main(int argc, char *argv[])
     test_blend();
     test_depth();
     test_atest();
+    test_animate();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

@@ -267,6 +267,12 @@ NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index)
     memcpy(&m.tid, p + 0x1A4, 4);
     memcpy(&m.k, p + 0x1AC, 2);
     m.l = p[0x1AE];
+    m.umode = p[0x1AF] & 15;
+    m.vmode = p[0x1AF] >> 4;
+    memcpy(&m.du, p + 0x1B0, 4);
+    memcpy(&m.dv, p + 0x1B4, 4);
+    memcpy(&m.su, p + 0x1B8, 4);
+    memcpy(&m.sv, p + 0x1BC, 4);
     return m;
 }
 

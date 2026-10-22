@@ -1,5 +1,7 @@
 #include "gfx/mtl.h"
 
+#include <math.h>
+
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
@@ -85,4 +87,35 @@ uint32_t nw_mtl_passes(const NwMtlState *s, NwMtlPass pass[2])
     pass[1] = afail[s->afail];
     pass[1].z = pass[1].z && !s->zmsk;
     return 2;
+}
+
+/* NuTrigTable[((int)index + add) & 0xFFFF], NuTrigInit's sin(i * 2pi / 65536); the int conversion saturates. */
+static float nw_mtl_trig(float index, uint32_t add)
+{
+    int32_t i = index >= 2147483648.0f ? INT32_MAX : index <= -2147483648.0f ? INT32_MIN : (int32_t)index;
+    return (float)sin((float)(((uint32_t)i + add) & 0xFFFF) * 0.0000958738f);
+}
+
+static float nw_mtl_axis(uint8_t mode, float *d, float s, float sinetime, float dt, float offset)
+{
+    switch (mode) {
+    case 1:
+        return *d;
+    case 2:
+        *d += s * dt;
+        *d = *d - floorf(*d);
+        return *d;
+    case 3:
+        return nw_mtl_trig(sinetime * s * 65536.0f, 0) * *d;
+    case 4:
+        return nw_mtl_trig(sinetime * s * 65536.0f, 0x4000) * *d;
+    default:
+        return offset;
+    }
+}
+
+void nw_mtl_animate(NwMtlScroll *s, float sinetime, float dt)
+{
+    s->u = nw_mtl_axis(s->umode, &s->du, s->su, sinetime, dt, s->u);
+    s->v = nw_mtl_axis(s->vmode, &s->dv, s->sv, sinetime, dt, s->v);
 }
