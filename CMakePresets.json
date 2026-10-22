@@ -22,10 +22,17 @@
       "displayName": "Release (clang)",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "libFuzzer, ASan, UBSan (clang)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "NUWORLD_FUZZ": "ON", "NUWORLD_DECOMP": "OFF" }
     }
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "fuzz", "configurePreset": "fuzz", "targets": ["nuworld_fuzz_vfs", "nuworld_fuzz_seeds"] }
   ]
 }
