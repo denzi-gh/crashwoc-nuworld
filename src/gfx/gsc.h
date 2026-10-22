@@ -72,6 +72,7 @@ typedef struct NwGscInst {
 #define NW_GSC_ATTRIB_FX(a) (((a)[0] >> 6) & 3)
 #define NW_GSC_ATTRIB_UTC(a) (((a)[0] >> 8) & 3)
 #define NW_GSC_ATTRIB_VTC(a) (((a)[0] >> 10) & 3)
+#define NW_GSC_ATTRIB_ZMODE(a) (((a)[0] >> 14) & 3)
 #define NW_GSC_ATTRIB_LIGHTING(a) (((a)[0] >> 16) & 3)
 #define NW_GSC_ATTRIB_COLOUR(a) (((a)[0] >> 18) & 1)
 #define NW_GSC_ATTRIB_OT(a) (((a)[1] >> 3) & 1)

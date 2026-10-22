@@ -19,6 +19,8 @@ NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t
     NwMtlState s;
     s.abe = NW_GSC_ATTRIB_ALPHA(attrib) != 0;
     s.alpha = nw_mtl_alpha[NW_GSC_ATTRIB_ALPHA(attrib)];
+    s.ztst = NW_GSC_ATTRIB_ZMODE(attrib) >= 2 ? 1 : 2;
+    s.zmsk = NW_GSC_ATTRIB_ZMODE(attrib) & 1;
     s.mmag = nw_mtl_mmag[NW_GSC_ATTRIB_FILTER(attrib)];
     s.mmin = nw_mtl_mmin[NW_GSC_ATTRIB_FILTER(attrib)];
     s.mxl = NW_GSC_ATTRIB_FILTER(attrib) == 2 && levels > 0 ? (uint8_t)(levels - 1) : 0;

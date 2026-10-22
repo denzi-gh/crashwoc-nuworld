@@ -236,6 +236,10 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
         glDisable(GL_BLEND);
     }
     glUniform1i(nw_vu[program].ascolour, m->state.abe && b.as_colour);
+    /* The GS keeps the larger z; the screen matrices give GL the smaller one for the nearer point. */
+    static const GLenum ztst[4] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
+    glDepthFunc(ztst[m->state.ztst & 3]);
+    glDepthMask(!m->state.zmsk);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);

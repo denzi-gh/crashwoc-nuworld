@@ -8,6 +8,8 @@
 typedef struct NwMtlState {
     bool abe;           /* PRMODE.ABE */
     uint8_t alpha;      /* ALPHA_1: (A - B) * C + D, 2 bits each */
+    uint8_t ztst;       /* TEST_1: 0 NEVER, 1 ALWAYS, 2 GEQUAL, 3 GREATER (ZTE is always on) */
+    bool zmsk;          /* ZBUF_1: no Z writes */
     uint8_t mmag, mmin; /* TEX1: 0 NEAREST, 1 LINEAR, mmin 5 LINEAR_MIPMAP_LINEAR */
     uint8_t mxl, l;     /* TEX1: the last mip level, LOD = log2(1/Q) << L + K */
     int16_t k;          /* in 1/16 */

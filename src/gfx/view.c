@@ -271,9 +271,9 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
         SDL_GetWindowSizeInPixels(p->window, &width, &height);
         glViewport(0, 0, width, height);
         glClearColor(0.1f, 0.12f, 0.16f, 1.0f);
+        glDepthMask(GL_TRUE); /* a ZMSK material may have left it off, and glClear honours it */
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_LEQUAL);
         float view[16];
         nw_view_matrix(&v, height > 0 ? (float)width / (float)height : 1.0f, view);
         glBindVertexArray(v.vao);

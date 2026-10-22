@@ -641,6 +641,20 @@ static void test_blend(void)
     CHECK_FAILS(nw_mtl_blend(0x08, &b), "ALPHA 0x08 has no GL blend"); /* Cs * (1 + As) */
 }
 
+/* CreateStateBlock's ZTST and ZMSK by attrib.zmode. */
+static void test_depth(void)
+{
+    static const struct {
+        uint8_t ztst;
+        bool zmsk;
+    } modes[4] = { { 2, false }, { 2, true }, { 1, false }, { 1, true } };
+    for (uint32_t zmode = 0; zmode < 4; zmode++) {
+        const uint32_t attrib[2] = { zmode << 14, 0 };
+        NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+        CHECK(s.ztst == modes[zmode].ztst && s.zmsk == modes[zmode].zmsk);
+    }
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -713,6 +727,7 @@ int main(int argc, char *argv[])
     test_texset(argv[1]);
     test_mtl();
     test_blend();
+    test_depth();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;
