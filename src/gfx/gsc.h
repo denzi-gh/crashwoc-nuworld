@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define NW_GSC_ID(a, b, c, d) ((uint32_t)(a) | (uint32_t)(b) << 8 | (uint32_t)(c) << 16 | (uint32_t)(d) << 24)
 
@@ -60,10 +61,19 @@ typedef struct NwGscInst {
 #define NW_GSC_ATTRIB_COLOUR(a) (((a)[0] >> 18) & 1)
 #define NW_GSC_ATTRIB_OT(a) (((a)[1] >> 3) & 1)
 
+typedef struct NwGscTotal {
+    uint32_t files, failed, unknown, truncated;
+    uint64_t objects, batches, verts, tris;
+} NwGscTotal;
+
 /* Reads the block list and the objects of an unpacked file; the data must outlive g. */
 bool nw_gsc_open(NwGsc *g, const void *data, size_t size);
 void nw_gsc_close(NwGsc *g);
 NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index);
 NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index);
+
+/* Decodes every plain geom (not OT, not face-on) and prints the file's GSC line; false when one fails. */
+bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total);
+void nw_gsc_report_total(const NwGscTotal *total, FILE *out);
 
 #endif

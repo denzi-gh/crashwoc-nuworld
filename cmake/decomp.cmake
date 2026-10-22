@@ -165,6 +165,11 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --boot-check 50)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
+  add_test(NAME check-scenes-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
+      --data-dir {root} --check-scenes)
+  set_tests_properties(check-scenes-retail PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: the VU1 microcode of the imported boot ELF decodes and maps completely.
   add_test(NAME vu1-disasm-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}

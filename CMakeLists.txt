@@ -129,7 +129,7 @@ if(NUWORLD_TESTS)
   add_executable(nuworld_test_scene tests/c/test_scene.c)
   target_compile_options(nuworld_test_scene PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_scene PRIVATE nuworld_gfx)
-  add_test(NAME scene COMMAND nuworld_test_scene)
+  add_test(NAME scene COMMAND nuworld_test_scene ${CMAKE_CURRENT_BINARY_DIR}/test-scene)
 endif()
 
 if(NUWORLD_FUZZ)

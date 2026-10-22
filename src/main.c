@@ -14,6 +14,7 @@
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
+#include "gfx/gsc.h"
 #include "port/game.h"
 #include "shim/shim.h"
 #include "vfs/sha256.h"
@@ -176,6 +177,83 @@ static int nw_check_data(const char *data_dir)
     nw_vfs_shutdown(&vfs);
     SDL_free(root);
     return ok ? 0 : 1;
+}
+
+/* The decomp's RNC unpacker (NuFileLoadBuffer's). */
+void NuPPUnpack(unsigned char *src, unsigned char *out);
+
+/* A .gsc of the imported disc, unpacked when it is RNC-packed; NULL with SDL_GetError() otherwise. */
+static uint8_t *nw_read_scene(const NwVfs *vfs, const NwManifestEntry *e, size_t *size)
+{
+    char path[NW_VFS_PATH_MAX];
+    SDL_snprintf(path, sizeof(path), "cdrom0:\\%s;1", e->path);
+    for (char *c = path; *c; c++) {
+        *c = *c == '/' ? '\\' : *c;
+    }
+    NwVfsFile *f = nw_vfs_open(vfs, path, NW_VFS_READ);
+    int64_t n = f ? nw_vfs_size(f) : -1;
+    uint8_t *data = n == (int64_t)e->size ? SDL_malloc((size_t)n + 1) : NULL;
+    bool ok = data && nw_vfs_read(f, data, (size_t)n) == n;
+    nw_vfs_close(f);
+    if (!ok) {
+        SDL_free(data);
+        SDL_SetError("missing or not the size the manifest lists (run --verify)");
+        return NULL;
+    }
+    if (n >= 18 && memcmp(data, "RNC\x02", 4) == 0) {
+        uint32_t unpacked = (uint32_t)data[4] << 24 | data[5] << 16 | data[6] << 8 | data[7];
+        uint32_t packed = (uint32_t)data[8] << 24 | data[9] << 16 | data[10] << 8 | data[11];
+        uint8_t *out = packed <= n - 18 && unpacked <= (64u << 20) ? SDL_malloc(unpacked + 1) : NULL;
+        if (out) {
+            NuPPUnpack(data, out);
+        } else {
+            SDL_SetError("RNC header of %u bytes for %u", packed, unpacked);
+        }
+        SDL_free(data);
+        data = out;
+        n = unpacked;
+    }
+    *size = (size_t)n;
+    return data;
+}
+
+/* Every .gsc of the imported disc through the NU20 reader and the VIF decoder; exits 0, 1, or 2 without the disc. */
+static int nw_check_scenes(const char *data_dir)
+{
+    NwVfs vfs;
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_extract_has_disc(root) || !nw_vfs_init(&vfs, root)) {
+        fprintf(stderr, NW_APP_NAME ": no imported disc (run --import)\n");
+        SDL_free(root);
+        return 2;
+    }
+    NwGscTotal total = { 0 };
+    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
+        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+        size_t len = strlen(e->path), size = 0;
+        if (len < 4 || SDL_strcasecmp(e->path + len - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP)) {
+            continue;
+        }
+        uint8_t *data = nw_read_scene(&vfs, e, &size);
+        NwGsc g;
+        bool ok = data && nw_gsc_open(&g, data, size);
+        if (ok) {
+            ok = nw_gsc_report(&g, e->path, stdout, &total);
+            nw_gsc_close(&g);
+        } else {
+            total.files++;
+            total.failed++;
+        }
+        if (!ok) {
+            fflush(stdout);
+            fprintf(stderr, NW_APP_NAME ": %s: %s\n", e->path, SDL_GetError());
+        }
+        SDL_free(data);
+    }
+    nw_gsc_report_total(&total, stdout);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return total.failed || total.unknown ? 1 : 0;
 }
 
 /* The decomp's main (port/units.toml renames it), started as retail's boot starts it. */
@@ -379,7 +457,7 @@ int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *data_dir = NULL;
-    bool verify = false, setup = false, check_data = false, boot = false;
+    bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
 
     for (int i = 1; i < argc; i++) {
@@ -403,6 +481,8 @@ int main(int argc, char *argv[])
             setup = true;
         } else if (strcmp(argv[i], "--check-data") == 0) {
             check_data = true;
+        } else if (strcmp(argv[i], "--check-scenes") == 0) {
+            check_scenes = true;
         } else if (strcmp(argv[i], "--boot") == 0) {
             boot = true;
         } else if (strcmp(argv[i], "--boot-check") == 0) {
@@ -419,8 +499,11 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || boot || boot_check) {
+    if (check_data || check_scenes || boot || boot_check) {
 #ifdef NW_WITH_GAME
+        if (check_scenes) {
+            return nw_check_scenes(data_dir);
+        }
         return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check)
                                                                  : nw_boot(data_dir);
 #else

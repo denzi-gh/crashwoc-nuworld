@@ -4,6 +4,8 @@
 
 #include <SDL3/SDL.h>
 
+#include "gfx/vif.h"
+
 #define NW_GSC_VERSION 6 /* scene_version */
 
 /* The blocks NuGScnLoadFix reads; DbgBlkType calls anything else "unknown". */
@@ -244,4 +246,40 @@ NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index)
     memcpy(&inst.objid, p + 0x40, 4);
     memcpy(&inst.flags, p + 0x44, 4);
     return inst;
+}
+
+bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total)
+{
+    NwVifMesh mesh = { 0 };
+    bool ok = true;
+    for (uint32_t o = 0; o < g->nobjects && ok; o++) {
+        const NwGscObject *obj = &g->objects[o];
+        for (uint32_t i = obj->first; i < obj->first + obj->count && ok; i++) {
+            const NwGscBlob *b = &g->blobs[i];
+            if (!b->ot && !b->faceon && !nw_vif_decode(&mesh, g->data + b->offset, b->size)) {
+                char why[256];
+                SDL_strlcpy(why, SDL_GetError(), sizeof(why));
+                ok = SDL_SetError("object %u geom at 0x%x: %s", o, b->offset, why);
+            }
+        }
+    }
+    total->files++;
+    total->failed += !ok;
+    total->unknown += g->unknown;
+    total->truncated += g->truncated;
+    total->objects += g->nobjects;
+    total->batches += mesh.nbatches;
+    total->verts += mesh.nverts;
+    total->tris += mesh.ntris;
+    fprintf(out, "GSC %s chunks=%u unknown=%u truncated=%d objects=%u batches=%u verts=%u tris=%u\n", name,
+            g->nchunks, g->unknown, g->truncated, g->nobjects, mesh.nbatches, mesh.nverts, mesh.ntris);
+    nw_vif_free(&mesh);
+    return ok;
+}
+
+void nw_gsc_report_total(const NwGscTotal *t, FILE *out)
+{
+    fprintf(out, "TOTAL files=%u failed=%u unknown=%u truncated=%u objects=%llu batches=%llu verts=%llu tris=%llu\n",
+            t->files, t->failed, t->unknown, t->truncated, (unsigned long long)t->objects,
+            (unsigned long long)t->batches, (unsigned long long)t->verts, (unsigned long long)t->tris);
 }

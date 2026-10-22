@@ -1,4 +1,4 @@
-/* Scene geometry tests: the VIF decoder and the NU20 reader on synthetic geoms and scenes. */
+/* Scene geometry: the VIF decoder and the NU20 reader on synthetic data. Usage: test_scene <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
 
@@ -366,8 +366,43 @@ static void test_gsc(void)
     gsc_free(&b);
 }
 
-int main(void)
+/* The --check-scenes lines of the synthetic scene. */
+static void test_report(const char *scratch)
 {
+    GscBuild b;
+    GscScene s;
+    gsc_build_scene(&b, &s);
+    char *path = NULL;
+    SDL_asprintf(&path, "%s/report.txt", scratch);
+    FILE *out = fopen(path, "w+");
+    NwGsc g;
+    NwGscTotal total = { 0 };
+    CHECK(out && nw_gsc_open(&g, b.buf, b.len));
+    if (out && g.data) {
+        CHECK(nw_gsc_report(&g, "TEST.GSC", out, &total));
+        nw_gsc_report_total(&total, out);
+        nw_gsc_close(&g);
+        char text[1024];
+        rewind(out);
+        text[fread(text, 1, sizeof(text) - 1, out)] = 0;
+        CHECK(strcmp(text, "GSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"
+                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n") == 0);
+    }
+    if (out) {
+        fclose(out);
+    }
+    SDL_RemovePath(path);
+    SDL_free(path);
+    gsc_free(&b);
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 2) {
+        fprintf(stderr, "usage: test_scene <scratch dir>\n");
+        return 2;
+    }
+    SDL_CreateDirectory(argv[1]);
     test_batch();
     test_strips();
     test_long_strip();
@@ -375,6 +410,7 @@ int main(void)
     test_chain();
     test_errors();
     test_gsc();
+    test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;
 }
