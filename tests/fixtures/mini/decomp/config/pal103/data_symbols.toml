@@ -38,11 +38,29 @@ section = '.data'
 size = 16
 
 [[symbol]]
+key = 'unit-0006:fixgreet'
+name = 'fixgreet'
+unit = 6
+scope = 'global'
+address = 0x00100c10
+section = '.data'
+size = 4
+
+[[symbol]]
 key = 'unit-0001:fixfar'
 name = 'fixfar'
 unit = 1
 scope = 'static'
 address = 0x00100d00
+section = '.data'
+size = 40
+
+[[symbol]]
+key = 'unit-0001:fixafter'
+name = 'fixafter'
+unit = 1
+scope = 'static'
+address = 0x00100d28
 section = '.data'
 size = 40
 

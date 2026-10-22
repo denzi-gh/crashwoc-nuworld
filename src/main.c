@@ -157,6 +157,19 @@ static int nw_check_data(const char *data_dir)
     if (!ok) {
         fflush(stdout);
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
+    } else {
+        NwImageTrip trip;
+        ok = nw_image_roundtrip(&trip, stdout, err, sizeof(err));
+        if (ok) {
+            nw_image_trip_report(&trip, stdout);
+        }
+        fflush(stdout);
+        if (!ok) {
+            fprintf(stderr, NW_APP_NAME ": data image round trip: %s\n", err);
+        } else if (trip.differ[0] || trip.differ[1]) {
+            fprintf(stderr, NW_APP_NAME ": the data image does not convert back to the ELF\n");
+            ok = false;
+        }
     }
     nw_image_free();
     SDL_free(elf);

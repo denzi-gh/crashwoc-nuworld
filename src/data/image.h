@@ -33,7 +33,25 @@ void nw_image_free(void);
 
 /* The host address of a PS2 data address after nw_image_load; NULL when no object or mirror byte maps it. */
 void *nw_image_host(uint32_t ps2);
+/* The way back: the PS2 address of a host address in the image (one past an object's end included). */
+bool nw_image_ps2(const void *host, uint32_t *ps2);
 
 void nw_image_report(const NwImageStats *s, FILE *out);
+
+/* NwImageTrip: [0] what the image made from the ELF (copied and converted roots, objects only pointers reach),
+   [1] the C definitions at retail addresses. */
+typedef struct NwImageTrip {
+    unsigned objects[2]; /* compared */
+    unsigned differ[2];  /* with a difference, each listed */
+    uint64_t bytes[2];
+    unsigned strings;    /* pointers to string literals of C definitions, matched by their text */
+    unsigned untyped;    /* C definitions with no type to convert them back, not compared */
+} NwImageTrip;
+
+/* Converts everything back to PS2 bytes and compares it with the ELF, which stays in the mirror until the game
+   runs: call it right after nw_image_load. Lists every difference on out; false with the message in err when
+   the way back itself fails. */
+bool nw_image_roundtrip(NwImageTrip *trip, FILE *out, char *err, size_t err_size);
+void nw_image_trip_report(const NwImageTrip *trip, FILE *out);
 
 #endif

@@ -69,6 +69,11 @@ void nw_x_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, cons
     convert(ctx, type, dst, src, root, index, 0);
 }
 
+void nw_xr_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index)
+{
+    convert(ctx, type, dst, src, root, index, 1);
+}
+
 int nw_xoff(const NwType *type, uint32_t ps2_off, uint32_t *host_off)
 {
     if (ps2_off == type->ps2_size) {
@@ -107,6 +112,47 @@ int nw_xoff(const NwType *type, uint32_t ps2_off, uint32_t *host_off)
         return 0;
     }
     *host_off = s->host_off + i * s->host_size + inner;
+    return 1;
+}
+
+int nw_xoff_host(const NwType *type, uint32_t host_off, uint32_t *ps2_off)
+{
+    if (host_off == type->host_size) {
+        *ps2_off = type->ps2_size;
+        return 1;
+    }
+    if (host_off > type->host_size) {
+        return 0;
+    }
+    if (type->flags & NW_TYPE_POD) {
+        *ps2_off = host_off;
+        return 1;
+    }
+    unsigned lo = 0, hi = type->nspans;
+    while (lo < hi) {
+        unsigned mid = lo + (hi - lo) / 2;
+        if (type->spans[mid].host_off <= host_off) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo == 0) {
+        return 0;
+    }
+    const NwSpan *s = &type->spans[lo - 1];
+    uint32_t rel = host_off - s->host_off;
+    if (rel >= s->host_size * s->count) {
+        return 0;
+    }
+    uint32_t i = rel / s->host_size, inner = rel % s->host_size;
+    if (s->kind == NW_SPAN_SLOT && inner != 0) {
+        return 0;
+    }
+    if (s->kind == NW_SPAN_RECORD && !nw_xoff_host(s->type, inner, &inner)) {
+        return 0;
+    }
+    *ps2_off = s->ps2_off + i * s->ps2_size + inner;
     return 1;
 }
 
