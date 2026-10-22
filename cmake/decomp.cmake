@@ -132,15 +132,15 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Never build it with LTO: the data image defines the roots as raw bytes.
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/nudat.c src/port/nuerror.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c
-  src/shim/libc.c src/shim/pad.c src/shim/sif.c)
+  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c
+  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
-target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_port nuworld_vfs)
+target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_gfx nuworld_port nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
@@ -180,6 +180,14 @@ if(NUWORLD_TESTS)
   add_test(NAME nudat COMMAND nuworld_test_nudat ${CMAKE_CURRENT_BINARY_DIR}/test-nudat)
   add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
   set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
+
+  # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts.
+  add_executable(nuworld_test_nugscn tests/c/test_nugscn.c)
+  add_dependencies(nuworld_test_nugscn nuworld_types)
+  target_include_directories(nuworld_test_nugscn PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_nugscn PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_nugscn PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nugscn COMMAND nuworld_test_nugscn ${CMAKE_CURRENT_BINARY_DIR}/test-nugscn)
 
   # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
   add_executable(nuworld_test_clock tests/c/test_clock.c)

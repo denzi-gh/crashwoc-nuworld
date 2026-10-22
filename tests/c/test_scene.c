@@ -1,11 +1,13 @@
-/* Scene geometry tests: the VIF decoder on hand-assembled and synthetic geoms (vif_builder.h). */
+/* Scene geometry tests: the VIF decoder and the NU20 reader on synthetic geoms and scenes. */
 #include <stdio.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
+#include "gfx/gsc.h"
 #include "gfx/vif.h"
 
+#include "gsc_builder.h"
 #include "vif_builder.h"
 
 static int failures;
@@ -303,6 +305,67 @@ static void test_errors(void)
     nw_vif_free(&m);
 }
 
+/* The synthetic scene: every block, the objects' blobs, the OT and face-on flags, the materials and instances. */
+static void test_gsc(void)
+{
+    GscBuild b;
+    GscScene s;
+    gsc_build_scene(&b, &s);
+    NwGsc g;
+    CHECK(nw_gsc_open(&g, b.buf, b.len));
+    CHECK(g.nchunks == 12 && g.unknown == 1 && !g.truncated);
+    CHECK(g.nmtls == 3 && g.ninsts == 3 && g.nobjects == 2 && g.nblobs == 4);
+    if (g.nobjects == 2 && g.nblobs == 4) {
+        CHECK(g.objects[0].first == 0 && g.objects[0].count == 2);
+        CHECK(g.objects[1].first == 2 && g.objects[1].count == 2);
+        const uint32_t mtl[4] = { 0, 2, 1, 0 };
+        for (int i = 0; i < 4; i++) {
+            CHECK(g.blobs[i].offset == s.blob[i] && g.blobs[i].size == s.blob_size[i] && g.blobs[i].mtl == mtl[i]);
+            CHECK(g.blobs[i].ot == (i == 2) && g.blobs[i].faceon == (i == 3));
+        }
+        for (int i = 0; i < 2; i++) {
+            NwVifMesh m = { 0 };
+            CHECK(nw_vif_decode(&m, g.data + g.blobs[i].offset, g.blobs[i].size));
+            CHECK(m.nbatches == s.batches[i] && m.nverts == s.verts[i] && m.ntris == s.tris[i]);
+            nw_vif_free(&m);
+        }
+    }
+    NwGscMtl m = nw_gsc_mtl(&g, 0);
+    CHECK(NW_GSC_ATTRIB_LIGHTING(m.attrib) == 2 && !NW_GSC_ATTRIB_OT(m.attrib) && m.tid == -1);
+    CHECK(m.diffuse[1] == 0.5f && m.alpha == 1.0f);
+    m = nw_gsc_mtl(&g, 1);
+    CHECK(NW_GSC_ATTRIB_COLOUR(m.attrib) == 1 && NW_GSC_ATTRIB_OT(m.attrib));
+    NwGscInst inst = nw_gsc_inst(&g, 2);
+    CHECK(inst.objid == 0 && inst.flags == 1 && inst.mtx[12] == 20.0f && inst.mtx[15] == 1.0f);
+    nw_gsc_close(&g);
+
+    /* The last block cut short: the walk stops there. */
+    CHECK(nw_gsc_open(&g, b.buf, b.len - 2));
+    CHECK(g.truncated && g.nchunks == 11 && g.unknown == 0 && g.nobjects == 2);
+    nw_gsc_close(&g);
+
+    uint8_t *bad = malloc(b.len);
+    struct {
+        size_t at;
+        uint32_t value;
+        const char *error;
+    } cases[] = {
+        { 0, 0x3032554F, "not an NU20 scene" },
+        { 8, 5, "scene version 5" },
+        { 20, 4, "of 4 bytes" },
+        { s.geom0_mtl, 9, "material 9 of 3" },
+        { s.sub0_type, 2, "type 2" },
+        { s.geom0_size, 0x18, "geom of 24 bytes" },
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        memcpy(bad, b.buf, b.len);
+        memcpy(bad + cases[i].at, &cases[i].value, 4);
+        CHECK_FAILS(nw_gsc_open(&g, bad, b.len), cases[i].error);
+    }
+    free(bad);
+    gsc_free(&b);
+}
+
 int main(void)
 {
     test_batch();
@@ -311,6 +374,7 @@ int main(void)
     test_packed();
     test_chain();
     test_errors();
+    test_gsc();
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;
 }
