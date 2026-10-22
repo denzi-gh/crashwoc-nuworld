@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned release" OFF)
 option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 option(NUWORLD_DECOMP "Generate and compile the decomp units (needs Python 3.11+ with libclang)" ON)
+option(NUWORLD_FUZZ "Build the libFuzzer target for the VFS readers (clang, ASan and UBSan)" OFF)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -89,7 +90,7 @@ target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_port PUBLIC SDL3::SDL3)
 
 # Disc images, the data folder and the game file system.
-add_library(nuworld_vfs STATIC
+set(NW_VFS_SOURCES
   src/platform/paths.c
   src/vfs/dat.c
   src/vfs/disc.c
@@ -99,6 +100,7 @@ add_library(nuworld_vfs STATIC
   src/vfs/sha256.c
   src/vfs/verify.c
   src/vfs/vfs.c)
+add_library(nuworld_vfs STATIC ${NW_VFS_SOURCES})
 target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
@@ -116,6 +118,34 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_vfs PRIVATE nuworld_frontend)
   add_test(NAME vfs COMMAND nuworld_test_vfs ${CMAKE_CURRENT_BINARY_DIR}/test-vfs)
+endif()
+
+if(NUWORLD_FUZZ)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang" OR MINGW)
+    message(FATAL_ERROR "NUWORLD_FUZZ needs clang on Linux or macOS (libFuzzer does not support MinGW).")
+  endif()
+  # The VFS readers again, instrumented for libFuzzer, and the seed corpus from the synthetic test builders.
+  set(nw_fuzz_flags -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+  add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES})
+  target_include_directories(nuworld_vfs_fuzz PUBLIC src)
+  target_compile_options(nuworld_vfs_fuzz PRIVATE -Wall -Wextra -fsanitize=fuzzer-no-link ${nw_fuzz_flags})
+  target_link_libraries(nuworld_vfs_fuzz PUBLIC SDL3::SDL3)
+  add_executable(nuworld_fuzz_vfs tests/fuzz/fuzz_vfs.c)
+  target_compile_options(nuworld_fuzz_vfs PRIVATE -Wall -Wextra -fsanitize=fuzzer ${nw_fuzz_flags})
+  target_link_options(nuworld_fuzz_vfs PRIVATE -fsanitize=fuzzer ${nw_fuzz_flags})
+  target_link_libraries(nuworld_fuzz_vfs PRIVATE nuworld_vfs_fuzz)
+  add_executable(nuworld_fuzz_seeds tests/fuzz/fuzz_seeds.c)
+  target_include_directories(nuworld_fuzz_seeds PRIVATE tests/c)
+  target_compile_options(nuworld_fuzz_seeds PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_fuzz_seeds PRIVATE nuworld_vfs)
+  if(NUWORLD_TESTS)
+    # Every seed once through the instrumented readers.
+    set(nw_fuzz_seeds ${CMAKE_CURRENT_BINARY_DIR}/fuzz-seeds)
+    add_test(NAME fuzz_seeds COMMAND nuworld_fuzz_seeds ${nw_fuzz_seeds})
+    set_tests_properties(fuzz_seeds PROPERTIES FIXTURES_SETUP fuzz_corpus)
+    add_test(NAME fuzz_vfs COMMAND nuworld_fuzz_vfs -runs=0 ${nw_fuzz_seeds})
+    set_tests_properties(fuzz_vfs PROPERTIES FIXTURES_REQUIRED fuzz_corpus)
+  endif()
 endif()
 
 if(NUWORLD_DECOMP)
