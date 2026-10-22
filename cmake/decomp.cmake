@@ -189,7 +189,6 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_clock PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME clock COMMAND nuworld_test_clock)
 
-  # The C of the hand-written asm units, against the decomp's plain C math and values from the retail asm.
   add_executable(nuworld_test_hle tests/c/test_hle.c)
   target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_hle PRIVATE NW_HOST)

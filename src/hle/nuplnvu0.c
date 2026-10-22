@@ -1,11 +1,7 @@
-/* numath/nuplnvu0.s, the VU0 plane routines (port/units.toml: hle). NuPlnEqnVU0, which retail never reaches,
-   stays a generated stub. */
 #include <math.h>
 
 #include "numath/numathtypes.h"
 
-/* Where the segment p0-p1 crosses the plane: 1 and the point in hit when the two distances differ in sign bit
-   (so -0 counts as below), else 0 and hit untouched. */
 int NuPlnLineVU0(struct nuplane_s *pln, struct nuvec_s *p0, struct nuvec_s *p1, struct nuvec_s *hit)
 {
     float d0 = p0->x * pln->a + p0->y * pln->b + p0->z * pln->c + pln->d;

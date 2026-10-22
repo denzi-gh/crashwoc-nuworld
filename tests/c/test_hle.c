@@ -1,6 +1,3 @@
-/* The C of the hand-written asm units (src/hle, and the asmdma tag writers in src/gfx/dma.c): the VU0 math
-   against the decomp's plain C math where it has an equivalent, the rest against values worked out from the
-   retail asm. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,7 +9,6 @@
 #include "numath/nuvec.h"
 #include "numath/nuvec4.h"
 
-/* No decomp header declares the asm units' functions. */
 void NuMemCopy128(void *dst, void *src, int count);
 float NuFsqrt(float x);
 void NuMtxScaleVU0(struct numtx_s *m, struct nuvec_s *scale);
@@ -44,10 +40,8 @@ void *vpDmaTag_Copy(void *packet, void *tag);
 void *vpDmaTag_RepointCopy(void *packet, void *tag, uint32_t addr);
 void *vpDmaTag_Close(void *packet);
 
-/* A data image root. */
 extern u8 *rndrstream_free;
 
-/* numtx_identity is a data image root, empty without the image. */
 static struct numtx_s ident = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
 static int failures;
@@ -76,7 +70,6 @@ static int mtx_near(const struct numtx_s *a, const struct numtx_s *b)
     return 1;
 }
 
-/* A rotation from the angles, then a translation. */
 static void rigid(struct numtx_s *m, int ax, int ay, int az, float tx, float ty, float tz)
 {
     struct nuangvec_s a = { ax, ay, az };
@@ -163,7 +156,6 @@ static void test_vec(void)
 
 static void test_tri_z(void)
 {
-    /* Two 0xA0-byte triangles, walked down from the second. */
     float buf[2][40] = { { 0 } };
     for (int t = 0; t < 2; t++) {
         for (int v = 0; v < 3; v++) {
@@ -181,7 +173,7 @@ static void test_tri_z(void)
 
 static void test_plane(void)
 {
-    struct nuplane_s pln = { 0.0f, 1.0f, 0.0f, -1.0f }; /* y = 1 */
+    struct nuplane_s pln = { 0.0f, 1.0f, 0.0f, -1.0f };
     struct nuvec_s p0 = { 0.0f, 0.0f, 0.0f }, p1 = { 4.0f, 2.0f, -2.0f }, hit = { 9.0f, 9.0f, 9.0f };
     CHECK(NuPlnLineVU0(&pln, &p0, &p1, &hit) == 1);
     CHECK(near(hit.x, 2.0f) && near(hit.y, 1.0f) && near(hit.z, -1.0f));
@@ -192,16 +184,14 @@ static void test_plane(void)
 
 static void test_clip(void)
 {
-    /* Identity clip matrices: the frustum is |x|, |y|, |z| <= 1. */
     struct numtx_s id = ident, wm = ident;
     NuCameraInitClipTestVU0(&id, &id, NULL);
     struct nuvec_s min = { -0.5f, -0.5f, -0.5f }, max = { 0.5f, 0.5f, 0.5f };
     CHECK(NuCameraClipTestExtentsVU0(&min, &max) == 0);
-    min.x = 2.0f, max.x = 3.0f; /* all corners off +x */
+    min.x = 2.0f, max.x = 3.0f;
     CHECK(NuCameraClipTestExtentsVU0(&min, &max) == (0x01 << 8 | 0x01));
-    min.x = 0.0f; /* crossing +x */
+    min.x = 0.0f;
     CHECK(NuCameraClipTestExtentsVU0(&min, &max) == 0x01 << 8);
-    /* The world matrix moves the box back inside. */
     wm._30 = -2.5f;
     NuCameraInitClipTestVU0(&id, &id, &wm);
     min.x = 2.0f;
@@ -216,7 +206,7 @@ static void test_dma(void)
     memset(p, 0xAA, sizeof p);
     q = vpDmaTag_CntEx(p, 0x11, 0x22);
     CHECK(q == p + 4 && p[0] == 0x10000000u && p[1] == 0 && p[2] == 0x11 && p[3] == 0x22);
-    q[0] = 1, q[1] = 2, q[2] = 3; /* three words of data */
+    q[0] = 1, q[1] = 2, q[2] = 3;
     q = vpDmaTag_Close(q + 3);
     CHECK(q == p + 8 && p[0] == 0x10000001u && p[7] == 0);
 
@@ -237,7 +227,6 @@ static void test_dma(void)
     CHECK(q == p + 8 && memcmp(p + 4, p, 16) == 0);
     q = vpDmaTag_RepointCopy(p + 8, p, 0x99);
     CHECK(q == p + 12 && p[8] == p[0] && p[9] == 0x99 && p[10] == 3 && p[11] == 4);
-    /* Close counts from the last tag opened, not the copies. */
     q = vpDmaTag_Close(p + 13);
     CHECK(q == p + 16 && (p[0] & 0xFFFF) == 3);
 }
@@ -248,20 +237,17 @@ static void test_stream_link(void)
     struct rndrstream_s s;
     u8 *saved = rndrstream_free;
 
-    /* Empty: starts at the free block. */
     memset(&s, 0, sizeof s);
     rndrstream_free = buf + 64;
     NuRndrStreamLink(&s);
     CHECK(s.base.u8 == buf + 64 && s.ptr.u8 == buf + 64);
 
-    /* Packets, the free block elsewhere: the next tag at ptr links to it and ptr moves there. */
     s.base.u8 = buf;
     s.ptr.u8 = buf + 16;
     rndrstream_free = buf + 96;
     NuRndrStreamLink(&s);
     CHECK(((uint32_t *)(buf + 16))[1] == (uint32_t)(uintptr_t)(buf + 96) && s.ptr.u8 == buf + 96);
 
-    /* The free block right after the tag: ptr stays on it. */
     s.ptr.u8 = buf + 16;
     rndrstream_free = buf + 32;
     NuRndrStreamLink(&s);
