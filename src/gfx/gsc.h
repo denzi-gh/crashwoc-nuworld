@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "gfx/vif.h"
+
 #define NW_GSC_ID(a, b, c, d) ((uint32_t)(a) | (uint32_t)(b) << 8 | (uint32_t)(c) << 16 | (uint32_t)(d) << 24)
 
 #define NW_GSC_MTL_SIZE 0x1D0  /* numtl_s */
@@ -72,8 +74,10 @@ void nw_gsc_close(NwGsc *g);
 NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index);
 NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index);
 
-/* Decodes every plain geom (not OT, not face-on) and prints the file's GSC line; false when one fails. */
+/* Decodes every plain geom (not OT or face-on): an OBJ line per object, then the GSC line; false on a failure. */
 bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total);
+/* "OBJ <id> ... vtx= idx=": SHA-256 of x,y,z,u,v f32 + rgba and of u32 triangles, as tools/gsc_hash.py. */
+void nw_gsc_obj_line(uint32_t id, const NwVifMesh *mesh, char *line, size_t size);
 void nw_gsc_report_total(const NwGscTotal *total, FILE *out);
 
 #endif

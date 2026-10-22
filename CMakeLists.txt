@@ -111,7 +111,7 @@ add_library(nuworld_gfx STATIC
   src/gfx/vif.c)
 target_include_directories(nuworld_gfx PUBLIC src)
 target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld_gfx PUBLIC SDL3::SDL3)
+target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)
 
 # Wizard logic without the UI: import folder listing, background import job.
 add_library(nuworld_frontend STATIC

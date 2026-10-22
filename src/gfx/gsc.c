@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/vif.h"
+#include "vfs/sha256.h"
 
 #define NW_GSC_VERSION 6 /* scene_version */
 
@@ -248,12 +249,34 @@ NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index)
     return inst;
 }
 
+void nw_gsc_obj_line(uint32_t id, const NwVifMesh *m, char *line, size_t size)
+{
+    NwSha256 sha;
+    uint8_t vtx[NW_SHA256_SIZE], idx[NW_SHA256_SIZE];
+    char vhex[NW_SHA256_HEX], ihex[NW_SHA256_HEX];
+    nw_sha256_init(&sha);
+    for (uint32_t i = 0; i < m->nverts; i++) {
+        const NwVifVertex *v = &m->verts[i];
+        float f[5] = { v->pos[0], v->pos[1], v->pos[2], (float)v->tex[0] / 4096.0f, (float)v->tex[1] / 4096.0f };
+        nw_sha256_update(&sha, f, sizeof(f));
+        nw_sha256_update(&sha, v->col, 4);
+    }
+    nw_sha256_final(&sha, vtx);
+    nw_sha256(m->tris, (size_t)m->ntris * 12, idx);
+    nw_sha256_hex(vtx, vhex);
+    nw_sha256_hex(idx, ihex);
+    SDL_snprintf(line, size, "OBJ %u batches=%u verts=%u tris=%u vtx=%s idx=%s", id, m->nbatches, m->nverts, m->ntris,
+                 vhex, ihex);
+}
+
 bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total)
 {
     NwVifMesh mesh = { 0 };
+    uint32_t batches = 0, verts = 0, tris = 0;
     bool ok = true;
     for (uint32_t o = 0; o < g->nobjects && ok; o++) {
         const NwGscObject *obj = &g->objects[o];
+        mesh.nverts = mesh.ntris = mesh.nbatches = 0;
         for (uint32_t i = obj->first; i < obj->first + obj->count && ok; i++) {
             const NwGscBlob *b = &g->blobs[i];
             if (!b->ot && !b->faceon && !nw_vif_decode(&mesh, g->data + b->offset, b->size)) {
@@ -262,17 +285,23 @@ bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *tota
                 ok = SDL_SetError("object %u geom at 0x%x: %s", o, b->offset, why);
             }
         }
+        char line[256];
+        nw_gsc_obj_line(o, &mesh, line, sizeof(line));
+        fprintf(out, "%s\n", line);
+        batches += mesh.nbatches;
+        verts += mesh.nverts;
+        tris += mesh.ntris;
     }
     total->files++;
     total->failed += !ok;
     total->unknown += g->unknown;
     total->truncated += g->truncated;
     total->objects += g->nobjects;
-    total->batches += mesh.nbatches;
-    total->verts += mesh.nverts;
-    total->tris += mesh.ntris;
+    total->batches += batches;
+    total->verts += verts;
+    total->tris += tris;
     fprintf(out, "GSC %s chunks=%u unknown=%u truncated=%d objects=%u batches=%u verts=%u tris=%u\n", name,
-            g->nchunks, g->unknown, g->truncated, g->nobjects, mesh.nbatches, mesh.nverts, mesh.ntris);
+            g->nchunks, g->unknown, g->truncated, g->nobjects, batches, verts, tris);
     nw_vif_free(&mesh);
     return ok;
 }

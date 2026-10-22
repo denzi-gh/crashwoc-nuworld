@@ -81,6 +81,12 @@ static void test_batch(void)
         CHECK(m.verts[2].tex[0] == 8192 && m.verts[2].tex[1] == -4096 && m.verts[2].tex[2] == 0);
         CHECK(m.verts[3].col[0] == 3 && m.verts[3].col[1] == 0x40 && m.verts[3].col[3] == 0x80);
     }
+    /* The hash recipe, pinned in tests/test_gsc_hash.py too. */
+    char line[256];
+    nw_gsc_obj_line(0, &m, line, sizeof(line));
+    CHECK(strcmp(line, "OBJ 0 batches=1 verts=4 tris=2 "
+                       "vtx=5ff61ee696e31a115059cd16ee188d6eb4aa25b17e7a40ac6583f6893c700941 "
+                       "idx=a55571c9db30026e44ac0bdd7674d9c597d8254732feb18418f3aaf8a5b4f418") == 0);
     /* A second geom appends, indices continue. */
     CHECK(nw_vif_decode(&m, g, sizeof(g)));
     CHECK(m.nverts == 8 && m.ntris == 4 && m.tris[6] == 4);
@@ -385,8 +391,12 @@ static void test_report(const char *scratch)
         char text[1024];
         rewind(out);
         text[fread(text, 1, sizeof(text) - 1, out)] = 0;
-        CHECK(strcmp(text, "GSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"
-                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n") == 0);
+        static const char empty[] = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        char obj1[200];
+        SDL_snprintf(obj1, sizeof(obj1), "\nOBJ 1 batches=0 verts=0 tris=0 vtx=%s idx=%s\n", empty, empty);
+        CHECK(strncmp(text, "OBJ 0 batches=3 verts=15 tris=9 vtx=", 36) == 0 && strstr(text, obj1));
+        CHECK(strstr(text, "\nGSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"
+                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"));
     }
     if (out) {
         fclose(out);
