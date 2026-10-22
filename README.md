@@ -49,8 +49,10 @@ Every file is checked against a SHA-256 manifest and copied to the data folder: 
 or `user/` beside the executable when a `portable.txt` is there.
 `--verify` re-checks the imported files; `--check-data` builds the game's data from the imported executable,
 converts it back and checks that it gives the executable's bytes again; `--boot` runs the game in a window that shows its frame count in the title; `--boot-check [vblanks]`
-runs it headless to that many vblanks (default 50) after its first screen swap and lists the functions it reached
-that have no C yet; `--data-dir <dir>` uses another folder.
+runs it headless to that many vblanks (default 50) after its first screen swap; both list, in the order the game first
+reached them, the functions that have no C yet and the decomp C that is only a near match
+(`python tools/stub_hits.py <saved output>...` orders the remaining decomp work by those lists); `--data-dir <dir>`
+uses another folder.
 
 ## License
 
