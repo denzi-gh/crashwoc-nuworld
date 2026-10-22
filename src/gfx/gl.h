@@ -27,11 +27,17 @@ typedef ptrdiff_t GLsizeiptr;
 
 #define GL_FALSE 0
 #define GL_TRUE 1
+#define GL_ZERO 0
+#define GL_ONE 1
 #define GL_TRIANGLES 0x0004
+#define GL_SRC_ALPHA 0x0302
+#define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#define GL_DST_COLOR 0x0306
 #define GL_LEQUAL 0x0203
 #define GL_DEPTH_BUFFER_BIT 0x00000100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
+#define GL_BLEND 0x0BE2
 #define GL_UNPACK_ALIGNMENT 0x0CF5
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
@@ -45,6 +51,9 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_NEAREST_MIPMAP_NEAREST 0x2700
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_TEXTURE_MIN_FILTER 0x2801
+#define GL_FUNC_ADD 0x8006
+#define GL_FUNC_SUBTRACT 0x800A
+#define GL_FUNC_REVERSE_SUBTRACT 0x800B
 #define GL_TEXTURE_MAX_LEVEL 0x813D
 #define GL_R8UI 0x8232
 #define GL_TEXTURE0 0x84C0
@@ -69,6 +78,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
     X(void, glDepthFunc, (GLenum func)) \
+    X(void, glBlendFunc, (GLenum sfactor, GLenum dfactor)) \
+    X(void, glBlendEquation, (GLenum mode)) \
     X(void, glPixelStorei, (GLenum pname, GLint param)) \
     X(void, glGenTextures, (GLsizei n, GLuint *textures)) \
     X(void, glDeleteTextures, (GLsizei n, const GLuint *textures)) \
@@ -120,6 +131,8 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable
 #define glDepthFunc nw_glDepthFunc
+#define glBlendFunc nw_glBlendFunc
+#define glBlendEquation nw_glBlendEquation
 #define glPixelStorei nw_glPixelStorei
 #define glGenTextures nw_glGenTextures
 #define glDeleteTextures nw_glDeleteTextures

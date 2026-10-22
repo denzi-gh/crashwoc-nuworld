@@ -51,6 +51,7 @@ static const char nw_vu_fs[] =
     "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; MMAG; CLAMP u; CLAMP v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
+    "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
     "out vec4 o_col;\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
@@ -96,12 +97,12 @@ static const char nw_vu_fs[] =
     "        vec4 t = floor(sample_gs(v_uv));\n"
     "        c = vec4(min(floor(c.rgb * t.rgb / 128.0), 255.0), u_tcc != 0 ? floor(c.a * t.a / 128.0) : c.a);\n"
     "    }\n"
-    "    o_col = vec4(c.rgb / 255.0, c.a / 128.0);\n"
+    "    o_col = vec4(u_ascolour != 0 ? vec3(c.a / 128.0) : c.rgb / 255.0, c.a / 128.0);\n"
     "}\n";
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc, ascolour;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -154,6 +155,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
+    nw_vu[program].ascolour = glGetUniformLocation(p, "u_ascolour");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -223,6 +225,17 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
                 m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].tcc, textured && m->tex->tcc);
+    NwMtlBlend b = { 0 };
+    if (m->state.abe && nw_mtl_blend(m->state.alpha, &b)) {
+        static const GLenum ops[] = { GL_FUNC_ADD, GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT };
+        static const GLenum factors[] = { GL_ZERO, GL_ONE, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_COLOR };
+        glEnable(GL_BLEND);
+        glBlendEquation(ops[b.op]);
+        glBlendFunc(factors[b.src], factors[b.dst]);
+    } else {
+        glDisable(GL_BLEND);
+    }
+    glUniform1i(nw_vu[program].ascolour, m->state.abe && b.as_colour);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);

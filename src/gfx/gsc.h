@@ -67,6 +67,7 @@ typedef struct NwGscInst {
 } NwGscInst;
 
 /* numtl_s.attrib fields the reader and the renderer use. */
+#define NW_GSC_ATTRIB_ALPHA(a) ((a)[0] & 15)
 #define NW_GSC_ATTRIB_FILTER(a) (((a)[0] >> 4) & 3)
 #define NW_GSC_ATTRIB_FX(a) (((a)[0] >> 6) & 3)
 #define NW_GSC_ATTRIB_UTC(a) (((a)[0] >> 8) & 3)

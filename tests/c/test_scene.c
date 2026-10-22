@@ -610,6 +610,37 @@ static void test_mtl(void)
     }
 }
 
+/* CreateStateBlock's ALPHA_1 by attrib.alpha, and the GL blends of the ALPHA registers. */
+static void test_blend(void)
+{
+    static const uint8_t alpha[8] = { 0x44, 0x44, 0x48, 0x42, 0x49, 0x46, 0x89, 0x44 };
+    for (uint32_t i = 0; i < 8; i++) {
+        const uint32_t attrib[2] = { i, 0 };
+        NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+        CHECK(s.abe == (i != 0) && s.alpha == alpha[i]);
+    }
+    static const struct {
+        uint8_t alpha;
+        NwMtlBlend blend;
+    } cases[] = {
+        { 0x44, { NW_BLEND_ADD, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE_MINUS_SRC_ALPHA, false } },
+        { 0x48, { NW_BLEND_ADD, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE, false } },
+        { 0x42, { NW_BLEND_REVERSE_SUBTRACT, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE, false } },
+        { 0x49, { NW_BLEND_ADD, NW_BLEND_DST_COLOUR, NW_BLEND_ONE, true } },
+        { 0x46, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_ONE_MINUS_SRC_ALPHA, false } },
+        { 0x89, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_SRC_ALPHA, false } },
+        { 0x84, { NW_BLEND_SUBTRACT, NW_BLEND_SRC_ALPHA, NW_BLEND_SRC_ALPHA, false } }, /* (Cs - Cd) * As */
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        NwMtlBlend b;
+        CHECK(nw_mtl_blend(cases[i].alpha, &b) && b.op == cases[i].blend.op && b.src == cases[i].blend.src &&
+              b.dst == cases[i].blend.dst && b.as_colour == cases[i].blend.as_colour);
+    }
+    NwMtlBlend b;
+    CHECK_FAILS(nw_mtl_blend(0x64, &b), "ALPHA 0x64");
+    CHECK_FAILS(nw_mtl_blend(0x08, &b), "ALPHA 0x08 has no GL blend"); /* Cs * (1 + As) */
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -681,6 +712,7 @@ int main(int argc, char *argv[])
     test_texture();
     test_texset(argv[1]);
     test_mtl();
+    test_blend();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;
