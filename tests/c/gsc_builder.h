@@ -87,6 +87,49 @@ static void gsc_mtl(GscBuild *b, int32_t next, uint32_t attrib0, uint32_t attrib
     gsc_put32(b, at + 0x1A4, (uint32_t)-1);
 }
 
+/* A texture upload as the converter writes it: DMA RET + DIRECT, A+D TRXPOS/TRXREG/TRXDIR, IMAGE of n bytes. */
+static inline void gsc_upload(GscBuild *b, uint32_t w, uint32_t h, const void *data, size_t n)
+{
+    uint32_t qwc = 5 + (uint32_t)(n + 15) / 16;
+    const uint32_t head[24] = {
+        0x60000000 | qwc, 0, 0, 0x50000000 | qwc, 0x8003, 0x10000000, 0xE, 0, 0, 0, 0x51, 0, w, h, 0x52, 0,
+        0, 0, 0x53, 0, 0x8000 | (uint32_t)(n + 15) / 16, 0x08000000, 0, 0,
+    };
+    gsc_bytes(b, head, sizeof(head));
+    gsc_bytes(b, data, n);
+    gsc_zero(b, (16 - n % 16) % 16);
+}
+
+/* A version 1 native texture of type 4-7 with one level (upload uw x uh); returns where that upload starts. */
+static inline size_t gsc_texture(GscBuild *b, uint32_t type, uint32_t w, uint32_t h, const uint8_t clut[][4],
+                                 const void *up, uint32_t uw, uint32_t uh, size_t n, uint32_t tbw, uint32_t dbw)
+{
+    bool psmt4 = type == 4 || type == 6;
+    uint16_t dims[4] = { (uint16_t)w, 1, (uint16_t)h, 0 };
+    gsc_bytes(b, dims, sizeof(dims));
+    gsc_u32(b, 0);
+    uint8_t formats[4] = { (uint8_t)type, psmt4 ? 0x14 : 0x13, type >= 6 ? 0x00 : (psmt4 ? 0x14 : 0x13), 0x81 };
+    gsc_bytes(b, formats, 4);
+    size_t pal = b->len;
+    gsc_u32(b, 0);
+    gsc_u32(b, 0x2000);
+    gsc_u32(b, 1);
+    gsc_u32(b, 0);
+    gsc_upload(b, psmt4 ? 8 : 16, psmt4 ? 2 : 16, clut, psmt4 ? 64 : 1024);
+    gsc_put32(b, pal, (uint32_t)(b->len - pal));
+    size_t mip = b->len;
+    gsc_u32(b, 0);
+    gsc_u32(b, (uint32_t)n);
+    gsc_u32(b, tbw);
+    gsc_u32(b, dbw);
+    gsc_u32(b, 12); /* pad: the upload 16-aligned in the record */
+    gsc_zero(b, 12);
+    size_t at = b->len;
+    gsc_upload(b, uw, uh, up, n);
+    gsc_put32(b, mip, (uint32_t)(b->len - mip - 12));
+    return at;
+}
+
 /* A type 0 geom record: int, skip to a 16-aligned blob, material, the blob. */
 static size_t gsc_geom(GscBuild *b, uint32_t mtl, const void *blob, size_t size, size_t *mtl_field)
 {

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The --check-scenes lines of every .gsc, decoded by the crashwoc tooling (nus_scene.py, nus_ps2.py, rnc.py).
+"""The --check-scenes lines of every .gsc, decoded by the crashwoc tooling (nus_scene.py, nus_ps2.py, ps2_texture.py,
+rnc.py).
 
   python tools/gsc_hash.py --data-dir <root> [--tooling <dir>] [--compare <crashwoc-nuworld>]
 
@@ -87,6 +88,27 @@ def linear(blob: bytes) -> bytes:
             raise ValueError("DMA chain sends more than the geom holds")
 
 
+def tex_header(nu: bytes, hdr: int) -> tuple[int, int, int, int, int]:
+    """A native texture header as NuTexCreateNative reads it: width, height, type, version, levels."""
+    version = struct.unpack_from("<H", nu, hdr + 2)[0]
+    if version == 1:
+        w, _, h = struct.unpack_from("<3H", nu, hdr)
+        return w, h, nu[hdr + 12], 1, nu[hdr + 15] & 0x7F
+    w, h = struct.unpack_from("<2i", nu, hdr)
+    return w, h, nu[hdr + 12], version, nu[hdr + 14]
+
+
+def tooling_decodes(version: int, tex_type: int) -> bool:
+    """The textures ps2_texture.py decodes as the GS samples them (it reads type 6 as linear PSMT4)."""
+    return version == 1 and tex_type in (4, 5, 7)
+
+
+def tex_line(texid: int, w: int, h: int, tex_type: int, version: int, levels: int, rgba: bytes) -> str:
+    """The TEX line of a texture's level 0 as decode_rgba returns it."""
+    return (f"TEX {texid} {w}x{h} type={tex_type} version={version} levels={levels} "
+            f"rgba={hashlib.sha256(rgba).hexdigest()}")
+
+
 def obj_line(objid: int, geoms: list[dict], strip_tris) -> tuple[str, int, int, int]:
     """The OBJ line of an object's decoded batches (the tooling's blob_geoms dicts) and its counts."""
     vtx, idx = hashlib.sha256(), hashlib.sha256()
@@ -106,7 +128,7 @@ def obj_line(objid: int, geoms: list[dict], strip_tris) -> tuple[str, int, int, 
 
 
 def scene_lines(path: str, nu: bytes, tooling) -> tuple[list[str], dict]:
-    nus_scene = tooling["nus_scene"]
+    nus_scene, ps2_texture = tooling["nus_scene"], tooling["ps2_texture"]
     found, unknown, truncated = blocks(nu)
     last = {tag: (off, size) for tag, off, size in found}
     mtls = last.get(b"MS00") or last.get(b"MS02")
@@ -125,10 +147,19 @@ def scene_lines(path: str, nu: bytes, tooling) -> tuple[list[str], dict]:
         line, b, v, t = obj_line(objid, geoms, nus_scene.strip_tris)
         lines.append(line)
         batches, verts, tris = batches + b, verts + v, tris + t
+    texsets = [(off, size) for tag, off, size in found if tag in (b"TST0", b"TST2")]
+    records = ps2_texture.parse_records(nu, texsets[-1]) if texsets else []
+    for texid, (hdr, _size) in enumerate(records):
+        w, h, tex_type, version, levels = tex_header(nu, hdr)
+        if tooling_decodes(version, tex_type):
+            decoded = ps2_texture.decode_rgba(nu, hdr)
+            if decoded is None:
+                raise ValueError(f"texture {texid}: ps2_texture.py does not decode it")
+            lines.append(tex_line(texid, w, h, tex_type, version, levels, decoded[2]))
     lines.append(f"GSC {path} chunks={len(found)} unknown={unknown} truncated={int(truncated)} "
-                 f"objects={len(objects)} batches={batches} verts={verts} tris={tris}")
+                 f"objects={len(objects)} batches={batches} verts={verts} tris={tris} textures={len(records)}")
     return lines, {"unknown": unknown, "truncated": int(truncated), "objects": len(objects), "batches": batches,
-                   "verts": verts, "tris": tris}
+                   "verts": verts, "tris": tris, "textures": len(records)}
 
 
 def load_tooling(path: str | None) -> dict | None:
@@ -138,14 +169,15 @@ def load_tooling(path: str | None) -> dict | None:
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(Path(path).resolve()))
     import nus_scene  # noqa: E402
+    import ps2_texture  # noqa: E402
     import rnc  # noqa: E402
-    return {"nus_scene": nus_scene, "rnc": rnc}
+    return {"nus_scene": nus_scene, "ps2_texture": ps2_texture, "rnc": rnc}
 
 
 def all_lines(root: Path, tooling: dict) -> list[str]:
     lines = []
     total = {"files": 0, "failed": 0, "unknown": 0, "truncated": 0, "objects": 0, "batches": 0, "verts": 0,
-             "tris": 0}
+             "tris": 0, "textures": 0}
     for path in scene_paths():
         raw = (root / "disc" / path).read_bytes()
         nu = tooling["rnc"].unpack(raw) if raw[:4] == b"RNC\x02" else raw
@@ -161,6 +193,12 @@ def all_lines(root: Path, tooling: dict) -> list[str]:
             total[k] += v
     lines.append("TOTAL " + " ".join(f"{k}={v}" for k, v in total.items()))
     return lines
+
+
+def compared(line: str) -> bool:
+    """Whether a TEX line of crashwoc-nuworld is one the tooling has a line for."""
+    fields = dict(f.split("=", 1) for f in line.split() if "=" in f)
+    return tooling_decodes(int(fields["version"]), int(fields["type"]))
 
 
 def main() -> int:
@@ -180,7 +218,8 @@ def main() -> int:
         return 0
     run = subprocess.run([args.compare, "--data-dir", str(args.data_dir), "--check-scenes"], capture_output=True,
                          text=True)
-    theirs = [line for line in run.stdout.splitlines() if line.split(" ", 1)[0] in ("OBJ", "GSC", "TOTAL")]
+    theirs = [line for line in run.stdout.splitlines() if line.split(" ", 1)[0] in ("OBJ", "GSC", "TOTAL")
+              or (line.startswith("TEX ") and compared(line))]
     diff = list(difflib.unified_diff(lines, theirs, "tooling", "crashwoc-nuworld", lineterm="", n=1))
     if diff:
         print("\n".join(diff[:40]))

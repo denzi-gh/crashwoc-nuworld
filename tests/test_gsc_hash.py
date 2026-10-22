@@ -65,6 +65,21 @@ class GscHashTest(unittest.TestCase):
         self.assertEqual(gsc_hash.obj_line(1, [], strip_tris)[0],
                          f"OBJ 1 batches=0 verts=0 tris=0 vtx={gsc_hash.EMPTY} idx={gsc_hash.EMPTY}")
 
+    def test_tex_recipe(self):
+        # The PSMT4 texture tests/c/test_scene.c decodes and pins to the same line.
+        rgba = b"".join(bytes((c * 16, 255 - c * 16, c * 3, c * 16))
+                        for c in ((x + 2 * y) & 15 for y in range(8) for x in range(8)))
+        self.assertEqual(gsc_hash.tex_line(0, 8, 8, 4, 1, 1, rgba),
+                         "TEX 0 8x8 type=4 version=1 levels=1 "
+                         "rgba=8d5cce5284f06b924fa01c1b8a0b335b49fe6182c3533c2dfb9f08d921632092")
+        cur = struct.pack("<3HxxiBBBB", 64, 1, 32, 0, 7, 0x13, 0, 0x81)
+        old = struct.pack("<3iBBBB", 16, 8, 0, 5, 0x13, 2, 1)
+        self.assertEqual(gsc_hash.tex_header(cur, 0), (64, 32, 7, 1, 1))
+        self.assertEqual(gsc_hash.tex_header(old, 0), (16, 8, 5, 0, 2))
+        self.assertTrue(gsc_hash.compared("TEX 3 64x32 type=7 version=1 levels=1 rgba=00"))
+        self.assertFalse(gsc_hash.compared("TEX 3 64x32 type=6 version=1 levels=1 rgba=00"))
+        self.assertFalse(gsc_hash.compared("TEX 3 16x8 type=5 version=0 levels=2 rgba=00"))
+
     def test_no_tooling(self):
         env = {k: v for k, v in os.environ.items() if k != "CRASHWOC_TOOLING"}
         with tempfile.TemporaryDirectory() as root:

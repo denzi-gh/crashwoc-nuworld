@@ -372,6 +372,203 @@ static void test_gsc(void)
     gsc_free(&b);
 }
 
+/* The PSMT4 texture tests/test_gsc_hash.py pins: index (x + 2y) & 15, CLUT entry c = 16c, 255 - 16c, 3c, 8c. */
+static void make_psmt4(uint8_t clut[16][4], uint8_t packed[32])
+{
+    for (int c = 0; c < 16; c++) {
+        const uint8_t rgba[4] = { (uint8_t)(c * 16), (uint8_t)(255 - c * 16), (uint8_t)(c * 3), (uint8_t)(c * 8) };
+        memcpy(clut[c], rgba, 4);
+    }
+    memset(packed, 0, 32);
+    for (int i = 0; i < 64; i++) {
+        packed[i >> 1] |= (uint8_t)((((i & 7) + 2 * (i >> 3)) & 15) << (i & 1) * 4);
+    }
+}
+
+/* ps2_texture.py's _unswizzle8: where PSMT8 pixel (x, y) of a w-wide texture sits in its PSMCT32 upload. */
+static size_t swizzle8(uint32_t x, uint32_t y, uint32_t w)
+{
+    size_t block = (size_t)(y & ~15u) * w + (x & ~15u) * 2;
+    uint32_t swap = (((y + 2) >> 2) & 1) * 4, py = (((y & ~3u) >> 1) + (y & 1)) & 7;
+    return block + (size_t)py * w * 2 + ((x + swap) & 7) * 4 + ((y >> 1) & 1) + ((x >> 2) & 2);
+}
+
+/* Native records: PSMT4, PSMT8 linear and as PSMCT32 with the CSM1 CLUT, the old header, and bad records. */
+static void test_texture(void)
+{
+    GscBuild b = { 0 };
+    uint8_t clut16[16][4], packed[32];
+    make_psmt4(clut16, packed);
+    size_t up = gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2);
+    NwTex t;
+    bool ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.version == 1 && t.type == 4 && t.tcc && t.ncolours == 16 && t.nlevels == 1);
+    if (ok) {
+        bool same = t.levels[0].width == 8 && t.levels[0].height == 8;
+        for (int i = 0; i < 64 && same; i++) {
+            same = t.levels[0].texels[i] == (((i & 7) + 2 * (i >> 3)) & 15);
+        }
+        CHECK(same && memcmp(t.clut, clut16, sizeof(clut16)) == 0);
+        char line[256];
+        nw_gsc_tex_line(0, &t, line, sizeof(line));
+        CHECK(strcmp(line, "TEX 0 8x8 type=4 version=1 levels=1 "
+                           "rgba=8d5cce5284f06b924fa01c1b8a0b335b49fe6182c3533c2dfb9f08d921632092") == 0);
+        nw_tex_free(&t);
+    }
+    uint8_t *bad = malloc(b.len);
+    struct {
+        size_t at;
+        uint32_t value, bytes;
+        const char *error;
+    } cases[] = {
+        { 2, 2, 2, "header version 2" },
+        { 12, 2, 1, "type 2" },
+        { 13, 0x13, 1, "type 4 with psm 0x13" },
+        { 15, 0x80, 1, "8x8 with 0 levels" },
+        { 28, 1, 4, "CLUT psm 0x1" },
+        { up, 0x30000006, 4, "DMA tag id 3" },
+        { up, 0x60000006, 4, "has 16 of 32 bytes" },
+        { up + 48, 16, 4, "TRXREG 16x8 for an upload of 8x8" },
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        memcpy(bad, b.buf, b.len);
+        memcpy(bad + cases[i].at, &cases[i].value, cases[i].bytes);
+        CHECK_FAILS(nw_tex_decode(&t, bad, b.len), cases[i].error);
+    }
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, 10), "record of 10 bytes");
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len - 16), "level 0 of");
+    free(bad);
+    gsc_free(&b);
+
+    /* PSMT8: CLUT entry i stored at CSM1 position i ^ (bits 3 and 4), the texels linear (5) or as PSMCT32 (7). */
+    static uint8_t clut[256][4], idx[32 * 32], swz[32 * 32];
+    for (int i = 0; i < 256; i++) {
+        int csm1 = (i & 0xE7) | ((i & 0x10) >> 1) | ((i & 0x08) << 1);
+        const uint8_t rgba[4] = { (uint8_t)i, (uint8_t)(255 - i), (uint8_t)(i ^ 0x55), (uint8_t)(i >> 1) };
+        memcpy(clut[csm1], rgba, 4);
+    }
+    for (uint32_t y = 0; y < 32; y++) {
+        for (uint32_t x = 0; x < 32; x++) {
+            idx[y * 32 + x] = (uint8_t)(x * 7 + y * 13);
+            swz[swizzle8(x, y, 32)] = idx[y * 32 + x];
+        }
+    }
+    for (uint32_t type = 5; type <= 7; type += 2) {
+        gsc_texture(&b, type, 32, 32, clut, type == 5 ? idx : swz, type == 5 ? 32 : 16, type == 5 ? 32 : 16,
+                    sizeof(idx), 2, 1);
+        ok = nw_tex_decode(&t, b.buf, b.len);
+        CHECK(ok && t.type == type && t.ncolours == 256);
+        if (ok) {
+            bool same = memcmp(t.levels[0].texels, idx, sizeof(idx)) == 0;
+            for (int i = 0; i < 256 && same; i++) {
+                same = t.clut[i][0] == i && t.clut[i][1] == 255 - i && t.clut[i][2] == (i ^ 0x55);
+            }
+            CHECK(same);
+            nw_tex_free(&t);
+        }
+        gsc_free(&b);
+    }
+    /* Type 6 (PSMT4 as PSMCT32 at a quarter of the height) only needs its buffer widths. */
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 2, 1);
+    ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.levels[0].width == 32 && t.levels[0].height == 32);
+    nw_tex_free(&t);
+    gsc_free(&b);
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 1, 1);
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len), "buffer widths 1/1");
+    gsc_free(&b);
+
+    /* The old header, its level a CNT tag with the A+D setup and a RET tag with the IMAGE. */
+    const uint32_t head[3] = { 16, 16, 0 };
+    const uint8_t formats[4] = { 5, 0x13, 1, 1 };
+    gsc_bytes(&b, head, sizeof(head));
+    gsc_bytes(&b, formats, 4);
+    size_t pal = b.len;
+    const uint32_t palhead[4] = { 0, 0x2000, 1, 0 };
+    gsc_bytes(&b, palhead, sizeof(palhead));
+    gsc_upload(&b, 16, 16, clut, sizeof(clut));
+    gsc_put32(&b, pal, (uint32_t)(b.len - pal));
+    size_t mip = b.len;
+    const uint32_t level[24] = {
+        0, 256, 2, 0, 0x10000004, 0, 0, 0x50000004, 0x8003, 0x10000000, 0xE, 0,
+        0, 0, 0x51, 0, 16, 16, 0x52, 0, 0, 0, 0x53, 0,
+    };
+    const uint32_t image[8] = { 0x60000011, 0, 0, 0x50000011, 0x8010, 0x08000000, 0, 0 };
+    gsc_bytes(&b, level, sizeof(level));
+    gsc_bytes(&b, image, sizeof(image));
+    gsc_bytes(&b, idx, 256);
+    gsc_put32(&b, mip, (uint32_t)(b.len - mip));
+    ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.version == 0 && t.type == 5 && t.levels[0].width == 16 && t.tcc);
+    if (ok) {
+        CHECK(memcmp(t.levels[0].texels, idx, 256) == 0 && t.clut[255][0] == 255);
+        nw_tex_free(&t);
+    }
+    gsc_free(&b);
+}
+
+/* ReadTextureSet's walk (a skip of 0 reads two more ints), texture lookups and the TEX lines of the report. */
+static void test_texset(const char *scratch)
+{
+    GscBuild b = { 0 };
+    uint8_t clut16[16][4], packed[32];
+    make_psmt4(clut16, packed);
+    gsc_bytes(&b, "NU20", 4);
+    gsc_u32(&b, 0);
+    gsc_u32(&b, 6);
+    gsc_u32(&b, 0);
+    gsc_open(&b, "TST0");
+    gsc_u32(&b, 2);
+    gsc_u32(&b, 0);
+    size_t at[2], size[2], count = b.blk + 8;
+    for (int i = 0; i < 2; i++) {
+        size[i] = b.len;
+        gsc_u32(&b, 0);
+        gsc_u32(&b, i ? 24 : 0);
+        gsc_zero(&b, i ? 24 : 8);
+        at[i] = b.len;
+        gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2);
+        gsc_put32(&b, size[i], (uint32_t)(b.len - at[i]));
+    }
+    gsc_close(&b);
+    gsc_put32(&b, 4, (uint32_t)-(int32_t)b.len);
+
+    NwGsc g;
+    NwTex t;
+    CHECK(nw_gsc_open(&g, b.buf, b.len));
+    CHECK(g.ntextures == 2 && g.textures[0].offset == at[0] && g.textures[1].offset == at[1]);
+    CHECK(nw_gsc_texture(&g, 1, &t) && t.levels[0].width == 8);
+    nw_tex_free(&t);
+    CHECK_FAILS(nw_gsc_texture(&g, 2, &t), "texture 2 of 2");
+    char *path = NULL;
+    SDL_asprintf(&path, "%s/texset.txt", scratch);
+    FILE *out = fopen(path, "w+");
+    NwGscTotal total = { 0 };
+    CHECK(out && nw_gsc_report(&g, "TEX.GSC", out, &total));
+    if (out) {
+        nw_gsc_report_total(&total, out);
+        char text[1024];
+        rewind(out);
+        text[fread(text, 1, sizeof(text) - 1, out)] = 0;
+        CHECK(strstr(text, "TEX 1 8x8 type=4 version=1 levels=1 rgba=8d5cce5284f06b92") &&
+              strstr(text, "\nGSC TEX.GSC chunks=1 unknown=0 truncated=0 objects=0 batches=0 verts=0 tris=0 "
+                           "textures=2\n"
+                           "TOTAL files=1 failed=0 unknown=0 truncated=0 objects=0 batches=0 verts=0 tris=0 "
+                           "textures=2\n"));
+        fclose(out);
+    }
+    SDL_RemovePath(path);
+    SDL_free(path);
+    nw_gsc_close(&g);
+
+    gsc_put32(&b, count, 99);
+    CHECK_FAILS(nw_gsc_open(&g, b.buf, b.len), "TST0 of");
+    gsc_put32(&b, count, 2);
+    gsc_put32(&b, size[1], 0x10000);
+    CHECK_FAILS(nw_gsc_open(&g, b.buf, b.len), "TST0 runs past its block");
+    gsc_free(&b);
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -411,8 +608,10 @@ static void test_report(const char *scratch)
         char obj1[200];
         SDL_snprintf(obj1, sizeof(obj1), "\nOBJ 1 batches=0 verts=0 tris=0 vtx=%s idx=%s\n", empty, empty);
         CHECK(strncmp(text, "OBJ 0 batches=3 verts=15 tris=9 vtx=", 36) == 0 && strstr(text, obj1));
-        CHECK(strstr(text, "\nGSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"
-                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"));
+        CHECK(strstr(text, "\nGSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9 "
+                           "textures=0\n"
+                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9 "
+                           "textures=0\n"));
     }
     if (out) {
         fclose(out);
@@ -437,6 +636,8 @@ int main(int argc, char *argv[])
     test_errors();
     test_gsc();
     test_package();
+    test_texture();
+    test_texset(argv[1]);
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

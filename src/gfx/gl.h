@@ -32,6 +32,8 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_DEPTH_BUFFER_BIT 0x00000100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
+#define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
 #define GL_UNSIGNED_INT 0x1405
@@ -39,6 +41,12 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
+#define GL_NEAREST 0x2600
+#define GL_TEXTURE_MAG_FILTER 0x2800
+#define GL_TEXTURE_MIN_FILTER 0x2801
+#define GL_TEXTURE_MAX_LEVEL 0x813D
+#define GL_R8UI 0x8232
+#define GL_TEXTURE0 0x84C0
 #define GL_ARRAY_BUFFER 0x8892
 #define GL_ELEMENT_ARRAY_BUFFER 0x8893
 #define GL_STATIC_DRAW 0x88E4
@@ -47,6 +55,9 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_RGBA8UI 0x8D7C
+#define GL_RED_INTEGER 0x8D94
+#define GL_RGBA_INTEGER 0x8D99
 
 /* X(return type, name, parameter list) */
 #define NW_GL_FUNCTIONS(X) \
@@ -57,6 +68,14 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
     X(void, glDepthFunc, (GLenum func)) \
+    X(void, glPixelStorei, (GLenum pname, GLint param)) \
+    X(void, glGenTextures, (GLsizei n, GLuint *textures)) \
+    X(void, glDeleteTextures, (GLsizei n, const GLuint *textures)) \
+    X(void, glBindTexture, (GLenum target, GLuint texture)) \
+    X(void, glActiveTexture, (GLenum texture)) \
+    X(void, glTexParameteri, (GLenum target, GLenum pname, GLint param)) \
+    X(void, glTexImage2D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
+        GLint border, GLenum format, GLenum type, const void *pixels)) \
     X(void, glGenBuffers, (GLsizei n, GLuint *buffers)) \
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers)) \
     X(void, glBindBuffer, (GLenum target, GLuint buffer)) \
@@ -82,6 +101,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDeleteProgram, (GLuint program)) \
     X(GLint, glGetUniformLocation, (GLuint program, const GLchar *name)) \
     X(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
+    X(void, glUniform1i, (GLint location, GLint v0)) \
+    X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices))
 
@@ -98,6 +119,13 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable
 #define glDepthFunc nw_glDepthFunc
+#define glPixelStorei nw_glPixelStorei
+#define glGenTextures nw_glGenTextures
+#define glDeleteTextures nw_glDeleteTextures
+#define glBindTexture nw_glBindTexture
+#define glActiveTexture nw_glActiveTexture
+#define glTexParameteri nw_glTexParameteri
+#define glTexImage2D nw_glTexImage2D
 #define glGenBuffers nw_glGenBuffers
 #define glDeleteBuffers nw_glDeleteBuffers
 #define glBindBuffer nw_glBindBuffer
@@ -122,6 +150,8 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDeleteProgram nw_glDeleteProgram
 #define glGetUniformLocation nw_glGetUniformLocation
 #define glUniformMatrix4fv nw_glUniformMatrix4fv
+#define glUniform1i nw_glUniform1i
+#define glUniform4i nw_glUniform4i
 #define glUniform4fv nw_glUniform4fv
 #define glDrawElements nw_glDrawElements
 

@@ -42,19 +42,44 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "}\n";
 
-/* A white texture under the GS modulate rule (0x80 = 1.0) until the materials draw theirs. */
+/* The GS texture unit: CLUT lookups in GS units, CLAMP/REPEAT, nearest or bilinear over the looked-up colours. */
 static const char nw_vu_fs[] =
     "in vec4 v_col;\n"
     "in vec2 v_uv;\n"
+    "uniform usampler2D u_tex;\n"
+    "uniform usampler2D u_clut;\n"
+    "uniform ivec4 u_texmode;\n" /* textured, bilinear, CLAMP u, CLAMP v */
     "out vec4 o_col;\n"
+    "vec4 texel(ivec2 p)\n"
+    "{\n"
+    "    ivec2 size = textureSize(u_tex, 0);\n"
+    "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : (p.x % size.x + size.x) % size.x,\n"
+    "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : (p.y % size.y + size.y) % size.y);\n"
+    "    return vec4(texelFetch(u_clut, ivec2(int(texelFetch(u_tex, p, 0).r), 0), 0));\n"
+    "}\n"
+    "vec4 sample_gs(vec2 uv)\n"
+    "{\n"
+    "    vec2 t = uv * vec2(textureSize(u_tex, 0));\n"
+    "    if (u_texmode.y == 0) {\n"
+    "        return texel(ivec2(floor(t)));\n"
+    "    }\n"
+    "    t -= 0.5;\n"
+    "    ivec2 i = ivec2(floor(t));\n"
+    "    vec2 f = t - floor(t);\n"
+    "    return mix(mix(texel(i), texel(i + ivec2(1, 0)), f.x), mix(texel(i + ivec2(0, 1)), texel(i + 1), f.x), f.y);\n"
+    "}\n"
     "void main()\n"
     "{\n"
-    "    o_col = vec4(min(v_col.rgb / 128.0, 1.0), v_col.a / 128.0);\n"
+    "    if (u_texmode.x != 0) {\n"
+    "        o_col = vec4(sample_gs(v_uv).rgb / 255.0, 1.0);\n"
+    "    } else {\n"
+    "        o_col = vec4(min(v_col.rgb / 128.0, 1.0), v_col.a / 128.0);\n"
+    "    }\n"
     "}\n";
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -104,6 +129,10 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].lightdir = glGetUniformLocation(p, "u_lightdir");
     nw_vu[program].lightcol = glGetUniformLocation(p, "u_lightcol");
     nw_vu[program].uvoff = glGetUniformLocation(p, "u_uvoff");
+    nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
+    glUseProgram(p);
+    glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
+    glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
     return true;
 }
 
@@ -155,16 +184,53 @@ void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
     }
 }
 
-void nw_vu_use(NwVuProgram program, const NwVuObject *o, const float diffuse[4], const float uvoff[2])
+void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
 {
     glUseProgram(nw_vu[program].prog);
     glUniformMatrix4fv(nw_vu[program].lv, 1, GL_FALSE, o->lv);
-    glUniform4fv(nw_vu[program].diffuse, 1, diffuse);
+    glUniform4fv(nw_vu[program].diffuse, 1, m->diffuse);
     glUniform4fv(nw_vu[program].ambient, 1, o->ambient);
     glUniform4fv(nw_vu[program].lightdir, 3, o->lightdir[0]);
     glUniform4fv(nw_vu[program].lightcol, 3, o->lightcol[0]);
-    const float uv[4] = { uvoff[0], uvoff[1], 0.0f, 0.0f };
+    const float uv[4] = { m->uvoff[0], m->uvoff[1], 0.0f, 0.0f };
     glUniform4fv(nw_vu[program].uvoff, 1, uv);
+    bool textured = m->tex && m->tex->index;
+    glUniform4i(nw_vu[program].texmode, textured, m->state.mmag == 1, m->state.wms == 1, m->state.wmt == 1);
+    if (textured) {
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, m->tex->clut);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m->tex->index);
+    }
+}
+
+static void nw_vu_upload(GLuint name, GLint format, GLsizei w, GLsizei h, GLenum layout, const void *data)
+{
+    glBindTexture(GL_TEXTURE_2D, name);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, layout, GL_UNSIGNED_BYTE, data);
+}
+
+void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
+{
+    GLuint names[2];
+    glGenTextures(2, names);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glActiveTexture(GL_TEXTURE0);
+    nw_vu_upload(names[0], GL_R8UI, (GLsizei)t->levels[0].width, (GLsizei)t->levels[0].height, GL_RED_INTEGER,
+                 t->levels[0].texels);
+    nw_vu_upload(names[1], GL_RGBA8UI, 256, 1, GL_RGBA_INTEGER, t->clut);
+    tex->index = names[0];
+    tex->clut = names[1];
+}
+
+void nw_vu_texture_free(NwVuTexture *tex)
+{
+    const GLuint names[2] = { tex->index, tex->clut };
+    glDeleteTextures(2, names);
+    tex->index = tex->clut = 0;
 }
 
 void nw_vu_attribs(void)
