@@ -27,6 +27,7 @@ typedef struct NwVuObject {
 /* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT. */
 typedef struct NwVuTexture {
     unsigned int index, clut;
+    bool tcc; /* TEX0.TCC */
 } NwVuTexture;
 
 /* What a material gives the programs: diffuse VU 0x13 (x128), uvoff VU 0x14, the texture (NULL or 0: none), state. */

@@ -50,6 +50,7 @@ static const char nw_vu_fs[] =
     "uniform usampler2D u_clut;\n"
     "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; MMAG; CLAMP u; CLAMP v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
+    "uniform int u_tcc;\n"
     "out vec4 o_col;\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
@@ -87,18 +88,20 @@ static const char nw_vu_fs[] =
     "    }\n"
     "    return sample_level(uv, min(int(lod + 0.5), u_texlod.y), bilinear);\n"
     "}\n"
+    /* TFX MODULATE in GS units (0x80 = 1.0): Cf = Cv * Ct >> 7, Af the same with TCC; untextured Cf = Cv. */
     "void main()\n"
     "{\n"
+    "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
     "    if (u_texmode.x != 0) {\n"
-    "        o_col = vec4(sample_gs(v_uv).rgb / 255.0, 1.0);\n"
-    "    } else {\n"
-    "        o_col = vec4(min(v_col.rgb / 128.0, 1.0), v_col.a / 128.0);\n"
+    "        vec4 t = floor(sample_gs(v_uv));\n"
+    "        c = vec4(min(floor(c.rgb * t.rgb / 128.0), 255.0), u_tcc != 0 ? floor(c.a * t.a / 128.0) : c.a);\n"
     "    }\n"
+    "    o_col = vec4(c.rgb / 255.0, c.a / 128.0);\n"
     "}\n";
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -150,6 +153,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].uvoff = glGetUniformLocation(p, "u_uvoff");
     nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
+    nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -218,6 +222,7 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
     glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
                 m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
+    glUniform1i(nw_vu[program].tcc, textured && m->tex->tcc);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
@@ -253,6 +258,7 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
     }
     tex->index = names[0];
     tex->clut = names[1];
+    tex->tcc = t->tcc;
 }
 
 void nw_vu_texture_free(NwVuTexture *tex)
