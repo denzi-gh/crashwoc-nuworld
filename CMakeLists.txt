@@ -79,12 +79,14 @@ if(MINGW)
   target_link_options(crashwoc-nuworld PRIVATE -static-libstdc++)
 endif()
 
-# Runtime for the generated stubs and function map; linked into crashwoc-nuworld in M1.
+# Runtime for the generated stubs and function map, and the vblank clock the game thread runs on.
 add_library(nuworld_port STATIC
+  src/platform/clock.c
   src/port/stub.c
   src/port/funcmap.c)
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_port PUBLIC SDL3::SDL3)
 
 # Disc images, the data folder and the game file system.
 add_library(nuworld_vfs STATIC

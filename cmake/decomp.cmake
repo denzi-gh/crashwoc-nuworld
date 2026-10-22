@@ -129,8 +129,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Everything the decomp needs at link time: its objects, the data image and the SDK shims. The executable takes it
 # whole (nothing references nw_game_main yet, and the link is what proves the closure); tests pull what they use.
 # Never build it with LTO: the data image defines the roots as raw bytes.
-set(nw_game_sources ${nw_dataimage} src/port/nudat.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c
-  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
+set(nw_game_sources ${nw_dataimage} src/port/game.c src/port/nudat.c src/port/ps2video.c src/shim/cdvd.c
+  src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
@@ -167,6 +167,14 @@ if(NUWORLD_TESTS)
   add_test(NAME nudat COMMAND nuworld_test_nudat ${CMAKE_CURRENT_BINARY_DIR}/test-nudat)
   add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
   set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
+
+  # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
+  add_executable(nuworld_test_clock tests/c/test_clock.c)
+  target_include_directories(nuworld_test_clock PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_clock PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_clock PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_clock PRIVATE nuworld_game)
+  add_test(NAME clock COMMAND nuworld_test_clock)
 
   # Brings its own funcmap (fake code addresses).
   add_executable(nuworld_test_convert tests/c/test_convert.c)
