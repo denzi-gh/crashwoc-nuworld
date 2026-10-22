@@ -17,9 +17,10 @@ import nwunits  # noqa: E402
 import typedb  # noqa: E402
 
 
-def fixture_elf(cb_offset: int, bad: bool = False, trip: bool = False) -> bytes:
+def fixture_elf(cb_offset: int, bad: str = "", trip: bool = False) -> bytes:
     """The fixture's retail image (fixtures/mini sections.json): one PT_LOAD at 0x00100000. bad: a pointer into
-    .text; trip: two bytes the image cannot reproduce (a C value, a padding byte)."""
+    .text ("text") or into a microcode package ("vu"); trip: two bytes the image cannot reproduce (a C value, a
+    padding byte)."""
     base, filesz, memsz = 0x00100000, 0x1100, 0x1300
     seg = bytearray(filesz)
 
@@ -27,7 +28,7 @@ def fixture_elf(cb_offset: int, bad: bool = False, trip: bool = False) -> bytes:
         seg[addr - base:addr - base + len(data)] = data
 
     put(0x00100B00, b"hello\0world\0")
-    put(0x00100900, struct.pack("<II", 0x00100104 if bad else 0x00100B00, 0x00100B06))
+    put(0x00100900, struct.pack("<II", 0x00100104 if bad == "text" else 0x00100B00, 0x00100B06))
     put(0x00100A00, struct.pack("<Iii", 0x00100D00, 0x1234, 5))         # fixroot: next, i, named.a
     put(0x00100A00 + cb_offset, struct.pack("<I", 0x00100100))          # fixroot.cb = FixAdd
     put(0x00100A48, struct.pack("<4f", 1.5, 2.5, 3.5, 4.5))             # fixpairs
@@ -35,6 +36,9 @@ def fixture_elf(cb_offset: int, bad: bool = False, trip: bool = False) -> bytes:
     put(0x00100C10, struct.pack("<I", 0x00100B06))                      # fixgreet = "world" (C data)
     put(0x00100D00, struct.pack("<Ii", 0x00100D28, 77))                 # fixfar: next = fixafter, i
     put(0x00100D28, struct.pack("<Ii", 0x00100A00, 88))                 # fixafter (where fixfar ends)
+    put(0x00100E00, struct.pack("<II", 0x00100684 if bad == "vu" else 0x00100680, 0x00100600))  # fixmpgs
+    put(0x00100E10, struct.pack("<II", 0x00100140, 0x00100680))         # fixcbs: FixMissing (a stub), a package
+    put(0x00100E20, struct.pack("<II", 0x00100100, 0x00100600))         # fixaddrs: FixAdd, a package
     if trip:
         put(0x00100A0C, b"")                                         # fixroot's padding
     ident = b"\x7fELF" + bytes([1, 1, 1]) + bytes(9)
@@ -89,6 +93,11 @@ class Fixture(unittest.TestCase):
             "fixpairs": ("copy", 16, None, None),
             "D_00100B00": ("mirror", 0, None, None),
             "D_00100C08": ("alias", 0, None, "fixstatic+8"),
+            "fixmpgs": ("convert", 8, "nw_rt_p_void", None),
+            "fixcbs": ("convert", 8, "nw_type_fnptr", None),
+            "fixaddrs": ("convert", 8, "nw_rt_addr_u", None),
+            "vu_load_fixa_mpg": ("vu", 128, None, None),
+            "D_00100680": ("vu", 128, None, None),
         })
         self.assertEqual(sorted((o.name, o.static, o.plain) for o in image.objs),
                          [("fixgreet", False, False), ("fixstatic", True, True), ("fixtent", False, True)])
@@ -99,6 +108,11 @@ class Fixture(unittest.TestCase):
                      '        ".set " NW_SYM(D_00100A04) ", " NW_SYM(fixroot) "+8\\n");',
                      '        ".set " NW_SYM(D_00100B00) ", " NW_SYM(nw_ps2_mirror) "+1280\\n");',
                      '    { "fixnames", 0x00100900u, 8u, fixnames, 16u, &nw_rt_p_s8, 2u, NW_ROOT_CONVERT },',
+                     'const NwVuProg vu_load_fixb_mpg = { "vu_load_fixb_mpg", 0x00100680u, 128u };',
+                     '        ".set " NW_SYM(D_00100680) ", " NW_SYM(vu_load_fixb_mpg) "+0\\n");',
+                     '    { "D_00100680", 0x00100680u, 128u, (void *)&vu_load_fixb_mpg, 0u, 0, 0u, NW_ROOT_VU },',
+                     "    0x00100600u, 0x00100700u,",
+                     "    nw_vu_progs, 2u,",
                      "#define NW_MIRROR_BASE 0x00100600u"]:
             self.assertIn(line + "\n", src)
         for line in ['    { "fixstatic", 0x00100c00u, 16u, (void *)&fixstatic, (unsigned int)sizeof fixstatic, 0, '
@@ -160,6 +174,15 @@ class Fixture(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("fixnowhere has no retail address", errors[0])
 
+    def test_inside_a_package(self):
+        errors = self.broken([("src/game/fixdata.c", "extern char D_00100680[];",
+                               "extern char D_00100680[];\nextern char D_00100684[];"),
+                              ("src/game/fixdata.c", "    return D_00100B00[0]",
+                               "    return D_00100684[0] + D_00100B00[0]")])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("D_00100684: 0x00100684 is vu_load_fixb_mpg+0x4: only whole microcode packages have tokens",
+                      errors[0])
+
     def test_end_to_end(self):
         cc = fb.find_cc()
         if cc is None:
@@ -172,13 +195,18 @@ class Fixture(unittest.TestCase):
             build = fb.build(cc, out, fb.FIXTURE / "data_harness.c", exe)
             self.assertEqual(build.returncode, 0, build.stderr)
             (out / "good.elf").write_bytes(fixture_elf(cb))
-            (out / "bad.elf").write_bytes(fixture_elf(cb, bad=True))
+            (out / "bad.elf").write_bytes(fixture_elf(cb, bad="text"))
+            (out / "badvu.elf").write_bytes(fixture_elf(cb, bad="vu"))
             run = subprocess.run([str(exe), str(out / "good.elf")], capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             self.assertTrue(run.stdout.endswith("ok\n"), run.stdout)
             bad = subprocess.run([str(exe), str(out / "bad.elf"), "bad"], capture_output=True, text=True)
             self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
             self.assertEqual(bad.stdout.strip(), "fixnames[0]: 0x00100104 points into .text, not at data")
+            bad = subprocess.run([str(exe), str(out / "badvu.elf"), "bad"], capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+            self.assertEqual(bad.stdout.strip(),
+                             "fixmpgs[0]: 0x00100684 is vu_load_fixb_mpg+0x4, not the start of a microcode package")
             (out / "trip.elf").write_bytes(fixture_elf(cb, trip=True))
             trip = subprocess.run([str(exe), str(out / "trip.elf"), "trip"], capture_output=True, text=True)
             self.assertEqual(trip.returncode, 0, trip.stdout + trip.stderr)

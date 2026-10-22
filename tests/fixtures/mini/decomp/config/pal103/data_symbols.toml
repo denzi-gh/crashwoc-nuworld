@@ -65,6 +65,33 @@ section = '.data'
 size = 40
 
 [[symbol]]
+key = 'unit-0006:fixmpgs'
+name = 'fixmpgs'
+unit = 6
+scope = 'global'
+address = 0x00100e00
+section = '.data'
+size = 8
+
+[[symbol]]
+key = 'unit-0006:fixcbs'
+name = 'fixcbs'
+unit = 6
+scope = 'global'
+address = 0x00100e10
+section = '.data'
+size = 8
+
+[[symbol]]
+key = 'unit-0006:fixaddrs'
+name = 'fixaddrs'
+unit = 6
+scope = 'global'
+address = 0x00100e20
+section = '.data'
+size = 8
+
+[[symbol]]
 key = 'unit-0006:fixowned'
 name = 'fixowned'
 unit = 6

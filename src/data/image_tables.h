@@ -11,7 +11,8 @@ enum {
     NW_ROOT_MIRROR,  /* plain data at its PS2 offset in the mirror of the retail image */
     NW_ROOT_COPY,    /* plain data the host declaration needs aligned better than its PS2 address */
     NW_ROOT_CONVERT, /* data with pointer slots, converted element by element */
-    NW_ROOT_ALIAS    /* inside another root or a C-defined object (no storage of its own) */
+    NW_ROOT_ALIAS,   /* inside another root or a C-defined object (no storage of its own) */
+    NW_ROOT_VU       /* a VU1 microcode package: its token (NwVuProg) */
 };
 
 typedef struct NwImageRoot {
@@ -46,10 +47,21 @@ typedef struct NwDataUnit {
     unsigned int count;
 } NwDataUnit;
 
+/* A VU1 microcode package in .vutext. The EE code only takes its address (mtl->rs.mpg = vu_load_tri_mpg) for
+   DMA tags to call, so on the host the package's name is this token, never its bytes; the renderer maps it to
+   its own behaviour. Data addresses of a package start resolve to the same token. */
+typedef struct NwVuProg {
+    const char *name;
+    unsigned int addr, size; /* the retail package */
+} NwVuProg;
+
 typedef struct NwImageTables {
     unsigned int mirror_base, mirror_size; /* PS2 range of the mirror */
     unsigned char *mirror;
     unsigned int text_base, text_end; /* .text: code addresses, never data */
+    unsigned int vutext_base, vutext_end; /* .vutext: microcode packages, tokens on the host */
+    const NwVuProg *const *vu_progs;      /* address order */
+    unsigned int nvu_progs;
     const NwImageRoot *roots;         /* address order */
     unsigned int nroots;
     const NwDataUnit *const *units;

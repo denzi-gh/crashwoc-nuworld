@@ -227,6 +227,37 @@ static void *nw_image_region(NwXCtx *ctx, uint32_t addr, const NwType *type, con
     return nw_image_at(ctx, &r->obj, addr, addr - start, site);
 }
 
+static bool nw_image_in_vutext(uint32_t addr)
+{
+    return addr >= nw_image.t->vutext_base && addr < nw_image.t->vutext_end;
+}
+
+/* The package holding a .vutext address, else NULL. */
+static const NwVuProg *nw_image_vu_find(const NwImageTables *t, uint32_t addr)
+{
+    for (unsigned i = 0; i < t->nvu_progs; i++) {
+        if (addr - t->vu_progs[i]->addr < t->vu_progs[i]->size) {
+            return t->vu_progs[i];
+        }
+    }
+    return NULL;
+}
+
+/* The token of the microcode package starting at addr; any other .vutext address is fatal. */
+static const NwVuProg *nw_image_vu(NwXCtx *ctx, uint32_t addr, const char *site)
+{
+    const NwVuProg *p = nw_image_vu_find(nw_image.t, addr);
+    if (!p) {
+        nw_xfatal(ctx, site, "0x%08x lies in .vutext outside every named microcode package", (unsigned)addr);
+    }
+    if (p->addr != addr) {
+        nw_xfatal(ctx, site, "0x%08x is %s+0x%x, not the start of a microcode package", (unsigned)addr, p->name,
+                  (unsigned)(addr - p->addr));
+    }
+    nw_image.stats->vu_tokens++;
+    return p;
+}
+
 static void *nw_image_ptr_in(NwXCtx *ctx, uint32_t addr, const NwType *type, const char *site)
 {
     const NwImageTables *t = nw_image.t;
@@ -236,6 +267,9 @@ static void *nw_image_ptr_in(NwXCtx *ctx, uint32_t addr, const NwType *type, con
     }
     if (addr >= t->text_base && addr < t->text_end) {
         nw_xfatal(ctx, site, "0x%08x points into .text, not at data", (unsigned)addr);
+    }
+    if (nw_image_in_vutext(addr)) {
+        return (void *)(uintptr_t)nw_image_vu(ctx, addr, site);
     }
     if (addr < t->mirror_base || addr - t->mirror_base > t->mirror_size) {
         nw_xfatal(ctx, site, "0x%08x lies outside the retail image", (unsigned)addr);
@@ -259,6 +293,7 @@ static void *nw_image_ptr_in(NwXCtx *ctx, uint32_t addr, const NwType *type, con
     return nw_image_region(ctx, addr, type, site);
 }
 
+/* A .text value that starts no function stays a plain value. */
 static uintptr_t nw_image_addr_in(NwXCtx *ctx, uint32_t value, int is_signed, const char *site)
 {
     const NwImageTables *t = nw_image.t;
@@ -268,10 +303,21 @@ static uintptr_t nw_image_addr_in(NwXCtx *ctx, uint32_t value, int is_signed, co
     if (value >= t->text_base && value < t->text_end) {
         const NwFuncmapEntry *e = nw_funcmap_find(value);
         if (e) {
+            ctx->code_pointers++;
+            ctx->stub_pointers += e->provenance == NW_PROV_STUB;
             return (uintptr_t)e->fn;
         }
     }
     return is_signed ? (uintptr_t)(intptr_t)(int32_t)value : (uintptr_t)value;
+}
+
+/* A code address the funcmap does not know: a microcode package (a DMA call target), else fatal. */
+static NwFuncPtr nw_image_vutext_in(NwXCtx *ctx, uint32_t addr, const char *site)
+{
+    if (!nw_image_in_vutext(addr)) {
+        nw_xfatal(ctx, site, "no host function for code address 0x%08x", (unsigned)addr);
+    }
+    return (NwFuncPtr)(uintptr_t)nw_image_vu(ctx, addr, site);
 }
 
 /* Loading converts only towards the host; the round trip has its own context. */
@@ -357,7 +403,7 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
     nw_image.err_size = err_size;
     nw_image.ctx = (NwXCtx){ .ptr_in = nw_image_ptr_in, .ptr_out = nw_image_ptr_out,
                              .addr_in = nw_image_addr_in, .addr_out = nw_image_addr_out,
-                             .fatal = nw_image_fatal };
+                             .vutext_in = nw_image_vutext_in, .fatal = nw_image_fatal };
     const char *why = nw_elf_flatten(elf, size, t->mirror_base, t->mirror_base + t->mirror_size, t->mirror);
     if (why) {
         snprintf(err, err_size, "%s", why);
@@ -374,7 +420,7 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
         if (r->kind == NW_ROOT_COPY) {
             memcpy(r->host, src, r->ps2_size);
         }
-        if (r->kind != NW_ROOT_ALIAS) {
+        if (r->kind != NW_ROOT_ALIAS && r->kind != NW_ROOT_VU) {
             NwObj o = { r->addr, r->ps2_size, r->host, r->host_size, r->kind == NW_ROOT_CONVERT ? r->elem : NULL,
                         r->count, r->kind == NW_ROOT_CONVERT ? 0u : NW_OBJ_PLAIN, r->name };
             nw_image_push(&o);
@@ -425,6 +471,10 @@ void *nw_image_host(uint32_t ps2)
     if (!t) {
         return NULL;
     }
+    if (nw_image_in_vutext(ps2)) {
+        const NwVuProg *p = nw_image_vu_find(t, ps2);
+        return p && p->addr == ps2 ? (void *)(uintptr_t)p : NULL;
+    }
     NwObj *o = nw_image_find(ps2, &off);
     if (o) {
         return nw_image_map(o, off, &p) ? p : NULL;
@@ -438,6 +488,11 @@ bool nw_image_ps2(const void *host, uint32_t *ps2)
     uintptr_t p = (uintptr_t)host;
     if (!t) {
         return false;
+    }
+    const NwVuProg *vu = nw_vu_prog(host);
+    if (vu) {
+        *ps2 = vu->addr;
+        return true;
     }
     if (p >= (uintptr_t)t->mirror && p - (uintptr_t)t->mirror <= t->mirror_size) {
         *ps2 = t->mirror_base + (uint32_t)(p - (uintptr_t)t->mirror);
@@ -464,16 +519,29 @@ bool nw_image_ps2(const void *host, uint32_t *ps2)
     return true;
 }
 
+const NwVuProg *nw_vu_prog(const void *mpg)
+{
+    const NwImageTables *t = nw_image.t;
+    for (unsigned i = 0; t && i < t->nvu_progs; i++) {
+        if ((const void *)t->vu_progs[i] == mpg) {
+            return t->vu_progs[i];
+        }
+    }
+    return NULL;
+}
+
 void nw_image_report(const NwImageStats *s, FILE *out)
 {
-    fprintf(out, "roots: %u mirror, %u copied, %u converted, %u aliases\n", s->roots[NW_ROOT_MIRROR],
-            s->roots[NW_ROOT_COPY], s->roots[NW_ROOT_CONVERT], s->roots[NW_ROOT_ALIAS]);
+    fprintf(out, "roots: %u mirror, %u copied, %u converted, %u aliases, %u microcode packages\n",
+            s->roots[NW_ROOT_MIRROR], s->roots[NW_ROOT_COPY], s->roots[NW_ROOT_CONVERT], s->roots[NW_ROOT_ALIAS],
+            s->roots[NW_ROOT_VU]);
     fprintf(out, "C definitions at retail addresses: %u\n", s->objects);
     fprintf(out, "objects only pointers reach: %u (%llu bytes)\n", s->regions,
             (unsigned long long)s->region_bytes);
     fprintf(out, "data pointers: %u translated, %u small values or -1 kept, %u void pointers to unclaimed bytes\n",
             s->pointers, s->kept_ints, s->unclaimed);
-    fprintf(out, "code pointers: %u (%u to stubs)\n", s->code_pointers, s->stub_pointers);
+    fprintf(out, "code pointers: %u (%u to stubs), %u .vutext addresses made microcode package tokens\n",
+            s->code_pointers, s->stub_pointers, s->vu_tokens);
 }
 
 /* Pointer slots the way back cannot place get a mark (the index of the host pointer) for the comparison. */
@@ -541,10 +609,11 @@ static uint32_t nw_trip_addr_out(NwXCtx *ctx, uintptr_t value, const char *site)
     return nw_trip_mark(ctx, (const void *)value, site);
 }
 
-/* A host function with no retail address. */
+/* A host function with no retail address, or a microcode package token. */
 static uint32_t nw_trip_fn_out(NwXCtx *ctx, NwFuncPtr fn, const char *site)
 {
-    return nw_trip_mark(ctx, (const void *)fn, site);
+    const NwVuProg *vu = nw_vu_prog((const void *)fn);
+    return vu ? vu->addr : nw_trip_mark(ctx, (const void *)fn, site);
 }
 
 /* Whether the string at host p is the one at PS2 address addr. */
