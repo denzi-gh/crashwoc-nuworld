@@ -15,6 +15,7 @@
 #ifdef NW_WITH_GAME
 #include "data/image.h"
 #include "gfx/gsc.h"
+#include "gfx/view.h"
 #include "port/game.h"
 #include "shim/shim.h"
 #include "vfs/sha256.h"
@@ -256,6 +257,46 @@ static int nw_check_scenes(const char *data_dir)
     return total.failed || total.unknown ? 1 : 0;
 }
 
+/* One .gsc of the imported disc in the viewer, loaded before the window opens; exits 2 without the disc or file. */
+static int nw_scene(const char *data_dir, const char *path, int max_frames)
+{
+    NwVfs vfs;
+    char name[NW_VFS_PATH_MAX];
+    SDL_strlcpy(name, path, sizeof(name));
+    for (char *c = name; *c; c++) {
+        *c = *c == '\\' ? '/' : *c;
+    }
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_extract_has_disc(root) || !nw_vfs_init(&vfs, root)) {
+        fprintf(stderr, NW_APP_NAME ": no imported disc (run --import)\n");
+        SDL_free(root);
+        return 2;
+    }
+    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, name);
+    size_t size = 0;
+    uint8_t *data = e ? nw_read_scene(&vfs, e, &size) : NULL;
+    NwGsc g = { 0 };
+    int code = 2;
+    if (!e) {
+        fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
+    } else if (!data || !nw_gsc_open(&g, data, size)) {
+        fprintf(stderr, NW_APP_NAME ": %s: %s\n", e->path, SDL_GetError());
+        code = 1;
+    } else {
+        NwPlatform platform;
+        code = 1;
+        if (nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+            code = nw_view_scene(&platform, &g, e->path, max_frames);
+            nw_platform_shutdown(&platform);
+        }
+        nw_gsc_close(&g);
+    }
+    SDL_free(data);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return code;
+}
+
 /* The decomp's main (port/units.toml renames it), started as retail's boot starts it. */
 int nw_game_main(int argc, char **argv);
 
@@ -456,7 +497,7 @@ static int nw_boot(const char *data_dir)
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
-    const char *import = NULL, *data_dir = NULL;
+    const char *import = NULL, *data_dir = NULL, *scene = NULL;
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
 
@@ -465,7 +506,9 @@ int main(int argc, char *argv[])
             printf(NW_APP_NAME " %s\n", NUWORLD_VERSION);
             return 0;
         }
-        if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0) && i + 1 >= argc) {
+        if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
+             strcmp(argv[i], "--scene") == 0) &&
+            i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
         }
@@ -483,6 +526,8 @@ int main(int argc, char *argv[])
             check_data = true;
         } else if (strcmp(argv[i], "--check-scenes") == 0) {
             check_scenes = true;
+        } else if (strcmp(argv[i], "--scene") == 0) {
+            scene = argv[++i];
         } else if (strcmp(argv[i], "--boot") == 0) {
             boot = true;
         } else if (strcmp(argv[i], "--boot-check") == 0) {
@@ -499,10 +544,13 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || boot || boot_check) {
+    if (check_data || check_scenes || scene || boot || boot_check) {
 #ifdef NW_WITH_GAME
         if (check_scenes) {
             return nw_check_scenes(data_dir);
+        }
+        if (scene) {
+            return nw_scene(data_dir, scene, max_frames);
         }
         return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check)
                                                                  : nw_boot(data_dir);

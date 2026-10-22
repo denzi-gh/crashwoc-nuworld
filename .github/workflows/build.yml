@@ -104,7 +104,7 @@ jobs:
           grep -F "$data_home/crashwoc-nuworld/disc/" "$data_home/verify.log"
       - name: Check the data image, the scenes and the boot without data
         run: |
-          for mode in --check-data --check-scenes --boot-check; do
+          for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
             status=0
             ./build/release/crashwoc-nuworld --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
@@ -176,7 +176,7 @@ jobs:
           test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.1.0"
       - name: Check the data image, the scenes and the boot without data
         run: |
-          for mode in --check-data --check-scenes --boot-check; do
+          for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
             status=0
             ./build/release/crashwoc-nuworld.exe --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2

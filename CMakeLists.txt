@@ -66,6 +66,8 @@ add_executable(crashwoc-nuworld
   src/main.c
   src/platform/platform.c
   src/gfx/gl.c
+  src/gfx/view.c
+  src/gfx/vu.c
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
 nw_embed(crashwoc-nuworld nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
