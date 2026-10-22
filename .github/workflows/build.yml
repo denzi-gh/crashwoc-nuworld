@@ -102,6 +102,11 @@ jobs:
           test -d "$data_home/crashwoc-nuworld"
           test ! -e "$data_home/NuWorld"
           grep -F "$data_home/crashwoc-nuworld/disc/" "$data_home/verify.log"
+      - name: Check the data image without data
+        run: |
+          status=0
+          ./build/release/crashwoc-nuworld --data-dir "$(mktemp -d)" --check-data || status=$?
+          test "$status" = 2
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-linux-x86_64
@@ -136,6 +141,11 @@ jobs:
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
           test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.1.0"
+      - name: Check the data image without data
+        run: |
+          status=0
+          ./build/release/crashwoc-nuworld.exe --data-dir "$(mktemp -d)" --check-data || status=$?
+          test "$status" = 2
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-windows-x64

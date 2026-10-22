@@ -1,5 +1,6 @@
 """gen_dataimage on tests/fixtures/mini (libclang; clang or $CC for the end-to-end test)."""
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,26 @@ import gen_converters  # noqa: E402
 import gen_dataimage  # noqa: E402
 import nwunits  # noqa: E402
 import typedb  # noqa: E402
+
+
+def fixture_elf(cb_offset: int, bad: bool = False) -> bytes:
+    """The fixture's retail image (fixtures/mini sections.json): one PT_LOAD at 0x00100000."""
+    base, filesz, memsz = 0x00100000, 0x1100, 0x1300
+    seg = bytearray(filesz)
+
+    def put(addr, data):
+        seg[addr - base:addr - base + len(data)] = data
+
+    put(0x00100B00, b"hello\0world\0")
+    put(0x00100900, struct.pack("<II", 0x00100104 if bad else 0x00100B00, 0x00100B06))
+    put(0x00100A00, struct.pack("<Iii", 0x00100D00, 0x1234, 5))         # fixroot: next, i, named.a
+    put(0x00100A00 + cb_offset, struct.pack("<I", 0x00100100))          # fixroot.cb = FixAdd
+    put(0x00100A48, struct.pack("<4f", 1.5, 2.5, 3.5, 4.5))             # fixpairs
+    put(0x00100D00, struct.pack("<Ii", 0x00100A00, 77))                 # fixfar: next = fixroot, i
+    ident = b"\x7fELF" + bytes([1, 1, 1]) + bytes(9)
+    ehdr = ident + struct.pack("<HHIIIIIHHHHHH", 2, 8, 1, 0x00100008, 52, 0, 0, 52, 32, 1, 40, 0, 0)
+    phdr = struct.pack("<8I", 1, 0x100, base, base, filesz, memsz, 7, 0x100)
+    return (ehdr + phdr).ljust(0x100, b"\0") + bytes(seg)
 
 
 class ListOutputs(unittest.TestCase):
@@ -132,6 +153,26 @@ class Fixture(unittest.TestCase):
                                "    return fixnowhere + D_00100B00[0]")])
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("fixnowhere has no retail address", errors[0])
+
+    def test_end_to_end(self):
+        cc = fb.find_cc()
+        if cc is None:
+            self.skipTest("no clang (set CC)")
+        cb = next(f["ps2"]["offset"] for f in self.db["records"]["struct fixnode_s"]["fields"] if f["name"] == "cb")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            fb.generate(out, self.db)
+            exe = out / "data_harness.exe"
+            build = fb.build(cc, out, fb.FIXTURE / "data_harness.c", exe)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            (out / "good.elf").write_bytes(fixture_elf(cb))
+            (out / "bad.elf").write_bytes(fixture_elf(cb, bad=True))
+            run = subprocess.run([str(exe), str(out / "good.elf")], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertTrue(run.stdout.endswith("ok\n"), run.stdout)
+            bad = subprocess.run([str(exe), str(out / "bad.elf"), "bad"], capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+            self.assertEqual(bad.stdout.strip(), "fixnames[0]: 0x00100104 points into .text, not at data")
 
 
 if __name__ == "__main__":

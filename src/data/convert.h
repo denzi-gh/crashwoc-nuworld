@@ -61,11 +61,14 @@ struct NwXCtx {
         int index;
     } path[NW_XCTX_DEPTH];
     int depth;
+    unsigned code_pointers, stub_pointers; /* nw_fn_in: through the funcmap, to stubs */
 };
 
 /* Convert one object; root names it in errors (a symbol or the type name). */
 void nw_x(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root);
 void nw_xr(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root);
+/* Element index of an array root: errors read "root[index].field". */
+void nw_x_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index);
 
 /* The host offset of a PS2 offset into type; the size (one past the end) maps too. */
 int nw_xoff(const NwType *type, uint32_t ps2_off, uint32_t *host_off);

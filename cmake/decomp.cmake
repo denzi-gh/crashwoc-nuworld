@@ -118,7 +118,7 @@ target_include_directories(nuworld_decomp PRIVATE ${nw_decomp_includes})
 target_compile_options(nuworld_decomp PRIVATE ${nw_decomp_flags})
 
 # The converters include every decomp header, so they build with the decomp flags.
-set(nw_data_sources src/data/convert.c src/data/xhooks.c ${nw_converters})
+set(nw_data_sources src/data/convert.c src/data/elf.c src/data/image.c src/data/xhooks.c ${nw_converters})
 list(FILTER nw_data_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_data STATIC ${nw_data_sources})
 add_dependencies(nuworld_data nuworld_types)
@@ -151,6 +151,12 @@ if(NUWORLD_TESTS)
     target_compile_options(nuworld_test_ps2types PRIVATE -mno-ms-bitfields)
   endif()
   add_test(NAME ps2types COMMAND nuworld_test_ps2types)
+
+  # Local only: the data image from the imported disc of NUWORLD_TEST_DATA (skipped without it).
+  add_test(NAME data-image-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
+      --data-dir {root} --check-data)
+  set_tests_properties(data-image-retail PROPERTIES SKIP_RETURN_CODE 77)
 
   # Brings its own funcmap (fake code addresses).
   add_executable(nuworld_test_convert tests/c/test_convert.c)

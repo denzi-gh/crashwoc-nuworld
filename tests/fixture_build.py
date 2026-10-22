@@ -81,7 +81,8 @@ def build(cc: str, out: Path, harness: Path, exe: Path) -> subprocess.CompletedP
     model = nwunits.load(DECOMP, UNITS, PORT_SRC)
     sources = [out / "funcmap.c", out / "nw_convert.c", out / "dataimage.c", out / "dataimage_types.c",
                REPO / "src" / "port" / "stub.c", REPO / "src" / "port" / "funcmap.c",
-               REPO / "src" / "data" / "convert.c", FIXTURE / "port" / "xhooks.c", harness,
+               REPO / "src" / "data" / "convert.c", REPO / "src" / "data" / "elf.c",
+               REPO / "src" / "data" / "image.c", FIXTURE / "port" / "xhooks.c", harness,
                *sorted(PORT_SRC.glob("*.c"))]
     for unit in model.units:
         if unit.kind == "standalone":

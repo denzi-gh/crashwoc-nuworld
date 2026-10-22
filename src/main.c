@@ -12,6 +12,11 @@
 #include "platform/paths.h"
 #include "platform/platform.h"
 #include "vfs/extract.h"
+#ifdef NW_WITH_GAME
+#include "data/image.h"
+#include "vfs/sha256.h"
+#include "vfs/vfs.h"
+#endif
 
 static bool nw_print_progress(void *user, uint64_t done, uint64_t total)
 {
@@ -98,11 +103,72 @@ static int nw_verify(const char *data_dir)
     return ok ? 0 : 1;
 }
 
+#ifdef NW_WITH_GAME
+/* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
+static void *nw_read_elf(const NwVfs *vfs, size_t *size)
+{
+    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, NW_DISC_BOOT);
+    NwVfsFile *f = nw_vfs_open(vfs, "cdrom0:\\" NW_DISC_BOOT ";1", NW_VFS_READ);
+    if (!e || !f) {
+        nw_vfs_close(f);
+        return NULL;
+    }
+    int64_t n = nw_vfs_size(f);
+    void *data = n == (int64_t)e->size ? SDL_malloc((size_t)n) : NULL;
+    bool ok = data && nw_vfs_read(f, data, (size_t)n) == n;
+    nw_vfs_close(f);
+    if (ok) {
+        uint8_t digest[NW_SHA256_SIZE];
+        char hex[NW_SHA256_HEX];
+        nw_sha256(data, (size_t)n, digest);
+        nw_sha256_hex(digest, hex);
+        ok = SDL_strcmp(hex, e->sha256) == 0;
+    }
+    if (!ok) {
+        SDL_free(data);
+        SDL_SetError(NW_DISC_BOOT " is not the PAL v" NW_DISC_VER " ELF (run --verify)");
+        return NULL;
+    }
+    *size = (size_t)n;
+    return data;
+}
+
+/* Builds the data image from the imported disc and reports it; returns the exit code (2: no usable data). */
+static int nw_check_data(const char *data_dir)
+{
+    NwVfs vfs;
+    size_t size = 0;
+    char *root = nw_data_root(data_dir);
+    void *elf = root && nw_vfs_init(&vfs, root) ? nw_read_elf(&vfs, &size) : NULL;
+    if (!elf) {
+        fprintf(stderr, NW_APP_NAME ": no data image: %s\n", SDL_GetError());
+        if (root) {
+            nw_vfs_shutdown(&vfs);
+        }
+        SDL_free(root);
+        return 2;
+    }
+    NwImageStats stats;
+    char err[512];
+    bool ok = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    nw_image_report(&stats, stdout);
+    if (!ok) {
+        fflush(stdout);
+        fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
+    }
+    nw_image_free();
+    SDL_free(elf);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return ok ? 0 : 1;
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *data_dir = NULL;
-    bool verify = false, setup = false;
+    bool verify = false, setup = false, check_data = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
@@ -123,6 +189,8 @@ int main(int argc, char *argv[])
             verify = true;
         } else if (strcmp(argv[i], "--setup") == 0) {
             setup = true;
+        } else if (strcmp(argv[i], "--check-data") == 0) {
+            check_data = true;
         }
     }
     if (import) {
@@ -130,6 +198,14 @@ int main(int argc, char *argv[])
     }
     if (verify) {
         return nw_verify(data_dir);
+    }
+    if (check_data) {
+#ifdef NW_WITH_GAME
+        return nw_check_data(data_dir);
+#else
+        fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
+        return 2;
+#endif
     }
 
     NwPlatform platform;
