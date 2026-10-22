@@ -1,6 +1,6 @@
 /* Seed corpus for nuworld_fuzz_vfs from the synthetic test builders (no game data): the disc as .iso, raw
-   Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, and .DAT archives. Each seed is the
-   reader byte of fuzz_vfs.c and its input.
+   Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, .DAT archives and .gsc geoms. Each seed
+   is the reader byte of fuzz_vfs.c and its input.
    Usage: fuzz_seeds <corpus dir>. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,8 +11,9 @@
 #include "dat_builder.h"
 #include "disc_builder.h"
 #include "rnc2_fixture.inc"
+#include "vif_builder.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF };
 
 static const char *corpus;
 
@@ -97,5 +98,32 @@ int main(int argc, char *argv[])
     seed("dat", FUZZ_DAT, NULL, 0, d.data, d.size);
     build_dat_with(&d, nw_rnc2_fixture, sizeof(nw_rnc2_fixture), NW_RNC2_UNPACKED);
     seed("dat-packed", FUZZ_DAT, NULL, 0, d.data, d.size);
+
+    VifVtx v[6];
+    const bool adc[6] = { 1, 1, 0, 0, 1, 1 };
+    const float span[3] = { 4096.0f, 4096.0f, 4096.0f }, mid[3] = { 0.0f, 0.0f, 0.0f };
+    for (int i = 0; i < 6; i++) {
+        v[i] = (VifVtx){ .x = (float)i, .y = (float)(i & 1), .z = 0.5f, .nx = 1.0f, .u = 0.25f * i, .v = 0.5f,
+                         .nz = 1.0f, .rgba = { 0x80, 0x80, 0x80, 0x7F } };
+    }
+    VifBuild b;
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 6, 0);
+    vif_cnt(&b);
+    vif_batch(&b, v, adc, 6, VIF_SPLIT_NEXT | VIF_FAST_UV);
+    vif_end(&b, 64);
+    seed("vif-chain", FUZZ_VIF, NULL, 0, b.buf, b.len);
+    vif_free(&b);
+    vif_begin(&b);
+    vif_packed(&b, span, mid);
+    vif_batch(&b, v, adc, 6, VIF_UV_ROW);
+    vif_end(&b, 0);
+    seed("vif-packed", FUZZ_VIF, NULL, 0, b.buf, b.len);
+    vif_free(&b);
+    vif_begin(&b);
+    vif_faceon(&b, 3);
+    vif_end(&b, 0);
+    seed("vif-faceon", FUZZ_VIF, NULL, 0, b.buf, b.len);
+    vif_free(&b);
     return 0;
 }
