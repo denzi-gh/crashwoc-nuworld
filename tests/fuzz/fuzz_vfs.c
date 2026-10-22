@@ -1,8 +1,10 @@
-/* libFuzzer target for the VFS readers (no game data). The first byte picks the reader, the rest is its input:
+/* libFuzzer target for the VFS readers and the VIF decoder (no game data). The first byte picks the reader, the rest
+   is its input:
      0  a disc image (.iso or raw .bin, detected): nw_disc_open, nw_iso_index, nw_verify_identity, every file
         looked up again and read at both ends;
      1  a cue sheet: u16 LE length, the sheet, then the image (fuzz.bin, also the cue's own name with .bin);
-     2  a .DAT archive opened through the VFS, listed, every entry found by its path and loaded.
+     2  a .DAT archive opened through the VFS, listed, every entry found by its path and loaded;
+     3  a .gsc geom (DMA chain and VIF stream): nw_vif_decode, every triangle checked against the vertices.
    The readers open files, so each input is written to a scratch folder under $TMPDIR first.
    Built with -DNUWORLD_FUZZ=ON; nuworld_fuzz_seeds writes the seed corpus from the synthetic test builders. */
 #include <stdint.h>
@@ -12,6 +14,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "gfx/vif.h"
 #include "platform/paths.h"
 #include "vfs/dat.h"
 #include "vfs/disc.h"
@@ -21,7 +24,7 @@
 #include "vfs/verify.h"
 #include "vfs/vfs.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_READERS };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_READERS };
 
 static char *scratch;  /* <tmp>/nuworld-fuzz-<pid>/ */
 static char *bin_path; /* the image, of FUZZ_DISC and FUZZ_CUE alike */
@@ -150,6 +153,20 @@ static void fuzz_dat(const uint8_t *data, size_t size)
     }
 }
 
+static void fuzz_vif(const uint8_t *data, size_t size)
+{
+    NwVifMesh mesh = { 0 };
+    if (nw_vif_decode(&mesh, data, size)) {
+        for (uint32_t i = 0; i < 3 * mesh.ntris; i++) {
+            if (mesh.tris[i] >= mesh.nverts) {
+                SDL_Log("fuzz_vfs: triangle index %u of %u vertices", mesh.tris[i], mesh.nverts);
+                abort();
+            }
+        }
+    }
+    nw_vif_free(&mesh);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     if (size < 1) {
@@ -165,6 +182,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         break;
     case FUZZ_DAT:
         fuzz_dat(data + 1, size - 1);
+        break;
+    case FUZZ_VIF:
+        fuzz_vif(data + 1, size - 1);
         break;
     }
     return 0;

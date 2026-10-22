@@ -135,9 +135,10 @@ if(NUWORLD_FUZZ)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang" OR MINGW)
     message(FATAL_ERROR "NUWORLD_FUZZ needs clang on Linux or macOS (libFuzzer does not support MinGW).")
   endif()
-  # The VFS readers again, instrumented for libFuzzer, and the seed corpus from the synthetic test builders.
+  # The VFS readers and the VIF decoder again, instrumented for libFuzzer, and the seed corpus from the synthetic
+  # test builders.
   set(nw_fuzz_flags -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
-  add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES})
+  add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES} src/gfx/vif.c)
   target_include_directories(nuworld_vfs_fuzz PUBLIC src)
   target_compile_options(nuworld_vfs_fuzz PRIVATE -Wall -Wextra -fsanitize=fuzzer-no-link ${nw_fuzz_flags})
   target_link_libraries(nuworld_vfs_fuzz PUBLIC SDL3::SDL3)
