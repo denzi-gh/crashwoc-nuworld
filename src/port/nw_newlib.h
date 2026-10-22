@@ -34,7 +34,6 @@ void nw_srand(unsigned int seed);
 #define fabs nw_fabs
 #define floor nw_floor
 #define fmod nw_fmod
-#define matherr nw_matherr
 #define pow nw_pow
 #define rint nw_rint
 #define scalbn nw_scalbn
@@ -55,8 +54,10 @@ void nw_srand(unsigned int seed);
 #define __kernel_sin nw___kernel_sin
 #define __kernel_tan nw___kernel_tan
 
-/* The classification functions only in the newlib units: everywhere else they are the host's math.h macros. */
+/* Only in the newlib units: everywhere else the classification functions are the host's math.h macros, and MinGW's
+   math.h defines matherr as _matherr (the decomp names it only in newlib). */
 #ifdef NW_NEWLIB_UNIT
+#define matherr nw_matherr
 #define finite nw_finite
 #define isinf nw_isinf
 #define isnan nw_isnan
