@@ -74,7 +74,7 @@ nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/
 target_include_directories(crashwoc-nuworld PRIVATE src)
 target_compile_definitions(crashwoc-nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
 target_compile_options(crashwoc-nuworld PRIVATE -Wall -Wextra $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
-target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_imgui SDL3::SDL3)
+target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_gfx nuworld_imgui SDL3::SDL3)
 if(MINGW)
   # Keep the release a single .exe: libc++ (Dear ImGui) linked in, not libc++.dll.
   target_link_options(crashwoc-nuworld PRIVATE -static-libstdc++)
@@ -105,6 +105,13 @@ target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
 
+# Scene geometry without the decomp: the VIF decoder.
+add_library(nuworld_gfx STATIC
+  src/gfx/vif.c)
+target_include_directories(nuworld_gfx PUBLIC src)
+target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_gfx PUBLIC SDL3::SDL3)
+
 # Wizard logic without the UI: import folder listing, background import job.
 add_library(nuworld_frontend STATIC
   src/frontend/import.c)
@@ -118,6 +125,10 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_vfs PRIVATE nuworld_frontend)
   add_test(NAME vfs COMMAND nuworld_test_vfs ${CMAKE_CURRENT_BINARY_DIR}/test-vfs)
+  add_executable(nuworld_test_scene tests/c/test_scene.c)
+  target_compile_options(nuworld_test_scene PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_scene PRIVATE nuworld_gfx)
+  add_test(NAME scene COMMAND nuworld_test_scene)
 endif()
 
 if(NUWORLD_FUZZ)
