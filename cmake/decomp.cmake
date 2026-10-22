@@ -129,15 +129,15 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Everything the decomp needs at link time: its objects, the data image and the SDK shims. The executable takes it
 # whole (nothing references nw_game_main yet, and the link is what proves the closure); tests pull what they use.
 # Never build it with LTO: the data image defines the roots as raw bytes.
-set(nw_game_sources ${nw_dataimage} src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c
-  src/shim/pad.c src/shim/sif.c)
+set(nw_game_sources ${nw_dataimage} src/port/nudat.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c
+  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
-target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_port)
+target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_port nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
@@ -157,6 +157,16 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-data)
   set_tests_properties(data-image-retail PROPERTIES SKIP_RETURN_CODE 77)
+
+  # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
+  add_executable(nuworld_test_nudat tests/c/test_nudat.c)
+  target_include_directories(nuworld_test_nudat PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_nudat PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_nudat PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_nudat PRIVATE nuworld_game)
+  add_test(NAME nudat COMMAND nuworld_test_nudat ${CMAKE_CURRENT_BINARY_DIR}/test-nudat)
+  add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
+  set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
 
   # Brings its own funcmap (fake code addresses).
   add_executable(nuworld_test_convert tests/c/test_convert.c)

@@ -7,7 +7,13 @@
 
 #define NW_SHIM_STUB(name, address) NW_STUB("sdk", name, address)
 
+struct NwVfs;
+
 /* src/shim/libc.c: the newlib reent block (rand's seed, errno) as retail starts with it. */
 void nw_newlib_init(void);
+
+/* src/shim/file.c: the file system the sce file calls use (NULL: none, every open fails); closes what is
+   open. */
+void nw_shim_file_init(const struct NwVfs *vfs);
 
 #endif

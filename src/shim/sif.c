@@ -1,23 +1,21 @@
-/* SIF: the IOP reboot, module loads and the NUSOUND RPC. */
+/* SIF: the IOP reboot, module loads and the NUSOUND RPC. There is no IOP: the reboot NuFileInitEx waits for
+   is done at once (both loops spin until a non-zero return). */
 #include "shim/shim.h"
 
 void sceSifInitRpc(unsigned int mode)
 {
     (void)mode;
-    NW_SHIM_STUB("sceSifInitRpc", 0x0027b368u);
 }
 
 int sceSifRebootIop(const char *img_name)
 {
     (void)img_name;
-    NW_SHIM_STUB("sceSifRebootIop", 0x00280a40u);
-    return 0;
+    return 1;
 }
 
 int sceSifSyncIop(void)
 {
-    NW_SHIM_STUB("sceSifSyncIop", 0x00280a08u);
-    return 0;
+    return 1;
 }
 
 int sceSifLoadModule(const char *name, int arg_size, const char *args)
