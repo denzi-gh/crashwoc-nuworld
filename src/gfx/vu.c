@@ -57,8 +57,9 @@ static const char nw_vu_fs[] =
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
     "    ivec2 size = textureSize(u_tex, lod);\n"
-    "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : (p.x % size.x + size.x) % size.x,\n"
-    "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : (p.y % size.y + size.y) % size.y);\n"
+    /* GS sizes are powers of two (TW, TH); a mask wraps negative coordinates too, where % is undefined. */
+    "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : p.x & (size.x - 1),\n"
+    "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : p.y & (size.y - 1));\n"
     "    uvec4 c = texelFetch(u_tex, p, lod);\n"
     "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
     "}\n"
