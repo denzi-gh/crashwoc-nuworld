@@ -100,9 +100,11 @@ static inline void gsc_upload(GscBuild *b, uint32_t w, uint32_t h, const void *d
     gsc_zero(b, (16 - n % 16) % 16);
 }
 
-/* A version 1 native texture of type 2-7 with one level (upload uw x uh); returns where that upload starts. */
+/* A version 1 native texture of type 2-7; level i uploads the first n / 4^i bytes of up at (uw x uh) / 2^i.
+   Returns where the upload of level 0 starts. */
 static inline size_t gsc_texture(GscBuild *b, uint32_t type, uint32_t w, uint32_t h, const uint8_t clut[][4],
-                                 const void *up, uint32_t uw, uint32_t uh, size_t n, uint32_t tbw, uint32_t dbw)
+                                 const void *up, uint32_t uw, uint32_t uh, size_t n, uint32_t tbw, uint32_t dbw,
+                                 uint32_t levels)
 {
     static const uint8_t psm[8][2] = { { 0 }, { 0 }, { 1, 1 }, { 0, 0 }, { 0x14, 0x14 }, { 0x13, 0x13 },
                                        { 0x14, 0 }, { 0x13, 0 } };
@@ -110,7 +112,7 @@ static inline size_t gsc_texture(GscBuild *b, uint32_t type, uint32_t w, uint32_
     uint16_t dims[4] = { (uint16_t)w, 1, (uint16_t)h, 0 };
     gsc_bytes(b, dims, sizeof(dims));
     gsc_u32(b, 0);
-    uint8_t formats[4] = { (uint8_t)type, psm[type][0], psm[type][1], type == 2 ? 0x01 : 0x81 };
+    uint8_t formats[4] = { (uint8_t)type, psm[type][0], psm[type][1], (uint8_t)(levels | (type == 2 ? 0 : 0x80)) };
     gsc_bytes(b, formats, 4);
     if (type >= 4) {
         size_t pal = b->len;
@@ -121,16 +123,19 @@ static inline size_t gsc_texture(GscBuild *b, uint32_t type, uint32_t w, uint32_
         gsc_upload(b, psmt4 ? 8 : 16, psmt4 ? 2 : 16, clut, psmt4 ? 64 : 1024);
         gsc_put32(b, pal, (uint32_t)(b->len - pal));
     }
-    size_t mip = b->len;
-    gsc_u32(b, 0);
-    gsc_u32(b, (uint32_t)n);
-    gsc_u32(b, tbw);
-    gsc_u32(b, dbw);
-    gsc_u32(b, 12); /* pad: the upload 16-aligned in the record */
-    gsc_zero(b, 12);
-    size_t at = b->len;
-    gsc_upload(b, uw, uh, up, n);
-    gsc_put32(b, mip, (uint32_t)(b->len - mip - 12));
+    size_t at = 0;
+    for (uint32_t i = 0; i < levels; i++) {
+        size_t mip = b->len;
+        gsc_u32(b, 0);
+        gsc_u32(b, (uint32_t)(n >> 2 * i));
+        gsc_u32(b, tbw);
+        gsc_u32(b, dbw);
+        gsc_u32(b, 12); /* pad: the upload 16-aligned in the record */
+        gsc_zero(b, 12);
+        at = i ? at : b->len;
+        gsc_upload(b, uw >> i, uh >> i, up, n >> 2 * i);
+        gsc_put32(b, mip, (uint32_t)(b->len - mip - 12));
+    }
     return at;
 }
 

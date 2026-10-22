@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
+#include "gfx/mtl.h"
 #include "gfx/vif.h"
 
 #include "gsc_builder.h"
@@ -336,8 +337,12 @@ static void test_gsc(void)
             nw_vif_free(&m);
         }
     }
+    const int16_t k = -90;
+    memcpy(b.buf + g.mtls + 0x1AC, &k, 2);
+    b.buf[g.mtls + 0x1AE] = 1;
     NwGscMtl m = nw_gsc_mtl(&g, 0);
     CHECK(NW_GSC_ATTRIB_LIGHTING(m.attrib) == 2 && !NW_GSC_ATTRIB_OT(m.attrib) && m.tid == -1);
+    CHECK(m.k == -90 && m.l == 1);
     CHECK(m.diffuse[1] == 0.5f && m.alpha == 1.0f);
     m = nw_gsc_mtl(&g, 1);
     CHECK(NW_GSC_ATTRIB_COLOUR(m.attrib) == 1 && NW_GSC_ATTRIB_OT(m.attrib));
@@ -399,7 +404,7 @@ static void test_texture(void)
     GscBuild b = { 0 };
     uint8_t clut16[16][4], packed[32];
     make_psmt4(clut16, packed);
-    size_t up = gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2);
+    size_t up = gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2, 1);
     NwTex t;
     bool ok = nw_tex_decode(&t, b.buf, b.len);
     CHECK(ok && t.version == 1 && t.type == 4 && t.tcc && t.ncolours == 16 && t.nlevels == 1);
@@ -456,11 +461,15 @@ static void test_texture(void)
     }
     for (uint32_t type = 5; type <= 7; type += 2) {
         gsc_texture(&b, type, 32, 32, clut, type == 5 ? idx : swz, type == 5 ? 32 : 16, type == 5 ? 32 : 16,
-                    sizeof(idx), 2, 1);
+                    sizeof(idx), 2, 1, type == 5 ? 2 : 1);
         ok = nw_tex_decode(&t, b.buf, b.len);
-        CHECK(ok && t.type == type && t.ncolours == 256);
+        CHECK(ok && t.type == type && t.ncolours == 256 && t.nlevels == (type == 5 ? 2 : 1));
         if (ok) {
             bool same = memcmp(t.levels[0].texels, idx, sizeof(idx)) == 0;
+            if (type == 5) {
+                same = same && t.levels[1].width == 16 && t.levels[1].height == 16 &&
+                       memcmp(t.levels[1].texels, idx, 256) == 0;
+            }
             for (int i = 0; i < 256 && same; i++) {
                 same = t.clut[i][0] == i && t.clut[i][1] == 255 - i && t.clut[i][2] == (i ^ 0x55);
             }
@@ -470,18 +479,18 @@ static void test_texture(void)
         gsc_free(&b);
     }
     /* Type 6 (PSMT4 as PSMCT32 at a quarter of the height) only needs its buffer widths. */
-    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 2, 1);
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 2, 1, 1);
     ok = nw_tex_decode(&t, b.buf, b.len);
     CHECK(ok && t.levels[0].width == 32 && t.levels[0].height == 32);
     nw_tex_free(&t);
     gsc_free(&b);
-    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 1, 1);
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 1, 1, 1);
     CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len), "buffer widths 1/1");
     gsc_free(&b);
 
     /* Direct colours: PSMCT24 gets the alpha 0x80 (TCC is off), PSMCT32 keeps its own. */
     for (uint32_t type = 2; type <= 3; type++) {
-        gsc_texture(&b, type, 16, 16, NULL, idx, 16, 16, 16 * 16 * (type == 2 ? 3 : 4), 1, 1);
+        gsc_texture(&b, type, 16, 16, NULL, idx, 16, 16, 16 * 16 * (type == 2 ? 3 : 4), 1, 1, 1);
         ok = nw_tex_decode(&t, b.buf, b.len);
         CHECK(ok && t.type == type && t.ncolours == 0 && t.tcc == (type == 3));
         if (ok) {
@@ -544,7 +553,7 @@ static void test_texset(const char *scratch)
         gsc_u32(&b, i ? 24 : 0);
         gsc_zero(&b, i ? 24 : 8);
         at[i] = b.len;
-        gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2);
+        gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2, 1);
         gsc_put32(&b, size[i], (uint32_t)(b.len - at[i]));
     }
     gsc_close(&b);
@@ -586,6 +595,21 @@ static void test_texset(const char *scratch)
     gsc_free(&b);
 }
 
+/* NuTexWriteMaterialSettings' TEX1 and CLAMP: filter tables, MXL only for filter 2 on a textured material. */
+static void test_mtl(void)
+{
+    static const struct {
+        uint8_t mmag, mmin;
+    } filters[4] = { { 0, 0 }, { 1, 1 }, { 1, 5 }, { 0, 0 } };
+    for (uint32_t filter = 0; filter < 4; filter++) {
+        const uint32_t attrib[2] = { filter << 4 | 1u << 8 | 2u << 10, 0 };
+        NwMtlState s = nw_mtl_state(attrib, -90, 1, 4);
+        CHECK(s.mmag == filters[filter].mmag && s.mmin == filters[filter].mmin);
+        CHECK(s.mxl == (filter == 2 ? 3 : 0) && s.k == -90 && s.l == 1 && s.wms == 1 && s.wmt == 0);
+        CHECK(nw_mtl_state(attrib, 0, 0, 0).mxl == 0);
+    }
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -597,7 +621,8 @@ static void test_package(void)
         { 0, 2, 0, "vu_load_tricu_mpg" }, { 0, 3, 1, "vu_load_trica_mpg" }, { 1, 2, 0, "vu_load_xformuv_mpg" },
     };
     for (size_t i = 0; i < SDL_arraysize(cases); i++) {
-        NwGscMtl m = { { cases[i].fx << 6 | cases[i].lighting << 16 | cases[i].colour << 18, 1u << 3 }, -1, { 0 }, 0 };
+        NwGscMtl m = { .attrib = { cases[i].fx << 6 | cases[i].lighting << 16 | cases[i].colour << 18, 1u << 3 },
+                       .tid = -1 };
         CHECK(strcmp(nw_gsc_mtl_package(&m), cases[i].package) == 0);
     }
 }
@@ -655,6 +680,7 @@ int main(int argc, char *argv[])
     test_package();
     test_texture();
     test_texset(argv[1]);
+    test_mtl();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

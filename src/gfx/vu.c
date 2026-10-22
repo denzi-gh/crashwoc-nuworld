@@ -42,32 +42,50 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "}\n";
 
-/* The GS texture unit: CLUT lookups in GS units, CLAMP/REPEAT, nearest or bilinear over the looked-up colours. */
+/* The GS texture unit: CLUT lookups in GS units, CLAMP/REPEAT, the TEX1 filters and LOD over the mip levels. */
 static const char nw_vu_fs[] =
     "in vec4 v_col;\n"
     "in vec2 v_uv;\n"
     "uniform usampler2D u_tex;\n"
     "uniform usampler2D u_clut;\n"
-    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; bilinear; CLAMP u; CLAMP v */
+    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; MMAG; CLAMP u; CLAMP v */
+    "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "out vec4 o_col;\n"
-    "vec4 texel(ivec2 p)\n"
+    "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
-    "    ivec2 size = textureSize(u_tex, 0);\n"
+    "    ivec2 size = textureSize(u_tex, lod);\n"
     "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : (p.x % size.x + size.x) % size.x,\n"
     "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : (p.y % size.y + size.y) % size.y);\n"
-    "    uvec4 c = texelFetch(u_tex, p, 0);\n"
+    "    uvec4 c = texelFetch(u_tex, p, lod);\n"
     "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
     "}\n"
-    "vec4 sample_gs(vec2 uv)\n"
+    "vec4 sample_level(vec2 uv, int lod, bool bilinear)\n"
     "{\n"
-    "    vec2 t = uv * vec2(textureSize(u_tex, 0));\n"
-    "    if (u_texmode.y == 0) {\n"
-    "        return texel(ivec2(floor(t)));\n"
+    "    vec2 t = uv * vec2(textureSize(u_tex, lod));\n"
+    "    if (!bilinear) {\n"
+    "        return texel(ivec2(floor(t)), lod);\n"
     "    }\n"
     "    t -= 0.5;\n"
     "    ivec2 i = ivec2(floor(t));\n"
     "    vec2 f = t - floor(t);\n"
-    "    return mix(mix(texel(i), texel(i + ivec2(1, 0)), f.x), mix(texel(i + ivec2(0, 1)), texel(i + 1), f.x), f.y);\n"
+    "    return mix(mix(texel(i, lod), texel(i + ivec2(1, 0), lod), f.x),\n"
+    "               mix(texel(i + ivec2(0, 1), lod), texel(i + 1, lod), f.x), f.y);\n"
+    "}\n"
+    /* TEX1 with LCM 0: LOD = log2(1/Q) << L + K; MMAG up to LOD 0, MMIN past it. */
+    "vec4 sample_gs(vec2 uv)\n"
+    "{\n"
+    "    float lod = log2(1.0 / gl_FragCoord.w) * float(1 << u_texlod.z) + float(u_texlod.w) / 16.0;\n"
+    "    if (lod <= 0.0 || u_texlod.x < 2) {\n"
+    "        return sample_level(uv, 0, (lod <= 0.0 ? u_texmode.y : u_texlod.x) == 1);\n"
+    "    }\n"
+    "    bool bilinear = u_texlod.x >= 4;\n"
+    "    lod = min(lod, float(u_texlod.y));\n"
+    "    if (u_texlod.x == 3 || u_texlod.x == 5) {\n"
+    "        int l0 = int(lod);\n"
+    "        return mix(sample_level(uv, l0, bilinear), sample_level(uv, min(l0 + 1, u_texlod.y), bilinear),\n"
+    "                   fract(lod));\n"
+    "    }\n"
+    "    return sample_level(uv, min(int(lod + 0.5), u_texlod.y), bilinear);\n"
     "}\n"
     "void main()\n"
     "{\n"
@@ -80,7 +98,7 @@ static const char nw_vu_fs[] =
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -131,6 +149,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].lightcol = glGetUniformLocation(p, "u_lightcol");
     nw_vu[program].uvoff = glGetUniformLocation(p, "u_uvoff");
     nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
+    nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -196,8 +215,9 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
     const float uv[4] = { m->uvoff[0], m->uvoff[1], 0.0f, 0.0f };
     glUniform4fv(nw_vu[program].uvoff, 1, uv);
     bool textured = m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag == 1, m->state.wms == 1,
+    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
                 m->state.wmt == 1);
+    glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
@@ -206,13 +226,17 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
     }
 }
 
-static void nw_vu_upload(GLuint name, GLint format, GLsizei w, GLsizei h, GLenum layout, const void *data)
+/* Integer textures are only read by texelFetch; a mip chain needs a mipmap MIN_FILTER to be complete. */
+static void nw_vu_upload(GLuint name, GLint format, GLenum layout, const NwTexLevel *levels, uint32_t n)
 {
     glBindTexture(GL_TEXTURE_2D, name);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, n > 1 ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, layout, GL_UNSIGNED_BYTE, data);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)n - 1);
+    for (uint32_t i = 0; i < n; i++) {
+        glTexImage2D(GL_TEXTURE_2D, (GLint)i, format, (GLsizei)levels[i].width, (GLsizei)levels[i].height, 0, layout,
+                     GL_UNSIGNED_BYTE, levels[i].texels);
+    }
 }
 
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
@@ -221,10 +245,11 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
     glGenTextures(t->ncolours ? 2 : 1, names);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glActiveTexture(GL_TEXTURE0);
-    nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, (GLsizei)t->levels[0].width,
-                 (GLsizei)t->levels[0].height, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER, t->levels[0].texels);
+    nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER,
+                 t->levels, t->nlevels);
     if (t->ncolours) {
-        nw_vu_upload(names[1], GL_RGBA8UI, 256, 1, GL_RGBA_INTEGER, t->clut);
+        const NwTexLevel clut = { 256, 1, (uint8_t *)t->clut };
+        nw_vu_upload(names[1], GL_RGBA8UI, GL_RGBA_INTEGER, &clut, 1);
     }
     tex->index = names[0];
     tex->clut = names[1];

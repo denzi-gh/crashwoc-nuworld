@@ -56,6 +56,8 @@ typedef struct NwGscMtl {
     uint32_t attrib[2]; /* numtl_s.attrib (0x16C) */
     int32_t tid;        /* an index into the scene's textures, -1 for none */
     float diffuse[3], alpha;
+    int16_t k; /* the mipmap K (0x1AC) and L (0x1AE) */
+    uint8_t l;
 } NwGscMtl;
 
 typedef struct NwGscInst {

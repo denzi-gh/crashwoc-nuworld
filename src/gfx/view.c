@@ -27,18 +27,37 @@ typedef struct NwView {
     NwVifMesh mesh;
     NwViewDraw *draws;
     NwViewObject *objects;
+    NwTex *decoded;        /* by tid until the upload; no levels where a texture did not decode */
     NwVuTexture *textures; /* by tid; zero where a texture did not decode */
     GLuint vao, vbo, ibo;
     float pos[3], yaw, pitch, speed, near, far;
 } NwView;
 
-static bool nw_view_load(NwView *v, const NwGsc *g)
+static void nw_view_free(NwView *v, const NwGsc *g)
+{
+    for (uint32_t i = 0; v->decoded && i < g->ntextures; i++) {
+        nw_tex_free(&v->decoded[i]);
+    }
+    nw_vif_free(&v->mesh);
+    SDL_free(v->draws);
+    SDL_free(v->objects);
+    SDL_free(v->decoded);
+    SDL_free(v->textures);
+}
+
+static bool nw_view_load(NwView *v, const NwGsc *g, const char *name)
 {
     v->draws = SDL_calloc(g->nblobs + 1, sizeof(*v->draws));
     v->objects = SDL_calloc(g->nobjects + 1, sizeof(*v->objects));
+    v->decoded = SDL_calloc(g->ntextures + 1, sizeof(*v->decoded));
     v->textures = SDL_calloc(g->ntextures + 1, sizeof(*v->textures));
-    if (!v->draws || !v->objects || !v->textures) {
+    if (!v->draws || !v->objects || !v->decoded || !v->textures) {
         return false;
+    }
+    for (uint32_t i = 0; i < g->ntextures; i++) {
+        if (!nw_gsc_texture(g, i, &v->decoded[i])) {
+            fprintf(stderr, "%s: texture %u: %s\n", name, i, SDL_GetError());
+        }
     }
     uint32_t ndraws = 0;
     for (uint32_t o = 0; o < g->nobjects; o++) {
@@ -58,16 +77,14 @@ static bool nw_view_load(NwView *v, const NwGsc *g)
                 return false;
             }
             NwGscMtl m = nw_gsc_mtl(g, b->mtl);
+            bool textured = m.tid >= 0 && (uint32_t)m.tid < g->ntextures;
             NwViewDraw *d = &v->draws[ndraws++];
             *d = (NwViewDraw){ tris, v->mesh.ntris - tris, nw_vu_program(nw_gsc_mtl_package(&m)),
                                { { m.diffuse[0] * 128.0f, m.diffuse[1] * 128.0f, m.diffuse[2] * 128.0f,
                                    m.alpha * 128.0f },
                                  { 0.0f, 0.0f },
-                                 NULL,
-                                 nw_mtl_state(m.attrib) } };
-            if (m.tid >= 0 && (uint32_t)m.tid < g->ntextures) {
-                d->mtl.tex = &v->textures[m.tid];
-            }
+                                 textured ? &v->textures[m.tid] : NULL,
+                                 nw_mtl_state(m.attrib, m.k, m.l, textured ? v->decoded[m.tid].nlevels : 0) } };
             for (uint32_t n = verts; n < v->mesh.nverts; n++) {
                 const float *p = v->mesh.verts[n].pos;
                 for (int k = 0; k < 3 && isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]); k++) {
@@ -81,16 +98,13 @@ static bool nw_view_load(NwView *v, const NwGsc *g)
     return true;
 }
 
-static void nw_view_upload(NwView *v, const NwGsc *g, const char *name)
+static void nw_view_upload(NwView *v, const NwGsc *g)
 {
     for (uint32_t i = 0; i < g->ntextures; i++) {
-        NwTex t;
-        if (nw_gsc_texture(g, i, &t)) {
-            nw_vu_texture(&v->textures[i], &t);
-            nw_tex_free(&t);
-        } else {
-            fprintf(stderr, "%s: texture %u: %s\n", name, i, SDL_GetError());
+        if (v->decoded[i].nlevels) {
+            nw_vu_texture(&v->textures[i], &v->decoded[i]);
         }
+        nw_tex_free(&v->decoded[i]);
     }
     glGenVertexArrays(1, &v->vao);
     glBindVertexArray(v->vao);
@@ -220,15 +234,12 @@ static void nw_view_move(NwView *v, float dt)
 int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frames)
 {
     NwView v = { 0 };
-    if (!nw_view_load(&v, g) || !nw_vu_init()) {
+    if (!nw_view_load(&v, g, name) || !nw_vu_init()) {
         fprintf(stderr, "%s: %s\n", name, SDL_GetError());
-        nw_vif_free(&v.mesh);
-        SDL_free(v.draws);
-        SDL_free(v.objects);
-        SDL_free(v.textures);
+        nw_view_free(&v, g);
         return 1;
     }
-    nw_view_upload(&v, g, name);
+    nw_view_upload(&v, g);
     uint32_t instances;
     uint64_t tris;
     nw_view_frame(&v, g, &instances, &tris);
@@ -293,9 +304,6 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
         nw_vu_texture_free(&v.textures[i]);
     }
     nw_vu_shutdown();
-    nw_vif_free(&v.mesh);
-    SDL_free(v.draws);
-    SDL_free(v.objects);
-    SDL_free(v.textures);
+    nw_view_free(&v, g);
     return 0;
 }

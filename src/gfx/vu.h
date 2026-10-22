@@ -44,7 +44,7 @@ NwVuProgram nw_vu_program(const char *package);
 /* vu1init and clipinit alike, with no lights yet: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
 void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m);
-/* Uploads level 0 of t. */
+/* Uploads t with its mip levels. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);
 /* The NwVifVertex attributes of the bound VAO and VBO. */

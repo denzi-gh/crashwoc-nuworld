@@ -265,6 +265,8 @@ NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index)
     memcpy(m.diffuse, p + 0x180, 12);
     memcpy(&m.alpha, p + 0x1A0, 4);
     memcpy(&m.tid, p + 0x1A4, 4);
+    memcpy(&m.k, p + 0x1AC, 2);
+    m.l = p[0x1AE];
     return m;
 }
 

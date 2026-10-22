@@ -7,11 +7,14 @@ static const uint8_t nw_mtl_wrap[4] = { 0, 1, 0, 0 };
 static const uint8_t nw_mtl_mmag[4] = { 0, 1, 1, 0 };
 static const uint8_t nw_mtl_mmin[4] = { 0, 1, 5, 0 };
 
-NwMtlState nw_mtl_state(const uint32_t attrib[2])
+NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t levels)
 {
     NwMtlState s;
     s.mmag = nw_mtl_mmag[NW_GSC_ATTRIB_FILTER(attrib)];
     s.mmin = nw_mtl_mmin[NW_GSC_ATTRIB_FILTER(attrib)];
+    s.mxl = NW_GSC_ATTRIB_FILTER(attrib) == 2 && levels > 0 ? (uint8_t)(levels - 1) : 0;
+    s.l = l & 3;
+    s.k = k;
     s.wms = nw_mtl_wrap[NW_GSC_ATTRIB_UTC(attrib)];
     s.wmt = nw_mtl_wrap[NW_GSC_ATTRIB_VTC(attrib)];
     return s;
