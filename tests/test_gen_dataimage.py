@@ -17,8 +17,9 @@ import nwunits  # noqa: E402
 import typedb  # noqa: E402
 
 
-def fixture_elf(cb_offset: int, bad: bool = False) -> bytes:
-    """The fixture's retail image (fixtures/mini sections.json): one PT_LOAD at 0x00100000."""
+def fixture_elf(cb_offset: int, bad: bool = False, trip: bool = False) -> bytes:
+    """The fixture's retail image (fixtures/mini sections.json): one PT_LOAD at 0x00100000. bad: a pointer into
+    .text; trip: two bytes the image cannot reproduce (a C value, a padding byte)."""
     base, filesz, memsz = 0x00100000, 0x1100, 0x1300
     seg = bytearray(filesz)
 
@@ -30,7 +31,12 @@ def fixture_elf(cb_offset: int, bad: bool = False) -> bytes:
     put(0x00100A00, struct.pack("<Iii", 0x00100D00, 0x1234, 5))         # fixroot: next, i, named.a
     put(0x00100A00 + cb_offset, struct.pack("<I", 0x00100100))          # fixroot.cb = FixAdd
     put(0x00100A48, struct.pack("<4f", 1.5, 2.5, 3.5, 4.5))             # fixpairs
-    put(0x00100D00, struct.pack("<Ii", 0x00100A00, 77))                 # fixfar: next = fixroot, i
+    put(0x00100C00, struct.pack("<4i", 1, 2, 3, 5 if trip else 4))      # fixstatic (C data)
+    put(0x00100C10, struct.pack("<I", 0x00100B06))                      # fixgreet = "world" (C data)
+    put(0x00100D00, struct.pack("<Ii", 0x00100D28, 77))                 # fixfar: next = fixafter, i
+    put(0x00100D28, struct.pack("<Ii", 0x00100A00, 88))                 # fixafter (where fixfar ends)
+    if trip:
+        put(0x00100A0C, b"")                                         # fixroot's padding
     ident = b"\x7fELF" + bytes([1, 1, 1]) + bytes(9)
     ehdr = ident + struct.pack("<HHIIIIIHHHHHH", 2, 8, 1, 0x00100008, 52, 0, 0, 52, 32, 1, 40, 0, 0)
     phdr = struct.pack("<8I", 1, 0x100, base, base, filesz, memsz, 7, 0x100)
@@ -85,7 +91,7 @@ class Fixture(unittest.TestCase):
             "D_00100C08": ("alias", 0, None, "fixstatic+8"),
         })
         self.assertEqual(sorted((o.name, o.static, o.plain) for o in image.objs),
-                         [("fixstatic", True, True), ("fixtent", False, True)])
+                         [("fixgreet", False, False), ("fixstatic", True, True), ("fixtent", False, True)])
 
         src, inc = outputs["dataimage.c"], outputs[str(Path("game/fixdata.data.inc"))]
         for line in ['_Alignas(16) unsigned char fixroot[40];',
@@ -173,6 +179,12 @@ class Fixture(unittest.TestCase):
             bad = subprocess.run([str(exe), str(out / "bad.elf"), "bad"], capture_output=True, text=True)
             self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
             self.assertEqual(bad.stdout.strip(), "fixnames[0]: 0x00100104 points into .text, not at data")
+            (out / "trip.elf").write_bytes(fixture_elf(cb, trip=True))
+            trip = subprocess.run([str(exe), str(out / "trip.elf"), "trip"], capture_output=True, text=True)
+            self.assertEqual(trip.returncode, 0, trip.stdout + trip.stderr)
+            self.assertEqual([line for line in trip.stdout.splitlines() if line.startswith("  ")], [
+                "  fixroot +0xc (0x00100a0c): ELF 01 00 00 00, back 00 00 00 00; 1 bytes differ",
+                "  fixstatic +0xc (0x00100c0c): ELF 05 00 00 00, back 04 00 00 00; 1 bytes differ"])
 
 
 if __name__ == "__main__":

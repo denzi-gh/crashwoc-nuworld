@@ -11,6 +11,7 @@ extern s32 fixowned;               /* the port's (port/data.toml) */
 extern s32 fixhidden;              /* only in FixDataHidden, which the port overrides */
 
 static s32 fixstatic[4] = { 1, 2, 3, 4 };
+char *fixgreet = "world"; /* a string literal: the round trip matches it by its text */
 s32 fixtent;
 
 s32 FixDataUse(void)

@@ -69,9 +69,12 @@ void nw_x(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const cha
 void nw_xr(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root);
 /* Element index of an array root: errors read "root[index].field". */
 void nw_x_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index);
+void nw_xr_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index);
 
 /* The host offset of a PS2 offset into type; the size (one past the end) maps too. */
 int nw_xoff(const NwType *type, uint32_t ps2_off, uint32_t *host_off);
+/* The way back: the PS2 offset of a host offset into type. */
+int nw_xoff_host(const NwType *type, uint32_t host_off, uint32_t *ps2_off);
 
 /* "root.field[i].site" */
 void nw_xpath(const NwXCtx *ctx, const char *site, char *buf, size_t size);

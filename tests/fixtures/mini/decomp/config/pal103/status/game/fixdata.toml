@@ -17,5 +17,9 @@ id = "pal103:unit-0006:00100c00:fixstatic"
 state = "matching"
 
 [[data]]
+id = "pal103:unit-0006:00100c10:fixgreet"
+state = "matching"
+
+[[data]]
 id = "pal103:unit-0006:00101100:fixtent"
 state = "matching"

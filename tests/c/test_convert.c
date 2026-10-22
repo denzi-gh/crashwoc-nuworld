@@ -1,7 +1,7 @@
 /* Generated converters (gen/nw_convert.c) over every record: PRNG PS2 bytes with the padding left zero, data
    pointers mapped above 4 GB, code pointers through a fake funcmap. Checks nw_xr(nw_x(b)) == b, the host
-   values, the bitfield positions, nw_xoff for every leaf and the field path of a fatal error. A converter
-   that reaches a fatal hook (port/convert.toml) only has to fail. */
+   values, the bitfield positions, nw_xoff and nw_xoff_host for every leaf and the field path of a fatal error.
+   A converter that reaches a fatal hook (port/convert.toml) only has to fail. */
 #include <inttypes.h>
 #include <setjmp.h>
 #include <stdio.h>
@@ -255,10 +255,14 @@ static void cover(const NwTestType *t, unsigned char *mask)
 
 static void check_off(const NwType *type, uint32_t ps2_off, uint32_t want, const char *site)
 {
-    uint32_t got = 0;
+    uint32_t got = 0, back = 0;
     if (!nw_xoff(type, ps2_off, &got) || got != want) {
         FAIL("%s.%s: nw_xoff(%u) is %u, the host offset is %u", type->name, site, (unsigned)ps2_off,
              (unsigned)got, (unsigned)want);
+    }
+    if (!nw_xoff_host(type, want, &back) || back != ps2_off) {
+        FAIL("%s.%s: nw_xoff_host(%u) is %u, the PS2 offset is %u", type->name, site, (unsigned)want,
+             (unsigned)back, (unsigned)ps2_off);
     }
 }
 
@@ -279,6 +283,9 @@ static void check_offsets(const NwTestType *t)
             }
             if (l->kind != NW_LEAF_REC && nw_xoff(t->type, l->ps2_off + 1, &dummy)) {
                 FAIL("%s.%s: nw_xoff maps the inside of a pointer", t->type->name, l->site);
+            }
+            if (l->kind != NW_LEAF_REC && nw_xoff_host(t->type, l->host_off + 1, &dummy)) {
+                FAIL("%s.%s: nw_xoff_host maps the inside of a pointer", t->type->name, l->site);
             }
         }
     }
