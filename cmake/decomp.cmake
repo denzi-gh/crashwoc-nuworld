@@ -164,6 +164,11 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --boot-check 50)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: the VU1 microcode of the imported boot ELF decodes and maps completely.
+  add_test(NAME vu1-disasm-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/vu1dis.py --data-dir {root} --check --expect 16,24,44)
+  set_tests_properties(vu1-disasm-retail PROPERTIES SKIP_RETURN_CODE 77)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
   add_executable(nuworld_test_nudat tests/c/test_nudat.c)
