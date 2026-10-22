@@ -130,9 +130,10 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # whole: nuworld_port's function map reads tables its decomp objects define, a cycle one-pass linkers (GNU ld) do
 # not resolve, and for the executable the link is what proves the closure.
 # Never build it with LTO: the data image defines the roots as raw bytes.
-set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/port/game.c src/port/nudat.c
-  src/port/nuerror.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c
-  src/shim/pad.c src/shim/sif.c)
+set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/hle/asmmem.c src/hle/asmstrm.c
+  src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
+  src/port/nudat.c src/port/nuerror.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c
+  src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
@@ -187,6 +188,14 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_clock PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_clock PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME clock COMMAND nuworld_test_clock)
+
+  # The C of the hand-written asm units, against the decomp's plain C math and values from the retail asm.
+  add_executable(nuworld_test_hle tests/c/test_hle.c)
+  target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_hle PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_hle PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_hle PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME hle COMMAND nuworld_test_hle)
 
   # Brings its own funcmap (fake code addresses).
   add_executable(nuworld_test_convert tests/c/test_convert.c)
