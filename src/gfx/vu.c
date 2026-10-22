@@ -48,14 +48,15 @@ static const char nw_vu_fs[] =
     "in vec2 v_uv;\n"
     "uniform usampler2D u_tex;\n"
     "uniform usampler2D u_clut;\n"
-    "uniform ivec4 u_texmode;\n" /* textured, bilinear, CLAMP u, CLAMP v */
+    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; bilinear; CLAMP u; CLAMP v */
     "out vec4 o_col;\n"
     "vec4 texel(ivec2 p)\n"
     "{\n"
     "    ivec2 size = textureSize(u_tex, 0);\n"
     "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : (p.x % size.x + size.x) % size.x,\n"
     "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : (p.y % size.y + size.y) % size.y);\n"
-    "    return vec4(texelFetch(u_clut, ivec2(int(texelFetch(u_tex, p, 0).r), 0), 0));\n"
+    "    uvec4 c = texelFetch(u_tex, p, 0);\n"
+    "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
     "}\n"
     "vec4 sample_gs(vec2 uv)\n"
     "{\n"
@@ -195,7 +196,8 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
     const float uv[4] = { m->uvoff[0], m->uvoff[1], 0.0f, 0.0f };
     glUniform4fv(nw_vu[program].uvoff, 1, uv);
     bool textured = m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, textured, m->state.mmag == 1, m->state.wms == 1, m->state.wmt == 1);
+    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag == 1, m->state.wms == 1,
+                m->state.wmt == 1);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
@@ -215,13 +217,15 @@ static void nw_vu_upload(GLuint name, GLint format, GLsizei w, GLsizei h, GLenum
 
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
 {
-    GLuint names[2];
-    glGenTextures(2, names);
+    GLuint names[2] = { 0, 0 };
+    glGenTextures(t->ncolours ? 2 : 1, names);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glActiveTexture(GL_TEXTURE0);
-    nw_vu_upload(names[0], GL_R8UI, (GLsizei)t->levels[0].width, (GLsizei)t->levels[0].height, GL_RED_INTEGER,
-                 t->levels[0].texels);
-    nw_vu_upload(names[1], GL_RGBA8UI, 256, 1, GL_RGBA_INTEGER, t->clut);
+    nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, (GLsizei)t->levels[0].width,
+                 (GLsizei)t->levels[0].height, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER, t->levels[0].texels);
+    if (t->ncolours) {
+        nw_vu_upload(names[1], GL_RGBA8UI, 256, 1, GL_RGBA_INTEGER, t->clut);
+    }
     tex->index = names[0];
     tex->clut = names[1];
 }

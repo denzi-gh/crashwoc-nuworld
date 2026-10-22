@@ -422,7 +422,8 @@ static void test_texture(void)
         const char *error;
     } cases[] = {
         { 2, 2, 2, "header version 2" },
-        { 12, 2, 1, "type 2" },
+        { 12, 1, 1, "type 1" },
+        { 12, 2, 1, "type 2 with psm 0x14" },
         { 13, 0x13, 1, "type 4 with psm 0x13" },
         { 15, 0x80, 1, "8x8 with 0 levels" },
         { 28, 1, 4, "CLUT psm 0x1" },
@@ -477,6 +478,22 @@ static void test_texture(void)
     gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 1, 1);
     CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len), "buffer widths 1/1");
     gsc_free(&b);
+
+    /* Direct colours: PSMCT24 gets the alpha 0x80 (TCC is off), PSMCT32 keeps its own. */
+    for (uint32_t type = 2; type <= 3; type++) {
+        gsc_texture(&b, type, 16, 16, NULL, idx, 16, 16, 16 * 16 * (type == 2 ? 3 : 4), 1, 1);
+        ok = nw_tex_decode(&t, b.buf, b.len);
+        CHECK(ok && t.type == type && t.ncolours == 0 && t.tcc == (type == 3));
+        if (ok) {
+            const uint8_t *px = t.levels[0].texels + 5 * 4, *src = idx + 5 * (type == 2 ? 3 : 4);
+            uint8_t rgba[16 * 4];
+            nw_tex_rgba(&t, 0, rgba);
+            CHECK(memcmp(px, src, 3) == 0 && px[3] == (type == 2 ? 0x80 : src[3]));
+            CHECK(rgba[5 * 4 + 3] == (type == 2 ? 255 : SDL_min(255, src[3] * 2)));
+            nw_tex_free(&t);
+        }
+        gsc_free(&b);
+    }
 
     /* The old header, its level a CNT tag with the A+D setup and a RET tag with the IMAGE. */
     const uint32_t head[3] = { 16, 16, 0 };

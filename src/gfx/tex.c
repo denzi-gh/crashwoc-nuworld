@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #define NW_PSMCT32 0x00
+#define NW_PSMCT24 0x01
 #define NW_PSMT8 0x13
 #define NW_PSMT4 0x14
 
@@ -203,25 +204,37 @@ static bool nw_tex_unswizzle(const uint8_t *up, uint32_t uw, uint32_t uh, uint32
     return true;
 }
 
-/* One mip level: the upload in uppsm, as CLUT indices in the sampled layout. */
+/* The sampled and the upload psm of each type (GenTextureLoad); 0xFF for none. */
+static const uint8_t nw_tex_psm[8][2] = {
+    { 0xFF, 0xFF }, { 0xFF, 0xFF }, { NW_PSMCT24, NW_PSMCT24 }, { NW_PSMCT32, NW_PSMCT32 },
+    { NW_PSMT4, NW_PSMT4 }, { NW_PSMT8, NW_PSMT8 }, { NW_PSMT4, NW_PSMCT32 }, { NW_PSMT8, NW_PSMCT32 },
+};
+
+/* One mip level: the upload in uppsm, as CLUT indices in the sampled layout or as r, g, b, a. */
 static bool nw_tex_level(NwTex *t, NwTexLevel *l, const uint8_t *up, const uint8_t *end, uint32_t tbw, uint32_t dbw)
 {
     uint32_t w = l->width, h = l->height;
     bool psmt4 = t->type == 4 || t->type == 6;
-    bool swizzled = t->type >= 6;
+    bool swizzled = t->type >= 6, direct = t->type < 4;
     uint32_t uw = swizzled ? w / 2 : w, uh = swizzled ? (psmt4 ? h / 4 : h / 2) : h;
-    size_t bytes = swizzled ? (size_t)uw * uh * 4 : psmt4 ? (size_t)w * h / 2 : (size_t)w * h;
+    size_t n = (size_t)w * h;
+    size_t bytes = swizzled ? (size_t)uw * uh * 4 : psmt4 ? n / 2 : direct ? n * (t->type == 2 ? 3 : 4) : n;
     if (uw == 0 || uh == 0 || (swizzled && (uw * 2 != w || uh * (psmt4 ? 4 : 2) != h)) || (psmt4 && (w & 1))) {
         return SDL_SetError("tex: type %u level of %ux%u", t->type, w, h);
     }
     uint8_t *raw = SDL_malloc(bytes);
-    l->texels = SDL_malloc((size_t)w * h);
+    l->texels = SDL_malloc(direct ? n * 4 : n);
     bool ok = raw && l->texels && nw_tex_upload(up, end, uw, uh, bytes, raw);
     if (ok && swizzled) {
         ok = nw_tex_unswizzle(raw, uw, uh, dbw, w, h, tbw, psmt4, l->texels);
     } else if (ok && psmt4) {
-        for (size_t i = 0; i < (size_t)w * h; i++) {
+        for (size_t i = 0; i < n; i++) {
             l->texels[i] = (raw[i >> 1] >> ((i & 1) * 4)) & 15;
+        }
+    } else if (ok && t->type == 2) {
+        for (size_t i = 0; i < n; i++) {
+            memcpy(l->texels + i * 4, raw + i * 3, 3);
+            l->texels[i * 4 + 3] = 0x80;
         }
     } else if (ok) {
         memcpy(l->texels, raw, bytes);
@@ -256,32 +269,34 @@ static bool nw_tex_read(NwTex *t, const uint8_t *p, size_t size)
     t->type = p[12];
     psm = p[13];
     bool psmt4 = t->type == 4 || t->type == 6;
-    if (t->type < 4 || t->type > 7) {
+    if (t->type < 2 || t->type > 7) {
         return SDL_SetError("tex: type %u", t->type);
     }
-    if (psm != (psmt4 ? NW_PSMT4 : NW_PSMT8) || uppsm != (t->type >= 6 ? NW_PSMCT32 : psm)) {
+    if (psm != nw_tex_psm[t->type][0] || uppsm != nw_tex_psm[t->type][1]) {
         return SDL_SetError("tex: type %u with psm 0x%x uploaded as 0x%x", t->type, psm, uppsm);
     }
     if (mips == 0 || mips > NW_TEX_LEVELS || w == 0 || h == 0 || w > 1024 || h > 1024) {
         return SDL_SetError("tex: %ux%u with %u levels", w, h, mips);
     }
     const uint8_t *c = p + 16;
-    if (end - c < 16 || nw_rd32(c) < 16 || nw_rd32(c) > (size_t)(end - c)) {
-        return SDL_SetError("tex: CLUT block runs past the record");
+    if (t->type >= 4) {
+        if (end - c < 16 || nw_rd32(c) < 16 || nw_rd32(c) > (size_t)(end - c)) {
+            return SDL_SetError("tex: CLUT block runs past the record");
+        }
+        if (nw_rd32(c + 12) != NW_PSMCT32) {
+            return SDL_SetError("tex: CLUT psm 0x%x", nw_rd32(c + 12));
+        }
+        t->ncolours = psmt4 ? 16 : 256;
+        uint8_t raw[256][4];
+        if (!nw_tex_upload(c + 16, c + nw_rd32(c), psmt4 ? 8 : 16, psmt4 ? 2 : 16, t->ncolours * 4, raw[0])) {
+            return false;
+        }
+        for (uint32_t i = 0; i < t->ncolours; i++) {
+            uint32_t csm1 = psmt4 ? i : (i & 0xE7) | ((i & 0x10) >> 1) | ((i & 0x08) << 1);
+            memcpy(t->clut[i], raw[csm1], 4);
+        }
+        c += nw_rd32(c);
     }
-    if (nw_rd32(c + 12) != NW_PSMCT32) {
-        return SDL_SetError("tex: CLUT psm 0x%x", nw_rd32(c + 12));
-    }
-    t->ncolours = psmt4 ? 16 : 256;
-    uint8_t raw[256][4];
-    if (!nw_tex_upload(c + 16, c + nw_rd32(c), psmt4 ? 8 : 16, psmt4 ? 2 : 16, t->ncolours * 4, raw[0])) {
-        return false;
-    }
-    for (uint32_t i = 0; i < t->ncolours; i++) {
-        uint32_t csm1 = psmt4 ? i : (i & 0xE7) | ((i & 0x10) >> 1) | ((i & 0x08) << 1);
-        memcpy(t->clut[i], raw[csm1], 4);
-    }
-    c += nw_rd32(c);
     uint32_t head = t->version == 1 ? 0x14 : 0x10;
     for (uint32_t i = 0; i < mips; i++) {
         if ((size_t)(end - c) < head) {
@@ -325,7 +340,7 @@ void nw_tex_rgba(const NwTex *t, uint32_t y, uint8_t *out)
 {
     const NwTexLevel *l = &t->levels[0];
     for (size_t i = (size_t)y * l->width; i < (size_t)(y + 1) * l->width; i++, out += 4) {
-        const uint8_t *c = t->clut[l->texels[i]];
+        const uint8_t *c = t->ncolours ? t->clut[l->texels[i]] : l->texels + i * 4;
         out[0] = c[0];
         out[1] = c[1];
         out[2] = c[2];

@@ -24,7 +24,7 @@ typedef struct NwVuObject {
     float lightcol[3][4];
 } NwVuObject;
 
-/* A texture on the GPU: its CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI) the fragment program reads them in. */
+/* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT. */
 typedef struct NwVuTexture {
     unsigned int index, clut;
 } NwVuTexture;
