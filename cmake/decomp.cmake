@@ -126,8 +126,9 @@ target_include_directories(nuworld_data PUBLIC ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_data PUBLIC ${nw_decomp_flags} PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_data PUBLIC nuworld_port)
 
-# Everything the decomp needs at link time: its objects, the data image and the SDK shims. The executable takes it
-# whole (nothing references nw_game_main yet, and the link is what proves the closure); tests pull what they use.
+# Everything the decomp needs at link time: its objects, the data image and the SDK shims. Everything links it
+# whole: nuworld_port's function map reads tables its decomp objects define, a cycle one-pass linkers (GNU ld) do
+# not resolve, and for the executable the link is what proves the closure.
 # Never build it with LTO: the data image defines the roots as raw bytes.
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/port/game.c src/port/nudat.c
   src/port/nuerror.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c src/shim/file.c src/shim/gs.c src/shim/libc.c
@@ -169,7 +170,7 @@ if(NUWORLD_TESTS)
   target_include_directories(nuworld_test_nudat PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_nudat PRIVATE NW_HOST)
   target_compile_options(nuworld_test_nudat PRIVATE -Wall -Wextra)
-  target_link_libraries(nuworld_test_nudat PRIVATE nuworld_game)
+  target_link_libraries(nuworld_test_nudat PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME nudat COMMAND nuworld_test_nudat ${CMAKE_CURRENT_BINARY_DIR}/test-nudat)
   add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
   set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
