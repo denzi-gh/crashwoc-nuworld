@@ -12,6 +12,9 @@ Root kinds (src/data/image_tables.h):
   copy     plain data that a host declaration needs aligned better than its PS2 address allows
   convert  data with pointer, function pointer or nuintptr slots, converted element by element
   alias    inside a copied or converted root, or inside data a compiled unit defines in C
+  vu       a VU1 microcode package in .vutext: the code only takes its address, so the host name is a
+           token (NwVuProg) the renderer recognises, never the bytes; every package symbol_addrs.txt names
+           gets one
 """
 from __future__ import annotations
 
@@ -135,6 +138,7 @@ class Registry:
         if text is None or vutext is None:
             raise GenError("sections.json has no .text or .vutext")
         self.text = (text[1], text[1] + text[2])
+        self.vutext = (vutext[1], vutext[1] + vutext[2])
         end = max(a + n for name, a, n, _nobits in self.sections if name != ".text")
         self.mirror_base = vutext[1] & ~(MIRROR_ALIGN - 1)
         self.mirror_end = (end + MIRROR_ALIGN - 1) & ~(MIRROR_ALIGN - 1)
@@ -143,6 +147,14 @@ class Registry:
             m = re.match(r"\s*([A-Za-z_][\w.$]*)\s*=\s*0x([0-9A-Fa-f]+)\s*;(.*)$", line)
             if m and "type:func" not in m.group(3):
                 self.addrs[m.group(1)] = int(m.group(2), 16)
+        # VU1 microcode packages: (name, address, size), the names symbol_addrs.txt gives in .vutext, each up
+        # to the next one
+        named: dict[int, str] = {}
+        for name, addr in sorted(self.addrs.items()):
+            if self.vutext[0] <= addr < self.vutext[1]:
+                named.setdefault(addr, name)
+        starts = sorted(named) + [self.vutext[1]]
+        self.packages = [(named[a], a, b - a) for a, b in zip(starts, starts[1:])]
         self.ranges = [(r["section"], int(r["start"]), int(r["end"]), r["owner"])
                        for r in tomllib.loads((cfg / "data_map.toml").read_text())["range"]]
         self.matching: set[tuple[int, int]] = set()     # (unit, address) the decomp defines in C
@@ -162,6 +174,10 @@ class Registry:
 
     def section(self, addr: int) -> str | None:
         return next((n for n, a, size, _b in self.sections if a <= addr < a + size), None)
+
+    def package(self, addr: int) -> tuple[str, int, int] | None:
+        """The microcode package holding a .vutext address."""
+        return next((p for p in self.packages if p[1] <= addr < p[1] + p[2]), None)
 
     def owner(self, addr: int) -> int | None:
         for _s, start, end, owner in self.ranges:
@@ -638,7 +654,8 @@ class Root:
     name: str
     addr: int
     decls: list[Decl]
-    kind: str = ""              # mirror | copy | convert | alias
+    kind: str = ""              # mirror | copy | convert | alias | vu
+    package: str = ""           # vu: the package's name (the token)
     desc: dict | None = None    # the chosen declaration's type
     elem: dict | None = None
     count: int = 1
@@ -734,8 +751,9 @@ class Image:
                 self.error(f"{decl.where}: {root.name} has type {missing[0]}, which decomp/include does "
                            "not define (move the record into a header)")
                 return
+            elem = self.types.element(decl.desc)[0]
             if decl.desc["kind"] in ("void", "other") or \
-                    self.types.element(decl.desc)[0]["kind"] in ("long", "other", "void"):
+                    elem["kind"] in ("long", "other", "void") and elem.get("typedef") not in ADDR_TYPEDEFS:
                 self.error(f"{decl.where}: {root.name}: the declared type has no data image rule")
                 return
         try:
@@ -748,6 +766,9 @@ class Image:
         sect = self.reg.section(root.addr)
         if sect is None or not self.reg.mirror_base <= root.addr < self.reg.mirror_end:
             self.error(f"{where}: 0x{root.addr:08x} lies outside the retail data")
+            return
+        if sect == ".vutext":
+            self.classify_vu(root, where, all(plain))
             return
         if all(plain):
             root.kind = "mirror"
@@ -800,6 +821,19 @@ class Image:
             root.host_size = root.count * h if root.kind == "convert" else root.ps2_size
         if root.kind == "convert":
             root.nwtype = self.types.nwtype(root.elem)
+
+    def classify_vu(self, root: Root, where: str, plain: bool) -> None:
+        pkg = self.reg.package(root.addr)
+        if not plain:
+            self.error(f"{where}: declared with pointer slots, but .vutext holds VU1 microcode")
+        elif pkg is None:
+            self.error(f"{where}: 0x{root.addr:08x} lies in .vutext outside every microcode package "
+                       "symbol_addrs.txt names")
+        elif pkg[1] != root.addr:
+            self.error(f"{where}: 0x{root.addr:08x} is {pkg[0]}+0x{root.addr - pkg[1]:x}: only whole "
+                       "microcode packages have tokens")
+        else:
+            root.kind, root.package, root.ps2_size, root.extent = "vu", pkg[0], pkg[2], "registry"
 
     def specific(self, d: dict) -> int:
         """Prefer declarations whose pointees say more than void."""
@@ -952,21 +986,30 @@ def render(image: Image) -> dict[str, str]:
         r = o.root
         align = max(ROOT_ALIGN, types.sizes(r.elem)[3], r.need)
         src.append(f"_Alignas({align}) unsigned char {r.name}[{max(r.host_size, 1)}];")
-    src += ["", "/* Plain roots in the mirror and roots inside other roots. */"]
+    src += ["", "/* VU1 microcode packages: tokens, never bytes (NwVuProg). */"]
+    src += [f'const NwVuProg {name} = {{ "{name}", 0x{addr:08x}u, {size}u }};' for name, addr, size in reg.packages]
+    if reg.packages:
+        src += ["", "static const NwVuProg *const nw_vu_progs[] = {",
+                *(f"    &{name}," for name, _a, _s in reg.packages), "};"]
+    src += ["", "/* Plain roots in the mirror, roots inside other roots and other names of a package. */"]
     for r in roots:
         if r.kind == "mirror":
             src += asm_alias(r.name, "nw_ps2_mirror", r.addr - reg.mirror_base,
                              r.ps2_size or (r.decls[0].host_size or 1))
         elif r.kind == "alias" and r.container.unit is None:
             src += asm_alias(r.name, r.container.name, r.host_off, max(r.decls[0].host_size or 1, 1))
+        elif r.kind == "vu" and r.name != r.package:
+            src += asm_alias(r.name, r.package, 0, 1)
     aliases = [r for r in roots if r.kind == "alias"]
     if aliases:
         src += ["", *(f"extern unsigned char {r.name}[];" for r in aliases)]
     src += ["", "static const NwImageRoot nw_image_roots[] = {"]
-    kinds = {"mirror": "MIRROR", "copy": "COPY", "convert": "CONVERT", "alias": "ALIAS"}
+    kinds = {"mirror": "MIRROR", "copy": "COPY", "convert": "CONVERT", "alias": "ALIAS", "vu": "VU"}
     for r in roots:
-        host = f"nw_ps2_mirror + 0x{r.addr - reg.mirror_base:x}u" if r.kind == "mirror" else r.name
-        host_size = r.host_size if r.kind in ("copy", "convert") else (r.decls[0].host_size or 0)
+        host = f"nw_ps2_mirror + 0x{r.addr - reg.mirror_base:x}u" if r.kind == "mirror" else \
+            f"(void *)&{r.package}" if r.kind == "vu" else r.name
+        host_size = r.host_size if r.kind in ("copy", "convert") else \
+            0 if r.kind == "vu" else (r.decls[0].host_size or 0)
         elem = f"&{r.nwtype}" if r.kind == "convert" else "0"
         src.append(f'    {{ "{r.name}", 0x{r.addr:08x}u, {r.ps2_size}u, {host}, {host_size}u, {elem}, '
                    f"{r.count if r.kind == 'convert' else 0}u, NW_ROOT_{kinds[r.kind]} }},")
@@ -987,6 +1030,8 @@ def render(image: Image) -> dict[str, str]:
             "const NwImageTables nw_image_tables = {",
             "    NW_MIRROR_BASE, NW_MIRROR_SIZE, nw_ps2_mirror,",
             f"    0x{reg.text[0]:08x}u, 0x{reg.text[1]:08x}u,",
+            f"    0x{reg.vutext[0]:08x}u, 0x{reg.vutext[1]:08x}u,",
+            f"    {'nw_vu_progs' if reg.packages else '0'}, {len(reg.packages)}u,",
             f"    nw_image_roots, {len(roots)}u,",
             f"    nw_data_units, {len(units)}u,",
             f"    nw_image_registry, {len(registry)}u,",
@@ -1159,7 +1204,8 @@ def main() -> int:
             written += nwunits.write_if_changed(args.out / name, text)
     counts = image.counts()
     bound = sum(1 for r in image.roots.values() if r.extent == "bound")
-    print(f"{len(image.roots)} roots ({', '.join(f'{counts[k]} {k}' for k in ('mirror', 'copy', 'convert', 'alias'))}), "
+    kinds = ", ".join(f"{counts[k]} {k}" for k in ("mirror", "copy", "convert", "alias", "vu"))
+    print(f"{len(image.roots)} roots ({kinds}), "
           f"{len(image.objs)} C definitions, {bound} bounded extents, {len(image.replaced())} in "
           "replaced units" + ("" if args.check else f"; {written} files written to {args.out}"))
     return 0

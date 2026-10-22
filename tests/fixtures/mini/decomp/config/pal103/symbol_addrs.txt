@@ -1,6 +1,11 @@
 FixAdd = 0x00100100; // type:func
+vu_load_fixa_mpg = 0x00100600;
+vu_load_fixb_mpg = 0x00100680;
 fixnames = 0x00100900;
 fixroot = 0x00100a00;
 fixpairs = 0x00100a48;
+fixmpgs = 0x00100e00;
+fixcbs = 0x00100e10;
+fixaddrs = 0x00100e20;
 fixowned = 0x00101000;
 fixtent = 0x00101100;

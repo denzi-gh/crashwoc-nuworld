@@ -1,7 +1,8 @@
 /* The data image: fills the decomp's data roots (gen/dataimage.c, tools/gen_dataimage.py) from the user's
    retail ELF at startup. Plain roots are the retail bytes in the mirror, copied roots a byte copy; converted
    roots go through the generated converters with every pointer translated to its host object. Objects only
-   pointers reach are converted on demand; a pointer that resolves to nothing is fatal. */
+   pointers reach are converted on demand; code addresses go through the funcmap, .vutext addresses become the
+   token of their microcode package; a pointer that resolves to nothing is fatal. */
 #ifndef NUWORLD_DATA_IMAGE_H
 #define NUWORLD_DATA_IMAGE_H
 
@@ -13,12 +14,13 @@
 #include "data/image_tables.h"
 
 typedef struct NwImageStats {
-    unsigned roots[4]; /* by NW_ROOT_* */
+    unsigned roots[5]; /* by NW_ROOT_* */
     unsigned objects;  /* C definitions at retail addresses */
     unsigned regions;  /* objects only pointers reach, converted on demand */
     uint64_t region_bytes;
     unsigned pointers;                     /* data pointers translated */
-    unsigned code_pointers, stub_pointers; /* through the funcmap; to stubs */
+    unsigned code_pointers, stub_pointers; /* through the funcmap (function pointers and nuintptr); to stubs */
+    unsigned vu_tokens;                    /* .vutext addresses in data, made microcode package tokens */
     unsigned kept_ints;                    /* small values or -1 in pointer slots, kept as integers */
     unsigned unclaimed;                    /* void pointers to retail bytes no object claims (the mirror) */
 } NwImageStats;
@@ -35,6 +37,9 @@ void nw_image_free(void);
 void *nw_image_host(uint32_t ps2);
 /* The way back: the PS2 address of a host address in the image (one past an object's end included). */
 bool nw_image_ps2(const void *host, uint32_t *ps2);
+
+/* The microcode package mpg is the token of (rndrstream_s.mpg, the address a DMA call tag calls), else NULL. */
+const NwVuProg *nw_vu_prog(const void *mpg);
 
 void nw_image_report(const NwImageStats *s, FILE *out);
 
