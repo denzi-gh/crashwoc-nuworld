@@ -17,11 +17,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nwunits  # noqa: E402
 
-# libc functions the decomp and the port call and the host provides.
+# libc functions the decomp and the port call and the host provides. strtod and strtol: glibc's optimized
+# stdlib.h inlines atof and atoi into them.
 HOST_LIBC = frozenset("""
     abort abs atof atoi calloc exit fflush fprintf fputs free fwrite getenv malloc memcmp memcpy memmove memset
     printf putchar puts qsort realloc snprintf sprintf strcasecmp strcat strchr strcmp strcpy strlen strncasecmp
-    strncmp strncpy strrchr strstr tolower toupper vfprintf vsnprintf vsprintf
+    strncmp strncpy strrchr strstr strtod strtol tolower toupper vfprintf vsnprintf vsprintf
 """.split())
 
 
