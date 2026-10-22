@@ -271,7 +271,8 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
         SDL_GetWindowSizeInPixels(p->window, &width, &height);
         glViewport(0, 0, width, height);
         glClearColor(0.1f, 0.12f, 0.16f, 1.0f);
-        glDepthMask(GL_TRUE); /* a ZMSK material may have left it off, and glClear honours it */
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
+        glDepthMask(GL_TRUE);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
         float view[16];
@@ -286,9 +287,13 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
             NwVuObject o;
             nw_vu1init(&o, in.mtx, view);
             for (uint32_t d = obj->first; d < obj->first + obj->count; d++) {
-                nw_vu_use(v.draws[d].program, &o, &v.draws[d].mtl);
-                glDrawElements(GL_TRIANGLES, (GLsizei)(v.draws[d].count * 3), GL_UNSIGNED_INT,
-                               (const void *)(uintptr_t)(v.draws[d].first * 12u));
+                NwMtlPass pass[2];
+                uint32_t n = nw_vu_use(v.draws[d].program, &o, &v.draws[d].mtl, pass);
+                for (uint32_t k = 0; k < n; k++) {
+                    nw_vu_pass(v.draws[d].program, &v.draws[d].mtl, &pass[k]);
+                    glDrawElements(GL_TRIANGLES, (GLsizei)(v.draws[d].count * 3), GL_UNSIGNED_INT,
+                                   (const void *)(uintptr_t)(v.draws[d].first * 12u));
+                }
             }
         }
         SDL_GL_SwapWindow(p->window);

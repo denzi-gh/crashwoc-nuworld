@@ -655,6 +655,34 @@ static void test_depth(void)
     }
 }
 
+/* TEST_1 (ATE with ABE) and the passes by AFAIL: the passing pixels, then what AFAIL writes of the failing. */
+static void test_atest(void)
+{
+    uint32_t attrib[2] = { 1u | 5u << 20 | 0x7Eu << 23, 3 };
+    NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+    CHECK(s.ate && s.atst == 5 && s.aref == 0x7E && s.afail == 3);
+    attrib[0] &= ~15u;
+    CHECK(!nw_mtl_state(attrib, 0, 0, 0).ate);
+    static const NwMtlPass second[4] = {
+        { 0 }, { true, true, true, false }, { true, false, false, true }, { true, true, false, false },
+    };
+    NwMtlPass pass[2];
+    for (uint8_t afail = 0; afail < 4; afail++) {
+        s.afail = afail;
+        s.zmsk = false;
+        uint32_t n = nw_mtl_passes(&s, pass);
+        CHECK(n == (afail ? 2u : 1u) && !pass[0].failed && pass[0].rgb && pass[0].alpha && pass[0].z);
+        CHECK(n == 1 || memcmp(&pass[1], &second[afail], sizeof(pass[1])) == 0);
+        s.zmsk = true;
+        CHECK(nw_mtl_passes(&s, pass) == n && !pass[0].z && (n == 1 || !pass[1].z));
+    }
+    s.atst = 1; /* ALWAYS */
+    CHECK(nw_mtl_passes(&s, pass) == 1);
+    s.atst = 5;
+    s.ate = false;
+    CHECK(nw_mtl_passes(&s, pass) == 1);
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -728,6 +756,7 @@ int main(int argc, char *argv[])
     test_mtl();
     test_blend();
     test_depth();
+    test_atest();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

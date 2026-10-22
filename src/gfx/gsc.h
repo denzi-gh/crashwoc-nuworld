@@ -75,6 +75,9 @@ typedef struct NwGscInst {
 #define NW_GSC_ATTRIB_ZMODE(a) (((a)[0] >> 14) & 3)
 #define NW_GSC_ATTRIB_LIGHTING(a) (((a)[0] >> 16) & 3)
 #define NW_GSC_ATTRIB_COLOUR(a) (((a)[0] >> 18) & 1)
+#define NW_GSC_ATTRIB_ATST(a) (((a)[0] >> 20) & 7)
+#define NW_GSC_ATTRIB_AREF(a) (((a)[0] >> 23) & 0xFF)
+#define NW_GSC_ATTRIB_AFAIL(a) ((a)[1] & 3) /* afail does not fit after aref and starts the second word */
 #define NW_GSC_ATTRIB_OT(a) (((a)[1] >> 3) & 1)
 
 typedef struct NwGscTotal {

@@ -3,6 +3,7 @@
 #define NUWORLD_GFX_VU_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
@@ -44,7 +45,10 @@ void nw_vu_shutdown(void);
 NwVuProgram nw_vu_program(const char *package);
 /* vu1init and clipinit alike, with no lights yet: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
-void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m);
+/* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
+uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
+/* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */
+void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass);
 /* Uploads t with its mip levels. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);

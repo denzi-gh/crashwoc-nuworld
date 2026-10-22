@@ -52,6 +52,7 @@ static const char nw_vu_fs[] =
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
+    "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
     "out vec4 o_col;\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
@@ -89,20 +90,37 @@ static const char nw_vu_fs[] =
     "    }\n"
     "    return sample_level(uv, min(int(lod + 0.5), u_texlod.y), bilinear);\n"
     "}\n"
+    "bool atest(int a)\n"
+    "{\n"
+    "    switch (u_atest.x) {\n"
+    "    case 0: return false;\n"
+    "    case 1: return true;\n"
+    "    case 2: return a < u_atest.y;\n"
+    "    case 3: return a <= u_atest.y;\n"
+    "    case 4: return a == u_atest.y;\n"
+    "    case 5: return a >= u_atest.y;\n"
+    "    case 6: return a > u_atest.y;\n"
+    "    default: return a != u_atest.y;\n"
+    "    }\n"
+    "}\n"
     /* TFX MODULATE in GS units (0x80 = 1.0): Cf = Cv * Ct >> 7, Af the same with TCC; untextured Cf = Cv. */
     "void main()\n"
     "{\n"
     "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
     "    if (u_texmode.x != 0) {\n"
     "        vec4 t = floor(sample_gs(v_uv));\n"
-    "        c = vec4(min(floor(c.rgb * t.rgb / 128.0), 255.0), u_tcc != 0 ? floor(c.a * t.a / 128.0) : c.a);\n"
+    "        c.rgb = min(floor(c.rgb * t.rgb / 128.0), 255.0);\n"
+    "        c.a = u_tcc != 0 ? min(floor(c.a * t.a / 128.0), 255.0) : c.a;\n"
+    "    }\n"
+    "    if (atest(int(c.a)) == (u_atest.z != 0)) {\n"
+    "        discard;\n"
     "    }\n"
     "    o_col = vec4(u_ascolour != 0 ? vec3(c.a / 128.0) : c.rgb / 255.0, c.a / 128.0);\n"
     "}\n";
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc, ascolour;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc, ascolour, atest;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -156,6 +174,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
     nw_vu[program].ascolour = glGetUniformLocation(p, "u_ascolour");
+    nw_vu[program].atest = glGetUniformLocation(p, "u_atest");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -210,7 +229,7 @@ void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
     }
 }
 
-void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
+uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
 {
     glUseProgram(nw_vu[program].prog);
     glUniformMatrix4fv(nw_vu[program].lv, 1, GL_FALSE, o->lv);
@@ -239,13 +258,20 @@ void nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m)
     /* The GS keeps the larger z; the screen matrices give GL the smaller one for the nearer point. */
     static const GLenum ztst[4] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
     glDepthFunc(ztst[m->state.ztst & 3]);
-    glDepthMask(!m->state.zmsk);
     if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m->tex->index);
     }
+    return nw_mtl_passes(&m->state, pass);
+}
+
+void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass)
+{
+    glUniform4i(nw_vu[program].atest, m->state.ate ? m->state.atst : 1, m->state.aref, pass->failed, 0);
+    glColorMask(pass->rgb, pass->rgb, pass->rgb, pass->alpha);
+    glDepthMask(pass->z);
 }
 
 /* Integer textures are only read by texelFetch; a mip chain needs a mipmap MIN_FILTER to be complete. */

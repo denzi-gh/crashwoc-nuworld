@@ -82,6 +82,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDisable, (GLenum cap)) \
     X(void, glDepthFunc, (GLenum func)) \
     X(void, glDepthMask, (GLboolean flag)) \
+    X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a)) \
     X(void, glBlendFunc, (GLenum sfactor, GLenum dfactor)) \
     X(void, glBlendEquation, (GLenum mode)) \
     X(void, glPixelStorei, (GLenum pname, GLint param)) \
@@ -136,6 +137,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDisable nw_glDisable
 #define glDepthFunc nw_glDepthFunc
 #define glDepthMask nw_glDepthMask
+#define glColorMask nw_glColorMask
 #define glBlendFunc nw_glBlendFunc
 #define glBlendEquation nw_glBlendEquation
 #define glPixelStorei nw_glPixelStorei

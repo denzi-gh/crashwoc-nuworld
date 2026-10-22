@@ -21,6 +21,10 @@ NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t
     s.alpha = nw_mtl_alpha[NW_GSC_ATTRIB_ALPHA(attrib)];
     s.ztst = NW_GSC_ATTRIB_ZMODE(attrib) >= 2 ? 1 : 2;
     s.zmsk = NW_GSC_ATTRIB_ZMODE(attrib) & 1;
+    s.ate = s.abe;
+    s.atst = NW_GSC_ATTRIB_ATST(attrib);
+    s.aref = NW_GSC_ATTRIB_AREF(attrib);
+    s.afail = NW_GSC_ATTRIB_AFAIL(attrib);
     s.mmag = nw_mtl_mmag[NW_GSC_ATTRIB_FILTER(attrib)];
     s.mmin = nw_mtl_mmin[NW_GSC_ATTRIB_FILTER(attrib)];
     s.mxl = NW_GSC_ATTRIB_FILTER(attrib) == 2 && levels > 0 ? (uint8_t)(levels - 1) : 0;
@@ -66,4 +70,19 @@ bool nw_mtl_blend(uint8_t alpha, NwMtlBlend *b)
     }
     b->op = ss < 0 ? NW_BLEND_REVERSE_SUBTRACT : sd < 0 ? NW_BLEND_SUBTRACT : NW_BLEND_ADD;
     return true;
+}
+
+uint32_t nw_mtl_passes(const NwMtlState *s, NwMtlPass pass[2])
+{
+    pass[0] = (NwMtlPass){ false, true, true, !s->zmsk };
+    if (!s->ate || s->atst == 1 || s->afail == 0) {
+        return 1;
+    }
+    static const NwMtlPass afail[4] = {
+        { true, false, false, false }, { true, true, true, false }, { true, false, false, true },
+        { true, true, false, false },
+    };
+    pass[1] = afail[s->afail];
+    pass[1].z = pass[1].z && !s->zmsk;
+    return 2;
 }
