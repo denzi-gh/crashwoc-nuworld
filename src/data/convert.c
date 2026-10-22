@@ -39,10 +39,11 @@ const NwType nw_type_fnptr = {
     "fnptr", 4, 4, sizeof(NwFuncPtr), _Alignof(NwFuncPtr), 0, x_fnptr, xr_fnptr, &nw_fnptr_span, 1
 };
 
-static void convert(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int reverse)
+static void convert(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index,
+                    int reverse)
 {
     ctx->depth = 0;
-    nw_xpush(ctx, root, -1);
+    nw_xpush(ctx, root, index);
     if (type->flags & NW_TYPE_POD) {
         memcpy(dst, src, type->ps2_size);
     } else if (reverse ? type->xr : type->x) {
@@ -55,12 +56,17 @@ static void convert(NwXCtx *ctx, const NwType *type, void *dst, const void *src,
 
 void nw_x(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root)
 {
-    convert(ctx, type, dst, src, root, 0);
+    convert(ctx, type, dst, src, root, -1, 0);
 }
 
 void nw_xr(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root)
 {
-    convert(ctx, type, dst, src, root, 1);
+    convert(ctx, type, dst, src, root, -1, 1);
+}
+
+void nw_x_elem(NwXCtx *ctx, const NwType *type, void *dst, const void *src, const char *root, int index)
+{
+    convert(ctx, type, dst, src, root, index, 0);
 }
 
 int nw_xoff(const NwType *type, uint32_t ps2_off, uint32_t *host_off)
@@ -148,6 +154,8 @@ NwFuncPtr nw_fn_in(NwXCtx *ctx, uint32_t addr, const char *site)
     }
     const NwFuncmapEntry *e = nw_funcmap_find(addr);
     if (e) {
+        ctx->code_pointers++;
+        ctx->stub_pointers += e->provenance == NW_PROV_STUB;
         return e->fn;
     }
     if (ctx->vutext_in) {

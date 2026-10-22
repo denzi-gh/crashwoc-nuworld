@@ -1,0 +1,6 @@
+schema = 1
+
+[owned]
+"fixowned" = "the harness defines it"
+
+[conflicts]

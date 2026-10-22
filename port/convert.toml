@@ -18,3 +18,5 @@ schema = 1
 
 [arrays]
 "struct eduimenu_s.titlebuf" = { hook = true }
+# The .DAT directory behind the header: built when an archive opens (NuDat*), never in the data image.
+"struct nudathdr_s.data" = { hook = true }

@@ -32,10 +32,11 @@ jobs:
           python3 tools/gen_funcmap.py --out build/gen
       - name: Type DB
         run: python3 tools/typedb.py --out build/gen
-      - name: Check the PS2 mirror structs and the converters
+      - name: Check the PS2 mirror structs, the converters and the data image
         run: |
           python3 tools/gen_ps2types.py --check
           python3 tools/gen_converters.py --check
+          python3 tools/gen_dataimage.py --check
       - uses: actions/upload-artifact@v4
         with:
           name: typedb
@@ -101,6 +102,13 @@ jobs:
           test -d "$data_home/crashwoc-nuworld"
           test ! -e "$data_home/NuWorld"
           grep -F "$data_home/crashwoc-nuworld/disc/" "$data_home/verify.log"
+      - name: Check the data image and the boot without data
+        run: |
+          for mode in --check-data --boot-check; do
+            status=0
+            ./build/release/crashwoc-nuworld --data-dir "$(mktemp -d)" $mode || status=$?
+            test "$status" = 2
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-linux-x86_64
@@ -135,6 +143,13 @@ jobs:
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
           test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.1.0"
+      - name: Check the data image and the boot without data
+        run: |
+          for mode in --check-data --boot-check; do
+            status=0
+            ./build/release/crashwoc-nuworld.exe --data-dir "$(mktemp -d)" $mode || status=$?
+            test "$status" = 2
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-windows-x64

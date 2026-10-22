@@ -5,8 +5,9 @@ A native PC source port of Crash Bandicoot: The Wrath of Cortex (PS2, PAL v1.03)
 
 CrashWOC: NuWorld contains no game data. It needs your own copy of the game (PAL, SLES-50386).
 
-Status: early. The executable opens an SDL3 / OpenGL 3.3 window and can import and verify your disc
-(see Game data); the decomp is not compiled in yet.
+Status: early. The executable opens an SDL3 / OpenGL 3.3 window, can import and verify your disc
+(see Game data) and links the whole decomp, whose data it builds from your disc (`--check-data`). The game
+boots to its first loading screen on a 50 Hz vblank clock (`--boot`, `--boot-check`) but draws nothing yet.
 
 ## Building
 
@@ -46,7 +47,10 @@ Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):
 Every file is checked against a SHA-256 manifest and copied to the data folder: `%APPDATA%\crashwoc-nuworld\` on Windows,
 `~/.local/share/crashwoc-nuworld/` on Linux (or `$XDG_DATA_HOME/crashwoc-nuworld/` when set),
 or `user/` beside the executable when a `portable.txt` is there.
-`--verify` re-checks the imported files; `--data-dir <dir>` uses another folder.
+`--verify` re-checks the imported files; `--check-data` builds the game's data from the imported executable and
+reports it; `--boot` runs the game in a window that shows its frame count in the title; `--boot-check [vblanks]`
+runs it headless to that many vblanks (default 50) after its first screen swap and lists the functions it reached
+that have no C yet; `--data-dir <dir>` uses another folder.
 
 ## License
 

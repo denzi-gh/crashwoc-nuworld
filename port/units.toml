@@ -13,7 +13,8 @@ schema = 1
 # nucore
 "nucore/nufile" = { treatment = "compile", override = ["NuDat*"] }
 "nucore/nufpar" = { treatment = "compile" }
-"nucore/nuerror" = { treatment = "compile" }
+# NuErrorProlog: the file and line NuErrorFunction prints are nuerror.c statics
+"nucore/nuerror" = { treatment = "compile", override = ["NuErrorProlog", "NuErrorFunction"] }
 "nucore/numem" = { treatment = "compile" }
 "nucore/numemblk" = { treatment = "compile" }
 "nucore/numemhi" = { treatment = "compile" }

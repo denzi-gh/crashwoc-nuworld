@@ -23,3 +23,7 @@ name = '.\fixgame.h'
 [[unit]]
 index = 5
 name = '.\fixdead.c'
+
+[[unit]]
+index = 6
+name = '.\fixdata.c'

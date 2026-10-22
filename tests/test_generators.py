@@ -1,7 +1,6 @@
 """Generator tests on the synthetic decomp in tests/fixtures/mini (libclang for
 tu_filter, clang or $CC for the end-to-end test)."""
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,8 +9,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
-import gen_funcmap  # noqa: E402
-import gen_stubs  # noqa: E402
+sys.path.insert(0, str(REPO / "tests"))
+import fixture_build  # noqa: E402
 import nwunits  # noqa: E402
 import tu_filter  # noqa: E402
 
@@ -19,8 +18,6 @@ FIXTURE = REPO / "tests" / "fixtures" / "mini"
 DECOMP = FIXTURE / "decomp"
 UNITS = FIXTURE / "port" / "units.toml"
 PORT_SRC = FIXTURE / "port" / "src"
-HOST_FLAGS = ["-std=gnu11", "-fgnu89-inline", "-fno-strict-aliasing", "-fwrapv",
-              "-ffp-contract=off", "-fsigned-char", "-Wall", "-Wextra", "-Werror", "-DNW_HOST"]
 
 
 def load(units=UNITS, **kw):
@@ -104,7 +101,7 @@ class Model(unittest.TestCase):
         kinds = {u.name: u.kind for u in self.model.units}
         self.assertEqual(kinds, {"sdk/sce/crt0": "none", "nucore/fixcore": "wrapper",
                                  "numath/fixasm": "standalone", "game/fixgame": "wrapper",
-                                 "game/fixdead": "standalone"})
+                                 "game/fixdead": "standalone", "game/fixdata": "wrapper"})
 
     def test_providers(self):
         expect = {
@@ -123,6 +120,8 @@ class Model(unittest.TestCase):
             "main": ("stub", "stub"),
             "FixGameTick": ("decomp", "equivalent"),
             "FixDeadA": ("stub", "stub"),
+            "FixDataUse": ("decomp", "matching"),
+            "FixDataHidden": ("stub", "stub"),
         }
         self.assertEqual({n: (f.provider, f.provenance) for n, f in self.fn.items()}, expect)
 
@@ -196,11 +195,6 @@ class Model(unittest.TestCase):
         self.assertTrue(any("the port defines FixAdd" in e for e in model.errors))
 
 
-def find_cc():
-    cc = os.environ.get("CC") or shutil.which("clang")
-    return cc if cc and shutil.which(cc) else None
-
-
 def wrap(parser, unit, wrapper=Path("w.wrap.c")):
     path = DECOMP / unit.source
     defs = parser.definitions(path)
@@ -240,12 +234,13 @@ class TuFilter(unittest.TestCase):
         self.assertRegex(out[i + 1], rf'^#line {end + 2} ".*/nucore/fixcore\.c"$')
         self.assertIn("s32 FixLoad(const char *name);", out)
         self.assertIn("    return FixLocal(v) + 1;", out)
-        self.assertEqual(out[-4:], ['#line %d "w.wrap.c"' % (len(out) - 2),
+        self.assertEqual(out[-5:], ['#line %d "w.wrap.c"' % (len(out) - 3),
                                     '#include "fixcore.stubs.inc"',
-                                    '#include "fixcore.funcmap.inc"', ""])
+                                    '#include "fixcore.funcmap.inc"',
+                                    '#include "fixcore.data.inc"', ""])
         # Every other line maps through #line to the same source line; the only source
         # lines left out are the two overridden definitions.
-        body, cur, seen = out[3:-4], 1, set()
+        body, cur, seen = out[3:-5], 1, set()
         for j, line in enumerate(body):
             if line.startswith("#line "):
                 cur = int(line.split()[1])
@@ -364,53 +359,28 @@ class ListOutputs(unittest.TestCase):
 
     def test_generators(self):
         self.assertEqual(self.outputs("tu_filter.py"),
-                         ["nucore/fixcore.wrap.c", "game/fixgame.wrap.c"])
+                         ["nucore/fixcore.wrap.c", "game/fixgame.wrap.c", "game/fixdata.wrap.c"])
         self.assertEqual(self.outputs("gen_stubs.py"),
                          ["nucore/fixcore.stubs.inc", "numath/fixasm.stubs.c",
-                          "game/fixgame.stubs.inc", "game/fixdead.stubs.c"])
+                          "game/fixgame.stubs.inc", "game/fixdead.stubs.c", "game/fixdata.stubs.inc"])
         self.assertEqual(self.outputs("gen_funcmap.py"),
                          ["nucore/fixcore.funcmap.inc", "numath/fixasm.funcmap.inc",
-                          "game/fixgame.funcmap.inc", "game/fixdead.funcmap.inc", "funcmap.c"])
+                          "game/fixgame.funcmap.inc", "game/fixdead.funcmap.inc",
+                          "game/fixdata.funcmap.inc", "funcmap.c"])
 
 
 class EndToEnd(unittest.TestCase):
     def test_generated_code_links_and_runs(self):
-        cc = find_cc()
+        cc = fixture_build.find_cc()
         if cc is None:
             self.skipTest("no clang (set CC)")
         if tu_filter.cindex is None:
             self.skipTest("no libclang (tools/requirements.txt)")
-        model = load()
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
-            for unit in model.units:
-                if unit.kind == "none":
-                    continue
-                nwunits.write_if_changed(gen_stubs.output_path(out, unit), gen_stubs.render(unit))
-                nwunits.write_if_changed(out / (unit.name + ".funcmap.inc"),
-                                         gen_funcmap.render_unit(unit))
-            built = [u for u in model.units if u.kind != "none"]
-            nwunits.write_if_changed(out / "funcmap.c", gen_funcmap.render_index(built))
-
-            sources = [out / "funcmap.c", REPO / "src" / "port" / "stub.c",
-                       REPO / "src" / "port" / "funcmap.c", FIXTURE / "harness.c",
-                       *sorted(PORT_SRC.glob("*.c"))]
-            parser = tu_filter.Parser(DECOMP)
-            try:
-                for unit in built:
-                    if unit.kind == "standalone":
-                        sources.append(gen_stubs.output_path(out, unit))
-                        continue
-                    wrapper = tu_filter.output_path(out, unit)
-                    tu_filter.write_if_changed(wrapper, wrap(parser, unit, wrapper))
-                    sources.append(wrapper)
-            finally:
-                parser.close()
+            fixture_build.generate(out)
             exe = out / "harness.exe"
-            flags = HOST_FLAGS + ["-Wno-unused-function", f"-I{DECOMP / 'include'}",
-                                  f"-I{REPO / 'src'}"]
-            build = subprocess.run([cc, *flags, "-o", str(exe), *map(str, sources)],
-                                   capture_output=True, text=True)
+            build = fixture_build.build(cc, out, FIXTURE / "harness.c", exe)
             self.assertEqual(build.returncode, 0, build.stderr)
 
             env = dict(os.environ, NUWORLD_STUBS="continue")

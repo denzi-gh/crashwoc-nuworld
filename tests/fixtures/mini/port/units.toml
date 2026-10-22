@@ -5,4 +5,5 @@ schema = 1
 "numath/fixasm" = { treatment = "hle" }
 "game/fixgame" = { treatment = "compile", rename = { main = "nw_game_main" } }
 "game/fixdead" = { treatment = "dead" }
+"game/fixdata" = { treatment = "compile", override = ["FixDataHidden"] }
 "sdk/*" = { treatment = "shim" }

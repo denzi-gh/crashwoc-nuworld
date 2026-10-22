@@ -121,7 +121,8 @@ static void fatal(NwXCtx *ctx, const char *message)
     longjmp(fatal_jump, 1);
 }
 
-static NwXCtx ctx = { ptr_in, ptr_out, addr_in, addr_out, NULL, NULL, fatal, NULL, { { 0, 0 } }, 0 };
+static NwXCtx ctx = { .ptr_in = ptr_in, .ptr_out = ptr_out, .addr_in = addr_in, .addr_out = addr_out,
+                      .fatal = fatal };
 
 static const NwTestType *find(const NwType *type)
 {

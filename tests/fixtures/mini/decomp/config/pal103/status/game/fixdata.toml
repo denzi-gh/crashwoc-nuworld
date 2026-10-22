@@ -1,0 +1,21 @@
+schema = 1
+unit = "pal103:unit-0006"
+source = "src/game/fixdata.c"
+profile = "default"
+complete = false
+
+[[function]]
+id = "pal103:unit-0006:00100500:FixDataUse"
+state = "matching"
+
+[[function]]
+id = "pal103:unit-0006:00100520:FixDataHidden"
+state = "matching"
+
+[[data]]
+id = "pal103:unit-0006:00100c00:fixstatic"
+state = "matching"
+
+[[data]]
+id = "pal103:unit-0006:00101100:fixtent"
+state = "matching"

@@ -15,3 +15,5 @@ void FixAsmB(int x)
 {
     (void)x;
 }
+
+s32 fixowned = 7;

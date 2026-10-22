@@ -89,3 +89,15 @@ index = 12
 name = 'FixDeadA'
 address = 0x00100400
 unit = 5
+
+[[function]]
+index = 15
+name = 'FixDataUse'
+address = 0x00100500
+unit = 6
+
+[[function]]
+index = 16
+name = 'FixDataHidden'
+address = 0x00100520
+unit = 6

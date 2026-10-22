@@ -12,6 +12,13 @@
 #include "platform/paths.h"
 #include "platform/platform.h"
 #include "vfs/extract.h"
+#ifdef NW_WITH_GAME
+#include "data/image.h"
+#include "port/game.h"
+#include "shim/shim.h"
+#include "vfs/sha256.h"
+#include "vfs/vfs.h"
+#endif
 
 static bool nw_print_progress(void *user, uint64_t done, uint64_t total)
 {
@@ -98,11 +105,258 @@ static int nw_verify(const char *data_dir)
     return ok ? 0 : 1;
 }
 
+#ifdef NW_WITH_GAME
+/* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
+static void *nw_read_elf(const NwVfs *vfs, size_t *size)
+{
+    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, NW_DISC_BOOT);
+    NwVfsFile *f = nw_vfs_open(vfs, "cdrom0:\\" NW_DISC_BOOT ";1", NW_VFS_READ);
+    if (!e || !f) {
+        nw_vfs_close(f);
+        return NULL;
+    }
+    int64_t n = nw_vfs_size(f);
+    void *data = n == (int64_t)e->size ? SDL_malloc((size_t)n) : NULL;
+    bool ok = data && nw_vfs_read(f, data, (size_t)n) == n;
+    nw_vfs_close(f);
+    if (ok) {
+        uint8_t digest[NW_SHA256_SIZE];
+        char hex[NW_SHA256_HEX];
+        nw_sha256(data, (size_t)n, digest);
+        nw_sha256_hex(digest, hex);
+        ok = SDL_strcmp(hex, e->sha256) == 0;
+    }
+    if (!ok) {
+        SDL_free(data);
+        SDL_SetError(NW_DISC_BOOT " is not the PAL v" NW_DISC_VER " ELF (run --verify)");
+        return NULL;
+    }
+    *size = (size_t)n;
+    return data;
+}
+
+/* Builds the data image from the imported disc and reports it; returns the exit code (2: no usable data). */
+static int nw_check_data(const char *data_dir)
+{
+    NwVfs vfs;
+    size_t size = 0;
+    char *root = nw_data_root(data_dir);
+    void *elf = root && nw_vfs_init(&vfs, root) ? nw_read_elf(&vfs, &size) : NULL;
+    if (!elf) {
+        fprintf(stderr, NW_APP_NAME ": no data image: %s\n", SDL_GetError());
+        if (root) {
+            nw_vfs_shutdown(&vfs);
+        }
+        SDL_free(root);
+        return 2;
+    }
+    NwImageStats stats;
+    char err[512];
+    bool ok = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    nw_image_report(&stats, stdout);
+    if (!ok) {
+        fflush(stdout);
+        fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
+    }
+    nw_image_free();
+    SDL_free(elf);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return ok ? 0 : 1;
+}
+
+/* The decomp's main (port/units.toml renames it), started as retail's boot starts it. */
+int nw_game_main(int argc, char **argv);
+
+static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
+static char *nw_game_argv[] = { nw_game_arg0, NULL };
+
+#define NW_VBLANK_HZ 50                /* PAL */
+#define NW_BOOT_CHECK_MS 10000         /* the watchdog of --boot-check */
+#define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
+
+/* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
+   too), newlib's state, the data image from the boot ELF, the vblank clock. The file system stays open for the
+   game. Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
+static int nw_boot_prepare(const char *data_dir)
+{
+    static NwVfs vfs;
+    size_t size = 0;
+    char *root = nw_data_root(data_dir);
+    bool vfs_open = root && nw_vfs_init(&vfs, root);
+    void *elf = vfs_open ? nw_read_elf(&vfs, &size) : NULL;
+    SDL_free(root);
+    if (!elf) {
+        fprintf(stderr, NW_APP_NAME ": no data image: %s\n", SDL_GetError());
+        if (vfs_open) {
+            nw_vfs_shutdown(&vfs);
+        }
+        return 2;
+    }
+    nw_shim_file_init(&vfs);
+    nw_newlib_init();
+    NwImageStats stats;
+    char err[512];
+    bool ok = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    SDL_free(elf);
+    if (!ok) {
+        fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
+        return 1;
+    }
+    if (!nw_game_init(NW_CLOCK_REALTIME, NW_VBLANK_HZ)) {
+        fprintf(stderr, NW_APP_NAME ": no vblank clock: %s\n", SDL_GetError());
+        return 1;
+    }
+    return 0;
+}
+
+static const char *nw_game_state_name(NwGameState state)
+{
+    switch (state) {
+    case NW_GAME_IDLE:
+        return "not started";
+    case NW_GAME_RUNNING:
+        return "running";
+    case NW_GAME_PARKED:
+        return "parked";
+    case NW_GAME_FATAL:
+        return "stopped by a fatal error";
+    case NW_GAME_RETURNED:
+        return "returned from main";
+    }
+    return "?";
+}
+
+/* Stops the game thread for the exit; one that does not reach a yield point in time is left running, and the
+   process must then end with _Exit, not unwind under it. */
+static bool nw_game_parked(void)
+{
+    NwGameState state = nw_game_state() == NW_GAME_RUNNING ? nw_game_stop(NW_GAME_PARK_MS) : nw_game_state();
+    if (state == NW_GAME_RUNNING) {
+        fprintf(stderr, NW_APP_NAME ": the game thread did not stop within %d ms\n", NW_GAME_PARK_MS);
+        return false;
+    }
+    return true;
+}
+
+static int nw_boot_exit(int code, bool parked)
+{
+    if (!parked) {
+        fflush(stdout);
+        fflush(stderr);
+        _Exit(code);
+    }
+    return code;
+}
+
+/* Headless: runs the game with every stub hit logged and passed until `vblanks` vblanks after its first screen
+   swap, then prints the stub hits (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an
+   early return or the watchdog, 2 without usable data. */
+static int nw_boot_check(const char *data_dir, int vblanks)
+{
+    int code = nw_boot_prepare(data_dir);
+    if (code) {
+        return code;
+    }
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        return 1;
+    }
+    uint64_t start = SDL_GetTicks(), edge = 0, first = 0;
+    bool swapped = false;
+    NwGameState state = NW_GAME_RUNNING;
+    while (state == NW_GAME_RUNNING && SDL_GetTicks() - start < NW_BOOT_CHECK_MS) {
+        edge = nw_game_wait_edge(edge, 100);
+        if (!swapped && nw_game_swaps() > 0) {
+            swapped = true;
+            first = edge;
+        }
+        if (swapped && edge - first >= (uint64_t)vblanks) {
+            break;
+        }
+        state = nw_game_state();
+    }
+    bool reached = swapped && edge - first >= (uint64_t)vblanks;
+    bool parked = nw_game_parked();
+    state = nw_game_state();
+    fflush(stderr);
+    if (swapped) {
+        printf("boot-check: first swap at vblank %llu, %llu frames by vblank %llu\n", (unsigned long long)first,
+               (unsigned long long)nw_game_swaps(), (unsigned long long)edge);
+    } else {
+        printf("boot-check: no swap in %llu vblanks\n", (unsigned long long)edge);
+    }
+    printf("boot-check: stub hits (unit, function, retail address, hits):\n");
+    unsigned hits = nw_stub_report(stdout);
+    printf("boot-check: %u stubs hit; the game thread %s\n", hits, nw_game_state_name(state));
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    } else if (!reached && state == NW_GAME_PARKED) {
+        fprintf(stderr, NW_APP_NAME ": boot-check: the watchdog stopped the game after %d ms\n", NW_BOOT_CHECK_MS);
+    }
+    return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
+}
+
+/* Windowed: the game runs (stubs logged and passed) while the window, which shows nothing of it yet, reports its
+   frames in the title. Returns the exit code. */
+static int nw_boot(const char *data_dir)
+{
+    int code = nw_boot_prepare(data_dir);
+    if (code) {
+        return code;
+    }
+    NwPlatform platform;
+    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+        return 1;
+    }
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        nw_platform_shutdown(&platform);
+        return 1;
+    }
+    uint64_t titled = 0;
+    bool running = true;
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT) {
+                running = false;
+            }
+        }
+        if (SDL_GetTicks() - titled >= 500) {
+            char title[160];
+            NwGameState state = nw_game_state();
+            SDL_snprintf(title, sizeof(title), NW_APP_NAME " - game %s, frame %llu, vblank %llu",
+                         nw_game_state_name(state), (unsigned long long)nw_game_swaps(),
+                         (unsigned long long)nw_game_edges());
+            SDL_SetWindowTitle(platform.window, title);
+            titled = SDL_GetTicks();
+        }
+        int width, height;
+        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
+        glViewport(0, 0, width, height);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        SDL_GL_SwapWindow(platform.window);
+    }
+    bool parked = nw_game_parked();
+    NwGameState state = nw_game_state();
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    }
+    nw_platform_shutdown(&platform);
+    return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *data_dir = NULL;
-    bool verify = false, setup = false;
+    bool verify = false, setup = false, check_data = false, boot = false;
+    int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
@@ -123,6 +377,16 @@ int main(int argc, char *argv[])
             verify = true;
         } else if (strcmp(argv[i], "--setup") == 0) {
             setup = true;
+        } else if (strcmp(argv[i], "--check-data") == 0) {
+            check_data = true;
+        } else if (strcmp(argv[i], "--boot") == 0) {
+            boot = true;
+        } else if (strcmp(argv[i], "--boot-check") == 0) {
+            boot_check = i + 1 < argc && argv[i + 1][0] != '-' ? atoi(argv[++i]) : 50;
+            if (boot_check <= 0) {
+                fprintf(stderr, NW_APP_NAME ": --boot-check takes a positive number of vblanks\n");
+                return 2;
+            }
         }
     }
     if (import) {
@@ -130,6 +394,15 @@ int main(int argc, char *argv[])
     }
     if (verify) {
         return nw_verify(data_dir);
+    }
+    if (check_data || boot || boot_check) {
+#ifdef NW_WITH_GAME
+        return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check)
+                                                                 : nw_boot(data_dir);
+#else
+        fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
+        return 2;
+#endif
     }
 
     NwPlatform platform;

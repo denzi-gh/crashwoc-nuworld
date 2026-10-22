@@ -15,6 +15,24 @@ void nw_xhr_nuanimcurve2_u(nw_ps2_nuanimcurve2_u *dst, const union nuanimcurve2_
     nw_xfatal(ctx, NULL, "needs its curve flags (the .ani loader converts it)");
 }
 
+/* An open .DAT archive's directory: built when the archive opens, never in the retail data image. */
+static _Noreturn void dat_directory(NwXCtx *ctx)
+{
+    nw_xfatal(ctx, "data", "a .DAT directory, built when its archive opens");
+}
+
+void nw_xh_nudathdr_s__data(struct nudathdr_s *dst, const nw_ps2_nudathdr_s *src, NwXCtx *ctx)
+{
+    (void)dst, (void)src;
+    dat_directory(ctx);
+}
+
+void nw_xhr_nudathdr_s__data(nw_ps2_nudathdr_s *dst, const struct nudathdr_s *src, NwXCtx *ctx)
+{
+    (void)dst, (void)src;
+    dat_directory(ctx);
+}
+
 /* The editor builds its menus at run time; none is in the retail data image. */
 static _Noreturn void editor_only(NwXCtx *ctx, const char *site)
 {
