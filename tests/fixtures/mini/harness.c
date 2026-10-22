@@ -58,7 +58,11 @@ int main(int argc, char *argv[])
     CHECK(nw_funcmap_find(0x00100000u) == NULL);
     CHECK(nw_funcmap_find(0xffffffffu) == NULL);
 
-    CHECK(nw_stub_report(stdout) == 1);
+    /* Listed last although game/ sorts first: the report keeps the first-hit order (FixNear, FixMissing). */
+    e = nw_funcmap_find(0x00100400u);
+    e->fn();
+    unsigned probes = 0;
+    CHECK(nw_stub_report(stdout, &probes) == 2 && probes == 1);
     printf("ok\n");
     return 0;
 }

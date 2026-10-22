@@ -262,9 +262,20 @@ static int nw_boot_exit(int code, bool parked)
     return code;
 }
 
+/* The stubs and near-match functions this run reached, in first-hit order (stdout; tools/stub_hits.py reads it). */
+static void nw_print_stub_hits(const char *mode, NwGameState state)
+{
+    unsigned probes = 0;
+    printf("%s: stub and near-match hits in first-hit order (order, stub|near, unit, function, retail address, "
+           "hits):\n", mode);
+    unsigned stubs = nw_stub_report(stdout, &probes);
+    printf("%s: %u stubs and %u near-match functions hit; the game thread %s\n", mode, stubs, probes,
+           nw_game_state_name(state));
+}
+
 /* Headless: runs the game with every stub hit logged and passed until `vblanks` vblanks after its first screen
-   swap, then prints the stub hits (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an
-   early return or the watchdog, 2 without usable data. */
+   swap, then prints the stub hits in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a
+   fatal error, an early return or the watchdog, 2 without usable data. */
 static int nw_boot_check(const char *data_dir, int vblanks)
 {
     int code = nw_boot_prepare(data_dir);
@@ -300,9 +311,7 @@ static int nw_boot_check(const char *data_dir, int vblanks)
     } else {
         printf("boot-check: no swap in %llu vblanks\n", (unsigned long long)edge);
     }
-    printf("boot-check: stub hits (unit, function, retail address, hits):\n");
-    unsigned hits = nw_stub_report(stdout);
-    printf("boot-check: %u stubs hit; the game thread %s\n", hits, nw_game_state_name(state));
+    nw_print_stub_hits("boot-check", state);
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     } else if (!reached && state == NW_GAME_PARKED) {
@@ -312,7 +321,7 @@ static int nw_boot_check(const char *data_dir, int vblanks)
 }
 
 /* Windowed: the game runs (stubs logged and passed) while the window, which shows nothing of it yet, reports its
-   frames in the title. Returns the exit code. */
+   frames in the title; at the end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
 static int nw_boot(const char *data_dir)
 {
     int code = nw_boot_prepare(data_dir);
@@ -356,6 +365,8 @@ static int nw_boot(const char *data_dir)
     }
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();
+    fflush(stderr);
+    nw_print_stub_hits("boot", state);
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
