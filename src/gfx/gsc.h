@@ -73,6 +73,8 @@ bool nw_gsc_open(NwGsc *g, const void *data, size_t size);
 void nw_gsc_close(NwGsc *g);
 NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index);
 NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index);
+/* The microcode package NuMtlUpdateEx gives a material ("vu_load_tric_mpg", ...). */
+const char *nw_gsc_mtl_package(const NwGscMtl *m);
 
 /* Decodes every plain geom (not OT or face-on): an OBJ line per object, then the GSC line; false on a failure. */
 bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total);

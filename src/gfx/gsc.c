@@ -249,6 +249,23 @@ NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index)
     return inst;
 }
 
+const char *nw_gsc_mtl_package(const NwGscMtl *m)
+{
+    if (NW_GSC_ATTRIB_FX(m->attrib) == 1) {
+        return "vu_load_xformuv_mpg";
+    }
+    switch (NW_GSC_ATTRIB_LIGHTING(m->attrib)) {
+    case 3:
+        return "vu_load_trica_mpg";
+    case 2:
+        return "vu_load_tricu_mpg";
+    case 1:
+        return "vu_load_xformuv_mpg";
+    default:
+        return NW_GSC_ATTRIB_COLOUR(m->attrib) ? "vu_load_tric_mpg" : "vu_load_tri_mpg";
+    }
+}
+
 void nw_gsc_obj_line(uint32_t id, const NwVifMesh *m, char *line, size_t size)
 {
     NwSha256 sha;

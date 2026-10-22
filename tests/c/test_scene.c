@@ -372,6 +372,22 @@ static void test_gsc(void)
     gsc_free(&b);
 }
 
+/* NuMtlUpdateEx's choice of microcode package. */
+static void test_package(void)
+{
+    static const struct {
+        unsigned fx, lighting, colour;
+        const char *package;
+    } cases[] = {
+        { 0, 0, 0, "vu_load_tri_mpg" },   { 0, 0, 1, "vu_load_tric_mpg" },  { 0, 1, 1, "vu_load_xformuv_mpg" },
+        { 0, 2, 0, "vu_load_tricu_mpg" }, { 0, 3, 1, "vu_load_trica_mpg" }, { 1, 2, 0, "vu_load_xformuv_mpg" },
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        NwGscMtl m = { { cases[i].fx << 6 | cases[i].lighting << 16 | cases[i].colour << 18, 1u << 3 }, -1, { 0 }, 0 };
+        CHECK(strcmp(nw_gsc_mtl_package(&m), cases[i].package) == 0);
+    }
+}
+
 /* The --check-scenes lines of the synthetic scene. */
 static void test_report(const char *scratch)
 {
@@ -420,6 +436,7 @@ int main(int argc, char *argv[])
     test_chain();
     test_errors();
     test_gsc();
+    test_package();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

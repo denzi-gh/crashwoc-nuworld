@@ -10,10 +10,11 @@
 #include "gfx/vif.h"
 #include "gfx/vu.h"
 
-/* One geom's triangles in the scene's index buffer. */
+/* One geom's triangles in the scene's index buffer, with its material's program and diffuse (x128). */
 typedef struct NwViewDraw {
     uint32_t first, count;
-    uint32_t mtl;
+    NwVuProgram program;
+    float diffuse[4];
 } NwViewDraw;
 
 /* An object's draws and the bounds of its vertices. */
@@ -54,7 +55,10 @@ static bool nw_view_load(NwView *v, const NwGsc *g)
             if (!nw_vif_decode(&v->mesh, g->data + b->offset, b->size)) {
                 return false;
             }
-            v->draws[ndraws++] = (NwViewDraw){ tris, v->mesh.ntris - tris, b->mtl };
+            NwGscMtl m = nw_gsc_mtl(g, b->mtl);
+            v->draws[ndraws++] = (NwViewDraw){ tris, v->mesh.ntris - tris, nw_vu_program(nw_gsc_mtl_package(&m)),
+                                               { m.diffuse[0] * 128.0f, m.diffuse[1] * 128.0f, m.diffuse[2] * 128.0f,
+                                                 m.alpha * 128.0f } };
             for (uint32_t n = verts; n < v->mesh.nverts; n++) {
                 const float *p = v->mesh.verts[n].pos;
                 for (int k = 0; k < 3 && isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]); k++) {
@@ -251,8 +255,9 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
             const NwViewObject *obj = &v.objects[in.objid];
             NwVuObject o;
             nw_vu1init(&o, in.mtx, view);
-            nw_vu_use(&o);
             for (uint32_t d = obj->first; d < obj->first + obj->count; d++) {
+                const float uvoff[2] = { 0.0f, 0.0f };
+                nw_vu_use(v.draws[d].program, &o, v.draws[d].diffuse, uvoff);
                 glDrawElements(GL_TRIANGLES, (GLsizei)(v.draws[d].count * 3), GL_UNSIGNED_INT,
                                (const void *)(uintptr_t)(v.draws[d].first * 12u));
             }
