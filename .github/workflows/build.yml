@@ -32,10 +32,11 @@ jobs:
           python3 tools/gen_funcmap.py --out build/gen
       - name: Type DB
         run: python3 tools/typedb.py --out build/gen
-      - name: Check the PS2 mirror structs and the converters
+      - name: Check the PS2 mirror structs, the converters and the data image
         run: |
           python3 tools/gen_ps2types.py --check
           python3 tools/gen_converters.py --check
+          python3 tools/gen_dataimage.py --check
       - uses: actions/upload-artifact@v4
         with:
           name: typedb

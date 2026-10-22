@@ -1,0 +1,24 @@
+# Synthetic decomp registry for the NuWorld generator tests.
+
+schema = 1
+
+[[range]]
+section = '.data'
+start = 0x00100800
+end = 0x00101000
+owner = 'unit-0006'
+evidence = 'mdebug'
+
+[[range]]
+section = '.sdata'
+start = 0x00101000
+end = 0x00101100
+owner = 'unit-0006'
+evidence = 'mdebug'
+
+[[range]]
+section = '.sbss'
+start = 0x00101100
+end = 0x00101110
+owner = 'unit-0006'
+evidence = 'mdebug'

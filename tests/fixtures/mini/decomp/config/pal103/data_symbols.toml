@@ -1,0 +1,65 @@
+# Synthetic decomp registry for the NuWorld generator tests.
+
+schema = 1
+
+[[symbol]]
+key = 'unit-0006:fixnames'
+name = 'fixnames'
+unit = 6
+scope = 'global'
+address = 0x00100900
+section = '.data'
+size = 8
+
+[[symbol]]
+key = 'unit-0006:fixroot'
+name = 'fixroot'
+unit = 6
+scope = 'global'
+address = 0x00100a00
+section = '.data'
+
+[[symbol]]
+key = 'unit-0006:fixpairs'
+name = 'fixpairs'
+unit = 6
+scope = 'global'
+address = 0x00100a48
+section = '.data'
+size = 16
+
+[[symbol]]
+key = 'unit-0006:fixstatic'
+name = 'fixstatic'
+unit = 6
+scope = 'static'
+address = 0x00100c00
+section = '.data'
+size = 16
+
+[[symbol]]
+key = 'unit-0001:fixfar'
+name = 'fixfar'
+unit = 1
+scope = 'static'
+address = 0x00100d00
+section = '.data'
+size = 40
+
+[[symbol]]
+key = 'unit-0006:fixowned'
+name = 'fixowned'
+unit = 6
+scope = 'global'
+address = 0x00101000
+section = '.sdata'
+size = 4
+
+[[symbol]]
+key = 'unit-0006:fixtent'
+name = 'fixtent'
+unit = 6
+scope = 'global'
+address = 0x00101100
+section = '.sbss'
+size = 4

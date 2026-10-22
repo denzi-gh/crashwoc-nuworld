@@ -1,0 +1,138 @@
+"""gen_dataimage on tests/fixtures/mini (libclang; clang or $CC for the end-to-end test)."""
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tests"))
+sys.path.insert(0, str(REPO / "tools"))
+import fixture_build as fb  # noqa: E402
+import gen_converters  # noqa: E402
+import gen_dataimage  # noqa: E402
+import nwunits  # noqa: E402
+import typedb  # noqa: E402
+
+
+class ListOutputs(unittest.TestCase):
+    def test_outputs(self):
+        run = subprocess.run([sys.executable, str(REPO / "tools" / "gen_dataimage.py"), "--decomp", str(fb.DECOMP),
+                              "--units", str(fb.UNITS), "--port-src", str(fb.PORT_SRC), "--out", "gen",
+                              "--list-outputs"], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(run.stdout.split(), ["dataimage.c", "dataimage_types.c", "nucore/fixcore.data.inc",
+                                              "game/fixgame.data.inc", "game/fixdata.data.inc"])
+
+    def test_data_toml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.toml"
+            path.write_text('schema = 1\n[owned]\n"a" = 1\n[other]\n')
+            _data, errors = gen_dataimage.load_data_toml(path)
+        self.assertEqual(errors, ["data.toml: unknown tables ['other']",
+                                  "data.toml: owned.a: the value is the reason, a string"])
+
+
+@unittest.skipIf(typedb.cindex is None, "no libclang (tools/requirements.txt)")
+class Fixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.db = fb.fixture_db()
+        cls.ann, errors = gen_converters.load_annotations(fb.FIXTURE / "port" / "convert.toml")
+        assert errors == [], errors
+        cls.data, errors = gen_dataimage.load_data_toml(fb.FIXTURE / "port" / "data.toml")
+        assert errors == [], errors
+
+    def generate(self, decomp=fb.DECOMP, data=None):
+        model = nwunits.load(decomp, fb.UNITS, fb.PORT_SRC)
+        self.assertEqual(model.errors, [])
+        return gen_dataimage.generate(model, decomp, self.db, self.ann, data or self.data)
+
+    def test_roots(self):
+        image, outputs = self.generate()
+        self.assertEqual(image.errors, [])
+        roots = {r.name: (r.kind, r.ps2_size, r.nwtype or None,
+                          f"{r.container.name}+{r.host_off}" if r.container else None)
+                 for r in image.roots.values()}
+        self.assertEqual(roots, {
+            "fixnames": ("convert", 8, "nw_rt_p_s8", None),
+            "fixroot": ("convert", 40, "nw_type_fixnode_s", None),
+            "D_00100A04": ("alias", 0, None, "fixroot+8"),
+            "fixpairs": ("copy", 16, None, None),
+            "D_00100B00": ("mirror", 0, None, None),
+            "D_00100C08": ("alias", 0, None, "fixstatic+8"),
+        })
+        self.assertEqual(sorted((o.name, o.static, o.plain) for o in image.objs),
+                         [("fixstatic", True, True), ("fixtent", False, True)])
+
+        src, inc = outputs["dataimage.c"], outputs[str(Path("game/fixdata.data.inc"))]
+        for line in ['_Alignas(16) unsigned char fixroot[40];',
+                     '_Alignas(16) unsigned char fixpairs[16];',
+                     '        ".set " NW_SYM(D_00100A04) ", " NW_SYM(fixroot) "+8\\n");',
+                     '        ".set " NW_SYM(D_00100B00) ", " NW_SYM(nw_ps2_mirror) "+1280\\n");',
+                     '    { "fixnames", 0x00100900u, 8u, fixnames, 16u, &nw_rt_p_s8, 2u, NW_ROOT_CONVERT },',
+                     "#define NW_MIRROR_BASE 0x00100600u"]:
+            self.assertIn(line + "\n", src)
+        for line in ['    { "fixstatic", 0x00100c00u, 16u, (void *)&fixstatic, (unsigned int)sizeof fixstatic, 0, '
+                     '4u, NW_DATA_PLAIN },',
+                     '        ".set " NW_SYM(D_00100C08) ", " NW_SYM(fixstatic) "+8\\n");',
+                     '_Static_assert(sizeof(fixroot) == 40, "fixroot");',
+                     '_Static_assert(sizeof(D_00100B00[0]) == 1, "D_00100B00");']:
+            self.assertIn(line + "\n", inc)
+        self.assertNotIn("fixhidden", src + inc)        # only the overridden FixDataHidden used it
+        self.assertNotIn("fixowned", src)               # port/data.toml [owned]
+        self.assertIn('const NwDataUnit nw_data_unit_nucore_fixcore = { "nucore/fixcore", 0, 0u };',
+                      outputs[str(Path("nucore/fixcore.data.inc"))])
+
+    def broken(self, edits):
+        """Errors of the fixture with its sources edited: [(relative path, old, new)]."""
+        with tempfile.TemporaryDirectory() as tmp:
+            decomp = Path(tmp) / "decomp"
+            shutil.copytree(fb.DECOMP, decomp)
+            for rel, old, new in edits:
+                path = decomp / rel
+                text = path.read_text()
+                self.assertIn(old, text)
+                path.write_text(text.replace(old, new))
+            image, outputs = self.generate(decomp)
+            self.assertEqual(outputs, {})
+            return image.errors
+
+    def test_misaligned_complete_array(self):
+        # 16 bytes: clang assumes 16-byte alignment, which 0x00100B03 does not have in the mirror
+        with tempfile.TemporaryDirectory() as tmp:
+            decomp = Path(tmp) / "decomp"
+            shutil.copytree(fb.DECOMP, decomp)
+            path = decomp / "src" / "game" / "fixdata.c"
+            path.write_text(path.read_text()
+                            .replace("extern s32 fixowned;", "extern s32 fixowned;\nextern char D_00100B03[16];")
+                            .replace("    return D_00100B00[0]", "    return D_00100B03[0] + D_00100B00[0]"))
+            image, _outputs = self.generate(decomp)
+        self.assertEqual(image.errors, [])
+        root = image.roots["D_00100B03"]
+        self.assertEqual((root.kind, root.ps2_size, root.extent, root.need), ("copy", 16, "declared", 16))
+
+    def test_plain_and_pointer_declarations(self):
+        errors = self.broken([("src/game/fixgame.c", "void FixGameTick(struct fixobj_s *obj)\n{\n",
+                               "extern s32 fixnames[];\n\nvoid FixGameTick(struct fixobj_s *obj)\n"
+                               "{\n    obj->hp = fixnames[0];\n")])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("fixnames: declared as plain data at src/game/fixgame.c:", errors[0])
+
+    def test_unknown_address_and_stale_owned(self):
+        data = {"owned": {**self.data["owned"], "fixghost": "gone"}, "conflicts": {}}
+        model = nwunits.load(fb.DECOMP, fb.UNITS, fb.PORT_SRC)
+        image, _outputs = gen_dataimage.generate(model, fb.DECOMP, self.db, self.ann, data)
+        self.assertEqual(image.errors, ["data.toml: owned.fixghost is no root (nothing references it, or the "
+                                        "decomp defines it)"])
+        errors = self.broken([("src/game/fixdata.c", "extern s32 fixowned;",
+                               "extern s32 fixowned;\nextern s32 fixnowhere;"),
+                              ("src/game/fixdata.c", "    return D_00100B00[0]",
+                               "    return fixnowhere + D_00100B00[0]")])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("fixnowhere has no retail address", errors[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

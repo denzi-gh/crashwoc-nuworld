@@ -1,0 +1,111 @@
+{
+ "source": "synthetic",
+ "elf_header": {},
+ "gp_value": "0x00000000",
+ "program_headers": [
+  {
+   "index": 0,
+   "type": "0x00000001",
+   "offset": "0x00000100",
+   "vaddr": "0x00100000",
+   "paddr": "0x00100000",
+   "filesz": "0x00001100",
+   "memsz": "0x00001300",
+   "flags": "0x7",
+   "align": "0x00000100"
+  }
+ ],
+ "sections": [
+  {
+   "index": 0,
+   "name": "",
+   "type": "0x00000000",
+   "flags": "0x00000000",
+   "addr": "0x00000000",
+   "offset": "0x00000000",
+   "size": "0x00000000",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 1,
+   "name": ".text",
+   "type": "0x00000001",
+   "flags": "0x00000006",
+   "addr": "0x00100000",
+   "offset": "0x00000100",
+   "size": "0x00000600",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 2,
+   "name": ".vutext",
+   "type": "0x00000001",
+   "flags": "0x00000006",
+   "addr": "0x00100600",
+   "offset": "0x00000700",
+   "size": "0x00000100",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 3,
+   "name": ".data",
+   "type": "0x00000001",
+   "flags": "0x00000003",
+   "addr": "0x00100800",
+   "offset": "0x00000900",
+   "size": "0x00000800",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 4,
+   "name": ".sdata",
+   "type": "0x00000001",
+   "flags": "0x10000003",
+   "addr": "0x00101000",
+   "offset": "0x00001100",
+   "size": "0x00000100",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 5,
+   "name": ".sbss",
+   "type": "0x00000008",
+   "flags": "0x10000003",
+   "addr": "0x00101100",
+   "offset": "0x00001200",
+   "size": "0x00000010",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  },
+  {
+   "index": 6,
+   "name": ".bss",
+   "type": "0x00000008",
+   "flags": "0x00000003",
+   "addr": "0x00101200",
+   "offset": "0x00001200",
+   "size": "0x00000100",
+   "link": 0,
+   "info": 0,
+   "addralign": "0x4",
+   "entsize": "0x0"
+  }
+ ]
+}

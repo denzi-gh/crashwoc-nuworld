@@ -1,0 +1,6 @@
+FixAdd = 0x00100100; // type:func
+fixnames = 0x00100900;
+fixroot = 0x00100a00;
+fixpairs = 0x00100a48;
+fixowned = 0x00101000;
+fixtent = 0x00101100;
