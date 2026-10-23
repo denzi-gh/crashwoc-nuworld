@@ -2,7 +2,10 @@
    is done at once (both loops spin until a non-zero return), and the RPC runs src/audio/nusound.c on the
    calling thread. */
 #include "audio/nusound.h"
+#include "port/game.h"
 #include "shim/shim.h"
+
+#define NW_SIF_RPC_US 100 /* the EE's time for one call, the order of a SIF round trip */
 
 /* sceSifClientData as decomp nusound.c declares it. */
 typedef struct NwSifClient {
@@ -55,7 +58,7 @@ int sceSifBindRpc(void *client, unsigned int rpc_number, unsigned int mode)
     return 0;
 }
 
-/* Done when it returns. In mode 0 the EE waits for the reply, a yield point. */
+/* Done when it returns, after its time on the EE. In mode 0 the EE waits for the reply, a yield point. */
 int sceSifCallRpc(void *client, unsigned int fno, unsigned int mode, void *send, int ssize, void *receive,
                   int rsize, void *end_func, void *end_para)
 {
@@ -64,6 +67,7 @@ int sceSifCallRpc(void *client, unsigned int fno, unsigned int mode, void *send,
     if (c->serve != &nw_sif_nusound) {
         return -1;
     }
+    nw_game_spend_us(NW_SIF_RPC_US);
     nw_nusound_rpc(fno, send, ssize > 0 ? (size_t)ssize : 0, receive, rsize > 0 ? (size_t)rsize : 0);
     if (mode == 0) {
         nw_ee_yield();

@@ -1,7 +1,8 @@
 /* The NUSOUND.IRX port (src/audio/nusound.c) behind the SIF shim, driven by the decomp's own nusound.c, on a
-   synthetic SFX.DAT and a clock the test sets. Usage: test_nusound <scratch dir>.
+   synthetic SFX.DAT and the game's clock, stepped: a vblank is sceGsSyncV, nw_game_spend_us the EE's time between
+   them, and every SIF call spends its own. Usage: test_nusound <scratch dir>.
    Local only, with your own disc: `test_nusound retail` runs InitGlobalSfx on the data image and SFX.DAT of the
-   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and starts the logos' audio stream;
+   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and plays the logos' audio stream;
    exits 77 without it. */
 #include <stdbool.h>
 #include <stdint.h>
@@ -64,25 +65,16 @@ void NuPs2InitIOP(void);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
+int sceGsSyncV(int mode);
 extern int nusound_irx_loaded;
 extern volatile int sbuff2[128];
 
 static int failures;
 static NwVfs vfs; /* the scratch disc with SFX.DAT */
-static uint64_t test_us;
-static bool test_auto; /* each RPC moves the clock on, for the EE's busy loops */
 #define BIG_BLOCKS 4096
 static uint8_t a_vag[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl_vag[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
 static uint8_t big_blocks[BIG_BLOCKS * NW_ADPCM_BLOCK], big_vag[NW_VAG_HEADER + sizeof(big_blocks)];
 static size_t a_size, bl_size, big_size; /* sfx\generic\a.vag, sfx\music\bl.vag, sfx\music\big.vag */
-
-static uint64_t test_clock(void)
-{
-    if (test_auto) {
-        test_us += 2000;
-    }
-    return test_us;
-}
 
 #define CHECK(cond) \
     do { \
@@ -316,8 +308,7 @@ static void test_init_stream_data(void)
         { "", 0, 0, 0 },
     };
 
-    nw_nusound_init(&vfs, test_clock);
-    test_us = 1000000;
+    nw_nusound_init(&vfs, nw_game_us);
     send_string(0x1e, "SFX.DAT");
     send_string(7, "cdrom0:\\");
     SOUND_AddSamples(info);
@@ -334,15 +325,15 @@ static void test_init_stream_data(void)
 
     /* The stream thread ticks at 60 Hz from the call on, caught up at the next one. */
     int direction = irx->Direction;
-    test_us += 3 * 16666;
+    nw_game_spend_us(3 * 16666);
     status(ret);
     CHECK(irx->Direction == (direction ^ 1));
-    test_us += 16666;
+    nw_game_spend_us(16666);
     status(ret);
     CHECK(irx->Direction == direction);
 
     /* Without the DAT nothing is found. */
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     send_string(0x1e, "NONE.DAT");
     send_string(7, "cdrom0:\\");
     SOUND_AddSamples(info);
@@ -354,8 +345,7 @@ static void test_init_stream_data(void)
 /* What init_adpcm sends, on the cdrom0: path, with info as the sample table. */
 static void boot_module(struct nusound_filename_info_s *info)
 {
-    nw_nusound_init(&vfs, test_clock);
-    test_us = 0;
+    nw_nusound_init(&vfs, nw_game_us);
     send_string(0x1e, "SFX.DAT");
     send_string(7, "cdrom0:\\");
     SOUND_AddSamples(info);
@@ -389,7 +379,7 @@ static void test_transfer_sfx(void)
     status(ret);
     CHECK(irx->ResStatus == 0 && ret[26] == 1);
     for (int tick = 1; tick <= 3; tick++) {
-        test_us += 16666;
+        nw_game_spend_us(16666);
         status(ret);
         CHECK(ret[26] == (tick < 3));
     }
@@ -398,9 +388,7 @@ static void test_transfer_sfx(void)
 
     /* The game's loop: loaded, missing (2), loaded again after the first with its header's size, then the end. */
     boot_module(bank);
-    test_auto = true;
     TransferAllSpotFX(0);
-    test_auto = false;
     CHECK(irx->ResStatus == 1 && irx->CD_SPOT_TRANS == 0);
     CHECK(irx->ADPCM_SpotFX[0].ID == 0x1000 && irx->ADPCM_SpotFX[0].SPUAddress == 0x48310);
     CHECK(irx->ADPCM_SpotFX[2].ID == 0x1002 && irx->ADPCM_SpotFX[2].SPUAddress == 0x48310 + a_size);
@@ -410,7 +398,7 @@ static void test_transfer_sfx(void)
     CHECK(irx->StreamBuffer[4].Status == 0);
 
     /* Without files the IRX answers 1 at once. */
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     SOUND_TransferSFX(0x1000, 0);
     FlushIOPCommand(0);
     status(ret);
@@ -426,7 +414,6 @@ static void test_local_bank(void)
     struct nusound_filename_info_s level2[] = { { "SFX\\MUSIC\\BL.VAG", 22050, 1, 0x1004 }, { "", 0, 0, 0 } };
 
     boot_module(bank);
-    test_auto = true;
     TransferAllSpotFX(0);
     SOUND_StoreLocalStart();
     uint32_t global_end = 0x48310 + 2 * (uint32_t)a_size;
@@ -439,7 +426,6 @@ static void test_local_bank(void)
 
     /* The next level's samples take the same place. */
     NuSoundLocalSet(level2, 1, 4);
-    test_auto = false;
     CHECK(irx->fileinfo_cnt == 5 && irx->ADPCM_FileInfo[4].size == bl_size);
     CHECK(irx->StreamMemoryEnd == global_end + bl_size && irx->ADPCM_SpotFX[4].SPUAddress == global_end);
     CHECK(memcmp(ram + global_end, bl_vag + NW_VAG_HEADER, bl_size - NW_VAG_HEADER) == 0);
@@ -450,9 +436,7 @@ static void test_local_bank(void)
 static void boot_bank(void)
 {
     boot_module(bank);
-    test_auto = true;
     TransferAllSpotFX(0);
-    test_auto = false;
 }
 
 /* Status as the EE sees it after its next flush. */
@@ -477,32 +461,33 @@ static void test_play_sfx(void)
     CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_SSA) == 0x48310 + a_size);
     CHECK(nw_spu2_get_addr(1 | 6 << 1 | NW_SD_VA_SSA) == 0x48310);
 
-    /* 24 samples on both play; at pitch 0x1000 NAX is 11 words in (7 data words, the next header, 3 more). */
-    test_us += 500;
+    /* 0.6 ms on (the wait and the call), both play, the one at pitch 0x1000 in the second block. */
+    nw_game_spend_us(500);
     ee_status();
     CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(30) == 1 && NuSoundKeyStatus(8) == 0);
-    CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_NAX) == 0x48310 + a_size + 22);
+    uint32_t nax = nw_spu2_get_addr(7 << 1 | NW_SD_VA_NAX) - (0x48310 + (uint32_t)a_size);
+    CHECK(nax > NW_ADPCM_BLOCK && nax < 2 * NW_ADPCM_BLOCK);
 
-    /* The END block ends a.vag at sample 41 at pitch 0x1000, at 81 at 0x800. The key status drops, and with it the
-       channel is free for find_free_channel again. */
-    test_us += 500;
+    /* The END block ends a.vag at sample 41 (0.85 ms) at pitch 0x1000, at 81 (1.7 ms) at 0x800. The key status
+       drops, and with it the channel is free for find_free_channel again. */
+    nw_game_spend_us(500);
     ee_status();
     CHECK(NuSoundKeyStatus(7) == 0 && NuSoundKeyStatus(30) == 1);
-    test_us += 1000;
+    nw_game_spend_us(1000);
     ee_status();
     CHECK(NuSoundKeyStatus(30) == 0);
 
     /* An ID without a sample still keys on, from -1: the last block of sound RAM, on into the empty start. */
     SOUND_PlaySFX(0x1100, 9, 0x3fff, 0x3fff, 0x1000, 0, 0);
     FlushIOPCommand(0);
-    test_us += 500;
+    nw_game_spend_us(500);
     ee_status();
     CHECK(NuSoundKeyStatus(9) == 1 && nw_spu2_get_addr(9 << 1 | NW_SD_VA_SSA) == 0x1ffff0);
 }
 
 static void test_channel_volume(void)
 {
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     SOUND_SetChannelVolume(5, 0x1234, 0x0567);
     SOUND_SetChannelVolume(40, 0x7fff, 0); /* core 1 voice 16 */
     FlushIOPCommand(0);
@@ -513,7 +498,7 @@ static void test_channel_volume(void)
 
 static void test_channel_pitch(void)
 {
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     SOUND_SetChannelPitch(5, 0x0759);
     SOUND_SetChannelPitch(47, 0x3fff); /* core 1 voice 23 */
     FlushIOPCommand(0);
@@ -533,7 +518,7 @@ static void test_stop_sound(void)
     SOUND_PlaySFX(0x1000, 7, 0x3fff, 0x3fff, 0x1000, 0, 0);
     SOUND_PlaySFX(0x1000, 31, 0x3fff, 0x3fff, 0x1000, 0, 0);
     FlushIOPCommand(0);
-    test_us += 500;
+    nw_game_spend_us(500);
     ee_status();
     CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(31) == 1);
     /* The IRX waits after KOFF and after the release: the voice is silent by the reply of the same batch. */
@@ -554,7 +539,7 @@ static struct nusound_filename_info_s streams[] = {
 /* A game frame: a vblank of time, then NuSoundUpdate, which answers the module's load request. */
 static void frame(void)
 {
-    test_us += 20000;
+    sceGsSyncV(0);
     NuSoundUpdate();
 }
 
@@ -576,7 +561,7 @@ static void test_play_stream(void)
         frame();
         starting |= NuSoundKeyStatus(4) == 2;
     }
-    CHECK(NuSoundKeyStatus(4) == 0 && starting && frames == 8);
+    CHECK(NuSoundKeyStatus(4) == 0 && starting && frames == 11);
     CHECK(s->iStatus == 0 && s->PlayingHalf == 3 && s->LoopInfo == 2);
     CHECK(s->ID == 2 && s->Channel == 4 && s->Pitch == 0x759 && s->SPUAddress == spu);
     CHECK(nw_spu2_get_addr(4 << 1 | NW_SD_VA_SSA) == spu && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0x759);
@@ -617,7 +602,7 @@ static void test_play_stream(void)
     for (; frames < 300 && NuSoundKeyStatus(0) == 1; frames++) {
         frame();
     }
-    CHECK(frames == 142 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
+    CHECK(frames == 141 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
     nusound_irx_loaded = 0;
@@ -650,7 +635,8 @@ static void test_stream_ring(void)
     nusound_irx_loaded = 0;
 }
 
-/* NuSoundPlayStereo's way: both halves at pitch 0 on channels 0 and 1, then the pitch once both stream. */
+/* NuSoundPlayStereo's way: both halves at pitch 0 on channels 0 and 1, the first keyed on waits there, then the
+   pitch once both stream. */
 static void test_stereo(void)
 {
     const NwIrx *irx = nw_nusound_irx();
@@ -664,7 +650,8 @@ static void test_stereo(void)
     SOUND_CheckAndStartStereo(0, 1, 0xeb3);
     do {
         frame();
-        waiting |= irx->ret[28] == 1 && NuSoundKeyStatus(0) == 1 && nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0;
+        waiting |= irx->ret[28] == 1 && (NuSoundKeyStatus(0) == 1 || NuSoundKeyStatus(1) == 1) &&
+                   nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0 && nw_spu2_get_param(1 << 1 | NW_SD_VP_PITCH) == 0;
     } while (++frames < 50 && irx->ret[28] != 0);
     CHECK(waiting && irx->StereoStarted == 0);
     CHECK(nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0xeb3 && nw_spu2_get_param(1 << 1 | NW_SD_VP_PITCH) == 0xeb3);
@@ -684,7 +671,7 @@ static void test_reverb(void)
 {
     const NwIrx *irx = nw_nusound_irx();
 
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     SOUND_EnableEffects(0, 6, 0x3fff, 0x2000, 0, 0);
     SOUND_SetEffectMasterVolume(0, 0x1000, 0x0800);
     SOUND_EnableEffects(1, 3, -0x1000, 0x1000, 0x40, 0x50); /* below core 0's work area */
@@ -729,11 +716,7 @@ static void test_kill_all(void)
         frame();
     }
     CHECK(NuSoundKeyStatus(4) == 1 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) != 0);
-    CHECK(nw_game_init(NW_CLOCK_STEPPED, 50));
-    test_auto = true;
     NuSoundKillAllAudio();
-    test_auto = false;
-    nw_game_shutdown();
     CHECK(irx->StreamShutDown == 0 && irx->StreamBuffer[4].Status == 0 && irx->StreamBuffer[4].iStatus == 3);
     CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) == 0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0);
     ee_status();
@@ -743,7 +726,7 @@ static void test_kill_all(void)
 
 static void test_pause(void)
 {
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     SOUND_SetChannelPitch(3, 0x1000);
     SOUND_SetChannelPitch(45, 0x0800); /* core 1 voice 21 */
     SOUND_Pause();
@@ -783,7 +766,7 @@ static void test_stop_stream(void)
         if (NuSoundKeyStatus(4) != 1) {
             break;
         }
-        test_us += 20000;
+        sceGsSyncV(0);
     }
     CHECK(frames == 2 && NuSoundKeyStatus(0) == 1);
     CHECK(irx->StreamBuffer[4].Status == 0 && irx->StreamBuffer[4].iStatus == 3);
@@ -794,12 +777,12 @@ static void test_stop_stream(void)
     SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
     FlushIOPCommand(0);
     for (frames = 0; frames < 50 && irx->IOPRequestLoad != 4; frames++) {
-        test_us += 16666;
+        nw_game_spend_us(16666);
         status(NULL);
     }
     NuSoundStopStream(4);
     FlushIOPCommand(0);
-    test_us += 16666;
+    nw_game_spend_us(16666);
     status(NULL);
     CHECK(irx->StreamBuffer[0].Status == 0 && irx->IOPRequestLoad == -1 && irx->LoadFromEE == 0xffff);
     nusound_irx_loaded = 0;
@@ -871,12 +854,10 @@ static int test_retail(void)
 
     /* The game's first load: the global table, its DAT, every resident sample into SPU RAM. */
     const NwIrx *irx = nw_nusound_irx();
-    nw_nusound_init(&vfs, test_clock);
+    nw_nusound_init(&vfs, nw_game_us);
     NuFileInitEx(1, 0);
     NuPs2InitIOP();
-    test_auto = true;
     InitGlobalSfx();
-    test_auto = false;
     CHECK(irx->global_dat && irx->fileinfo_cnt == 0xc5 && irx->GlobalSfxfileinfo_cnt == 0xc5 && irx->ResStatus == 1);
     uint32_t addr = 0x48310;
     int slot = 0;
@@ -922,6 +903,10 @@ static int test_retail(void)
 
 int main(int argc, char *argv[])
 {
+    if (!nw_game_init(NW_CLOCK_STEPPED, 50)) {
+        fprintf(stderr, "no game clock: %s\n", SDL_GetError());
+        return 1;
+    }
     if (argc == 2 && strcmp(argv[1], "retail") == 0) {
         return test_retail();
     }
@@ -957,6 +942,7 @@ int main(int argc, char *argv[])
     test_reverb();
     test_kill_all();
     nw_nusound_init(NULL, NULL);
+    nw_game_shutdown();
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
     if (failures) {

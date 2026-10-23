@@ -112,6 +112,11 @@ uint64_t nw_clock_wait(NwClock *c, uint64_t seen, int32_t timeout_ms)
     if (c->mode == NW_CLOCK_STEPPED && nw_clock_edges(c) <= seen) {
         nw_clock_step(c, 1);
     }
+    return nw_clock_watch(c, seen, timeout_ms);
+}
+
+uint64_t nw_clock_watch(NwClock *c, uint64_t seen, int32_t timeout_ms)
+{
     SDL_LockMutex(c->lock);
     uint64_t wakes = c->wakes, start = SDL_GetTicks();
     while (c->edges <= seen && c->wakes == wakes) {

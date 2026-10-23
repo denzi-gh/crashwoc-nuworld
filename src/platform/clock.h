@@ -53,6 +53,8 @@ void nw_clock_step(NwClock *c, unsigned n);
 /* Blocks until the clock has emitted more than `seen` edges, `timeout_ms` passes (-1: never) or nw_clock_wake;
    returns the edge count. Stepped, it emits the edge itself. */
 uint64_t nw_clock_wait(NwClock *c, uint64_t seen, int32_t timeout_ms);
+/* nw_clock_wait that never steps: a stepped clock moves only for the thread that runs on it. */
+uint64_t nw_clock_watch(NwClock *c, uint64_t seen, int32_t timeout_ms);
 /* Wakes every waiter (they return with the count as it is). */
 void nw_clock_wake(NwClock *c);
 

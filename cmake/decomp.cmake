@@ -134,7 +134,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
-  src/port/ps2video.c src/port/scene.c
+  src/port/ps2video.c src/port/scene.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
@@ -169,13 +169,18 @@ if(NUWORLD_TESTS)
   # Local only: the game from the imported disc until it leaves its first load screen (BGLoadSfx's loader ends).
   add_test(NAME boot-check
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
-      --data-dir {root} --boot-check --loads 1)
+      --data-dir {root} --stepped --boot-check --loads 1)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: on until the title cut movie has loaded (BGLoadCutScene's loader ends).
   add_test(NAME boot-cut
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
-      --data-dir {root} --boot-check --loads 2)
+      --data-dir {root} --stepped --boot-check --loads 2)
   set_tests_properties(boot-cut PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: the title cut's sound trace on the stepped clock is the same on every run.
+  add_test(NAME boot-cut-trace
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/cut_trace.py $<TARGET_FILE:crashwoc-nuworld> {root})
+  set_tests_properties(boot-cut-trace PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>

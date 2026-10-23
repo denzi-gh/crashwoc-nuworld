@@ -81,6 +81,8 @@ static void test_stepped(void)
     CHECK(nw_clock_wait(&c, 3, -1) == 4);
     CHECK(nw_clock_wait(&c, 1, -1) == 4);
     CHECK(edge_total == 4);
+    /* A watch never emits one. */
+    CHECK(nw_clock_watch(&c, 4, 0) == 4 && edge_total == 4);
     nw_clock_stop(&c);
 }
 
@@ -219,6 +221,22 @@ static void test_semaphores(void)
     CHECK(sceGsSyncV(0) == !field);
 }
 
+/* EE time between vblanks moves the game's time on; past the next vblank the stepped clock emits it on the spending
+   thread, and a wait starts the time again at its edge. The EE timers count the same time. */
+static void test_spend(void)
+{
+    uint64_t edges = nw_game_edges(), us = nw_game_us();
+    CHECK(us == edges * 20000);
+    nw_game_spend_us(15000);
+    CHECK(nw_game_edges() == edges && nw_game_us() == us + 15000);
+    nw_game_spend_us(15000);
+    CHECK(nw_game_edges() == edges + 1 && nw_game_us() == us + 30000);
+    CHECK(nw_game_time_ns() == nw_game_us() * 1000);
+    sceGsSyncV(0);
+    CHECK(nw_game_edges() == edges + 2 && nw_game_us() == (edges + 2) * 20000);
+    CHECK(nw_game_watch_edge(edges + 2, 0) == edges + 2);
+}
+
 static int spin_entry(int argc, char **argv)
 {
     (void)argc, (void)argv;
@@ -237,6 +255,7 @@ int main(void)
     CHECK(nw_game_state() == NW_GAME_IDLE);
     test_vblank();
     test_semaphores();
+    test_spend();
     nw_game_shutdown();
 
     /* A real game thread parks at its next yield point when asked. */
