@@ -84,6 +84,7 @@ typedef struct NwIrx {
     NwIrxFilename ADPCM_FileNames[NW_IRX_FILES];
     int fileinfo_cnt;
     unsigned UserMaxStreams;
+    uint32_t StreamMemoryEnd; /* SPU RAM: where the next resident sample goes */
     int32_t ret[NW_NUSOUND_REPLY / 4];
 } NwIrx;
 

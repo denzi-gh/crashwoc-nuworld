@@ -19,6 +19,7 @@ void SOUND_CopyIOPBuffer(void);
 void SOUND_GetStatus(int request);
 void SOUND_AddSamples(struct nusound_filename_info_s *sfx_info);
 void SOUND_SetMaxStreamLimit(int limit);
+void SOUND_SetSPUWriteAddress(unsigned int address);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -196,6 +197,14 @@ static void test_max_streams(void)
     CHECK(nw_nusound_irx()->UserMaxStreams == 5);
 }
 
+static void test_write_address(void)
+{
+    nw_nusound_init();
+    SOUND_SetSPUWriteAddress(0x48310);
+    FlushIOPCommand(0);
+    CHECK(nw_nusound_irx()->StreamMemoryEnd == 0x48310);
+}
+
 int main(void)
 {
     test_transport();
@@ -205,6 +214,7 @@ int main(void)
     test_dat_path();
     test_sample_info();
     test_max_streams();
+    test_write_address();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

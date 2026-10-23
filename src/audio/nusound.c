@@ -158,6 +158,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
                 irx.UserMaxStreams = dt[0];
             }
             break;
+        case 0xe:
+            irx.StreamMemoryEnd = (uint32_t)dt[0] << 16 | dt[1];
+            break;
         default: /* 8, >= 0x22: no handler */
             break;
         }
