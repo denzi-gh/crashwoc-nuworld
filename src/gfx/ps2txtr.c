@@ -41,6 +41,14 @@ const NwGpuTex *nw_rndr_texture(int tid)
     return tid > 0 && tid <= NW_TEX_SLOTS ? nw_ps2tx[tid - 1] : NULL;
 }
 
+void nw_rndr_texture_free(int tid)
+{
+    if (tid > 0 && tid <= NW_TEX_SLOTS && nw_ps2tx[tid - 1]) {
+        nw_gpu_queue(NW_GPU_FREE_TEX, nw_ps2tx[tid - 1]);
+        nw_ps2tx[tid - 1] = NULL;
+    }
+}
+
 int Ps2TxValToPowerOfTwo(int value)
 {
     int shift = 0, orig = value;

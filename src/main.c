@@ -14,6 +14,7 @@
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
+#include "frontend/debug.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -402,6 +403,35 @@ static int nw_boot_check(const char *data_dir, int vblanks)
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
+static bool nw_window_open(NwPlatform *p, const char *data_dir)
+{
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_platform_init(p, NW_APP_NAME, 1280, 720)) {
+        SDL_free(root);
+        return false;
+    }
+    bool ok = nw_backend_init();
+    if (ok) {
+        ok = nw_debug_init(p, root);
+        if (!ok) {
+            nw_backend_shutdown();
+        }
+    }
+    SDL_free(root);
+    if (!ok) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
+        nw_platform_shutdown(p);
+    }
+    return ok;
+}
+
+static void nw_window_close(NwPlatform *p)
+{
+    nw_debug_shutdown();
+    nw_backend_shutdown();
+    nw_platform_shutdown(p);
+}
+
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
 static int nw_boot(const char *data_dir)
@@ -411,19 +441,13 @@ static int nw_boot(const char *data_dir)
         return code;
     }
     NwPlatform platform;
-    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
-        return 1;
-    }
-    if (!nw_backend_init()) {
-        fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
-        nw_platform_shutdown(&platform);
+    if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
-        nw_backend_shutdown();
-        nw_platform_shutdown(&platform);
+        nw_window_close(&platform);
         return 1;
     }
     uint64_t titled = 0;
@@ -431,7 +455,7 @@ static int nw_boot(const char *data_dir)
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
+            if (!nw_debug_event(&event) && event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
         }
@@ -447,6 +471,7 @@ static int nw_boot(const char *data_dir)
         int width, height;
         SDL_GetWindowSizeInPixels(platform.window, &width, &height);
         nw_backend_frame(width, height);
+        nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
     }
     bool parked = nw_game_parked();
@@ -456,14 +481,12 @@ static int nw_boot(const char *data_dir)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
-    nw_backend_shutdown();
-    nw_platform_shutdown(&platform);
+    nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
-/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. The game thread
-   opens it by the same path with backslashes, written to cdpath. */
-static const NwManifestEntry *nw_scene_entry(const char *path, char *cdpath, size_t size)
+/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
+static const NwManifestEntry *nw_scene_entry(const char *path)
 {
     char name[NW_VFS_PATH_MAX];
     SDL_strlcpy(name, path, sizeof(name));
@@ -475,36 +498,33 @@ static const NwManifestEntry *nw_scene_entry(const char *path, char *cdpath, siz
         fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
         return NULL;
     }
-    SDL_strlcpy(cdpath, e->path, size);
-    for (char *c = cdpath; *c; c++) {
-        *c = *c == '/' ? '\\' : *c;
-    }
     return e;
 }
 
 /* The scene viewer: the decomp loads and draws the scene on the game thread (stubs logged and passed), the window
    shows its frames under a fly camera; at the end it prints the stub hits (stdout). Returns the exit code: 2 without
-   the disc or the scene. */
+   the disc or the scene. An empty path starts on the scene list. */
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
-    static char cdpath[NW_VFS_PATH_MAX];
-    static char *argv[] = { nw_game_arg0, cdpath, NULL };
-    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
-    int code = e ? nw_boot_prepare(data_dir) : 2;
+    const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
+    int code = e || !*path ? nw_boot_prepare(data_dir) : 2;
     if (code) {
         return code;
     }
+    if (e) {
+        nw_scene_load(e->path);
+    }
     NwPlatform platform;
-    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+    if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
     nw_stub_set_continue(true);
-    if (!nw_game_start(nw_scene_main, 2, argv)) {
+    if (!nw_game_start(nw_scene_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
-        nw_platform_shutdown(&platform);
+        nw_window_close(&platform);
         return 1;
     }
-    code = nw_view_scene(&platform, e->path, max_frames);
+    code = nw_view_scene(&platform, e ? e->path : NULL, max_frames);
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();
     fflush(stderr);
@@ -512,7 +532,7 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
-    nw_platform_shutdown(&platform);
+    nw_window_close(&platform);
     return nw_boot_exit(code, parked);
 }
 
@@ -568,18 +588,17 @@ static int nw_scene_check_all(const char *exe, const char *data_dir)
    stub hits (stdout). Returns 0 when the packet holds draws, 1 when not or on a fatal error, 2 without the disc. */
 static int nw_scene_check(const char *exe, const char *data_dir, const char *path)
 {
-    static char cdpath[NW_VFS_PATH_MAX];
-    static char *argv[] = { nw_game_arg0, cdpath, NULL };
     if (strcmp(path, "all") == 0) {
         return nw_scene_check_all(exe, data_dir);
     }
-    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
+    const NwManifestEntry *e = nw_scene_entry(path);
     int code = e ? nw_boot_prepare(data_dir) : 2;
     if (code) {
         return code;
     }
+    nw_scene_load(e->path);
     nw_stub_set_continue(true);
-    if (!nw_game_start(nw_scene_main, 2, argv)) {
+    if (!nw_game_start(nw_scene_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
         return 1;
     }
@@ -619,7 +638,7 @@ int main(int argc, char *argv[])
             return 0;
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
-             strcmp(argv[i], "--scene") == 0 || strcmp(argv[i], "--scene-check") == 0) &&
+             strcmp(argv[i], "--scene-check") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -639,7 +658,7 @@ int main(int argc, char *argv[])
         } else if (strcmp(argv[i], "--check-scenes") == 0) {
             check_scenes = true;
         } else if (strcmp(argv[i], "--scene") == 0) {
-            scene = argv[++i];
+            scene = i + 1 < argc && argv[i + 1][0] != '-' ? argv[++i] : "";
         } else if (strcmp(argv[i], "--scene-check") == 0) {
             scene_check = argv[++i];
         } else if (strcmp(argv[i], "--boot") == 0) {

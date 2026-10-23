@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/packet.h"
+#include "gfx/rndr.h"
 #include "nw_convert.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
@@ -154,6 +155,15 @@ void nw_gscn_free_meshes(void)
     SDL_free(nw_gscn_gpu);
     nw_gscn_gpu = NULL;
     nw_gscn_ngpu = nw_gscn_gpucap = 0;
+}
+
+void nw_gscn_remove(struct nugscn_s *scene)
+{
+    NuGScnRemove(scene);
+    for (int i = 0; i < scene->numtid; i++) {
+        nw_rndr_texture_free(scene->tids[i]);
+    }
+    nw_gscn_free_meshes();
 }
 
 struct nugscn_s *NuGScnLoadFix(void);
