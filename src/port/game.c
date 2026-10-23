@@ -130,10 +130,15 @@ uint64_t nw_game_swaps(void)
     return (uint32_t)SDL_GetAtomicInt(&nw_game.swaps);
 }
 
-NwGameState nw_game_stop(uint32_t timeout_ms)
+void nw_game_request_stop(void)
 {
     SDL_SetAtomicInt(&nw_game.stop, 1);
     nw_clock_wake(&nw_game.clock);
+}
+
+NwGameState nw_game_stop(uint32_t timeout_ms)
+{
+    nw_game_request_stop();
     SDL_LockMutex(nw_game.lock);
     uint64_t start = SDL_GetTicks();
     while (nw_game.state == NW_GAME_RUNNING) {

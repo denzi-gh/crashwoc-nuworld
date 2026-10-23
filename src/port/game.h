@@ -37,6 +37,8 @@ uint64_t nw_game_edges(void);
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms);
 /* Frames the game has swapped. */
 uint64_t nw_game_swaps(void);
+/* Asks the running EE thread to park at its next yield point, without waiting. */
+void nw_game_request_stop(void);
 /* Asks the running EE thread to park at its next yield point; waits up to timeout_ms for it to stop for any reason. */
 NwGameState nw_game_stop(uint32_t timeout_ms);
 /* The message of NW_GAME_FATAL. */

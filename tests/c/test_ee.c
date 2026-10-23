@@ -268,7 +268,9 @@ static void test_states(void)
     CHECK(nw_ee_ResumeThread(id) == id);
     CHECK(nw_ee_DeleteThread(id) == -414);
     CHECK(nw_ee_TerminateThread(1) == -406);
+    unsigned terminated = nw_ee_terminated(NULL, 0);
     CHECK(nw_ee_TerminateThread(id) == id);
+    CHECK(nw_ee_terminated(NULL, 0) == terminated + 1);
     CHECK(nw_ee_TerminateThread(id) == -413);
     CHECK(nw_ee_DeleteThread(id) == id);
     CHECK(nw_ee_DeleteThread(id) == -407);

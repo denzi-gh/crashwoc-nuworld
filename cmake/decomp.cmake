@@ -164,10 +164,10 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-data)
   set_tests_properties(data-image-retail PROPERTIES SKIP_RETURN_CODE 77)
-  # Local only: the game from the imported disc to 50 vblanks after its first screen swap.
+  # Local only: the game from the imported disc until it leaves its first load screen (BGLoadSfx's loader ends).
   add_test(NAME boot-check
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
-      --data-dir {root} --boot-check 50)
+      --data-dir {root} --boot-check --loads 1)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail

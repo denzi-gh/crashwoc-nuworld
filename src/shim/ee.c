@@ -22,6 +22,7 @@
 
 #define NW_EE_THREADS 4
 #define NW_EE_SEMAS 64
+#define NW_EE_ENDS 16 /* the terminations whose vblank is kept */
 
 /* struct ThreadParam of the EE kernel (game/bgload.c). */
 typedef struct NwThreadParam {
@@ -77,6 +78,9 @@ static struct {
     bool idling;  /* nobody is ready: the interrupts the idle loop delivers do not reschedule */
     SDL_Mutex *lock;
     SDL_Condition *cond;
+    SDL_AtomicInt terminated;
+    uint64_t terminated_at[NW_EE_ENDS];
+    unsigned park_after;
 } nw_ee = { .threads = { { .used = true, .status = NW_EE_READY, .prio = 1 } } };
 
 /* Ids are the index + 1: bgload takes 0 for "no semaphore". */
@@ -170,6 +174,20 @@ void nw_ee_yield(void)
 void nw_ee_idle(void)
 {
     nw_game_yield(true);
+}
+
+void nw_ee_park_after(unsigned n)
+{
+    nw_ee.park_after = n;
+}
+
+unsigned nw_ee_terminated(uint64_t *at, unsigned max)
+{
+    unsigned n = (unsigned)SDL_GetAtomicInt(&nw_ee.terminated);
+    for (unsigned i = 0; i < n && i < max && i < NW_EE_ENDS; i++) {
+        at[i] = nw_ee.terminated_at[i];
+    }
+    return n;
 }
 
 static int SDLCALL nw_ee_host_run(void *arg)
@@ -352,6 +370,14 @@ int nw_ee_TerminateThread(int thid)
     SDL_WaitThread(t->host, NULL);
     t->host = NULL;
     t->kill = false;
+    unsigned n = (unsigned)SDL_GetAtomicInt(&nw_ee.terminated);
+    if (n < NW_EE_ENDS) {
+        nw_ee.terminated_at[n] = nw_game_edges();
+    }
+    SDL_SetAtomicInt(&nw_ee.terminated, (int)n + 1);
+    if (n + 1 == nw_ee.park_after) {
+        nw_game_request_stop();
+    }
     return thid;
 }
 

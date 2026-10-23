@@ -357,15 +357,17 @@ static void nw_print_stub_hits(const char *mode, NwGameState state)
 }
 
 /* Headless: runs the game with every stub hit logged and passed until `vblanks` vblanks after its first screen
-   swap, then prints the stub hits in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a
-   fatal error, an early return or the watchdog, 2 without usable data. */
-static int nw_boot_check(const char *data_dir, int vblanks)
+   swap, or with `loads`, until the game parks itself after that many background loads; then prints the stub hits
+   in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
+   the watchdog, 2 without usable data. */
+static int nw_boot_check(const char *data_dir, int vblanks, int loads)
 {
     int code = nw_boot_prepare(data_dir);
     if (code) {
         return code;
     }
     nw_stub_set_continue(true);
+    nw_ee_park_after((unsigned)loads);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
         return 1;
@@ -379,12 +381,14 @@ static int nw_boot_check(const char *data_dir, int vblanks)
             swapped = true;
             first = edge;
         }
-        if (swapped && edge - first >= (uint64_t)vblanks) {
+        if (!loads && swapped && edge - first >= (uint64_t)vblanks) {
             break;
         }
         state = nw_game_state();
     }
-    bool reached = swapped && edge - first >= (uint64_t)vblanks;
+    uint64_t ended_at[8];
+    unsigned ended = nw_ee_terminated(ended_at, 8);
+    bool reached = loads ? swapped && ended >= (unsigned)loads : swapped && edge - first >= (uint64_t)vblanks;
     bool parked = nw_game_parked();
     state = nw_game_state();
     fflush(stderr);
@@ -393,6 +397,9 @@ static int nw_boot_check(const char *data_dir, int vblanks)
                (unsigned long long)nw_game_swaps(), (unsigned long long)edge);
     } else {
         printf("boot-check: no swap in %llu vblanks\n", (unsigned long long)edge);
+    }
+    for (unsigned i = 0; i < ended && i < 8; i++) {
+        printf("boot-check: load %u ended at vblank %llu\n", i + 1, (unsigned long long)ended_at[i]);
     }
     nw_print_stub_hits("boot-check", state);
     if (state == NW_GAME_FATAL) {
@@ -631,6 +638,7 @@ int main(int argc, char *argv[])
     const char *import = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
+    int boot_loads = 0; /* --loads: background loads instead of vblanks */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
@@ -669,6 +677,12 @@ int main(int argc, char *argv[])
                 fprintf(stderr, NW_APP_NAME ": --boot-check takes a positive number of vblanks\n");
                 return 2;
             }
+        } else if (strcmp(argv[i], "--loads") == 0) {
+            boot_loads = i + 1 < argc ? atoi(argv[++i]) : 0;
+            if (boot_loads <= 0) {
+                fprintf(stderr, NW_APP_NAME ": --loads takes a positive number of background loads\n");
+                return 2;
+            }
         }
     }
     if (import) {
@@ -688,7 +702,7 @@ int main(int argc, char *argv[])
         if (scene) {
             return nw_scene(data_dir, scene, max_frames);
         }
-        return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check)
+        return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads)
                                                                  : nw_boot(data_dir);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
