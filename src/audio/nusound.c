@@ -1070,6 +1070,12 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         case 0xd:
             ADPCM_AllocIOPMemory(dt[0], (uint32_t)dt[1] << 16 | dt[2], (int)((uint32_t)dt[3] << 16 | dt[4]));
             break;
+        case 0xf: /* the IRX frees it under a playing stream too; here an active slot keeps it */
+            if (dt[0] < NW_IRX_CHANNELS && !irx.StreamBuffer[dt[0]].Status) {
+                free(irx.StreamBuffer[dt[0]].IOPAddress);
+                irx.StreamBuffer[dt[0]].IOPAddress = NULL;
+            }
+            break;
         case 0xc:
             InitStreamData();
             break;

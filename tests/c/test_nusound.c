@@ -36,6 +36,7 @@ int SOUND_PlaySFX(int sample, unsigned int channel, int left, int right, int pit
 int SOUND_SetChannelVolume(unsigned int channel, int left, int right);
 int SOUND_SetChannelPitch(unsigned int channel, int pitch);
 int SOUND_StopSound(unsigned int channel);
+void SOUND_CloseStreamBuffer(int stream);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -258,6 +259,14 @@ static void test_stream_buffers(void)
     SOUND_AllocateStreamBuffer(0, 0x1000, 0x800);
     FlushIOPCommand(0);
     CHECK(sb[0].AllocSize == 0xd700 && sb[0].AllocSPUAddress == 0x5010);
+
+    /* Closed, a buffer can be allocated anew. */
+    SOUND_CloseStreamBuffer(0);
+    FlushIOPCommand(0);
+    CHECK(!sb[0].IOPAddress);
+    SOUND_AllocateStreamBuffer(0, 0x1000, 0x800);
+    FlushIOPCommand(0);
+    CHECK(sb[0].IOPAddress && sb[0].AllocSize == 0x800 && sb[0].AllocHalfSize == 0x400 && sb[0].AllocSPUAddress == 0x1000);
 }
 
 static void test_init_stream_data(void)
