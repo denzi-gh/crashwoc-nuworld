@@ -106,6 +106,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glBlendEquation, (GLenum mode)) \
     X(void, glPolygonMode, (GLenum face, GLenum mode)) \
     X(void, glPixelStorei, (GLenum pname, GLint param)) \
+    X(void, glReadPixels, (GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *data)) \
     X(void, glGenTextures, (GLsizei n, GLuint *textures)) \
     X(void, glDeleteTextures, (GLsizei n, const GLuint *textures)) \
     X(void, glBindTexture, (GLenum target, GLuint texture)) \
@@ -178,6 +179,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBlendEquation nw_glBlendEquation
 #define glPolygonMode nw_glPolygonMode
 #define glPixelStorei nw_glPixelStorei
+#define glReadPixels nw_glReadPixels
 #define glGenTextures nw_glGenTextures
 #define glDeleteTextures nw_glDeleteTextures
 #define glBindTexture nw_glBindTexture

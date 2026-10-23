@@ -6,11 +6,16 @@
 #include "frontend/ui.h"
 #include "imgui.h"
 
+extern "C" {
+#include "platform/paths.h"
+}
+
 #define NW_DEBUG_ITEMS 64
 
 typedef enum NwDebugKind {
     NW_DEBUG_PANEL,
     NW_DEBUG_TOGGLE,
+    NW_DEBUG_ACTION,
 } NwDebugKind;
 
 typedef struct NwDebugItem {
@@ -20,11 +25,13 @@ typedef struct NwDebugItem {
     void *user;
     bool open;
     bool *value;
+    SDL_Scancode key;
 } NwDebugItem;
 
 static struct {
     bool init;
     bool shown;
+    char *root;
     NwDebugItem items[NW_DEBUG_ITEMS];
     uint32_t nitems;
 } nw_debug;
@@ -36,7 +43,7 @@ static NwDebugItem *nw_debug_add(NwDebugKind kind, const char *menu, const char 
         return NULL;
     }
     NwDebugItem *item = &nw_debug.items[nw_debug.nitems++];
-    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, NULL };
+    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, NULL, SDL_SCANCODE_UNKNOWN };
     return item;
 }
 
@@ -56,6 +63,30 @@ void nw_debug_toggle(const char *menu, const char *label, bool *value)
     if (item) {
         item->value = value;
     }
+}
+
+void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDebugFn run, void *user)
+{
+    NwDebugItem *item = nw_debug_add(NW_DEBUG_ACTION, menu, label);
+    if (item) {
+        item->fn = run;
+        item->user = user;
+        item->key = key;
+    }
+}
+
+char *nw_debug_file(const char *folder, const char *ext)
+{
+    char *dir = nw_debug.root ? nw_paths_dir(nw_debug.root, folder, true) : NULL;
+    char *path = NULL;
+    SDL_Time now;
+    SDL_DateTime t;
+    if (dir && SDL_GetCurrentTime(&now) && SDL_TimeToDateTime(now, &t, true)) {
+        SDL_asprintf(&path, "%s%04d%02d%02d-%02d%02d%02d-%03d.%s", dir, t.year, t.month, t.day, t.hour, t.minute,
+                     t.second, t.nanosecond / 1000000, ext);
+    }
+    SDL_free(dir);
+    return path;
 }
 
 void nw_debug_text(const char *fmt, ...)
@@ -89,8 +120,13 @@ static void nw_debug_menus(void)
         }
         for (uint32_t j = i; j < nw_debug.nitems; j++) {
             NwDebugItem *item = &nw_debug.items[j];
-            if (SDL_strcmp(item->menu, menu) == 0) {
+            if (SDL_strcmp(item->menu, menu) != 0) {
+                continue;
+            }
+            if (item->kind != NW_DEBUG_ACTION) {
                 ImGui::MenuItem(item->label, NULL, item->kind == NW_DEBUG_TOGGLE ? item->value : &item->open);
+            } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
+                item->fn(item->user);
             }
         }
         ImGui::EndMenu();
@@ -115,11 +151,12 @@ static void nw_debug_panels(void)
     }
 }
 
-bool nw_debug_init(NwPlatform *p)
+bool nw_debug_init(NwPlatform *p, const char *data_root)
 {
     if (!nw_ui_init(p)) {
         return false;
     }
+    nw_debug.root = SDL_strdup(data_root);
     /* Mouse only: the keyboard and the pad are the game's. */
     ImGui::GetIO().ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
     nw_debug.init = true;
@@ -131,6 +168,8 @@ void nw_debug_shutdown(void)
     if (nw_debug.init) {
         nw_ui_shutdown();
     }
+    SDL_free(nw_debug.root);
+    nw_debug.root = NULL;
     nw_debug.init = false;
     nw_debug.shown = false;
     nw_debug.nitems = 0;
@@ -148,6 +187,15 @@ bool nw_debug_event(const SDL_Event *e)
             ImGui::GetIO().ClearInputMouse();
         }
         return true;
+    }
+    for (uint32_t i = 0; e->type == SDL_EVENT_KEY_DOWN && i < nw_debug.nitems; i++) {
+        NwDebugItem *item = &nw_debug.items[i];
+        if (item->kind == NW_DEBUG_ACTION && item->key && item->key == e->key.scancode) {
+            if (!e->key.repeat) {
+                item->fn(item->user);
+            }
+            return true;
+        }
     }
     /* Hidden, no ImGui frame drains its input queue. */
     if (!nw_debug.shown) {

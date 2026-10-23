@@ -9,6 +9,7 @@
 #define NW_PATHS_PORTABLE "portable.txt"
 #define NW_PATHS_IMPORT "import" /* disc images to import, e.g. copied there on a Steam Deck */
 #define NW_PATHS_SAVES "saves"
+#define NW_PATHS_SCREENSHOTS "screenshots"
 
 /* <base_dir>user/ when <base_dir>portable.txt exists (portable mode), else pref_dir
    (NULL: SDL_GetPrefPath(NULL, NW_PATHS_APP)). */

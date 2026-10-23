@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-bool nw_debug_init(NwPlatform *p);
+bool nw_debug_init(NwPlatform *p, const char *data_root);
 void nw_debug_shutdown(void);
 
 /* True when the window should ignore the event. */
@@ -26,6 +26,11 @@ typedef void (*NwDebugFn)(void *user);
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open);
 void nw_debug_toggle(const char *menu, const char *label, bool *value);
+/* key (or SDL_SCANCODE_UNKNOWN) also works while the overlay is hidden. */
+void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDebugFn run, void *user);
+
+/* <data root><folder>/<date-time>.<ext>; SDL_free it. */
+char *nw_debug_file(const char *folder, const char *ext);
 
 void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
 bool nw_debug_button(const char *label);

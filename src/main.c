@@ -403,20 +403,26 @@ static int nw_boot_check(const char *data_dir, int vblanks)
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
-static bool nw_window_open(NwPlatform *p)
+static bool nw_window_open(NwPlatform *p, const char *data_dir)
 {
-    if (!nw_platform_init(p, NW_APP_NAME, 1280, 720)) {
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_platform_init(p, NW_APP_NAME, 1280, 720)) {
+        SDL_free(root);
         return false;
     }
-    if (nw_backend_init()) {
-        if (nw_debug_init(p)) {
-            return true;
+    bool ok = nw_backend_init();
+    if (ok) {
+        ok = nw_debug_init(p, root);
+        if (!ok) {
+            nw_backend_shutdown();
         }
-        nw_backend_shutdown();
     }
-    fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
-    nw_platform_shutdown(p);
-    return false;
+    SDL_free(root);
+    if (!ok) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
+        nw_platform_shutdown(p);
+    }
+    return ok;
 }
 
 static void nw_window_close(NwPlatform *p)
@@ -435,7 +441,7 @@ static int nw_boot(const char *data_dir)
         return code;
     }
     NwPlatform platform;
-    if (!nw_window_open(&platform)) {
+    if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
     nw_stub_set_continue(true);
@@ -513,7 +519,7 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
         return code;
     }
     NwPlatform platform;
-    if (!nw_window_open(&platform)) {
+    if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
     nw_stub_set_continue(true);

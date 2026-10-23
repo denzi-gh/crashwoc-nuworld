@@ -1,6 +1,7 @@
 #include "gfx/backend.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
@@ -9,6 +10,7 @@
 #include "frontend/debug.h"
 #include "gfx/gl.h"
 #include "gfx/vu.h"
+#include "platform/paths.h"
 
 #define NW_BE_SURFS 16
 
@@ -40,9 +42,40 @@ static struct {
 /* A command with no material: GS defaults, untextured. */
 static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 } };
 
+/* The back buffer at its own size, without the overlay. */
+static void nw_be_screenshot(void *user)
+{
+    (void)user;
+    const NwBeSurf *back = NULL;
+    for (uint32_t i = 0; i < nw_be.nsurf && !back; i++) {
+        back = nw_be.surf[i].addr == NW_SURF_BACK ? &nw_be.surf[i] : NULL;
+    }
+    char *path = NULL;
+    SDL_Surface *shot = NULL;
+    if (!back) {
+        SDL_SetError("nothing drawn yet");
+    } else if ((path = nw_debug_file(NW_PATHS_SCREENSHOTS, "png")) &&
+               (shot = SDL_CreateSurface(nw_be.shown_w, nw_be.shown_h, SDL_PIXELFORMAT_RGBX32))) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+        for (int y = 0; y < shot->h; y++) {
+            glReadPixels(0, back->th - 1 - y, shot->w, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                         (uint8_t *)shot->pixels + (size_t)y * (size_t)shot->pitch);
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    }
+    if (shot && SDL_SavePNG(shot, path)) {
+        printf("screenshot: %s\n", path);
+    } else {
+        fprintf(stderr, "screenshot: %s\n", SDL_GetError());
+    }
+    SDL_DestroySurface(shot);
+    SDL_free(path);
+}
+
 bool nw_backend_init(void)
 {
     nw_debug_toggle("Render", "Wireframe", &nw_be.wireframe);
+    nw_debug_action("Render", "Screenshot", SDL_SCANCODE_F12, nw_be_screenshot, NULL);
     return nw_vu_init();
 }
 
