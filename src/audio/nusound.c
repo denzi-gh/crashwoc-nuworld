@@ -18,6 +18,8 @@
 #define NW_IRX_PATH 600
 #define NW_IRX_SPOT 0x7f /* LoopInfo of a resident sample's transfer */
 #define NW_IRX_VAG_HEADER 0x30
+#define NW_IRX_REVERB_END 0xfffff /* a reverb work area's end; below the other core's, 0xdffff */
+#define NW_IRX_ALL_VOICES 0xffffff
 
 static NwIrx irx;
 
@@ -61,6 +63,7 @@ void nw_nusound_init(const NwVfs *vfs, uint64_t (*now_us)(void))
     irx.IOPRequestLoad = -1;
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
     irx.CD_IDLE = 1;
+    irx.CurrentReverbAddr[0] = irx.CurrentReverbAddr[1] = NW_IRX_REVERB_END;
     nw_spu2_init();
 }
 
@@ -380,6 +383,62 @@ static void CheckTwoStreamsStatus(int channel1, int channel2, int Pitch)
         SetChannelPitch(channel1, (uint16_t)Pitch);
         SetChannelPitch(channel2, (uint16_t)Pitch);
         irx.StereoStarted = 0;
+    }
+}
+
+/* A core's reverb: its work area ends at the top unless the other core's reverb is there. EVOL starts at 0 (the EE
+   sends 0x15 after). The IRX indexes its per-core tables with the core unchecked; here only 0 and 1 are taken. */
+static void SOUND_EnableEffects(int core, int type, int depl, int depr, int delay, int feedback)
+{
+    if (core > 1) {
+        return;
+    }
+    int b = (core + 1) & 1;
+    irx.CurrentReverbAddr[core] = !irx.CurrentReverb[b]                         ? NW_IRX_REVERB_END
+                                  : irx.CurrentReverbAddr[b] == NW_IRX_REVERB_END ? 0xdffff
+                                                                                  : NW_IRX_REVERB_END;
+    irx.CurrentReverb[core] = type;
+    irx.CurrentRevDepL[core] = depl;
+    irx.CurrentRevDepR[core] = depr;
+    irx.CurrentRevFeed[core] = feedback;
+    irx.CurrentRevDelay[core] = delay;
+    nw_spu2_set_param((uint16_t)(core | NW_SD_P_EVOLL), 0);
+    nw_spu2_set_param((uint16_t)(core | NW_SD_P_EVOLR), 0);
+    nw_spu2_set_addr((uint16_t)(core | NW_SD_A_EEA), irx.CurrentReverbAddr[core]);
+    NwSpu2Effect attr = { type | 0x100, (int16_t)depl, (int16_t)depr, delay, feedback };
+    nw_spu2_set_effect_attr(core, &attr);
+    nw_spu2_set_core_attr((uint16_t)(core | NW_SD_C_EFFECT_ENABLE), 1);
+}
+
+static void SOUND_DisableEffects(int core)
+{
+    if (core <= 1) {
+        SOUND_EnableEffects(core, 0, 0, 0, 0, 0);
+        nw_spu2_set_core_attr((uint16_t)(core | NW_SD_C_EFFECT_ENABLE), 0);
+    }
+}
+
+static void nw_irx_reverb_voices(int core)
+{
+    nw_spu2_set_switch((uint16_t)(core | NW_SD_S_VMIXEL), irx.g_ReverbChans[core]);
+    nw_spu2_set_switch((uint16_t)(core | NW_SD_S_VMIXER), irx.g_ReverbChans[core]);
+}
+
+static void SOUND_SetChannelEffect(int ch, bool on)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        int core = ch >= NW_SPU2_VOICES;
+        uint32_t bit = 1u << (ch - NW_SPU2_VOICES * core);
+        irx.g_ReverbChans[core] = on ? irx.g_ReverbChans[core] | bit : irx.g_ReverbChans[core] & ~bit;
+        nw_irx_reverb_voices(core);
+    }
+}
+
+static void SOUND_AllChannelEffects(int core, bool on)
+{
+    if (core <= 1) {
+        irx.g_ReverbChans[core] = on ? NW_IRX_ALL_VOICES : 0;
+        nw_irx_reverb_voices(core);
     }
 }
 
@@ -1162,6 +1221,26 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
             nw_irx_key_off(dt[0]);
+            break;
+        case 0x13: /* core, mode, depth left, right, delay, feedback */
+            SOUND_EnableEffects(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
+            break;
+        case 0x14:
+            SOUND_DisableEffects(dt[0]);
+            break;
+        case 0x15:
+            if (dt[0] <= 1) {
+                nw_spu2_set_param((uint16_t)(dt[0] | NW_SD_P_EVOLL), dt[1]);
+                nw_spu2_set_param((uint16_t)(dt[0] | NW_SD_P_EVOLR), dt[2]);
+            }
+            break;
+        case 0x16:
+        case 0x17:
+            SOUND_AllChannelEffects(dt[0], f == 0x16);
+            break;
+        case 0x18:
+        case 0x19:
+            SOUND_SetChannelEffect(dt[0], f == 0x18);
             break;
         case 0x11: /* the EE names them stream, left and right channel; they are both channels and the pitch */
             InitCheckStereoStatus(dt[0], dt[1], dt[2]);

@@ -42,6 +42,13 @@ void SOUND_Resume(void);
 void SOUND_CheckAndStartStereo(int stream, int left_channel, int right_channel);
 void SOUND_CancelCheckStereo(void);
 int NuSoundSetChannelPitch(unsigned int channel, int pitch, int stereo);
+void SOUND_EnableEffects(int core, int mode, int depth_left, int depth_right, int delay, int feedback);
+void SOUND_DisableEffects(int core);
+void SOUND_SetEffectMasterVolume(int core, int left, int right);
+void SOUND_SetChannelEffectOn(int channel);
+void SOUND_SetChannelEffectOff(int channel);
+void SOUND_AllChannelEffectsOn(int core);
+void SOUND_AllChannelEffectsOff(int core);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -587,6 +594,40 @@ static void test_stereo(void)
     nusound_irx_loaded = 0;
 }
 
+static void test_reverb(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+
+    nw_nusound_init(&vfs, test_clock);
+    SOUND_EnableEffects(0, 6, 0x3fff, 0x2000, 0, 0);
+    SOUND_SetEffectMasterVolume(0, 0x1000, 0x0800);
+    SOUND_EnableEffects(1, 3, -0x1000, 0x1000, 0x40, 0x50); /* below core 0's work area */
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_addr(NW_SD_A_EEA) == 0xfffff && nw_spu2_get_addr(1 | NW_SD_A_EEA) == 0xdffff);
+    CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0x1000 && nw_spu2_get_param(NW_SD_P_EVOLR) == 0x0800);
+    CHECK(nw_spu2_get_param(1 | NW_SD_P_EVOLL) == 0 && nw_spu2_get_core_attr(1 | NW_SD_C_EFFECT_ENABLE) == 1);
+    NwSpu2Effect e = nw_spu2_get_effect_attr(1);
+    CHECK(e.mode == 0x103 && e.depth_L == -0x1000 && e.depth_R == 0x1000 && e.delay == 0x40 && e.feedback == 0x50);
+    CHECK(irx->CurrentReverb[0] == 6 && irx->CurrentRevDepL[0] == 0x3fff);
+
+    SOUND_SetChannelEffectOn(5);
+    SOUND_SetChannelEffectOn(30); /* core 1 voice 6 */
+    SOUND_SetChannelEffectOn(7);
+    SOUND_SetChannelEffectOff(5);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_switch(NW_SD_S_VMIXEL) == 1u << 7 && nw_spu2_get_switch(NW_SD_S_VMIXER) == 1u << 7);
+    CHECK(nw_spu2_get_switch(1 | NW_SD_S_VMIXEL) == 1u << 6);
+    SOUND_AllChannelEffectsOn(1);
+    SOUND_AllChannelEffectsOff(0);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_switch(1 | NW_SD_S_VMIXER) == 0xffffff && nw_spu2_get_switch(NW_SD_S_VMIXEL) == 0);
+
+    SOUND_DisableEffects(0);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_core_attr(NW_SD_C_EFFECT_ENABLE) == 0 && irx->CurrentReverb[0] == 0);
+    CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0 && nw_spu2_get_effect_attr(0).mode == 0x100);
+}
+
 static void test_pause(void)
 {
     nw_nusound_init(&vfs, test_clock);
@@ -711,6 +752,7 @@ int main(int argc, char *argv[])
     test_stop_stream();
     test_pause();
     test_stereo();
+    test_reverb();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);

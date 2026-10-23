@@ -14,7 +14,9 @@ typedef struct NwSpu2Core {
     NwSpu2Voice voice[NW_SPU2_VOICES];
     uint16_t param[16]; /* core registers by register */
     uint32_t sw[32];    /* switches by register */
+    uint32_t addr[4];   /* ESA, EEA, TSA, IRQA */
     uint16_t attr[8];   /* core attributes by (entry >> 1) */
+    NwSpu2Effect effect;
 } NwSpu2Core;
 
 static struct {
@@ -86,15 +88,20 @@ uint32_t nw_spu2_get_switch(uint16_t entry)
 
 static uint32_t *nw_spu2_addr(uint16_t entry)
 {
-    unsigned voice = (entry >> 1) & 0x1f, reg = nw_spu2_reg(entry) - nw_spu2_reg(NW_SD_VA_SSA);
-    return voice < NW_SPU2_VOICES && reg < 3 ? &spu.core[entry & 1].voice[voice].addr[reg] : NULL;
+    NwSpu2Core *c = &spu.core[entry & 1];
+    unsigned voice = (entry >> 1) & 0x1f, reg = (entry >> 8) & 0x3f;
+    if (!(entry & 0x40)) {
+        return reg >= 0x1c && reg < 0x20 ? &c->addr[reg - 0x1c] : NULL;
+    }
+    reg -= NW_SD_VA_SSA >> 8;
+    return voice < NW_SPU2_VOICES && reg < 3 ? &c->voice[voice].addr[reg] : NULL;
 }
 
 /* NAX is the voice's own. */
 void nw_spu2_set_addr(uint16_t entry, uint32_t addr)
 {
     uint32_t *a = nw_spu2_addr(entry);
-    if (a && nw_spu2_reg(entry) != nw_spu2_reg(NW_SD_VA_NAX)) {
+    if (a && (entry & 0xff40) != (NW_SD_VA_NAX & 0xff40)) {
         *a = addr;
     }
 }
@@ -113,6 +120,16 @@ void nw_spu2_set_core_attr(uint16_t entry, uint16_t value)
 uint16_t nw_spu2_get_core_attr(uint16_t entry)
 {
     return spu.core[entry & 1].attr[(entry >> 1) & 7];
+}
+
+void nw_spu2_set_effect_attr(int core, const NwSpu2Effect *attr)
+{
+    spu.core[core & 1].effect = *attr;
+}
+
+NwSpu2Effect nw_spu2_get_effect_attr(int core)
+{
+    return spu.core[core & 1].effect;
 }
 
 void nw_spu2_voice_trans(uint32_t spu_addr, const void *src, uint32_t size)

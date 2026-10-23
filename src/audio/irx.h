@@ -126,7 +126,13 @@ typedef struct NwIrx {
     void (*cd_func)(int);
     NwDat *cd_dat;
     uint8_t cd_buffer[2048];
-    uint32_t g_ReverbChans[2];
+    uint32_t g_ReverbChans[2]; /* the voices into each core's reverb */
+    int CurrentReverb[2];
+    int CurrentRevDepL[2];
+    int CurrentRevDepR[2];
+    int CurrentRevFeed[2];
+    int CurrentRevDelay[2];
+    uint32_t CurrentReverbAddr[2]; /* the work area's end */
     char nu_filepath[256];
     char nu_fileterm[4];
     char new_global_dat_name[256];
