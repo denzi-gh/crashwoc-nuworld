@@ -19,6 +19,7 @@
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
+#include "port/capture.h"
 #include "port/game.h"
 #include "port/scene.h"
 #include "port/trace.h"
@@ -272,6 +273,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; BGLoadSfx alone takes 13 s */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
+#define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 
 /* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
    too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both. The file
@@ -495,6 +497,72 @@ static int nw_boot(const char *data_dir)
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
+/* --capture: the game on the stepped clock in a hidden window; the frames around the requested vblanks of the title
+   cut go to dir as <vblank>.png, their label lines and then the stub hits to stdout. Returns 0 once every one is
+   past, 1 on a failed save, a stopped game or the watchdog, 2 without usable data or vblanks. */
+static int nw_capture(const char *data_dir, const char *list, const char *dir)
+{
+    char *root = nw_data_root(data_dir);
+    char *out = dir ? nw_paths_dir(dir, NULL, true) : root ? nw_paths_dir(root, NW_PATHS_CAPTURES, true) : NULL;
+    SDL_free(root);
+    if (!nw_capture_start(list) || !out) {
+        fprintf(stderr, NW_APP_NAME ": --capture: no vblanks in %s or no folder for them\n", list);
+        SDL_free(out);
+        return 2;
+    }
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_STEPPED);
+    NwPlatform platform;
+    if (code || !nw_window_open(&platform, data_dir)) {
+        SDL_free(out);
+        return code ? code : 1;
+    }
+    SDL_HideWindow(platform.window);
+    SDL_GL_SetSwapInterval(0);
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        nw_window_close(&platform);
+        SDL_free(out);
+        return 1;
+    }
+    uint64_t start = SDL_GetTicks();
+    bool saved = true;
+    while (!nw_capture_finished() && nw_game_state() == NW_GAME_RUNNING &&
+           SDL_GetTicks() - start < NW_CAPTURE_MS) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+        }
+        int width, height, vblank;
+        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
+        const NwPacket *p = nw_backend_frame(width, height);
+        uint64_t seq = nw_capture_wanted(&vblank);
+        if (seq && p && p->seq == seq) {
+            char *path = NULL;
+            SDL_asprintf(&path, "%s%d.png", out, vblank);
+            if (!path || !nw_backend_save(path)) {
+                fprintf(stderr, NW_APP_NAME ": capture: %s: %s\n", path ? path : "?", SDL_GetError());
+                saved = false;
+            }
+            SDL_free(path);
+            nw_capture_release();
+        }
+        SDL_GL_SwapWindow(platform.window);
+    }
+    bool finished = nw_capture_finished();
+    bool parked = nw_game_parked();
+    NwGameState state = nw_game_state();
+    fflush(stderr);
+    nw_print_stub_hits("capture", state);
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    } else if (!finished) {
+        fprintf(stderr, NW_APP_NAME ": capture: the game stopped or the watchdog ran out before the last frame\n");
+    }
+    nw_window_close(&platform);
+    SDL_free(out);
+    return nw_boot_exit(finished && saved && state == NW_GAME_PARKED ? 0 : 1, parked);
+}
+
 /* A .gsc or .ghg of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
 static const NwManifestEntry *nw_scene_entry(const char *path)
 {
@@ -643,6 +711,7 @@ int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
+    const char *capture = NULL, *capture_dir = NULL; /* --capture <vblanks|file> [--capture-dir <dir>] */
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
@@ -654,7 +723,8 @@ int main(int argc, char *argv[])
             return 0;
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
-             strcmp(argv[i], "--scene-check") == 0) &&
+             strcmp(argv[i], "--scene-check") == 0 || strcmp(argv[i], "--capture") == 0 ||
+             strcmp(argv[i], "--capture-dir") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -695,6 +765,10 @@ int main(int argc, char *argv[])
             stepped = true;
         } else if (strcmp(argv[i], "--trace-sound") == 0) {
             trace_sound = true;
+        } else if (strcmp(argv[i], "--capture") == 0) {
+            capture = argv[++i];
+        } else if (strcmp(argv[i], "--capture-dir") == 0) {
+            capture_dir = argv[++i];
         }
     }
     if (import) {
@@ -703,7 +777,7 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || scene || scene_check || boot || boot_check) {
+    if (check_data || check_scenes || scene || scene_check || boot || boot_check || capture) {
 #ifdef NW_WITH_GAME
         if (check_scenes) {
             return nw_check_scenes(data_dir);
@@ -716,6 +790,9 @@ int main(int argc, char *argv[])
         }
         if (trace_sound) {
             nw_trace_sound_start();
+        }
+        if (capture) {
+            return nw_capture(data_dir, capture, capture_dir);
         }
         return check_data   ? nw_check_data(data_dir)
                : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,

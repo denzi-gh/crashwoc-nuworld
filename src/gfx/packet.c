@@ -126,11 +126,11 @@ NwPacket *nw_packet_building(void)
     return &nw_slots[nw_building];
 }
 
-void nw_packet_publish(int32_t vbcnt)
+uint64_t nw_packet_publish(int32_t vbcnt)
 {
     nw_packet_lock();
     NwPacket *p = &nw_slots[nw_building];
-    p->seq = ++nw_seq;
+    uint64_t seq = p->seq = ++nw_seq;
     p->vbcnt = vbcnt;
     int ready = nw_ready;
     nw_ready = nw_building;
@@ -138,6 +138,7 @@ void nw_packet_publish(int32_t vbcnt)
     nw_fresh = true;
     SDL_UnlockMutex(nw_lock);
     nw_packet_reset(&nw_slots[nw_building]);
+    return seq;
 }
 
 const NwPacket *nw_packet_take(void)

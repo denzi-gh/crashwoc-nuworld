@@ -45,20 +45,16 @@ static struct {
 /* A command with no material: GS defaults, untextured. */
 static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 } };
 
-/* The back buffer at its own size, without the overlay. */
-static void nw_be_screenshot(void *user)
+bool nw_backend_save(const char *path)
 {
-    (void)user;
     const NwBeSurf *back = NULL;
     for (uint32_t i = 0; i < nw_be.nsurf && !back; i++) {
         back = nw_be.surf[i].addr == NW_SURF_BACK ? &nw_be.surf[i] : NULL;
     }
-    char *path = NULL;
     SDL_Surface *shot = NULL;
     if (!back) {
         SDL_SetError("nothing drawn yet");
-    } else if ((path = nw_debug_file(NW_PATHS_SCREENSHOTS, "png")) &&
-               (shot = SDL_CreateSurface(nw_be.shown_w, nw_be.shown_h, SDL_PIXELFORMAT_RGBX32))) {
+    } else if ((shot = SDL_CreateSurface(nw_be.shown_w, nw_be.shown_h, SDL_PIXELFORMAT_RGBX32))) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
         for (int y = 0; y < shot->h; y++) {
             glReadPixels(0, back->th - 1 - y, shot->w, 1, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -66,12 +62,20 @@ static void nw_be_screenshot(void *user)
         }
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     }
-    if (shot && SDL_SavePNG(shot, path)) {
+    bool ok = shot && SDL_SavePNG(shot, path);
+    SDL_DestroySurface(shot);
+    return ok;
+}
+
+static void nw_be_screenshot(void *user)
+{
+    (void)user;
+    char *path = nw_debug_file(NW_PATHS_SCREENSHOTS, "png");
+    if (path && nw_backend_save(path)) {
         printf("screenshot: %s\n", path);
     } else {
         fprintf(stderr, "screenshot: %s\n", SDL_GetError());
     }
-    SDL_DestroySurface(shot);
     SDL_free(path);
 }
 

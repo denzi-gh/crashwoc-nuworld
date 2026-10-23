@@ -18,7 +18,8 @@ static void nw_vu1init_rows(const float local[16], float row[3][3])
 {
     for (int r = 0; r < 3; r++) {
         const float *m = &local[r * 4];
-        float inv = 1.0f / sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        float len = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        float inv = len > 0.0f ? 1.0f / len : 0.0f; /* the VU's 1/0 is MAX and 0 x MAX is 0, not NaN */
         for (int k = 0; k < 3; k++) {
             row[r][k] = m[k] * inv;
         }

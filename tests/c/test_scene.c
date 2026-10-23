@@ -973,6 +973,13 @@ static void test_vu1init(void)
     CHECK(o.uv[0][0] == 0.0f && o.uv[0][1] == 1.0f && o.uv[0][2] == 0.0f);
     CHECK(o.uv[1][0] == 0.0f && o.uv[1][1] == 0.0f && o.uv[1][2] == 1.0f);
     CHECK(o.uv[3][0] == 0.5f && o.uv[3][1] == 0.25f && o.lightdir[2][2] == 0.0f);
+
+    /* A row scaled to 0 (the title logo before it grows in): the VU's 1/0 is MAX and 0 x MAX is 0, so that row adds no
+       light and the others still do. */
+    static const float flat[16] = { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    nw_vu1init_lights(&o, flat, &l);
+    CHECK(o.lightdir[0][0] == 0.0f && o.lightdir[2][0] == 0.0f && o.lightdir[1][1] == 1.0f);
+    CHECK(SDL_fabsf(o.lightdir[2][1] - 0.6f) < 1e-6f && SDL_fabsf(o.lightdir[2][2] - 0.8f) < 1e-6f);
 }
 
 /* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free

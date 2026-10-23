@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "gamelib/gcutscn.h"
 #include "nu3d/nutexanm.h"
 
 #define NW_TRACE_CHANNELS 6
@@ -18,6 +19,7 @@ extern int cut_on;
 extern int SOUND_IOP_REQUEST_LOAD;
 extern int SOUND_CD_STATUS;
 extern int SOUND_STREAM_CD_ACCESS;
+extern struct instNUGCUTSCENE_s *D_006FF700[]; /* CutInst */
 
 /* nutexanm.c's NuTexAnimList */
 struct nw_ntal {
@@ -56,9 +58,6 @@ void nw_trace_sound_start(void)
 
 void nw_trace_sound_vblank(void)
 {
-    if (!nw_trace.on) {
-        return;
-    }
     int vblank = nuvideo_global_vbcnt;
     if (!nw_trace.synced) {
         nw_trace.synced = cutmovie_hold == 1 && nw_trace.hold == 0 && cutmovie == 0;
@@ -67,6 +66,9 @@ void nw_trace_sound_vblank(void)
         if (!nw_trace.synced) {
             return;
         }
+    }
+    if (!nw_trace.on) {
+        return;
     }
     char key[NW_TRACE_CHANNELS + 1], state[sizeof(nw_trace.last)];
     for (int i = 0; i < NW_TRACE_CHANNELS; i++) {
@@ -81,4 +83,17 @@ void nw_trace_sound_vblank(void)
         fflush(stdout);
         strcpy(nw_trace.last, state);
     }
+}
+
+bool nw_trace_vblank(int vbcnt, int *vblank)
+{
+    *vblank = vbcnt - nw_trace.base;
+    return nw_trace.synced;
+}
+
+void nw_trace_frame(int vblank)
+{
+    const struct instNUGCUTSCENE_s *cut = D_006FF700[D_00633388];
+    printf("frame %d: world %d time %.2f tex %d\n", vblank, D_00633388, cut ? cut->time : -1.0f, nw_trace_tex());
+    fflush(stdout);
 }

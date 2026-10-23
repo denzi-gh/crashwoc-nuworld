@@ -7,6 +7,7 @@
 #include "nucore/nuerror.h"
 #include "nu3d/nuvport.h"
 #include "nups2/ps2video.h"
+#include "port/capture.h"
 #include "port/game.h"
 #include "port/ps2video.h"
 #include "port/trace.h"
@@ -164,6 +165,7 @@ void nw_vblank_deliver(unsigned edges)
             }
         }
         nw_trace_sound_vblank();
+        nw_capture_vblank();
     }
     nw_ee_schedule();
 }

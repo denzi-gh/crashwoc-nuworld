@@ -134,7 +134,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
-  src/port/ps2video.c src/port/scene.c src/port/trace.c
+  src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
@@ -187,6 +187,13 @@ if(NUWORLD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/cut_trace.py $<TARGET_FILE:crashwoc-nuworld> {root}
       --pcsx2 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_cut.txt)
   set_tests_properties(boot-cut-pcsx2 PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: the title cut's frames (--capture) labelled as PCSX2's savestates (tools/pcsx2_capture.py); with
+  # PCSX2's screens in {root}/captures/pcsx2 also side by side in title-frames/pairs.
+  add_test(NAME title-frames-pcsx2
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/title_capture.py $<TARGET_FILE:crashwoc-nuworld> {root}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_frames.txt ${CMAKE_CURRENT_BINARY_DIR}/title-frames)
+  set_tests_properties(title-frames-pcsx2 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>

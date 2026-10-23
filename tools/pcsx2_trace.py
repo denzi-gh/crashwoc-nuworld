@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SYMBOLS = ROOT / "decomp" / "config" / "pal103" / "symbol_addrs.txt"
 
-READ8, READ32, READ64, STATUS = 0x00, 0x02, 0x03, 0x0F
+READ8, READ32, READ64, SAVE_STATE, STATUS = 0x00, 0x02, 0x03, 0x09, 0x0F
 SIZES = {READ8: 1, READ32: 4, READ64: 8, STATUS: 4}
 CHANNELS = 6
 
@@ -86,6 +86,17 @@ class Pine:
             out.append(int.from_bytes(body[at:at + n], "little"))
             at += n
         return out
+
+    def save_state(self, slot: int) -> None:
+        """Asks PCSX2 to save a state to slot; it is written asynchronously."""
+        try:
+            self.sock.sendall(struct.pack("<I", 6) + bytes([SAVE_STATE, slot]))
+            total = struct.unpack("<I", self._recv(4))[0]
+            body = self._recv(total - 4)
+        except OSError as exc:
+            raise PineError(f"PINE: {exc}") from exc
+        if not body or body[0] != 0:
+            raise PineError(f"PINE: save state to slot {slot} refused")
 
     def _recv(self, n: int) -> bytes:
         buf = b""

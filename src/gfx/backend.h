@@ -12,5 +12,7 @@ void nw_backend_shutdown(void);
 /* Runs the GPU jobs due, draws the newest packet (or the last one again) and shows it in a width x height window;
    returns the packet drawn, NULL before the first. */
 const NwPacket *nw_backend_frame(int width, int height);
+/* The back buffer at its own size, without the overlay, as a PNG; false with SDL's error. */
+bool nw_backend_save(const char *path);
 
 #endif
