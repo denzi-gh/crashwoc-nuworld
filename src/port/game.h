@@ -33,6 +33,8 @@ bool nw_game_start(NwGameEntry entry, int argc, char **argv);
 /* Any thread. */
 NwGameState nw_game_state(void);
 uint64_t nw_game_edges(void);
+/* The time of those edges at the clock's rate, in microseconds. */
+uint64_t nw_game_us(void);
 /* Waits for a clock edge after `seen` (see nw_clock_wait); returns the edge count. */
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms);
 /* Frames the game has swapped. */

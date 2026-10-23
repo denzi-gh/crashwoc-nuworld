@@ -119,9 +119,11 @@ target_include_directories(nuworld_gfx PUBLIC src)
 target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)
 
-# NUSOUND's data: the VAG decoder and SFX.DAT.
+# NUSOUND: the IRX's RPC side, the VAG decoder and SFX.DAT.
 add_library(nuworld_audio STATIC
+  src/audio/nusound.c
   src/audio/sfx.c
+  src/audio/spu2.c
   src/audio/vag.c)
 target_include_directories(nuworld_audio PUBLIC src)
 target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)

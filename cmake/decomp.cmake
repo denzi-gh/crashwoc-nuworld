@@ -144,7 +144,7 @@ add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
-target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_gfx nuworld_port nuworld_vfs)
+target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audio nuworld_gfx nuworld_port nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
 target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c)
@@ -248,6 +248,16 @@ if(NUWORLD_TESTS)
   add_test(NAME nuanim COMMAND nuworld_test_nuanim ${CMAKE_CURRENT_BINARY_DIR}/test-nuanim)
   add_test(NAME nuanim-retail COMMAND nuworld_test_nuanim retail)
   set_tests_properties(nuanim-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+
+  # The NUSOUND.IRX port under the decomp's own nusound.c.
+  add_executable(nuworld_test_nusound tests/c/test_nusound.c)
+  target_include_directories(nuworld_test_nusound PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_nusound PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_nusound PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_nusound PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nusound COMMAND nuworld_test_nusound ${CMAKE_CURRENT_BINARY_DIR}/test-nusound)
+  add_test(NAME nusound-retail COMMAND nuworld_test_nusound retail)
+  set_tests_properties(nusound-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 
   # The port's Nu render layer under the decomp code that drives it.
   add_executable(nuworld_test_rndr tests/c/test_rndr.c)

@@ -147,7 +147,7 @@ static void test_pass(void)
 static void test_sfx(const char *scratch)
 {
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
-    static uint8_t arc[SFX_DAT_MAX];
+    static uint8_t arc[5 * SFX_DAT_ALIGN + SFX_DAT_DIR];
     uint8_t blocks[4][NW_ADPCM_BLOCK], a[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
     uint8_t adpcm[4 * NW_ADPCM_BLOCK], pieces[4 * NW_ADPCM_BLOCK];
     int16_t pcm[4 * NW_ADPCM_SAMPLES];
@@ -164,8 +164,8 @@ static void test_sfx(const char *scratch)
     vag_block_fill(blocks[2], 3, 5, NW_ADPCM_REPEAT, 3);
     vag_block_fill(blocks[3], 4, 8, NW_ADPCM_END | NW_ADPCM_REPEAT, -2);
     size_t bl_size = vag_file(bl, 44100, blocks[0], 4);
-    const uint8_t *const files[3] = { a, bl, (const uint8_t *)text };
-    const size_t sizes[3] = { a_size, bl_size, sizeof(text) - 1 };
+    const uint8_t *const files[SFX_DAT_FILES] = { a, bl, (const uint8_t *)text, NULL };
+    const size_t sizes[SFX_DAT_FILES] = { a_size, bl_size, sizeof(text) - 1, 0 };
     size_t size = sfx_dat(arc, files, sizes);
 
     SDL_zero(vfs);

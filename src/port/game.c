@@ -120,6 +120,11 @@ uint64_t nw_game_edges(void)
     return nw_clock_edges(&nw_game.clock);
 }
 
+uint64_t nw_game_us(void)
+{
+    return nw_clock_edges(&nw_game.clock) * nw_game.clock.timing.period / 1000;
+}
+
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms)
 {
     return nw_clock_wait(&nw_game.clock, seen, timeout_ms);

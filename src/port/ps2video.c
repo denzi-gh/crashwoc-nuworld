@@ -415,12 +415,13 @@ void NuPs2Init(void)
     nw_tb_main_set = nw_tbset_alloc(0);
 }
 
-/* No IOP modules: no sound until its port (M6); pads and memory cards go through their own shims. */
+/* No IOP modules to load: NUSOUND runs as src/audio/nusound.c behind the SIF shim; pads and memory cards go through
+   their own shims. */
 void NuPs2InitIOP(void)
 {
     if (!nw_iop_initialised) {
         nw_iop_initialised = 1;
-        nusound_irx_loaded = 0;
+        nusound_irx_loaded = 1;
     }
 }
 
