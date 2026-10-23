@@ -26,6 +26,7 @@ void NuPs2InitVideo(int width, int height, int psm, int zpsm, int format);
 void NuPs2VideoSetPos(int x, int y);
 void NuGScnUpdate(struct nugscn_s *scene, float dt);
 void NuGScnRndr3(struct nugscn_s *scene);
+void buildBitCountTable(void);
 void NuRndrInitEx(int streamsize);
 int NuRndrBeginScene(int target);
 void NuRndrClear(int flags, int colour, float depth);
@@ -182,6 +183,9 @@ int nw_scene_main(int argc, char **argv)
     NuRndrInitEx(0x200000);
     NuFntClose();
     struct nucamera_s *cam = NuCameraCreate();
+    /* The key lookup of the instance animations, which retail builds in the load screen's NuAnimDataLoadBuff before
+       any scene. */
+    buildBitCountTable();
     struct nugscn_s *sc = NuGScnRead(&buf, end, argv[1]);
     if (!sc) {
         NuErrorProlog("scene.c", 0)("\"%s\" did not load", argv[1]);
@@ -203,7 +207,7 @@ int nw_scene_main(int argc, char **argv)
         nw_scene_camera(&c, &cam->mtx);
         NuCameraSet(cam);
         NuMtlAnimate(0.02f);
-        NuGScnUpdate(sc, 0.02f);
+        NuGScnUpdate(sc, 1.0f); /* in frames, as main's game loop */
         RotateDirectionalLight(ldir, -0x2000, (int)(((frame % 400) << 16) / 400));
         SetLights(&lcol[0], &ldir[0], &lcol[1], &ldir[1], &lcol[2], &ldir[2], &acol);
         NuRndrBeginScene(-1);
