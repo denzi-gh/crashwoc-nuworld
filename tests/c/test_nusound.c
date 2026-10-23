@@ -34,6 +34,7 @@ void SOUND_StoreLocalStart(void);
 void NuSoundLocalSet(NUSOUND_FILENAME_INFO *sfx_info, int unused, int first);
 int SOUND_PlaySFX(int sample, unsigned int channel, int left, int right, int pitch, int flags, int priority);
 int SOUND_SetChannelVolume(unsigned int channel, int left, int right);
+int SOUND_SetChannelPitch(unsigned int channel, int pitch);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -442,6 +443,16 @@ static void test_channel_volume(void)
     CHECK(nw_spu2_get_param(1 | 16 << 1 | NW_SD_VP_VOLR) == 0);
 }
 
+static void test_channel_pitch(void)
+{
+    nw_nusound_init(&vfs, test_clock);
+    SOUND_SetChannelPitch(5, 0x0759);
+    SOUND_SetChannelPitch(47, 0x3fff); /* core 1 voice 23 */
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(5 << 1 | NW_SD_VP_PITCH) == 0x0759 && nw_nusound_irx()->SPU_PausePitch[5] == 0x0759);
+    CHECK(nw_spu2_get_param(1 | 23 << 1 | NW_SD_VP_PITCH) == 0x3fff && nw_nusound_irx()->SPU_PausePitch[47] == 0x3fff);
+}
+
 /* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
 static bool setup_disc(const char *scratch)
 {
@@ -491,6 +502,7 @@ int main(int argc, char *argv[])
     test_local_bank();
     test_play_sfx();
     test_channel_volume();
+    test_channel_pitch();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
