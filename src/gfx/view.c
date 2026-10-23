@@ -42,10 +42,30 @@ static void nw_view_stats(void *user)
     nw_debug_text("%llu triangles", (unsigned long long)nw_view.info.tris);
 }
 
+static void nw_view_reset(void)
+{
+    nw_view.cam = nw_view.info.cam;
+    nw_view.speed = nw_view.info.speed;
+}
+
+static void nw_view_camera(void *user)
+{
+    (void)user;
+    if (!nw_view.ready) {
+        nw_debug_text("loading");
+        return;
+    }
+    nw_debug_slider("Speed", &nw_view.speed, nw_view.info.speed * 0.01f, nw_view.info.speed * 100.0f, true);
+    if (nw_debug_button("Reset")) {
+        nw_view_reset();
+    }
+}
+
 int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
 {
     nw_view = (NwViewer){ .speed = 1.0f };
     nw_debug_panel("Scene", "Stats", nw_view_stats, NULL, false);
+    nw_debug_panel("Scene", "Camera", nw_view_camera, NULL, false);
     bool running = true;
     int frames = 0;
     uint64_t last = SDL_GetTicksNS();
@@ -67,8 +87,7 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
         uint64_t now = SDL_GetTicksNS();
         if (!nw_view.ready && nw_scene_info(&nw_view.info)) {
             nw_view.ready = true;
-            nw_view.cam = nw_view.info.cam;
-            nw_view.speed = nw_view.info.speed;
+            nw_view_reset();
             char title[256];
             SDL_snprintf(title, sizeof(title), "%s (WASD QE, right mouse, wheel; F1 debug overlay)", name);
             SDL_SetWindowTitle(p->window, title);

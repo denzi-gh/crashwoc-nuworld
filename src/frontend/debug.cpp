@@ -51,6 +51,16 @@ void nw_debug_text(const char *fmt, ...)
     va_end(ap);
 }
 
+bool nw_debug_button(const char *label)
+{
+    return ImGui::Button(label);
+}
+
+bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log)
+{
+    return ImGui::SliderFloat(label, value, lo, hi, "%.3g", log ? ImGuiSliderFlags_Logarithmic : 0);
+}
+
 static void nw_debug_menus(void)
 {
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
