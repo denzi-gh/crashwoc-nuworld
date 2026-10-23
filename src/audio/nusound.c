@@ -896,6 +896,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         case 3:
             SetChannelPitch(dt[0], dt[1]);
             break;
+        case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
+            nw_irx_key_off(dt[0]);
+            break;
         default: /* 8, >= 0x22: no handler */
             break;
         }
