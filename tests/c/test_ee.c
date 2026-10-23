@@ -14,8 +14,16 @@ void BGLoadEnd(void);
 extern volatile int bgload_complete;
 extern int loadthread_id;
 
-/* src/port/ps2video.c */
+/* src/port/ps2video.c and its data image root */
 void NuIntAddAllHandlers(void);
+void NuEnableVBlank(void);
+void NuDisableVBlank(void);
+void NuEnableVBlankS(void);
+void NuDisableVBlankS(void);
+void NuEnableVBlankE(void);
+void NuDisableVBlankE(void);
+int sceGsSyncV(int mode);
+extern volatile int nuvideo_global_vbcnt;
 
 /* src/shim/ee.c */
 int nw_ee_CreateThread(void *param);
@@ -107,6 +115,63 @@ static void frames_until_complete(void)
     }
 }
 
+static void complete(void)
+{
+    bgload_complete = 1;
+    for (;;) {
+        nw_ee_idle();
+    }
+}
+
+/* A vblank passes without a wait; the yield point delivers it. */
+static void vblank_passes(void)
+{
+    nw_game_wait_edge(nw_game_edges(), 0);
+    nw_ee_yield();
+}
+
+/* Masked across two vblanks: the switch waits for the unmask, where VBlankFn runs once. */
+static void loader_masked(void *arg)
+{
+    (void)arg;
+    mark('L');
+    NuDisableVBlank();
+    mark('[');
+    vblank_passes();
+    vblank_passes();
+    mark('|');
+    NuEnableVBlank();
+    mark(']');
+    complete();
+}
+
+/* Nested: only the outermost unmask switches. */
+static void loader_nested(void *arg)
+{
+    (void)arg;
+    mark('L');
+    NuDisableVBlank();
+    NuDisableVBlankS();
+    vblank_passes();
+    NuEnableVBlankS();
+    mark('|');
+    NuEnableVBlank();
+    mark(']');
+    complete();
+}
+
+/* Vblank end alone masked (NuDebugMsgFunction): vblank start still switches, as on the PS2. */
+static void loader_end_masked(void *arg)
+{
+    (void)arg;
+    mark('L');
+    NuDisableVBlankE();
+    vblank_passes();
+    mark('e');
+    NuEnableVBlankE();
+    complete();
+}
+
 static void test_bgload(void)
 {
     NuIntAddAllHandlers();
@@ -154,6 +219,40 @@ static void test_bgload(void)
     CHECK(strcmp(order, "RMLMLMC") == 0);
 }
 
+static void run_load(void (*loader)(void *))
+{
+    reset_order();
+    BGLoadStart(loader);
+    frames_until_complete();
+    BGLoadEnd();
+}
+
+static void test_masks(void)
+{
+    uint64_t edges = nw_game_edges(), swaps = nw_game_swaps();
+    int vbcnt = nuvideo_global_vbcnt;
+    run_load(loader_masked);
+    CHECK(strcmp(order, "ML[|M]") == 0);
+    CHECK(nw_game_edges() == edges + 3);
+    CHECK(nw_game_swaps() == swaps + 2);
+    CHECK(nuvideo_global_vbcnt == vbcnt + 2);
+
+    run_load(loader_nested);
+    CHECK(strcmp(order, "ML|M]") == 0);
+
+    run_load(loader_end_masked);
+    CHECK(strcmp(order, "MLMe") == 0);
+
+    /* Main masked across a vblank: the ready loader does not run. */
+    reset_order();
+    BGLoadStart(loader_steps);
+    NuDisableVBlank();
+    sceGsSyncV(0);
+    NuEnableVBlank();
+    CHECK(order_len == 0);
+    BGLoadEnd();
+}
+
 static void test_states(void)
 {
     struct ThreadParam param = { .entry = loader_idle, .init_priority = 2 };
@@ -192,6 +291,7 @@ int main(void)
 {
     CHECK(nw_game_init(NW_CLOCK_STEPPED, 50));
     test_bgload();
+    test_masks();
     test_states();
     nw_game_shutdown();
 

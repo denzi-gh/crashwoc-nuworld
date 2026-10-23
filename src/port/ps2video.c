@@ -90,7 +90,9 @@ static int nw_vbs_clear(int bits)
 }
 
 /* DisableIntc / EnableIntc of INTC 2 and 3. Unmasking with an edge pending fires it at once, unless already
-   inside an interrupt (the EE does not nest them): then the next yield point runs it. */
+   inside an interrupt (the EE does not nest them): then the next yield point runs it. The return from it may switch
+   EE threads; NuEnableVBlank unmasks start before end, so a switch there leaves vblank end masked until the thread
+   runs again, as on the PS2. */
 static void nw_intc_disable(int cause)
 {
     if (cause == 2) {
@@ -109,12 +111,14 @@ static void nw_intc_enable(int cause)
         }
         if ((old & NW_INTC_HOOKED) && (old & NW_INTC_PENDING_RUN) && !nw_in_vblank) {
             nw_vbs_run();
+            nw_ee_schedule();
         }
     } else {
         int old = nw_vbe_intc;
         nw_vbe_intc &= ~(NW_INTC_MASKED | (nw_in_vblank ? 0 : NW_INTC_PENDING_RUN));
         if ((old & NW_INTC_HOOKED) && (old & NW_INTC_PENDING_RUN) && !nw_in_vblank) {
             nw_vbe_run();
+            nw_ee_schedule();
         }
     }
 }
