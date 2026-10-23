@@ -1,4 +1,5 @@
-/* The .gsc loader override (src/port/nugscn.c) on the synthetic scene. Usage: test_nugscn <scratch dir>. */
+/* The .gsc loader override (src/port/nugscn.c) on the synthetic scene; locally the animation library of every .gsc
+   of the imported disc. Usage: test_nugscn <scratch dir> | retail. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,11 +19,14 @@
 #include "nu3d/nutexanm.h"
 #include "nucore/nufile.h"
 #include "nw_ps2types.h"
+#include "port/game.h"
 #include "port/nugscn.h"
 #include "shim/shim.h"
 #include "vfs/extract.h"
+#include "vfs/manifest.h"
 #include "vfs/vfs.h"
 
+#include "anim_check.h"
 #include "gsc_builder.h"
 
 /* The NU20 reader's record offsets are the PS2 layout's. */
@@ -37,6 +41,7 @@ extern char vu_load_tricu_mpg[], vu_load_tric_mpg[];
 extern int NuRndrShadMaskCount;
 extern struct nugspline_s *NuRndrShadMasks[];
 void NuRndrInitWorld(void);
+void buildBitCountTable(void);
 
 static int failures;
 static char scene_buffer[1 << 20];
@@ -211,10 +216,118 @@ static void test_load(const char *scratch)
     SDL_free(root);
 }
 
+static NwVfs retail_vfs;
+static AnimStats retail = ANIM_STATS_INIT;
+static unsigned retail_scenes, retail_alib;
+
+static void drain_gpu(void)
+{
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; i < n; i++) {
+        if (jobs[i].op == NW_GPU_FREE_MESH) {
+            nw_vif_free(&((NwGpuMesh *)jobs[i].obj)->mesh);
+        } else if (jobs[i].op == NW_GPU_FREE_SPRITES) {
+            nw_vif_sprites_free(&((NwGpuSprites *)jobs[i].obj)->sprites);
+        }
+        if (jobs[i].op >= NW_GPU_FREE_MESH && jobs[i].op != NW_GPU_FREE_TEX) {
+            SDL_free(jobs[i].obj);
+        }
+    }
+    SDL_free(jobs);
+}
+
+/* On the game thread: a load error is fatal there. The anims are the ones the instances play (NuGScnUpdate); the
+   bit counts they need come from the .cut and .ani loaders in the game. INTRO/FINAL and TITLES/TITLESPL are
+   truncated, never drawn by the game, and skipped as by --scene-check. */
+static int retail_main(int argc, char **argv)
+{
+    (void)argc, (void)argv;
+    size_t size = 0x2400000; /* the scene viewer's buffer */
+    char *buffer = SDL_malloc(size);
+    nw_shim_file_init(&retail_vfs);
+    NuFileInitEx(1, 1);
+    NuTexInit();
+    NuMtlInit();
+    buildBitCountTable();
+    for (size_t i = 0; buffer && i < nw_disc_manifest.count; i++) {
+        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+        size_t n = strlen(e->path);
+        if (n < 4 || SDL_strcasecmp(e->path + n - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP) ||
+            SDL_strcasecmp(e->path, "LEVELS/B/INTRO/FINAL.GSC") == 0 ||
+            SDL_strcasecmp(e->path, "LEVELS/B/TITLES/TITLESPL.GSC") == 0) {
+            continue;
+        }
+        char path[NW_VFS_PATH_MAX];
+        SDL_strlcpy(path, e->path, sizeof(path));
+        for (char *c = path; *c; c++) {
+            *c = *c == '/' ? '\\' : *c;
+        }
+        char *buf = buffer;
+        NuRndrInitWorld();
+        struct nugscn_s *sc = NuGScnRead(&buf, buffer + size, path);
+        if (!sc) {
+            fprintf(stderr, "retail: %s does not load\n", path);
+            retail.bad++;
+            continue;
+        }
+        bool seen[256] = { 0 };
+        AnimStats st = ANIM_STATS_INIT;
+        for (int j = 0; sc->instanimdata && j < sc->numinstance; j++) {
+            struct nuinstanim_s *anim = sc->instances[j].anim;
+            if (anim && !seen[anim->anim_ix] && sc->instanimdata[anim->anim_ix]) {
+                seen[anim->anim_ix] = true;
+                anim_check(&st, path, buffer, buf, sc->instanimdata[anim->anim_ix]);
+            }
+        }
+        if (sc->instanimdata) {
+            printf("ALIB %s anims=%u sets=%u curves=%u keys=%u\n", path, st.anims, st.sets, st.curves, st.keys);
+        }
+        retail_scenes++;
+        retail_alib += sc->instanimdata != NULL;
+        anim_add(&retail, &st);
+        nw_gscn_remove(sc);
+        drain_gpu();
+    }
+    SDL_free(buffer);
+    return 0;
+}
+
+/* Every .gsc loads, and the anims its instances play count to the pinned numbers, have the nine curves
+   NuAnimCurveSetApplyToMatrix reads in every set and read keys inside the scene at every frame. */
+static int test_retail(void)
+{
+    const char *dir = getenv("NUWORLD_TEST_DATA");
+    if (!dir) {
+        printf("NUWORLD_TEST_DATA is not set: skipped\n");
+        return 77;
+    }
+    CHECK(nw_vfs_mount(&retail_vfs, NW_VFS_DISC, dir));
+    CHECK(nw_game_init(NW_CLOCK_REALTIME, 50));
+    CHECK(nw_game_start(retail_main, 0, NULL));
+    NwGameState state;
+    while ((state = nw_game_state()) == NW_GAME_RUNNING) {
+        SDL_Delay(10);
+    }
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, "retail: %s\n", nw_game_error());
+    }
+    printf("TOTAL scenes=%u alib=%u\n", retail_scenes, retail_alib);
+    anim_print("TOTAL", &retail);
+    CHECK(state == NW_GAME_RETURNED && retail.bad == 0 && retail_scenes == 64 && retail_alib == 26);
+    CHECK(retail.anims == 306 && retail.sets == 1371 && retail.curves == 5837 && retail.keys == 52883);
+    CHECK(retail.minsets == 9);
+    CHECK(retail.before == 0 && retail.past == 0 && retail.nonfinite == 0);
+    return failures ? 1 : 0;
+}
+
 int main(int argc, char *argv[])
 {
+    if (argc > 1 && strcmp(argv[1], "retail") == 0) {
+        return test_retail();
+    }
     if (argc != 2) {
-        fprintf(stderr, "usage: test_nugscn <scratch dir>\n");
+        fprintf(stderr, "usage: test_nugscn <scratch dir> | retail\n");
         return 2;
     }
     char *scratch = NULL;

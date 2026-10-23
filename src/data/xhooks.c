@@ -1,18 +1,18 @@
 /* Hand-written converters for what port/convert.toml marks `hook = true`. */
 #include "nw_convert.h"
 
-/* The animation's per-curve flags decide between the constant and the curve data: the .ani loader converts
-   these (M4). */
+/* The animation's per-curve flags decide between the constant and the curve data: the .cut loader converts
+   these. */
 void nw_xh_nuanimcurve2_u(union nuanimcurve2_u *dst, const nw_ps2_nuanimcurve2_u *src, NwXCtx *ctx)
 {
     (void)dst, (void)src;
-    nw_xfatal(ctx, NULL, "needs its curve flags (the .ani loader converts it)");
+    nw_xfatal(ctx, NULL, "needs its curve flags (the .cut loader converts it)");
 }
 
 void nw_xhr_nuanimcurve2_u(nw_ps2_nuanimcurve2_u *dst, const union nuanimcurve2_u *src, NwXCtx *ctx)
 {
     (void)dst, (void)src;
-    nw_xfatal(ctx, NULL, "needs its curve flags (the .ani loader converts it)");
+    nw_xfatal(ctx, NULL, "needs its curve flags (the .cut loader converts it)");
 }
 
 /* An open .DAT archive's directory: built when the archive opens, never in the retail data image. */

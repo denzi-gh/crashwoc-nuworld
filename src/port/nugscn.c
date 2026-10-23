@@ -8,6 +8,7 @@
 #include "gfx/packet.h"
 #include "gfx/rndr.h"
 #include "nw_convert.h"
+#include "port/nuanim.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
 #include "port/xfile.h"
@@ -140,63 +141,31 @@ void nw_gscn_remove(struct nugscn_s *scene)
 
 struct nugscn_s *NuGScnLoadFix(void);
 
-/* Animation library host copies; node_names, keys and curves keep their file values as in retail. */
-static struct nuanimcurveset_s *nw_gscn_curveset(char *p)
+/* The animation library on the anim v1 walk: self-relative pointers, node_names keeps its file value. */
+static char *nw_gscn_anim_at(NwAnimFile *f, char *field, size_t size)
 {
-    struct nuanimcurveset_s *curveset = NW_GSCN_NEW(struct nuanimcurveset_s, 1);
-    NW_FILE_X(nuanimcurveset_s, curveset, p);
-    curveset->constants = (float *)nw_gscn_rel(p + offsetof(nw_ps2_nuanimcurveset_s, constants));
-    char *set = nw_gscn_rel(p + offsetof(nw_ps2_nuanimcurveset_s, set));
-    int ncurves = set ? curveset->ncurves : 0;
-    curveset->set = set ? NW_GSCN_NEW(struct nuanimcurve_s *, ncurves > 0 ? ncurves : 0) : 0;
-    for (int m = 0; m < ncurves; m++) {
-        char *c = nw_gscn_rel(set + 4 * m);
-        curveset->set[m] = 0;
-        if (c != 0) {
-            curveset->set[m] = NW_GSCN_NEW(struct nuanimcurve_s, 1);
-            NW_FILE_X(nuanimcurve_s, curveset->set[m], c);
-            curveset->set[m]->animkeys =
-                (struct nuanimkey_s *)nw_gscn_rel(c + offsetof(nw_ps2_nuanimcurve_s, animkeys));
-        }
-    }
-    return curveset;
+    (void)f, (void)size;
+    return nw_gscn_rel(field);
 }
 
-static struct nuanimdatachunk_s *nw_gscn_animchunk(char *p)
+static void *nw_gscn_anim_new(NwAnimFile *f, size_t size, size_t align)
 {
-    struct nuanimdatachunk_s *chunk = NW_GSCN_NEW(struct nuanimdatachunk_s, 1);
-    NW_FILE_X(nuanimdatachunk_s, chunk, p);
-    char *sets = nw_gscn_rel(p + offsetof(nw_ps2_nuanimdatachunk_s, animcurvesets));
-    int nodes = sets ? chunk->numnodes : 0;
-    chunk->animcurvesets = sets ? NW_GSCN_NEW(struct nuanimcurveset_s *, nodes > 0 ? nodes : 0) : 0;
-    for (int k = 0; k < nodes; k++) {
-        char *s = nw_gscn_rel(sets + 4 * k);
-        chunk->animcurvesets[k] = s ? nw_gscn_curveset(s) : 0;
-    }
-    return chunk;
+    (void)f;
+    void *p = GScnBufferAlloc(size, align > 4 ? align : 4);
+    memset(p, 0, size);
+    return p;
 }
 
 void ReadAnimationLibrary(int fh)
 {
+    NwAnimFile file = { nw_gscn_anim_at, nw_gscn_anim_new, 0 };
     int count = NuFileReadInt(fh);
     NuFileReadInt(fh);
     char *table = NuMemFileAddr(fh);
     gscene->instanimdata = NW_GSCN_NEW(struct nuanimdata_s *, count);
     for (int i = 0; i < count; i++) {
         char *p = nw_gscn_rel(table + 4 * i);
-        struct nuanimdata_s *anim = 0;
-        if (p != 0) {
-            anim = NW_GSCN_NEW(struct nuanimdata_s, 1);
-            NW_FILE_X(nuanimdata_s, anim, p);
-            char *chunks = nw_gscn_rel(p + offsetof(nw_ps2_nuanimdata_s, chunks));
-            int nchunks = chunks ? anim->nchunks : 0;
-            anim->chunks = chunks ? NW_GSCN_NEW(struct nuanimdatachunk_s *, nchunks > 0 ? nchunks : 0) : 0;
-            for (int j = 0; j < nchunks; j++) {
-                char *c = nw_gscn_rel(chunks + 4 * j);
-                anim->chunks[j] = c ? nw_gscn_animchunk(c) : 0;
-            }
-        }
-        gscene->instanimdata[i] = anim;
+        gscene->instanimdata[i] = p ? nw_anim_data(&file, p) : 0;
     }
 }
 
