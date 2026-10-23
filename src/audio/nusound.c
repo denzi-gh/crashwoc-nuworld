@@ -349,6 +349,40 @@ static void ResumeAll(void)
     }
 }
 
+/* A stereo pair starts at pitch 0; once both of its streams play, both get the pitch at once. */
+static void InitCheckStereoStatus(int channel1, int channel2, int pitch)
+{
+    irx.StereoStarted = 0;
+    irx.StereoChan1 = channel1;
+    irx.StereoChan2 = channel2;
+    irx.StereoPitch = pitch;
+    irx.StereoStarted = 1;
+}
+
+static void CheckTwoStreamsStatus(int channel1, int channel2, int Pitch)
+{
+    bool ch1 = false, ch2 = false;
+
+    if (!irx.StereoStarted) {
+        return;
+    }
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        const STREAMDATA *s = &irx.StreamBuffer[i];
+        if (s->Status && s->iStatus == 0) {
+            if (s->Channel == channel1) {
+                ch1 = true;
+            } else if (s->Channel == channel2) {
+                ch2 = true;
+            }
+        }
+    }
+    if (ch1 && ch2) {
+        SetChannelPitch(channel1, (uint16_t)Pitch);
+        SetChannelPitch(channel2, (uint16_t)Pitch);
+        irx.StereoStarted = 0;
+    }
+}
+
 /* KOFF and the fastest release. The IRX takes the channel on trust; here one past 47 is left alone. */
 static void nw_irx_key_off(int ch)
 {
@@ -917,6 +951,7 @@ static int GetNAX(int core, int ch)
    disc is always ready here. */
 static void StreamADPCM(void)
 {
+    CheckTwoStreamsStatus(irx.StereoChan1, irx.StereoChan2, irx.StereoPitch);
     for (int i = 0; i < NW_IRX_CHANNELS; i++) {
         STREAMDATA *s = &irx.StreamBuffer[i];
         if (s->Status == 1) {
@@ -1123,6 +1158,12 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
             nw_irx_key_off(dt[0]);
+            break;
+        case 0x11: /* the EE names them stream, left and right channel; they are both channels and the pitch */
+            InitCheckStereoStatus(dt[0], dt[1], dt[2]);
+            break;
+        case 0x12:
+            irx.StereoStarted = 0;
             break;
         case 0xa:
             PauseAll();

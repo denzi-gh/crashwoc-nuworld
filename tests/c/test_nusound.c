@@ -39,6 +39,8 @@ int SOUND_StopSound(unsigned int channel);
 void SOUND_CloseStreamBuffer(int stream);
 void SOUND_Pause(void);
 void SOUND_Resume(void);
+void SOUND_CheckAndStartStereo(int stream, int left_channel, int right_channel);
+void SOUND_CancelCheckStereo(void);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -548,6 +550,36 @@ static void test_play_stream(void)
     nusound_irx_loaded = 0;
 }
 
+/* NuSoundPlayStereo's way: both halves at pitch 0 on channels 0 and 1, then the pitch once both stream. */
+static void test_stereo(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    int frames = 0;
+    bool waiting = false;
+
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    SOUND_PlayStream(2, 0, 0, 0x3fff, 0, 0, 2, 0, 0x10);
+    SOUND_PlayStream(3, 1, 1, 0, 0x3fff, 0, 2, 0, 0x10);
+    SOUND_CheckAndStartStereo(0, 1, 0xeb3);
+    do {
+        frame();
+        waiting |= irx->ret[28] == 1 && NuSoundKeyStatus(0) == 1 && nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0;
+    } while (++frames < 50 && irx->ret[28] != 0);
+    CHECK(waiting && irx->StereoStarted == 0);
+    CHECK(nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0xeb3 && nw_spu2_get_param(1 << 1 | NW_SD_VP_PITCH) == 0xeb3);
+    CHECK(irx->SPU_PausePitch[0] == 0xeb3 && irx->SPU_PausePitch[1] == 0xeb3);
+
+    /* Cancelled, nothing changes the pitch. */
+    SOUND_SetChannelPitch(0, 0);
+    SOUND_CheckAndStartStereo(0, 1, 0x1000);
+    SOUND_CancelCheckStereo();
+    frame();
+    frame();
+    CHECK(irx->StereoStarted == 0 && nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0);
+    nusound_irx_loaded = 0;
+}
+
 static void test_pause(void)
 {
     nw_nusound_init(&vfs, test_clock);
@@ -671,6 +703,7 @@ int main(int argc, char *argv[])
     test_play_stream();
     test_stop_stream();
     test_pause();
+    test_stereo();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
