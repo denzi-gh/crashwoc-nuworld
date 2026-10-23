@@ -2,9 +2,10 @@
 """Trace the sound key status and the title cut of a running PCSX2, per vblank.
 
 Reads over PINE (PCSX2: Settings > Advanced > Enable PINE) the EE's
-SOUND_SPUKeyStatus of channels 0-5, the cut movie state the game keeps and
-the EE's copies of the sound module's stream loads (the load request, the
-busy flag, the CD stages of slots 0-3), polling faster than the vblank, and
+SOUND_SPUKeyStatus of channels 0-5, the cut movie state the game keeps, the
+EE's copies of the sound module's stream loads (the load request, the busy
+flag, the CD stages of slots 0-3) and the frame the title logo's texanim
+shows, polling faster than the vblank, and
 prints a line whenever one of them changes, numbered by nuvideo_global_vbcnt
 from the first vblank on which the cut holds for its audio (cutmovie_hold
 0 -> 1: StartCutMovie). Addresses come by name from the decomp's
@@ -42,7 +43,11 @@ FIELDS = (
     ("req", "SOUND_IOP_REQUEST_LOAD", READ32),
     ("busy", "SOUND_CD_STATUS", READ32),
     ("cd", "SOUND_STREAM_CD_ACCESS", READ32),
+    ("ntal", "ntal_first", READ32),
 )
+
+# nutexanm.c: NuTexAnimList (anims, next), nutexanim_s (succ, env), nutexanimenv_s (prog, tex_ix), the program's name.
+LIST_NEXT, ANIM_ENV, ENV_TEX, PROG_NAME = 0x04, 0x14, 0xE4, 0x08
 
 
 class PineError(RuntimeError):
@@ -110,11 +115,47 @@ def address(symbols: dict[str, int], name: str) -> int:
     return symbols[name]
 
 
+def signed32(v: int) -> int:
+    return v - (1 << 32) if v >= 1 << 31 else v
+
+
 def state_line(vblank: int, values: dict[str, int]) -> str:
     keys = "".join(str(values["key"] >> (8 * c) & 0xff) for c in range(CHANNELS))
-    req = values['req'] - (1 << 32) if values['req'] >= 1 << 31 else values['req']
     return (f"vblank {vblank}: key {keys} movie {values['movie']} world {values['world']} "
-            f"hold {values['hold']} on {values['on']} req {req} busy {values['busy']} cd {values['cd']}")
+            f"hold {values['hold']} on {values['on']} req {signed32(values['req'])} busy {values['busy']} "
+            f"cd {values['cd']} tex {values['tex']}")
+
+
+class TexWatch:
+    """The address of the title flipbook's tex_ix (the env running the program "title"), found again whenever the
+    texanim list head moves; None while there is none."""
+
+    def __init__(self, pine: Pine):
+        self.pine = pine
+        self.head = None
+        self.addr = None
+
+    def _read32(self, addr: int) -> int:
+        return self.pine.batch([(READ32, addr)])[0]
+
+    def _name(self, addr: int) -> str:
+        raw = b"".join(struct.pack("<Q", v) for v in self.pine.batch([(READ64, addr + 8 * i) for i in range(4)]))
+        return raw.split(b"\0", 1)[0].decode("latin-1").lower()
+
+    def update(self, head: int) -> None:
+        if head == self.head:
+            return
+        self.head, self.addr = head, None
+        lists = 0
+        while head and lists < 64 and self.addr is None:
+            anim, anims = self._read32(head), 0
+            while anim and anims < 256 and self.addr is None:
+                env = self._read32(anim + ANIM_ENV)
+                prog = self._read32(env) if env else 0
+                if prog and self._name(prog + PROG_NAME) == "title":
+                    self.addr = env + ENV_TEX
+                anim, anims = self._read32(anim), anims + 1
+            head, lists = self._read32(head + LIST_NEXT), lists + 1
 
 
 class Tracer:
@@ -158,9 +199,14 @@ def main() -> int:
     ops = [(op, address(symbols, name)) for _, name, op in FIELDS]
     pine = Pine.connect(args.slot)
     tracer = Tracer(args.vblanks)
+    tex = TexWatch(pine)
     start = time.monotonic()
     while True:
-        values = dict(zip((f for f, _, _ in FIELDS), pine.batch(ops)))
+        addr = tex.addr
+        out = pine.batch(ops + ([(READ32, addr)] if addr is not None else []))
+        values = dict(zip((f for f, _, _ in FIELDS), out))
+        values["tex"] = signed32(out[-1]) if addr is not None else -1
+        tex.update(values["ntal"])
         lines, done = tracer.feed(values)
         for line in lines:
             print(line, flush=True)

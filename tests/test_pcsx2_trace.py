@@ -30,9 +30,25 @@ def reply(body: bytes) -> bytes:
     return struct.pack("<I", len(body) + 4) + body
 
 
-def values(vblank, hold=0, key=0, movie=0, world=0, on=1, req=0xFFFFFFFF, busy=0, cd=0):
+def values(vblank, hold=0, key=0, movie=0, world=0, on=1, req=0xFFFFFFFF, busy=0, cd=0, tex=-1):
     return {"vblank": vblank, "key": key, "movie": movie, "world": world, "hold": hold, "on": on, "req": req,
-            "busy": busy, "cd": cd}
+            "busy": busy, "cd": cd, "tex": tex}
+
+
+class FakeMemory:
+    """Pine.batch over a dict of little-endian words."""
+
+    def __init__(self, words: dict[int, int]):
+        self.words = words
+        self.reads = 0
+
+    def batch(self, ops):
+        self.reads += 1
+        out = []
+        for op, addr in ops:
+            lo = self.words.get(addr, 0)
+            out.append(lo | self.words.get(addr + 4, 0) << 32 if op == pcsx2_trace.READ64 else lo)
+        return out
 
 
 class PineTest(unittest.TestCase):
@@ -70,12 +86,35 @@ class TraceTest(unittest.TestCase):
         self.assertEqual(t.feed(values(101, hold=1, movie=1)), ([], False))  # not the logos movie
         self.assertEqual(t.feed(values(102, hold=0)), ([], False))
         lines, done = t.feed(values(103, hold=1))
-        self.assertEqual(lines, ["vblank 0: key 000000 movie 0 world 0 hold 1 on 1 req -1 busy 0 cd 0"])
+        self.assertEqual(lines, ["vblank 0: key 000000 movie 0 world 0 hold 1 on 1 req -1 busy 0 cd 0 tex -1"])
         self.assertEqual(t.feed(values(104, hold=1)), ([], False))
         lines, _ = t.feed(values(105, hold=1, key=2 << 32, req=4))
-        self.assertEqual(lines, ["vblank 2: key 000020 movie 0 world 0 hold 1 on 1 req 4 busy 0 cd 0"])
-        done = [t.feed(values(v, hold=1, key=2 << 32, req=4))[1] for v in range(106, 114)]
-        self.assertEqual(done, [False] * 7 + [True])
+        self.assertEqual(lines, ["vblank 2: key 000020 movie 0 world 0 hold 1 on 1 req 4 busy 0 cd 0 tex -1"])
+        lines, _ = t.feed(values(106, hold=1, key=2 << 32, req=4, tex=3))
+        self.assertEqual(lines, ["vblank 3: key 000020 movie 0 world 0 hold 1 on 1 req 4 busy 0 cd 0 tex 3"])
+        done = [t.feed(values(v, hold=1, key=2 << 32, req=4, tex=3))[1] for v in range(107, 114)]
+        self.assertEqual(done, [False] * 6 + [True])
+
+    def test_tex_watch(self):
+        # Two lists: the first's anim has no env, the second's chain ends in the env running "Title".
+        mem = FakeMemory({
+            0x1000: 0x2000, 0x1004: 0x1100,            # list 1: anims, next
+            0x2000: 0, 0x2014: 0,                      # its anim: no succ, no env
+            0x1100: 0x2100, 0x1104: 0,                 # list 2
+            0x2100: 0x2200, 0x2114: 0x3000,            # anim: succ, env running "other"
+            0x2200: 0, 0x2214: 0x3100,                 # anim: env running "Title"
+            0x3000: 0x4000, 0x3100: 0x4100,
+            0x4008: int.from_bytes(b"othe", "little"), 0x400C: int.from_bytes(b"r", "little"),
+            0x4108: int.from_bytes(b"Titl", "little"), 0x410C: int.from_bytes(b"e", "little"),
+        })
+        w = pcsx2_trace.TexWatch(mem)
+        w.update(0)
+        self.assertIsNone(w.addr)
+        w.update(0x1000)
+        self.assertEqual(w.addr, 0x3100 + pcsx2_trace.ENV_TEX)
+        reads = mem.reads
+        w.update(0x1000)  # same head: no walk
+        self.assertEqual(mem.reads, reads)
 
 
 class CompareTest(unittest.TestCase):

@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nu3d/nutexanm.h"
+
 #define NW_TRACE_CHANNELS 6
 
 /* decomp nusound.c, ps2video.c and cut.c (cutworldix is D_00633388) */
@@ -17,6 +19,14 @@ extern int SOUND_IOP_REQUEST_LOAD;
 extern int SOUND_CD_STATUS;
 extern int SOUND_STREAM_CD_ACCESS;
 
+/* nutexanm.c's NuTexAnimList */
+struct nw_ntal {
+    struct nutexanim_s *anims;
+    struct nw_ntal *next;
+    struct nw_ntal *prev;
+};
+extern struct nw_ntal *ntal_first;
+
 static struct {
     bool on;
     bool synced;
@@ -24,6 +34,20 @@ static struct {
     int base;
     char last[96];
 } nw_trace;
+
+/* The frame the title logo's flipbook (title.ats) shows; -1 before it loads. */
+static int nw_trace_tex(void)
+{
+    struct nutexanimprog_s *title = NuTexAnimProgFind("title");
+    for (struct nw_ntal *list = ntal_first; title && list; list = list->next) {
+        for (struct nutexanim_s *anim = list->anims; anim; anim = anim->succ) {
+            if (anim->env && anim->env->prog == title) {
+                return anim->env->tex_ix;
+            }
+        }
+    }
+    return -1;
+}
 
 void nw_trace_sound_start(void)
 {
@@ -49,8 +73,9 @@ void nw_trace_sound_vblank(void)
         key[i] = (char)('0' + SOUND_SPUKeyStatus[i] % 10);
     }
     key[NW_TRACE_CHANNELS] = '\0';
-    snprintf(state, sizeof(state), "key %s movie %d world %d hold %d on %d req %d busy %d cd %d", key, cutmovie,
-             D_00633388, cutmovie_hold, cut_on, SOUND_IOP_REQUEST_LOAD, SOUND_CD_STATUS, SOUND_STREAM_CD_ACCESS);
+    snprintf(state, sizeof(state), "key %s movie %d world %d hold %d on %d req %d busy %d cd %d tex %d", key,
+             cutmovie, D_00633388, cutmovie_hold, cut_on, SOUND_IOP_REQUEST_LOAD, SOUND_CD_STATUS,
+             SOUND_STREAM_CD_ACCESS, nw_trace_tex());
     if (strcmp(state, nw_trace.last) != 0) {
         printf("vblank %d: %s\n", vblank - nw_trace.base, state);
         fflush(stdout);
