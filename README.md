@@ -7,7 +7,8 @@ CrashWOC: NuWorld contains no game data. It needs your own copy of the game (PAL
 
 Status: early. The executable opens an SDL3 / OpenGL 3.3 window, can import and verify your disc
 (see Game data) and links the whole decomp, whose data it builds from your disc (`--check-data`). The game
-boots to its first loading screen on a 50 Hz vblank clock (`--boot`, `--boot-check`) but draws nothing yet.
+boots to its first loading screen on a 50 Hz vblank clock (`--boot`, `--boot-check`), and the decomp draws any
+scene through the port's renderer (`--scene`).
 
 ## Building
 

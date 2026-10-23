@@ -18,6 +18,7 @@ typedef unsigned int GLuint;
 typedef int GLint;
 typedef int GLsizei;
 typedef float GLfloat;
+typedef double GLdouble;
 typedef unsigned char GLubyte;
 typedef unsigned char GLboolean;
 typedef char GLchar;
@@ -40,6 +41,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_DEPTH_BUFFER_BIT 0x00000100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
+#define GL_SCISSOR_TEST 0x0C11
 #define GL_BLEND 0x0BE2
 #define GL_UNPACK_ALIGNMENT 0x0CF5
 #define GL_TEXTURE_2D 0x0DE1
@@ -63,6 +65,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE0 0x84C0
 #define GL_ARRAY_BUFFER 0x8892
 #define GL_ELEMENT_ARRAY_BUFFER 0x8893
+#define GL_STREAM_DRAW 0x88E0
 #define GL_STATIC_DRAW 0x88E4
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_VERTEX_SHADER 0x8B31
@@ -87,6 +90,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glClear, (GLbitfield mask)) \
     X(void, glClearColor, (GLfloat r, GLfloat g, GLfloat b, GLfloat a)) \
     X(void, glViewport, (GLint x, GLint y, GLsizei w, GLsizei h)) \
+    X(void, glScissor, (GLint x, GLint y, GLsizei w, GLsizei h)) \
+    X(void, glClearDepth, (GLdouble depth)) \
     X(const GLubyte *, glGetString, (GLenum name)) \
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
@@ -154,6 +159,8 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glClear nw_glClear
 #define glClearColor nw_glClearColor
 #define glViewport nw_glViewport
+#define glScissor nw_glScissor
+#define glClearDepth nw_glClearDepth
 #define glGetString nw_glGetString
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable

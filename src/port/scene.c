@@ -28,6 +28,7 @@ void NuGScnUpdate(struct nugscn_s *scene, float dt);
 void NuGScnRndr3(struct nugscn_s *scene);
 void NuRndrInitEx(int streamsize);
 int NuRndrBeginScene(int target);
+void NuRndrClear(int flags, int colour, float depth);
 void NuRndrEndScene(void);
 int NuRndrSwapScreen(int target);
 void NuMtlAnimate(float dt);
@@ -196,6 +197,7 @@ int nw_scene_main(int argc, char **argv)
         NuMtlAnimate(0.02f);
         NuGScnUpdate(sc, 0.02f);
         NuRndrBeginScene(-1);
+        NuRndrClear(7, 0, 1.0f);
         NuGScnRndr3(sc);
         NuRndrEndScene();
         NuRndrSwapScreen(-1);

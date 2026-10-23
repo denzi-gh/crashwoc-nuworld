@@ -27,6 +27,10 @@ extern int nurndr_pixel_p2w;
 extern int nurndr_pixel_p2h;
 extern int PS2_REZ_W;
 extern int PS2_REZ_H;
+extern int PS2_VCNTR_X;
+extern int PS2_VCNTR_Y;
+extern struct numtl_s *numtl_defaultmtl2d;
+extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
@@ -141,6 +145,54 @@ void NuRndrEndSceneEx(int flags)
 void NuRndrFlush(int flags)
 {
     NuRndrEndSceneEx(flags);
+}
+
+/* The flush, then a CLEAR at the start of the system stream, which sorts first: colour (flags & 3 = 1), Z (2) or
+   both over the scissor at z = (1 - depth) * (2^23 - 1); flags & 4 flushes the streams alone. */
+void NuRndrClear(int flags, int colour, float depth)
+{
+    if (flags & 4) {
+        NuRndrStreamFlush();
+    } else {
+        NuMtlBuildRenderList();
+        NuRndrOTFlush();
+        NuRndrStreamFlush();
+    }
+    NwCmd *c = nw_rndr_cmd(rndrstream_system, NW_CMD_CLEAR);
+    memcpy(c->clear.rgba, &colour, 4);
+    c->clear.z = (uint32_t)(int)((1.0f - depth) * 8388607.0f);
+    c->clear.mask = (flags & 3) == 1 || (flags & 3) == 2 ? flags & 3 : 3;
+}
+
+/* A sprite in the 2D stream under mtl (numtl_defaultmtl2d without one) from (x, y) in 12.4 pixels of a width x
+   height screen, centred on PS2_VCNTR as the GS sees it. */
+static void nw_rndr_rect(int x, int y, int width, int height, int colour, struct numtl_s *mtl, const float st[4],
+                         int screen_w, int screen_h)
+{
+    x += (PS2_VCNTR_X - (screen_w >> 1)) << 4;
+    y += (PS2_VCNTR_Y - (screen_h >> 1)) << 4;
+    NuRndrStreamAddMtl(rndrstream_2d, mtl ? mtl : numtl_defaultmtl2d);
+    NwCmd *c = nw_rndr_cmd(rndrstream_2d, NW_CMD_RECT);
+    c->rect.xy[0] = x;
+    c->rect.xy[1] = y;
+    c->rect.xy[2] = x + width;
+    c->rect.xy[3] = y + height;
+    memcpy(c->rect.st, st, sizeof(c->rect.st));
+    memcpy(c->rect.rgba, &colour, 4);
+}
+
+void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl_s *mtl)
+{
+    static const float st[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    nw_rndr_rect(x, y, width, height, colour, mtl, st, PS2_REZ_W, PS2_REZ_H);
+}
+
+/* Centred on the render target, where NuRndrRect2di centres on the screen. */
+void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
+                     struct numtl_s *mtl)
+{
+    const float st[4] = { u0, v0, u1, v1 };
+    nw_rndr_rect(x, y, width, height, colour, mtl, st, nurndr_pixel_width, nurndr_pixel_height);
 }
 
 /* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame

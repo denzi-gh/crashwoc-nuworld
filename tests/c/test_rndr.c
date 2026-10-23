@@ -18,13 +18,18 @@
 
 extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[];
 extern struct nutexslot_s *D_0062EBEC;
-extern int no_default_font, PS2_REZ_W, PS2_REZ_H;
+extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
+extern struct numtl_s *numtl_defaultmtl2d;
 
 /* Declared by no header. */
 int NuRndrBeginScene(int target);
 void NuRndrEndScene(void);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuMtlAnimate(float dt);
+void NuRndrClear(int flags, int colour, float depth);
+void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl_s *mtl);
+void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
+                     struct numtl_s *mtl);
 extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
@@ -331,10 +336,52 @@ static void test_animate(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* NuRndrClear flushes what came before (flags & 4: the streams alone, so material streams wait) and clears from
+   the system stream, which sorts first in the next group; the sprites go to the 2D stream at screen or target
+   coordinates under numtl_defaultmtl2d unless given a material. */
+static void test_2d(void)
+{
+    struct numtl_s *m = NuMtlCreate(1);
+    NuMtlUpdate(m);
+    NuRndrBeginScene(-1);
+    mark(&m->rs, 50);
+    NuRndrClear(6, (int)0x80402010, 0.25f);
+    mark(rndrstream_2d, 51);
+    NuRndrClear(3, 0, 1.0f);
+    NuRndrRect2di(16, 32, 160, 80, (int)0x80FFFFFF, NULL);
+    NuRndrRectUV2di(0, 0, 640 << 4, 256 << 4, 0.25f, 0.0f, 0.75f, 1.0f, 0x10203040, m);
+    NuRndrClear(5, 0, 0.0f);
+    const NwPacket *p = nw_rndr_packet();
+    static const uint8_t ops[6] = { NW_CMD_CLEAR, NW_CMD_DRAW, NW_CMD_DRAW, NW_CMD_CLEAR, NW_CMD_RECT, NW_CMD_RECT };
+    bool same = p->ncmds == 6;
+    for (uint32_t i = 0; i < 6 && same; i++) {
+        same = p->cmds[i].op == ops[i];
+    }
+    CHECK(same);
+    if (same) {
+        const NwCmd *c = p->cmds;
+        CHECK(c[0].clear.mask == 2 && c[0].clear.z == (uint32_t)(int)(0.75f * 8388607.0f));
+        CHECK(memcmp(c[0].clear.rgba, (uint8_t[]){ 0x10, 0x20, 0x40, 0x80 }, 4) == 0 && c[0].material == NULL);
+        CHECK((uintptr_t)c[1].mesh == 50 && (uintptr_t)c[2].mesh == 51);
+        CHECK(c[3].clear.mask == 3 && c[3].clear.z == 0);
+        CHECK(c[4].rect.xy[0] == 16 + (0x800 - 320) * 16 && c[4].rect.xy[1] == 32 + (0x800 - 256) * 16);
+        CHECK(c[4].rect.xy[2] == c[4].rect.xy[0] + 160 && c[4].rect.xy[3] == c[4].rect.xy[1] + 80);
+        CHECK(c[4].rect.st[2] == 1.0f && c[4].rect.rgba[3] == 0x80 && c[4].material == numtl_defaultmtl2d);
+        CHECK(c[5].material == m && c[5].rect.st[0] == 0.25f && c[5].rect.st[2] == 0.75f);
+        CHECK(c[5].rect.xy[3] == (0x800 - 256) * 16 + (256 << 4) && c[5].rect.rgba[0] == 0x40);
+    }
+    NuRndrClear(2, 0, 1.0f);
+    NuRndrEndScene();
+    CHECK(p->ncmds == 8 && p->cmds[6].clear.mask == 1 && p->cmds[7].clear.mask == 2);
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
     PS2_REZ_H = 512;
+    PS2_VCNTR_X = 0x800;
+    PS2_VCNTR_Y = 0x800;
     no_default_font = 1;
     NuTexInit();
     NuMtlInit();
@@ -347,6 +394,7 @@ int main(void)
     test_state_capture();
     test_raw();
     test_animate();
+    test_2d();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

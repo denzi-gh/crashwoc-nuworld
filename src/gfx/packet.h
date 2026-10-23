@@ -25,7 +25,9 @@ typedef struct NwGpuTex {
 } NwGpuTex;
 
 typedef enum NwCmdOp {
-    NW_CMD_DRAW, /* a geom's mesh under the local matrix */
+    NW_CMD_DRAW,  /* a geom's mesh under the local matrix */
+    NW_CMD_CLEAR, /* NuRndrClear: the scissor rectangle's colour and Z */
+    NW_CMD_RECT,  /* a 2D sprite */
 } NwCmdOp;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
@@ -52,8 +54,22 @@ typedef struct NwCmd {
     uint32_t mtl;                   /* into NwPacket.mtls, from material when the packet is published */
     const void *mpg;                /* the microcode package (an NwVuProg) */
     const struct numtl_s *material; /* game thread only */
-    const NwGpuMesh *mesh;
-    float local[16];
+    union {
+        struct {
+            const NwGpuMesh *mesh;
+            float local[16];
+        };
+        struct {
+            int32_t xy[4]; /* the corners in GS 12.4 */
+            float st[4];   /* s, t at each corner (Q 1) */
+            uint8_t rgba[4];
+        } rect;
+        struct {
+            uint8_t rgba[4];
+            uint32_t z;   /* GS Z */
+            uint8_t mask; /* 1 colour, 2 Z */
+        } clear;
+    };
 } NwCmd;
 
 typedef struct NwPacket {
