@@ -93,7 +93,8 @@ schema = 1
 "gamelib/edfile" = { treatment = "editor" }
 "gamelib/specterr" = { treatment = "compile" }
 "gamelib/saveload" = { treatment = "replace" }
-"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad"] }
+# The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
+"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
 "gamelib/sceneman" = { treatment = "dead" }
 "gamelib/nubridge" = { treatment = "compile", override = ["NuBridgeStreamRope"] }

@@ -133,7 +133,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustream.c src/gfx/numtl.c
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c src/port/ps2video.c src/port/scene.c
+  src/port/gcutscn.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c src/port/ps2video.c
+  src/port/scene.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
@@ -170,6 +171,11 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --boot-check --loads 1)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: on until the title cut movie has loaded (BGLoadCutScene's loader ends).
+  add_test(NAME boot-cut
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
+      --data-dir {root} --boot-check --loads 2)
+  set_tests_properties(boot-cut PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
@@ -219,6 +225,16 @@ if(NUWORLD_TESTS)
   add_test(NAME nughg COMMAND nuworld_test_nughg ${CMAKE_CURRENT_BINARY_DIR}/test-nughg)
   add_test(NAME nughg-retail COMMAND nuworld_test_nughg retail)
   set_tests_properties(nughg-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+
+  # The .cut loader override on a synthetic file; nucut-retail loads every .cut of NUWORLD_TEST_DATA.
+  add_executable(nuworld_test_nucut tests/c/test_nucut.c)
+  add_dependencies(nuworld_test_nucut nuworld_types)
+  target_include_directories(nuworld_test_nucut PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_nucut PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_nucut PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nucut COMMAND nuworld_test_nucut ${CMAKE_CURRENT_BINARY_DIR}/test-nucut)
+  add_test(NAME nucut-retail COMMAND nuworld_test_nucut retail)
+  set_tests_properties(nucut-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 
   # The port's Nu render layer under the decomp code that drives it.
   add_executable(nuworld_test_rndr tests/c/test_rndr.c)

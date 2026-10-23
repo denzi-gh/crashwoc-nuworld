@@ -10,7 +10,7 @@ schema = 1
 [unions]
 # numtl/nuwater read only .s32 and .f32; .voidptr is never used.
 "union nufx_u" = { member = "u32" }
-# The per-curve flags decide; the .ani loader converts these (M4).
+# The per-curve flags decide; the .cut loader converts these.
 "union nuanimcurve2_u" = { hook = true }
 # Editor-only: built at runtime, never in the retail data image.
 "struct eduiitem_s$1" = { hook = true }
