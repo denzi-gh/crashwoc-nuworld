@@ -1,6 +1,5 @@
 /* The .ani loader override (src/port/nuanim.c) on a synthetic file; locally on every .ani and .bsa of the imported
    disc. Usage: test_nuanim <scratch dir> | retail. */
-#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,11 +22,11 @@
 #include "vfs/vfs.h"
 
 #include "ani_builder.h"
+#include "anim_check.h"
 
 /* Declared by no header. */
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, union variptr_u *buffend);
-void NuAnimDataCalcTime(struct nuanimdata_s *data, float time, struct nuanimtime_s *atime);
 extern int D_0062EE18; /* bitcount_table_built */
 
 static int failures;
@@ -128,13 +127,12 @@ static void test_load(const char *scratch)
 }
 
 typedef struct RetailStats {
-    unsigned files, other, chunks, sets, curves, keys, bad;
-    int minsets[2]; /* the fewest curves in an .ani and a .bsa set: the joint appliers read set[0..8] unchecked */
-    unsigned before, past, nonfinite; /* reads before a curve's first key, past its last; inf or NaN values */
+    unsigned other, bad;
+    AnimStats ani, bsa;
     size_t host;
 } RetailStats;
 
-static RetailStats retail = { .minsets = { 127, 127 } };
+static RetailStats retail = { .ani = ANIM_STATS_INIT, .bsa = ANIM_STATS_INIT };
 
 static void drain_gpu(void)
 {
@@ -153,43 +151,6 @@ static void drain_gpu(void)
     SDL_free(jobs);
 }
 
-/* Every curve at every frame: the keys it reads lie in the file. */
-static void retail_eval(const char *path, const char *file, size_t size, struct nuanimdata_s *data)
-{
-    for (float t = 1.0f; data->nchunks > 0 && t <= data->time + 1.0f; t += 1.0f) {
-        struct nuanimtime_s at;
-        NuAnimDataCalcTime(data, t, &at);
-        struct nuanimdatachunk_s *chunk = data->chunks[at.chunk];
-        int key = (int)floorf(at.time_offset) - 1;
-        if (key < 0 || key > 31) {
-            retail.bad++;
-            continue;
-        }
-        uint32_t upto = (uint32_t)((2ull << key) - 1);
-        for (int j = 0; chunk && chunk->animcurvesets && j < chunk->numnodes; j++) {
-            struct nuanimcurveset_s *set = chunk->animcurvesets[j];
-            for (int k = 0; set && set->set && k < set->ncurves; k++) {
-                struct nuanimcurve_s *c = set->set[k];
-                if (!c) {
-                    continue;
-                }
-                int ix = __builtin_popcount(c->mask.bits & upto) - 1, last = c->flags & 1 ? ix : ix + 1;
-                const char *lo = (const char *)c->animkeys + ix * 16, *hi = (const char *)c->animkeys + last * 16 + 16;
-                retail.before += ix < 0;
-                retail.past += last >= (int)c->numkeys;
-                if (lo < file || hi > file + size) {
-                    if (retail.bad++ < 10) {
-                        fprintf(stderr, "retail: %s: chunk %d node %d curve %d at frame %g reads outside the file\n",
-                                path, at.chunk, j, k, t);
-                    }
-                    continue;
-                }
-                retail.nonfinite += !isfinite(NuAnimCurveCalcVal2(c, &at));
-            }
-        }
-    }
-}
-
 static void retail_file(const char *path)
 {
     /* Other versions are another format, which retail's loader rejects too. */
@@ -201,38 +162,17 @@ static void retail_file(const char *path)
         retail.other++;
         return;
     }
-    int *minsets = &retail.minsets[SDL_strcasecmp(path + strlen(path) - 4, ".bsa") == 0];
     union variptr_u buf, end;
     buf.charptr = ani_buffer;
     end.charptr = ani_buffer + sizeof(ani_buffer);
     struct nuanimdata_s *data = NuAnimDataLoadBuff((char *)path, &buf, &end);
     /* The image up to the host records, with at most their alignment's padding. */
     size_t size = (size_t)((char *)data - ani_buffer), host = (size_t)(buf.charptr - (char *)data);
-    unsigned chunks = 0, sets = 0, curves = 0, keys = 0;
-    for (int i = 0; data->chunks && i < data->nchunks; i++) {
-        struct nuanimdatachunk_s *chunk = data->chunks[i];
-        chunks += chunk != NULL;
-        for (int j = 0; chunk && chunk->animcurvesets && j < chunk->numnodes; j++) {
-            struct nuanimcurveset_s *set = chunk->animcurvesets[j];
-            if (!set) {
-                continue;
-            }
-            sets++;
-            *minsets = set->ncurves < *minsets ? set->ncurves : *minsets;
-            for (int k = 0; set->set && k < set->ncurves; k++) {
-                curves += set->set[k] != NULL;
-                keys += set->set[k] ? set->set[k]->numkeys : 0;
-            }
-        }
-    }
-    retail_eval(path, ani_buffer, size, data);
-    printf("ANI %s time=%g chunks=%u sets=%u curves=%u keys=%u bytes=%zu host=%zu\n", path, data->time, chunks,
-           sets, curves, keys, size, host);
-    retail.files++;
-    retail.chunks += chunks;
-    retail.sets += sets;
-    retail.curves += curves;
-    retail.keys += keys;
+    AnimStats st = ANIM_STATS_INIT;
+    anim_check(&st, path, ani_buffer, ani_buffer + size, data);
+    printf("ANI %s time=%g chunks=%u sets=%u curves=%u keys=%u bytes=%zu host=%zu\n", path, data->time, st.chunks,
+           st.sets, st.curves, st.keys, size, host);
+    anim_add(SDL_strcasecmp(path + strlen(path) - 4, ".bsa") == 0 ? &retail.bsa : &retail.ani, &st);
     retail.host += host;
 }
 
@@ -323,12 +263,15 @@ static int test_retail(void)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, "retail: %s\n", nw_game_error());
     }
-    printf("TOTAL files=%u other=%u chunks=%u sets=%u curves=%u keys=%u minsets=%d/%d before=%u past=%u nonfinite=%u "
-           "host=%zu bad=%u\n", retail.files, retail.other, retail.chunks, retail.sets, retail.curves, retail.keys,
-           retail.minsets[0], retail.minsets[1], retail.before, retail.past, retail.nonfinite, retail.host, retail.bad);
-    CHECK(state == NW_GAME_RETURNED && retail.bad == 0 && retail.files == 712 && retail.other == 17);
-    CHECK(retail.chunks == 2075 && retail.sets == 45833 && retail.curves == 47940 && retail.keys == 517751);
-    CHECK(retail.minsets[0] == 9 && retail.before == 0 && retail.past == 69 && retail.nonfinite == 5);
+    anim_print("TOTAL .ani", &retail.ani);
+    anim_print("TOTAL .bsa", &retail.bsa);
+    printf("TOTAL other=%u host=%zu bad=%u\n", retail.other, retail.host, retail.bad);
+    const AnimStats *a = &retail.ani, *b = &retail.bsa;
+    CHECK(state == NW_GAME_RETURNED && retail.bad == 0 && a->bad == 0 && b->bad == 0 && retail.other == 17);
+    CHECK(a->anims == 509 && a->chunks == 1370 && a->sets == 45128 && a->curves == 44848 && a->keys == 495592);
+    CHECK(a->minsets == 9 && a->before == 0 && a->past == 69 && a->nonfinite == 5);
+    CHECK(b->anims == 203 && b->chunks == 705 && b->sets == 705 && b->curves == 3092 && b->keys == 22159);
+    CHECK(b->minsets == 1 && b->before == 0 && b->past == 0 && b->nonfinite == 0);
     return failures ? 1 : 0;
 }
 

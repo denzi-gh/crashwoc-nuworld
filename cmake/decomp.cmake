@@ -208,13 +208,16 @@ if(NUWORLD_TESTS)
   add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
   set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
 
-  # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts.
+  # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts. nugscn-retail
+  # checks the animation library of every .gsc of NUWORLD_TEST_DATA.
   add_executable(nuworld_test_nugscn tests/c/test_nugscn.c)
   add_dependencies(nuworld_test_nugscn nuworld_types)
   target_include_directories(nuworld_test_nugscn PRIVATE ${nw_decomp_includes} ${nw_gen})
   target_compile_options(nuworld_test_nugscn PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_nugscn PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME nugscn COMMAND nuworld_test_nugscn ${CMAKE_CURRENT_BINARY_DIR}/test-nugscn)
+  add_test(NAME nugscn-retail COMMAND nuworld_test_nugscn retail)
+  set_tests_properties(nugscn-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
 
   # The .ghg loader override on a synthetic file; nughg-retail loads every .ghg of NUWORLD_TEST_DATA.
   add_executable(nuworld_test_nughg tests/c/test_nughg.c)
