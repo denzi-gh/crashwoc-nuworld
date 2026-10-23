@@ -342,10 +342,12 @@ static void test_init_stream_data(void)
     CHECK(!irx->global_dat && irx->AnyFiles == 0 && irx->ADPCM_FileInfo[0].size == 0);
 }
 
-/* What init_adpcm sends, on the cdrom0: path, with info as the sample table. */
+/* What init_adpcm sends, on the cdrom0: path, with info as the sample table; from a vblank, so the module's ticks
+   fall the same in every test. */
 static void boot_module(struct nusound_filename_info_s *info)
 {
     nw_nusound_init(&vfs, nw_game_us);
+    sceGsSyncV(0);
     send_string(0x1e, "SFX.DAT");
     send_string(7, "cdrom0:\\");
     SOUND_AddSamples(info);
@@ -366,23 +368,45 @@ static struct nusound_filename_info_s bank[] = {
     { "", 0, 0, 0 },
 };
 
+/* TransferSFX of a resident sample: the ticks until the module reports the transfer done. */
+static int transfer_ticks(int id, int slot)
+{
+    int32_t ret[128];
+    int ticks = 0;
+
+    SOUND_TransferSFX(id, slot);
+    FlushIOPCommand(0);
+    status(ret);
+    CHECK(nw_nusound_irx()->ResStatus == 0 && ret[26] == 1);
+    for (; ticks < 20 && ret[26]; ticks++) {
+        nw_game_spend_us(16666);
+        status(ret);
+    }
+    return ticks;
+}
+
+/* The drive as PCSX2 times it: the same sample again seeks back a sector from where the drive stopped (half a
+   turn, done on its tick), so tick 2 reads it and tick 3 ends it; after the game read the disc the seek is a full
+   one again. */
+static void test_cd_time(void)
+{
+    boot_module(bank);
+    CHECK(transfer_ticks(0x1000, 0) == 9);
+    CHECK(transfer_ticks(0x1000, 1) == 3);
+    nw_nusound_cd_moved();
+    CHECK(transfer_ticks(0x1000, 2) == 9);
+}
+
 static void test_transfer_sfx(void)
 {
     const NwIrx *irx = nw_nusound_irx();
     const uint8_t *ram = nw_spu2_ram();
     int32_t ret[128];
 
-    /* One transfer: the slot starts it on the next tick, the CD seeks, reads the one sector, then the DMA. */
+    /* One transfer: tick 1 starts it with the drive's first seek, a full one (100 ms); tick 8, the first after it,
+       reads the one sector the drive has read ahead by then, tick 9 sends it to SPU RAM and ends it. */
     boot_module(bank);
-    SOUND_TransferSFX(0x1000, 0);
-    FlushIOPCommand(0);
-    status(ret);
-    CHECK(irx->ResStatus == 0 && ret[26] == 1);
-    for (int tick = 1; tick <= 3; tick++) {
-        nw_game_spend_us(16666);
-        status(ret);
-        CHECK(ret[26] == (tick < 3));
-    }
+    CHECK(transfer_ticks(0x1000, 0) == 9);
     CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
     CHECK(irx->StreamMemoryEnd == 0x48310 + a_size && !irx->SPOT_IOPAddress);
 
@@ -554,14 +578,14 @@ static void test_play_stream(void)
     nusound_irx_loaded = 1;
     boot_module(streams);
     /* NuSoundPlayChan's stream on channel 4 (a cut's audio): bank 4, the file's rate (pitch 1), its LoopInfo (2).
-       It keys on after two handshakes and the CD's steps; its two blocks at 22050 Hz are over 89 samples later,
-       before the next reply, so the key status goes from 2 to 0. */
+       It keys on after two handshakes, the drive's first seek (a full one, 100 ms) and the read; its two blocks at
+       22050 Hz are over 89 samples later, before the next reply, so the key status goes from 2 to 0. */
     SOUND_PlayStream(2, 4, 4, 0x3fff, 0x2000, 1, 2, 0, 0x10);
     for (; frames < 50 && (!starting || NuSoundKeyStatus(4) == 2); frames++) {
         frame();
         starting |= NuSoundKeyStatus(4) == 2;
     }
-    CHECK(NuSoundKeyStatus(4) == 0 && starting && frames == 11);
+    CHECK(NuSoundKeyStatus(4) == 0 && starting && frames == 15);
     CHECK(s->iStatus == 0 && s->PlayingHalf == 3 && s->LoopInfo == 2);
     CHECK(s->ID == 2 && s->Channel == 4 && s->Pitch == 0x759 && s->SPUAddress == spu);
     CHECK(nw_spu2_get_addr(4 << 1 | NW_SD_VA_SSA) == spu && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0x759);
@@ -572,18 +596,21 @@ static void test_play_stream(void)
     CHECK(s->Status == 0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_VOLR) == 0);
 
     /* A stream longer than its buffer, on slot 0: the whole buffer as a ring in SPU RAM, then the rest (less than
-       a half) read ahead with the end's flags set, waiting for the voice to leave the first half. */
+       a half) read ahead with the end's flags set, waiting for the voice to leave the first half. Its sectors are
+       near a.vag's, a short seek. The buffer's DMA to SPU RAM (18 ms) holds SYSTEMWAIT, and the key-on waits. */
     const STREAMDATA *s0 = &irx->StreamBuffer[0];
     const uint8_t *ram = nw_spu2_ram() + 0x5010;
+    bool held = false;
     SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     for (frames = 0; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
         frame();
+        held |= s0->iStatus == 1 && irx->SYSTEMWAIT && irx->IOPRequestLoad == -1;
     }
-    CHECK(frames == 12 && s0->iStatus == 1); /* keyed on, reading ahead */
+    CHECK(frames == 14 && s0->iStatus == 1 && held); /* keyed on, reading ahead */
     for (; frames < 50 && s0->iStatus != 0; frames++) {
         frame();
     }
-    CHECK(frames == 14 && NuSoundKeyStatus(0) == 1 && s0->PlayingHalf == 0 && s0->LoopInfo == 2);
+    CHECK(frames == 16 && NuSoundKeyStatus(0) == 1 && s0->PlayingHalf == 0 && s0->LoopInfo == 2);
     CHECK(s0->Pitch == 0xeb3 && s0->FileSeek == 0x30 + 0xd700);
     CHECK(ram[1] == (NW_ADPCM_START | NW_ADPCM_REPEAT) && ram[0x11] == NW_ADPCM_REPEAT);
     CHECK(ram[0xd700 - 0xf] == (NW_ADPCM_END | NW_ADPCM_REPEAT));
@@ -598,11 +625,11 @@ static void test_play_stream(void)
         frame();
     }
     memcpy(&block, ram + 2, sizeof(block));
-    CHECK(frames == 69 && s0->PlayingHalf == 1 && NuSoundKeyStatus(0) == 1 && block == 0xd700 / NW_ADPCM_BLOCK);
+    CHECK(frames == 71 && s0->PlayingHalf == 1 && NuSoundKeyStatus(0) == 1 && block == 0xd700 / NW_ADPCM_BLOCK);
     for (; frames < 300 && NuSoundKeyStatus(0) == 1; frames++) {
         frame();
     }
-    CHECK(frames == 141 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
+    CHECK(frames == 144 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
     nusound_irx_loaded = 0;
@@ -631,7 +658,7 @@ static void test_stream_ring(void)
             }
         }
     }
-    CHECK(inside && refills == 7 && NuSoundKeyStatus(0) == 1 && s->Status == 1 && s->LoopInfo == 0);
+    CHECK(inside && refills == 6 && NuSoundKeyStatus(0) == 1 && s->Status == 1 && s->LoopInfo == 0);
     nusound_irx_loaded = 0;
 }
 
@@ -888,7 +915,7 @@ static int test_retail(void)
         starting |= NuSoundKeyStatus(4) == 2;
     }
     printf("logos stream: id %#x, keyed on after %d frames\n", irx->StreamBuffer[4].ID, frames);
-    CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == 13);
+    CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == 19);
 
     /* It plays through its buffer's refills to the file's END block: 799092 samples at 22050 Hz, 1812.6 frames. On
        PCSX2 the key status of channel 4 drops 1812 vblanks after it went to 1. */
@@ -929,6 +956,7 @@ int main(int argc, char *argv[])
     test_stream_buffers();
     test_init_stream_data();
     test_transfer_sfx();
+    test_cd_time();
     test_local_bank();
     test_play_sfx();
     test_channel_volume();

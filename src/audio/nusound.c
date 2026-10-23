@@ -15,6 +15,18 @@
 #define NW_IRX_NO_REQUEST 0xffff
 #define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
 #define NW_IOP_HZ 36864000u
+
+/* The drive and the SPU DMA in IOP cycles, as PCSX2 times them (CDVD.cpp, SPU2/Dma.cpp). The IRX reads at nominal
+   speed, CLV 24x on a CD, which PCSX2 caps at 10.3x. */
+#define NW_CD_FULL_SEEK (NW_IOP_HZ / 10)       /* 4371 sectors or more */
+#define NW_CD_FAST_SEEK (NW_IOP_HZ * 3 / 100) /* 8 or more */
+#define NW_CD_FAST_DELTA 4371
+#define NW_CD_CONTIGUOUS 8
+#define NW_CD_READ 47720                                    /* a sector: 75 * 10.3 a second */
+#define NW_CD_HALF_TURN (NW_IOP_HZ * 600ull / (497 * 103) / 2) /* mid-disc, the latency of a short seek */
+#define NW_CD_DMA (2064 / 4 * 12)                           /* a sector read ahead, to IOP memory */
+#define NW_CD_AHEAD 16                                      /* sectors the drive reads ahead */
+#define NW_SPU_DMA_WORD 24                                  /* a halfword to SPU RAM */
 #define NW_IRX_SECTOR 2048
 #define NW_IRX_PATH 600
 #define NW_IRX_SPOT 0x7f /* LoopInfo of a resident sample's transfer */
@@ -25,7 +37,8 @@
 static NwIrx irx;
 
 /* The port's side: the file system, the clock, how far the stream thread's ticks got and the SPU's cycle when they
-   started. */
+   started; the drive (the DAT under its head, NULL when the game moved it, the next sector, the sectors read ahead
+   as of cd_since) and when the CD command and the SPU DMA in flight end (0: none). */
 static struct {
     const NwVfs *vfs;
     uint64_t (*now_us)(void);
@@ -35,6 +48,12 @@ static struct {
     uint64_t spu_base;
     NwDat global_dat;
     NwDat local_dat;
+    const NwDat *cd_dat;
+    int64_t cd_sector;
+    unsigned cd_ahead;
+    uint64_t cd_since;
+    uint64_t cd_done;
+    uint64_t dma_done;
 } iop;
 
 /* A string command's data, NUL-terminated within its words (the IRX strcpys it whole). */
@@ -555,7 +574,47 @@ static void _CdStreamInt(void)
     }
 }
 
-/* sceCdRead of the DAT's sectors, done at once; past the end of the DAT it reads zeros. */
+static unsigned nw_cd_ahead(uint64_t now)
+{
+    uint64_t n = iop.cd_ahead + (now > iop.cd_since ? (now - iop.cd_since) / NW_CD_READ : 0);
+    return n < NW_CD_AHEAD ? (unsigned)n : NW_CD_AHEAD;
+}
+
+/* When a command at `now` that takes the head to `sector` of dat and reads n sectors (0: a seek) calls back, from
+   PCSX2's cdvdStartSeek and read interrupts: a seek by its distance, or a read on through the sectors read ahead;
+   those go at DMA speed, the rest as the drive reads them. The drive reads ahead again from the end. */
+static uint64_t nw_cd_time(const NwDat *dat, int64_t sector, unsigned n, uint64_t now)
+{
+    bool here = dat == iop.cd_dat;
+    uint64_t delta = !here ? UINT64_MAX : sector > iop.cd_sector ? (uint64_t)(sector - iop.cd_sector)
+                                                                 : (uint64_t)(iop.cd_sector - sector);
+    unsigned ahead = here ? nw_cd_ahead(now) : 0;
+    uint64_t t = now;
+    if (delta >= NW_CD_CONTIGUOUS) {
+        t += delta >= NW_CD_FAST_DELTA ? NW_CD_FULL_SEEK : NW_CD_FAST_SEEK;
+        ahead = 0;
+    } else if (sector >= iop.cd_sector && ahead > delta) {
+        ahead -= (unsigned)delta;
+    } else {
+        t += NW_CD_HALF_TURN;
+        ahead = 0;
+    }
+    unsigned buffered = n < ahead ? n : ahead;
+    t += (uint64_t)buffered * NW_CD_DMA + (uint64_t)(n - buffered) * (NW_CD_READ + NW_CD_DMA);
+    iop.cd_dat = dat;
+    iop.cd_sector = sector + n;
+    iop.cd_ahead = ahead - buffered;
+    iop.cd_since = t;
+    return t;
+}
+
+void nw_nusound_cd_moved(void)
+{
+    iop.cd_dat = NULL;
+}
+
+/* sceCdRead of the DAT's sectors, which calls back when the drive has them; past the end of the DAT it reads
+   zeros. */
 static int nw_irx_cd_read(int lsn, int sectors, uint8_t *dst)
 {
     size_t size = (size_t)sectors * NW_IRX_SECTOR;
@@ -568,12 +627,12 @@ static int nw_irx_cd_read(int lsn, int sectors, uint8_t *dst)
         return 0;
     }
     memset(dst + got, 0, size - (size_t)got);
-    _CdStreamInt();
+    iop.cd_done = nw_cd_time(irx.cd_dat, lsn, (unsigned)sectors, nw_spu2_cycle());
     return 1;
 }
 
-/* Starts a read of size bytes at readptr into a file of filelen bytes at sector startsec; it runs one step per
-   tick (_CdHandleEvent) and calls endfunc when done. The seek finishes at once. */
+/* Starts a read of size bytes at readptr into a file of filelen bytes at sector startsec with a seek there; it runs
+   one step per tick after each callback (_CdHandleEvent) and calls endfunc when done. */
 static void _CdStreamStart(int startsec, int readptr, uint8_t *writeptr, int filelen, int size, int i,
                            void (*endfunc)(int), NwDat *datfile)
 {
@@ -593,7 +652,7 @@ static void _CdStreamStart(int startsec, int readptr, uint8_t *writeptr, int fil
     irx.cd_func = endfunc;
     irx.cd_dat = datfile;
     irx.CD_IDLE = 0;
-    _CdStreamInt();
+    iop.cd_done = nw_cd_time(datfile, startsec + readptr / NW_IRX_SECTOR, 0, nw_spu2_cycle());
 }
 
 /* One step of the read: an unaligned head or a tail shorter than a sector goes through cd_buffer, whole sectors
@@ -740,11 +799,18 @@ static int LoadDataFromDisk(int i, int Size, void (*endfunc)(int))
     return 0;
 }
 
+/* sceSdVoiceTrans by DMA: the data is in SPU RAM at once, the transfer ends (_AdpcmDmaInt) after its time. */
+static void nw_irx_voice_trans(uint32_t spu_addr, const uint8_t *src, uint32_t size)
+{
+    nw_spu2_voice_trans(spu_addr, src, size);
+    iop.dma_done = nw_spu2_cycle() + (uint64_t)size / 2 * NW_SPU_DMA_WORD;
+}
+
 /* DMAs Size bytes of the IOP buffer to SPU RAM: all of it (BufferHalf 2) or a half, whose block flags make the
    SPU buffer a ring (the first block starts the loop, the last one jumps back); after a half the next one is read
    ahead, into the chunk IOPLoadAddress now points at, where the next half's flags go. All of a file in (LoopInfo 2)
-   goes to the half once and plays out (PlayingHalf 3). The DMA is done when the transfer returns, so its interrupt
-   (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
+   goes to the half once and plays out (PlayingHalf 3). SYSTEMWAIT holds until the DMA's interrupt (_AdpcmDmaInt),
+   except for all of a file. */
 static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(int))
 {
     STREAMDATA *s = &irx.StreamBuffer[i];
@@ -754,7 +820,7 @@ static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(in
         if (BufferHalf == 2) {
             BufferHalf = 0;
         }
-        nw_spu2_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
+        nw_irx_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
         s->PlayingHalf = 3;
         irx.StreamBusy = 0;
         irx.cd_stream = i;
@@ -768,14 +834,13 @@ static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(in
             s->IOPAddress[0x11] = NW_ADPCM_REPEAT;
             s->IOPAddress[Size - 0xf] = NW_ADPCM_END | NW_ADPCM_REPEAT;
         }
-        nw_spu2_voice_trans(s->SPUAddress, s->IOPLoadAddress, Size);
+        nw_irx_voice_trans(s->SPUAddress, s->IOPLoadAddress, Size);
     } else {
         s->IOPLoadAddress[1] = BufferHalf ? NW_ADPCM_REPEAT : NW_ADPCM_START | NW_ADPCM_REPEAT;
         s->IOPLoadAddress[0x11] = NW_ADPCM_REPEAT;
         s->IOPLoadAddress[Size - 0xf] = BufferHalf ? NW_ADPCM_END | NW_ADPCM_REPEAT : NW_ADPCM_REPEAT;
-        nw_spu2_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
+        nw_irx_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
     }
-    irx.SYSTEMWAIT = 0;
     s->IOPCurrentAddress += Size;
     s->IOPCurrentRemainder -= Size;
     if (s->IOPCurrentRemainder == 0) {
@@ -1151,8 +1216,21 @@ static uint64_t nw_iop_cycle(uint64_t us)
     return iop.spu_base + us * NW_IOP_HZ / 1000000;
 }
 
-/* The ticks due since the timer started, all before the call they precede, each at its own time on the SPU; then
-   the SPU runs to now (unless the IRX's waits took it further). */
+/* The interrupts due by `cycle`: the drive's callback and the end of the SPU DMA (_AdpcmDmaInt). */
+static void nw_iop_interrupts(uint64_t cycle)
+{
+    if (iop.cd_done && iop.cd_done <= cycle) {
+        iop.cd_done = 0;
+        _CdStreamInt();
+    }
+    if (iop.dma_done && iop.dma_done <= cycle) {
+        iop.dma_done = 0;
+        irx.SYSTEMWAIT = 0;
+    }
+}
+
+/* The ticks due since the timer started, all before the call they precede, each at its own time on the SPU after
+   the interrupts due by then; then the SPU runs to now (unless the IRX's waits took it further). */
 static void nw_iop_catch_up(void)
 {
     if (!iop.timer || !iop.now_us) {
@@ -1165,10 +1243,13 @@ static void nw_iop_catch_up(void)
     uint64_t due = (now - iop.timer_us) / NW_IRX_TICK_US;
     while (iop.ticks < due) {
         iop.ticks++;
-        nw_spu2_run_to(nw_iop_cycle(iop.ticks * NW_IRX_TICK_US));
+        uint64_t cycle = nw_iop_cycle(iop.ticks * NW_IRX_TICK_US);
+        nw_spu2_run_to(cycle);
+        nw_iop_interrupts(cycle);
         StreamADPCM();
     }
     nw_spu2_run_to(nw_iop_cycle(now - iop.timer_us));
+    nw_iop_interrupts(nw_spu2_cycle());
 }
 
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */
