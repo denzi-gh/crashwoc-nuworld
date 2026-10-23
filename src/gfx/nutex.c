@@ -107,10 +107,10 @@ int NuTexCreateNative(void *data)
     ps2tex->tw = nw_log2(entry->width);
     ps2tex->th = nw_log2(entry->height);
 
-    NwTex *t = SDL_malloc(sizeof(*t));
-    if (!t || !nw_tex_decode(t, data, (size_t)(chunk - (uint8_t *)data))) {
-        NuErrorProlog(nutex_srcfile, 0)("texture %d: %s", slot + 1, t ? SDL_GetError() : "out of memory");
+    NwGpuTex *gpu = SDL_calloc(1, sizeof(*gpu));
+    if (!gpu || !nw_tex_decode(&gpu->tex, data, (size_t)(chunk - (uint8_t *)data))) {
+        NuErrorProlog(nutex_srcfile, 0)("texture %d: %s", slot + 1, gpu ? SDL_GetError() : "out of memory");
     }
-    nw_ps2tx_set(ps2tex, t);
+    nw_ps2tx_set(ps2tex, gpu);
     return slot + 1;
 }

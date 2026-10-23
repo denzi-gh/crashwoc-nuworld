@@ -95,7 +95,7 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(geom->next == geom + 1 && geom[1].next == NULL);
     CHECK(geom->mtl == sc->mtls[0] && geom[1].mtl == sc->mtls[2] && geom->otbatch == NULL);
     for (int i = 0; i < 2; i++) {
-        const NwVifMesh *m = geom[i].dmastream;
+        const NwVifMesh *m = &((const NwGpuMesh *)geom[i].dmastream)->mesh;
         CHECK(m && m->nbatches == s->batches[i] && m->nverts == s->verts[i] && m->ntris == s->tris[i]);
     }
     g = sc->gobjs[1];

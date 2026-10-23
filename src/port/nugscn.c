@@ -5,7 +5,7 @@
 
 #include <SDL3/SDL.h>
 
-#include "gfx/vif.h"
+#include "gfx/packet.h"
 #include "nw_convert.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
@@ -48,7 +48,7 @@ static char *readfile_base;
 static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
 
-static NwVifMesh **nw_gscn_meshes;
+static NwGpuMesh **nw_gscn_meshes;
 static uint32_t nw_gscn_nmeshes, nw_gscn_mcap;
 
 /* File pointer fields hold indexes, offsets or -1: kept as integers for the fixups. */
@@ -104,31 +104,31 @@ static char *nw_gscn_rel(char *field)
     return off ? field + off : 0;
 }
 
-/* A plain geom's DMA chain decoded once; the mesh becomes its dmastream. */
-static NwVifMesh *nw_gscn_mesh(void *stream, int size)
+/* A plain geom's DMA chain decoded once and queued for the GPU; the mesh becomes its dmastream. */
+static NwGpuMesh *nw_gscn_mesh(void *stream, int size)
 {
     if (nw_gscn_nmeshes == nw_gscn_mcap) {
         uint32_t n = nw_gscn_mcap ? nw_gscn_mcap * 2 : 1024;
-        NwVifMesh **meshes = SDL_realloc(nw_gscn_meshes, n * sizeof(*meshes));
+        NwGpuMesh **meshes = SDL_realloc(nw_gscn_meshes, n * sizeof(*meshes));
         if (!meshes) {
             NuErrorProlog(nugscn_srcfile, 0xB95)("out of memory for the geom meshes");
         }
         nw_gscn_meshes = meshes;
         nw_gscn_mcap = n;
     }
-    NwVifMesh *mesh = SDL_calloc(1, sizeof(*mesh));
-    if (!mesh || !nw_vif_decode(mesh, stream, (size_t)size)) {
+    NwGpuMesh *mesh = SDL_calloc(1, sizeof(*mesh));
+    if (!mesh || !nw_vif_decode(&mesh->mesh, stream, (size_t)size)) {
         NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": %s", gsc_load_context.filename, SDL_GetError());
     }
     nw_gscn_meshes[nw_gscn_nmeshes++] = mesh;
+    nw_gpu_queue(NW_GPU_UPLOAD_MESH, mesh);
     return mesh;
 }
 
 void nw_gscn_free_meshes(void)
 {
     for (uint32_t i = 0; i < nw_gscn_nmeshes; i++) {
-        nw_vif_free(nw_gscn_meshes[i]);
-        SDL_free(nw_gscn_meshes[i]);
+        nw_gpu_queue(NW_GPU_FREE_MESH, nw_gscn_meshes[i]);
     }
     SDL_free(nw_gscn_meshes);
     nw_gscn_meshes = NULL;

@@ -20,6 +20,7 @@
 void *NuMemAllocFn(int size, char *file, int line);
 
 extern int gs_top;
+extern volatile int nuvideo_global_vbcnt;
 extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_3d_u;
 extern struct rndrstream_s *rndrstream_2d;
@@ -63,8 +64,10 @@ struct NwViewSnap {
 static NwView nw_view;           /* what SetViewMtx, SetXYOffset and SetScissor set */
 static NwViewSnap *nw_view_snap; /* its copy in the arena; NULL after a change */
 static float nw_local[16];       /* NuRndrSetLocalMtx's */
-static NwPacket nw_packet;
 static uint64_t nw_frame;
+static const struct numtl_s **nw_snap_key; /* nw_rndr_snap's table, by material address */
+static uint32_t *nw_snap_index;
+static uint32_t nw_snap_cap;
 static const struct rndrstream_s *nw_raw[64];
 static unsigned nw_nraw;
 
@@ -95,7 +98,7 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg)
     NwRecord *r = nw_alloc(sizeof(*r));
     memset(r, 0, sizeof(*r));
     r->cmd.op = (uint8_t)op;
-    r->cmd.mtl = mtl;
+    r->cmd.material = mtl;
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
     r->view = nw_view_snap;
@@ -154,7 +157,7 @@ void nw_rndr_splice(struct rndrstream_s *dst, struct rndrstream_s *src)
 
 NwPacket *nw_rndr_packet(void)
 {
-    return &nw_packet;
+    return nw_packet_building();
 }
 
 unsigned nw_rndr_raw_streams(void)
@@ -167,9 +170,9 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
 {
     for (NwRecord *r = stream->t_base.voidptr; r; r = r->next) {
         NwViewSnap *v = (NwViewSnap *)r->view;
-        NwCmd *c = nw_packet_cmd(&nw_packet);
+        NwCmd *c = nw_packet_cmd(nw_packet_building());
         if (v->frame != nw_frame + 1) {
-            NwView *copy = nw_packet_view(&nw_packet, &v->index);
+            NwView *copy = nw_packet_view(nw_packet_building(), &v->index);
             if (copy) {
                 *copy = v->view;
                 v->frame = nw_frame + 1;
@@ -216,7 +219,7 @@ void NuRndrInitStreams(void)
     rndrstream_free = stream_outbuf[rndrstream_buffer_index];
     nw_arena[rndrstream_buffer_index].cur = NULL;
     nw_view_snap = NULL;
-    nw_packet_reset(&nw_packet);
+    nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
 }
@@ -282,6 +285,62 @@ void NuRndrSwapStreamBuffers(void)
 {
     rndrstream_buffer_index = (rndrstream_buffer_index + 1) % 2;
     NuRndrInitStreams();
+}
+
+/* The packet's materials as their state blocks read now, as the frame's DMA reads them after the frame is built;
+   each once, through an open-addressed table by address. */
+static void nw_rndr_snap(NwPacket *p)
+{
+    uint32_t cap = 64;
+    while (cap < p->ncmds * 2) {
+        cap *= 2;
+    }
+    if (cap > nw_snap_cap) {
+        SDL_free(nw_snap_key);
+        SDL_free(nw_snap_index);
+        nw_snap_key = SDL_malloc(cap * sizeof(*nw_snap_key));
+        nw_snap_index = SDL_malloc(cap * sizeof(*nw_snap_index));
+        nw_snap_cap = nw_snap_key && nw_snap_index ? cap : 0;
+        if (!nw_snap_cap) {
+            NuErrorProlog(nustream_file, 0)("out of memory for the frame's materials");
+        }
+    }
+    cap = nw_snap_cap;
+    memset(nw_snap_key, 0, cap * sizeof(*nw_snap_key));
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        NwCmd *c = &p->cmds[i];
+        const struct numtl_s *m = c->material;
+        c->mtl = NW_MTL_NONE;
+        if (!m) {
+            continue;
+        }
+        uint32_t h = (uint32_t)(((uintptr_t)m >> 4) * 2654435761u) & (cap - 1);
+        while (nw_snap_key[h] && nw_snap_key[h] != m) {
+            h = (h + 1) & (cap - 1);
+        }
+        if (!nw_snap_key[h]) {
+            NwMtlSnap *s = nw_packet_mtl(p, &nw_snap_index[h]);
+            if (!s) {
+                continue;
+            }
+            const NwStateBlock *sb = nw_rndr_state(m);
+            nw_snap_key[h] = m;
+            s->gs = sb->gs;
+            memcpy(s->diffuse, sb->diffuse, sizeof(s->diffuse));
+            memcpy(s->uvoff, sb->vuattr, sizeof(s->uvoff));
+            memcpy(s->row, sb->vuattr + 9, sizeof(s->row));
+            s->tex = nw_rndr_texture(m->tid);
+        }
+        c->mtl = nw_snap_index[h];
+    }
+}
+
+/* Retail sends the frame's DMA chain to VU1 here; the port hands the frame packet to the renderer, stamped with the
+   vblank count. */
+void NuRndrVu1Draw(void)
+{
+    nw_rndr_snap(nw_packet_building());
+    nw_packet_publish(nuvideo_global_vbcnt);
 }
 
 int NuRndrStreamAddMtl(struct rndrstream_s *stream, struct numtl_s *mtl)

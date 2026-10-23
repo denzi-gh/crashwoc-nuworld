@@ -64,14 +64,14 @@ static void test_native(void)
     CHECK(e->valid && e->native && e->type == 4 && e->width == 8 && e->height == 8 && e->mmcnt == 1);
     CHECK(e->ps2tex.mipcount == 2 && e->ps2tex.psm == 0x14 && e->ps2tex.tcc && e->ps2tex.tw == 3);
     CHECK(e->ps2tex.mipdata[0] == b.buf + up && e->ps2tex.tbw[1] == 2 && e->ps2tex.reqsize[0] == 128);
-    const NwTex *t = nw_rndr_texture(tid);
-    CHECK(t && t->nlevels == 2 && t->ncolours == 16 && t->levels[1].width == 4);
+    const NwTex *t = &nw_rndr_texture(tid)->tex;
+    CHECK(nw_rndr_texture(tid) && t->nlevels == 2 && t->ncolours == 16 && t->levels[1].width == 4);
     CHECK(t && t->levels[0].texels[9] == 3 && t->clut[3][1] == 255 - 48);
     CHECK(nw_rndr_texture(0) == NULL && nw_rndr_texture(-1) == NULL && nw_rndr_texture(2) == NULL);
 
     /* A texture before b goes away: its slot, reused, replaces the decoded one. */
     NuTexDestroy(tid);
-    CHECK(make_native(&b, &up) == 1 && nw_rndr_texture(1) && nw_rndr_texture(1)->nlevels == 2);
+    CHECK(make_native(&b, &up) == 1 && nw_rndr_texture(1) && nw_rndr_texture(1)->tex.nlevels == 2);
     gsc_free(&b);
 }
 
@@ -88,29 +88,29 @@ static void test_bitmap(void)
     }
     struct nutex_s spec = { 3, 8, 8, 0, bits, NULL };
     int tid = NuTexCreate(&spec);
-    const NwTex *t = nw_rndr_texture(tid);
+    const NwTex *t = &nw_rndr_texture(tid)->tex;
     CHECK(tid > 0 && t && t->type == 3 && t->tcc && t->ncolours == 0 && t->nlevels == 1);
     CHECK(t && memcmp(t->levels[0].texels + 4, (uint8_t[]){ bits[7], bits[6], bits[5], bits[4] >> 1 }, 4) == 0);
     CHECK(D_0062EBEC[tid - 1].ps2tex.psm == 0 && D_0062EBEC[tid - 1].ps2tex.mipcount == 1);
 
     spec = (struct nutex_s){ 2, 8, 8, 0, bits, NULL };
-    t = nw_rndr_texture(tid = NuTexCreate(&spec));
+    t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && !t->tcc && memcmp(t->levels[0].texels + 4, (uint8_t[]){ bits[5], bits[4], bits[3], 0x80 }, 4) == 0);
 
     /* Type 4 has the even texel in the high nibble; mmcnt levels follow each other. */
     spec = (struct nutex_s){ 4, 16, 8, 2, bits, pal };
-    t = nw_rndr_texture(tid = NuTexCreate(&spec));
+    t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && t->ncolours == 16 && t->nlevels == 1); /* the 8x4 second level is under 8 texels */
     CHECK(t && t->levels[0].texels[0] == bits[0] >> 4 && t->levels[0].texels[1] == (bits[0] & 15));
     CHECK(t && memcmp(t->clut[5], &pal[5], 4) == 0);
     spec = (struct nutex_s){ 5, 16, 16, 2, bits, pal };
-    t = nw_rndr_texture(tid = NuTexCreate(&spec));
+    t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && t->ncolours == 256 && t->nlevels == 2 && t->levels[1].width == 8);
     CHECK(t && t->levels[1].texels[9] == bits[256 + 9] && D_0062EBEC[tid - 1].ps2tex.mipcount == 2);
 
     /* Over 512 texels a side, the level takes every second texel of every second row. */
     spec = (struct nutex_s){ 5, 1024, 16, 0, bits, pal };
-    t = nw_rndr_texture(tid = NuTexCreate(&spec));
+    t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && t->nlevels == 1 && t->levels[0].width == 512 && t->levels[0].height == 8);
     CHECK(t && t->levels[0].texels[513] == bits[2048 + 2] && D_0062EBEC[tid - 1].ps2tex.tw == 10);
 }
@@ -178,7 +178,7 @@ static void test_state(void)
 /* A command whose mesh field only marks where it came from. */
 static void mark(struct rndrstream_s *s, uintptr_t id)
 {
-    nw_rndr_cmd(s, NW_CMD_DRAW)->mesh = (const NwVifMesh *)id;
+    nw_rndr_cmd(s, NW_CMD_DRAW)->mesh = (const NwGpuMesh *)id;
 }
 
 static bool packet_is(const uintptr_t *ids, uint32_t n)
@@ -229,7 +229,7 @@ static void test_order(void)
     static const float depth[5] = { 0.0f, 1000.0f, 2000.0f, 100.25f, 100.0f };
     for (int i = 0; i < 5; i++) {
         NwRecord *item = nw_rndr_record(NW_CMD_DRAW, m[0], m[0]->rs.mpg);
-        item->cmd.mesh = (const NwVifMesh *)(uintptr_t)(20 + i);
+        item->cmd.mesh = (const NwGpuMesh *)(uintptr_t)(20 + i);
         nw_rndr_ot_insert(item, depth[i]);
     }
     mark(rndrstream_2d, 15);
@@ -239,7 +239,7 @@ static void test_order(void)
     mark(rndrstream_2d, 17);
     NuRndrEndScene();
     CHECK(packet_is((const uintptr_t[]){ 14, 12, 11, 10, 13, 22, 21, 24, 23, 20, 15, 16, 17 }, 13));
-    CHECK(nw_rndr_packet()->cmds[0].mtl == NULL && nw_rndr_packet()->cmds[1].mtl == m[2]);
+    CHECK(nw_rndr_packet()->cmds[0].material == NULL && nw_rndr_packet()->cmds[1].material == m[2]);
     CHECK(nw_rndr_packet()->cmds[1].mpg == m[2]->rs.mpg);
     NuRndrSwapStreamBuffers();
     CHECK(nw_rndr_packet()->ncmds == 0);

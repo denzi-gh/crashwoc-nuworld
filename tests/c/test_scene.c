@@ -6,6 +6,7 @@
 
 #include "gfx/gsc.h"
 #include "gfx/mtl.h"
+#include "gfx/packet.h"
 #include "gfx/vif.h"
 
 #include "gsc_builder.h"
@@ -729,6 +730,35 @@ static void test_package(void)
     }
 }
 
+/* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free
+   waits until a packet after the one being built when it was queued is drawn. */
+static void test_packet(void)
+{
+    CHECK(nw_packet_take() == NULL);
+    nw_packet_cmd(nw_packet_building())->op = NW_CMD_DRAW;
+    nw_packet_publish(7);
+    const NwPacket *p = nw_packet_take();
+    CHECK(p && p->seq == 1 && p->vbcnt == 7 && p->ncmds == 1);
+    CHECK(nw_packet_take() == p && nw_packet_building()->ncmds == 0);
+    nw_packet_publish(8);
+    nw_packet_publish(9);
+    p = nw_packet_take();
+    CHECK(p && p->seq == 3 && p->vbcnt == 9 && p->ncmds == 0);
+
+    int mesh, tex;
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0;
+    nw_gpu_queue(NW_GPU_UPLOAD_MESH, &mesh);
+    nw_gpu_queue(NW_GPU_FREE_TEX, &tex);
+    CHECK(nw_gpu_take(3, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_UPLOAD_MESH && jobs[0].obj == &mesh);
+    nw_packet_publish(10);
+    CHECK(nw_gpu_take(4, &jobs, &cap) == 0);
+    nw_packet_publish(11);
+    CHECK(nw_gpu_take(5, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_FREE_TEX && jobs[0].obj == &tex);
+    CHECK(nw_gpu_take(5, &jobs, &cap) == 0);
+    SDL_free(jobs);
+}
+
 /* The --check-scenes lines of the synthetic scene. */
 static void test_report(const char *scratch)
 {
@@ -787,6 +817,7 @@ int main(int argc, char *argv[])
     test_depth();
     test_atest();
     test_animate();
+    test_packet();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

@@ -17,19 +17,21 @@ extern struct nutexslot_s *D_0062EBEC;
 
 int NuPs2CreateRenderTarget(struct nutex_s *spec, struct nups2tex_s *tex);
 
-static NwTex *nw_ps2tx[NW_TEX_SLOTS];
+static NwGpuTex *nw_ps2tx[NW_TEX_SLOTS];
 
-void nw_ps2tx_set(struct nups2tex_s *tex, NwTex *t)
+void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu)
 {
     ptrdiff_t slot = ((char *)tex - (char *)&TexList[0].ps2tex) / (ptrdiff_t)sizeof(struct nutexslot_s);
     if (nw_ps2tx[slot]) {
-        nw_tex_free(nw_ps2tx[slot]);
-        SDL_free(nw_ps2tx[slot]);
+        nw_gpu_queue(NW_GPU_FREE_TEX, nw_ps2tx[slot]);
     }
-    nw_ps2tx[slot] = t;
+    nw_ps2tx[slot] = gpu;
+    if (gpu) {
+        nw_gpu_queue(NW_GPU_UPLOAD_TEX, gpu);
+    }
 }
 
-const NwTex *nw_rndr_texture(int tid)
+const NwGpuTex *nw_rndr_texture(int tid)
 {
     return tid > 0 && tid <= NW_TEX_SLOTS ? nw_ps2tx[tid - 1] : NULL;
 }
@@ -139,15 +141,15 @@ int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
         nw_ps2tx_set(tex, NULL);
         return 1;
     }
-    NwTex *t = SDL_calloc(1, sizeof(*t));
-    if (!t || !nw_ps2tx_bitmap(t, spec)) {
-        NuErrorProlog(ps2txtr_srcfile, 0)("%s", t ? SDL_GetError() : "out of memory");
+    NwGpuTex *gpu = SDL_calloc(1, sizeof(*gpu));
+    if (!gpu || !nw_ps2tx_bitmap(&gpu->tex, spec)) {
+        NuErrorProlog(ps2txtr_srcfile, 0)("%s", gpu ? SDL_GetError() : "out of memory");
         return 0;
     }
-    tex->mipcount = t->nlevels;
+    tex->mipcount = gpu->tex.nlevels;
     tex->psm = tex->uppsm = nw_ps2tx_psm[spec->type - 2];
-    tex->tcc = t->tcc;
-    nw_ps2tx_set(tex, t);
+    tex->tcc = gpu->tex.tcc;
+    nw_ps2tx_set(tex, gpu);
     return 1;
 }
 

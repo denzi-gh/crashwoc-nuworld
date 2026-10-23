@@ -14,9 +14,11 @@
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
+#include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
 #include "port/game.h"
+#include "port/scene.h"
 #include "shim/shim.h"
 #include "vfs/sha256.h"
 #include "vfs/vfs.h"
@@ -257,46 +259,6 @@ static int nw_check_scenes(const char *data_dir)
     return total.failed || total.unknown ? 1 : 0;
 }
 
-/* One .gsc of the imported disc in the viewer, loaded before the window opens; exits 2 without the disc or file. */
-static int nw_scene(const char *data_dir, const char *path, int max_frames)
-{
-    NwVfs vfs;
-    char name[NW_VFS_PATH_MAX];
-    SDL_strlcpy(name, path, sizeof(name));
-    for (char *c = name; *c; c++) {
-        *c = *c == '\\' ? '/' : *c;
-    }
-    char *root = nw_data_root(data_dir);
-    if (!root || !nw_extract_has_disc(root) || !nw_vfs_init(&vfs, root)) {
-        fprintf(stderr, NW_APP_NAME ": no imported disc (run --import)\n");
-        SDL_free(root);
-        return 2;
-    }
-    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, name);
-    size_t size = 0;
-    uint8_t *data = e ? nw_read_scene(&vfs, e, &size) : NULL;
-    NwGsc g = { 0 };
-    int code = 2;
-    if (!e) {
-        fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
-    } else if (!data || !nw_gsc_open(&g, data, size)) {
-        fprintf(stderr, NW_APP_NAME ": %s: %s\n", e->path, SDL_GetError());
-        code = 1;
-    } else {
-        NwPlatform platform;
-        code = 1;
-        if (nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
-            code = nw_view_scene(&platform, &g, e->path, max_frames);
-            nw_platform_shutdown(&platform);
-        }
-        nw_gsc_close(&g);
-    }
-    SDL_free(data);
-    nw_vfs_shutdown(&vfs);
-    SDL_free(root);
-    return code;
-}
-
 /* The decomp's main (port/units.toml renames it), started as retail's boot starts it. */
 int nw_game_main(int argc, char **argv);
 
@@ -306,6 +268,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_VBLANK_HZ 50                /* PAL */
 #define NW_BOOT_CHECK_MS 10000         /* the watchdog of --boot-check */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
+#define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 
 /* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
    too), newlib's state, the data image from the boot ELF, the vblank clock. The file system stays open for the
@@ -439,8 +402,8 @@ static int nw_boot_check(const char *data_dir, int vblanks)
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
-/* Windowed: the game runs (stubs logged and passed) while the window, which shows nothing of it yet, reports its
-   frames in the title; at the end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
+/* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
+   end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
 static int nw_boot(const char *data_dir)
 {
     int code = nw_boot_prepare(data_dir);
@@ -451,9 +414,15 @@ static int nw_boot(const char *data_dir)
     if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
         return 1;
     }
+    if (!nw_backend_init()) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
+        nw_platform_shutdown(&platform);
+        return 1;
+    }
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        nw_backend_shutdown();
         nw_platform_shutdown(&platform);
         return 1;
     }
@@ -477,9 +446,7 @@ static int nw_boot(const char *data_dir)
         }
         int width, height;
         SDL_GetWindowSizeInPixels(platform.window, &width, &height);
-        glViewport(0, 0, width, height);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        nw_backend_frame(width, height);
         SDL_GL_SwapWindow(platform.window);
     }
     bool parked = nw_game_parked();
@@ -489,15 +456,160 @@ static int nw_boot(const char *data_dir)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
+    nw_backend_shutdown();
     nw_platform_shutdown(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
+}
+
+/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. The game thread
+   opens it by the same path with backslashes, written to cdpath. */
+static const NwManifestEntry *nw_scene_entry(const char *path, char *cdpath, size_t size)
+{
+    char name[NW_VFS_PATH_MAX];
+    SDL_strlcpy(name, path, sizeof(name));
+    for (char *c = name; *c; c++) {
+        *c = *c == '\\' ? '/' : *c;
+    }
+    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, name);
+    if (!e) {
+        fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
+        return NULL;
+    }
+    SDL_strlcpy(cdpath, e->path, size);
+    for (char *c = cdpath; *c; c++) {
+        *c = *c == '/' ? '\\' : *c;
+    }
+    return e;
+}
+
+/* The scene viewer: the decomp loads and draws the scene on the game thread (stubs logged and passed), the window
+   shows its frames under a fly camera; at the end it prints the stub hits (stdout). Returns the exit code: 2 without
+   the disc or the scene. */
+static int nw_scene(const char *data_dir, const char *path, int max_frames)
+{
+    static char cdpath[NW_VFS_PATH_MAX];
+    static char *argv[] = { nw_game_arg0, cdpath, NULL };
+    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
+    int code = e ? nw_boot_prepare(data_dir) : 2;
+    if (code) {
+        return code;
+    }
+    NwPlatform platform;
+    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+        return 1;
+    }
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_scene_main, 2, argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        nw_platform_shutdown(&platform);
+        return 1;
+    }
+    code = nw_view_scene(&platform, e->path, max_frames);
+    bool parked = nw_game_parked();
+    NwGameState state = nw_game_state();
+    fflush(stderr);
+    nw_print_stub_hits("scene", state);
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    }
+    nw_platform_shutdown(&platform);
+    return nw_boot_exit(code, parked);
+}
+
+/* Every .gsc of the imported disc through --scene-check, one process each (the decomp loads one scene a run). Scenes
+   the NU20 reader finds truncated or without objects, which the game never draws (INTRO/FINAL, TITLES/TITLESPL),
+   are skipped. Exits 2 without the disc. */
+static int nw_scene_check_all(const char *exe, const char *data_dir)
+{
+    NwVfs vfs;
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_extract_has_disc(root) || !nw_vfs_init(&vfs, root)) {
+        fprintf(stderr, NW_APP_NAME ": no imported disc (run --import)\n");
+        SDL_free(root);
+        return 2;
+    }
+    unsigned scenes = 0, skipped = 0, failed = 0;
+    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
+        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+        size_t len = strlen(e->path), size = 0;
+        if (len < 4 || SDL_strcasecmp(e->path + len - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP)) {
+            continue;
+        }
+        uint8_t *data = nw_read_scene(&vfs, e, &size);
+        NwGsc g;
+        bool drawn = data && nw_gsc_open(&g, data, size);
+        if (drawn) {
+            drawn = !g.truncated && g.nobjects > 0;
+            nw_gsc_close(&g);
+        }
+        SDL_free(data);
+        scenes++;
+        if (!drawn) {
+            printf("scene-check: %s: skipped, nothing to draw\n", e->path);
+            skipped++;
+            continue;
+        }
+        const char *args[] = { exe, "--scene-check", e->path, data_dir ? "--data-dir" : NULL, data_dir, NULL };
+        SDL_Process *child = SDL_CreateProcess(args, false);
+        int code = 1;
+        if (!child || !SDL_WaitProcess(child, true, &code)) {
+            fprintf(stderr, NW_APP_NAME ": %s: %s\n", e->path, SDL_GetError());
+        }
+        SDL_DestroyProcess(child);
+        failed += code != 0;
+    }
+    printf("scene-check: %u scenes, %u skipped, %u failed\n", scenes, skipped, failed);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return failed || scenes == skipped ? 1 : 0;
+}
+
+/* Headless: the scene drawn for a few frames under the viewer's first camera; prints its last frame packet and the
+   stub hits (stdout). Returns 0 when the packet holds draws, 1 when not or on a fatal error, 2 without the disc. */
+static int nw_scene_check(const char *exe, const char *data_dir, const char *path)
+{
+    static char cdpath[NW_VFS_PATH_MAX];
+    static char *argv[] = { nw_game_arg0, cdpath, NULL };
+    if (strcmp(path, "all") == 0) {
+        return nw_scene_check_all(exe, data_dir);
+    }
+    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
+    int code = e ? nw_boot_prepare(data_dir) : 2;
+    if (code) {
+        return code;
+    }
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_scene_main, 2, argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        return 1;
+    }
+    uint64_t start = SDL_GetTicks(), edge = 0;
+    while (nw_game_state() == NW_GAME_RUNNING && nw_game_swaps() < NW_SCENE_CHECK_FRAMES &&
+           SDL_GetTicks() - start < NW_BOOT_CHECK_MS) {
+        edge = nw_game_wait_edge(edge, 100);
+    }
+    bool parked = nw_game_parked();
+    NwGameState state = nw_game_state();
+    const NwPacket *p = nw_packet_take();
+    uint32_t draws = 0;
+    for (uint32_t i = 0; p && i < p->ncmds; i++) {
+        draws += p->cmds[i].op == NW_CMD_DRAW;
+    }
+    fflush(stderr);
+    printf("scene-check: %s: %llu frames, %u draws, %u materials, %u views\n", e->path,
+           (unsigned long long)nw_game_swaps(), draws, p ? p->nmtls : 0, p ? p->nviews : 0);
+    nw_print_stub_hits("scene-check", state);
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    }
+    return nw_boot_exit(state == NW_GAME_PARKED && draws > 0 ? 0 : 1, parked);
 }
 #endif
 
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
-    const char *import = NULL, *data_dir = NULL, *scene = NULL;
+    const char *import = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
 
@@ -507,7 +619,7 @@ int main(int argc, char *argv[])
             return 0;
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
-             strcmp(argv[i], "--scene") == 0) &&
+             strcmp(argv[i], "--scene") == 0 || strcmp(argv[i], "--scene-check") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -528,6 +640,8 @@ int main(int argc, char *argv[])
             check_scenes = true;
         } else if (strcmp(argv[i], "--scene") == 0) {
             scene = argv[++i];
+        } else if (strcmp(argv[i], "--scene-check") == 0) {
+            scene_check = argv[++i];
         } else if (strcmp(argv[i], "--boot") == 0) {
             boot = true;
         } else if (strcmp(argv[i], "--boot-check") == 0) {
@@ -544,10 +658,13 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || scene || boot || boot_check) {
+    if (check_data || check_scenes || scene || scene_check || boot || boot_check) {
 #ifdef NW_WITH_GAME
         if (check_scenes) {
             return nw_check_scenes(data_dir);
+        }
+        if (scene_check) {
+            return nw_scene_check(argv[0], data_dir, scene_check);
         }
         if (scene) {
             return nw_scene(data_dir, scene, max_frames);

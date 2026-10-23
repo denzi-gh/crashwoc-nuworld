@@ -22,10 +22,11 @@ typedef struct NwStateBlock {
 
 const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl);
 
-/* The texture of a TexList slot, by its nups2tex_s: the GS memory the port keeps. Takes t (NULL: none). */
-void nw_ps2tx_set(struct nups2tex_s *tex, NwTex *t);
+/* The texture of a TexList slot, by its nups2tex_s: the GS memory the port keeps. Takes gpu (NULL: none) and
+   queues its upload; the slot's texture before it is freed. */
+void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
 /* tid as NuTexCreate returns it; NULL for 0, a surface (< 0) or a slot with no decoded texture. */
-const NwTex *nw_rndr_texture(int tid);
+const NwGpuTex *nw_rndr_texture(int tid);
 
 typedef struct NwViewSnap NwViewSnap;
 

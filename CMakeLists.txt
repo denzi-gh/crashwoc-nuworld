@@ -66,7 +66,6 @@ add_executable(crashwoc-nuworld
   src/main.c
   src/platform/platform.c
   src/gfx/gl.c
-  src/gfx/view.c
   src/gfx/vu.c
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)

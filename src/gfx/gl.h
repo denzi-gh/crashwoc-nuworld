@@ -51,6 +51,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
 #define GL_NEAREST 0x2600
+#define GL_LINEAR 0x2601
 #define GL_NEAREST_MIPMAP_NEAREST 0x2700
 #define GL_TEXTURE_MAG_FILTER 0x2800
 #define GL_TEXTURE_MIN_FILTER 0x2801
@@ -68,6 +69,15 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
+#define GL_RGBA8 0x8058
+#define GL_DEPTH_COMPONENT24 0x81A6
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
+#define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_COLOR_ATTACHMENT0 0x8CE0
+#define GL_DEPTH_ATTACHMENT 0x8D00
+#define GL_FRAMEBUFFER 0x8D40
+#define GL_RENDERBUFFER 0x8D41
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
@@ -121,7 +131,19 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniform1i, (GLint location, GLint v0)) \
     X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
-    X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices))
+    X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
+    X(void, glGenFramebuffers, (GLsizei n, GLuint *framebuffers)) \
+    X(void, glDeleteFramebuffers, (GLsizei n, const GLuint *framebuffers)) \
+    X(void, glBindFramebuffer, (GLenum target, GLuint framebuffer)) \
+    X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
+    X(void, glFramebufferRenderbuffer, \
+        (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
+    X(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers)) \
+    X(void, glDeleteRenderbuffers, (GLsizei n, const GLuint *renderbuffers)) \
+    X(void, glBindRenderbuffer, (GLenum target, GLuint renderbuffer)) \
+    X(void, glRenderbufferStorage, (GLenum target, GLenum internalformat, GLsizei width, GLsizei height)) \
+    X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
+        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
 
 #define NW_GL_DECLARE(ret, name, params) \
     typedef ret (NW_GLAPI *PFN_nw_##name) params; \
@@ -175,6 +197,16 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniform4i nw_glUniform4i
 #define glUniform4fv nw_glUniform4fv
 #define glDrawElements nw_glDrawElements
+#define glGenFramebuffers nw_glGenFramebuffers
+#define glDeleteFramebuffers nw_glDeleteFramebuffers
+#define glBindFramebuffer nw_glBindFramebuffer
+#define glCheckFramebufferStatus nw_glCheckFramebufferStatus
+#define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
+#define glGenRenderbuffers nw_glGenRenderbuffers
+#define glDeleteRenderbuffers nw_glDeleteRenderbuffers
+#define glBindRenderbuffer nw_glBindRenderbuffer
+#define glRenderbufferStorage nw_glRenderbufferStorage
+#define glBlitFramebuffer nw_glBlitFramebuffer
 
 /* Loads every function in NW_GL_FUNCTIONS; needs a current GL context. */
 bool nw_gl_load(void);

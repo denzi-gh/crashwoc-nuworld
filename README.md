@@ -49,8 +49,9 @@ Every file is checked against a SHA-256 manifest and copied to the data folder: 
 or `user/` beside the executable when a `portable.txt` is there.
 `--verify` re-checks the imported files; `--check-data` builds the game's data from the imported executable,
 converts it back and checks that it gives the executable's bytes again; `--check-scenes` reads every `.gsc` scene
-and decodes its geometry and textures, one line per file; `--scene <path>` shows one scene (e.g.
-`LEVELS/B/HUB/HUB.GSC`) under a fly camera (WASD, Q/E, Shift, right mouse to look, wheel for speed);
+and decodes its geometry and textures, one line per file; `--scene <path>` has the decomp load and draw one scene
+(e.g. `LEVELS/B/HUB/HUB.GSC`) under a fly camera (WASD, Q/E, Shift, right mouse to look, wheel for speed);
+`--scene-check <path|all>` draws a scene headless for a few frames and reports its frame packet (`all`: every scene);
 `--boot` runs the game in a window that shows its frame count in the title; `--boot-check [vblanks]`
 runs it headless to that many vblanks (default 50) after its first screen swap; both list, in the order the game first
 reached them, the functions that have no C yet and the decomp C that is only a near match
