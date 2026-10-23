@@ -726,6 +726,12 @@ static void test_dat(void)
         CHECK(bytes && memcmp(bytes, dat_payload[1], strlen(dat_payload[1])) == 0);
         SDL_free(bytes);
         CHECK(!nw_dat_load(&dat, 4));
+        char piece[4];
+        CHECK(nw_dat_read(&dat, 2, 5, piece, 4) && memcmp(piece, "data", 4) == 0); /* "deep data" */
+        CHECK(nw_dat_read(&dat, 2, 9, piece, 0));
+        CHECK_FAILS(nw_dat_read(&dat, 2, 6, piece, 4), "runs past");
+        CHECK_FAILS(nw_dat_read(&dat, 2, 10, piece, 0), "runs past");
+        CHECK_FAILS(nw_dat_read(&dat, 4, 0, piece, 1), "no .DAT entry");
         nw_dat_close(&dat);
         CHECK_FAILS(nw_dat_open(&dat, &vfs, "cdrom0:\\BAD.DAT;1"), "runs past the file");
         CHECK_FAILS(nw_dat_open(&dat, &vfs, "cdrom0:\\DUMMY.DAT;1"), "not an archive");

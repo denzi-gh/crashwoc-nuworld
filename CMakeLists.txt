@@ -119,6 +119,14 @@ target_include_directories(nuworld_gfx PUBLIC src)
 target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)
 
+# NUSOUND's data: the VAG decoder and SFX.DAT.
+add_library(nuworld_audio STATIC
+  src/audio/sfx.c
+  src/audio/vag.c)
+target_include_directories(nuworld_audio PUBLIC src)
+target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_audio PUBLIC nuworld_vfs)
+
 # Wizard logic without the UI: import folder listing, background import job.
 add_library(nuworld_frontend STATIC
   src/frontend/import.c)
@@ -136,6 +144,12 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_scene PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_scene PRIVATE nuworld_gfx)
   add_test(NAME scene COMMAND nuworld_test_scene ${CMAKE_CURRENT_BINARY_DIR}/test-scene)
+  add_executable(nuworld_test_audio tests/c/test_audio.c)
+  target_compile_options(nuworld_test_audio PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_audio PRIVATE nuworld_audio)
+  add_test(NAME audio COMMAND nuworld_test_audio ${CMAKE_CURRENT_BINARY_DIR}/test-audio)
+  add_test(NAME audio-retail COMMAND nuworld_test_audio retail)
+  set_tests_properties(audio-retail PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 if(NUWORLD_FUZZ)
