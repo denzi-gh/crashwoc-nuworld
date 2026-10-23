@@ -33,10 +33,18 @@ bool nw_game_start(NwGameEntry entry, int argc, char **argv);
 /* Any thread. */
 NwGameState nw_game_state(void);
 uint64_t nw_game_edges(void);
-/* The time of those edges at the clock's rate, in microseconds. */
+/* The game's time in microseconds: the edges at the clock's rate, plus what the running EE thread spent since the
+   last of them. */
 uint64_t nw_game_us(void);
+/* The running EE thread spends time between vblanks (a SIF RPC's round trip). Stepped, it emits the edges it runs
+   past, so loops that only call the IOP go on; in real time it stops short of the next edge. */
+void nw_game_spend_us(uint64_t us);
+/* The time the EE timers count, in nanoseconds: the host's in real time, nw_game_us when stepped. */
+uint64_t nw_game_time_ns(void);
 /* Waits for a clock edge after `seen` (see nw_clock_wait); returns the edge count. */
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms);
+/* The same for a thread that only watches the game: it never steps the clock. */
+uint64_t nw_game_watch_edge(uint64_t seen, int32_t timeout_ms);
 /* Frames the game has swapped. */
 uint64_t nw_game_swaps(void);
 /* Asks the running EE thread to park at its next yield point, without waiting. */

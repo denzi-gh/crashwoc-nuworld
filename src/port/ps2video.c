@@ -9,6 +9,7 @@
 #include "nups2/ps2video.h"
 #include "port/game.h"
 #include "port/ps2video.h"
+#include "port/trace.h"
 #include "shim/shim.h"
 
 void *NuMemAllocFn(int size, char *file, int line);
@@ -162,6 +163,7 @@ void nw_vblank_deliver(unsigned edges)
                 nw_vbe_run();
             }
         }
+        nw_trace_sound_vblank();
     }
     nw_ee_schedule();
 }
@@ -307,13 +309,13 @@ void NuDisableVBlank(void)
     NuDisableVBlankS();
 }
 
-/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits): PAL lines, 15625 a second. The swap timing
-   and the timer bars read it. */
+/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits): PAL lines, 15625 a second, in the game's
+   time (stepped: its own). The swap timing and the timer bars read it. */
 #define NW_T1_NS_PER_LINE 64000u
 
 static unsigned int nw_t1_count(void)
 {
-    return (unsigned int)(SDL_GetTicksNS() / NW_T1_NS_PER_LINE) & 0xffffu;
+    return (unsigned int)(nw_game_time_ns() / NW_T1_NS_PER_LINE) & 0xffffu;
 }
 
 /* What NuPs2InitVideo and the swaps keep; the rest of retail's state programs the GS. */
@@ -575,10 +577,10 @@ static Uint64 nw_t0_base;
 
 void timeUserReset(void)
 {
-    nw_t0_base = SDL_GetTicksNS();
+    nw_t0_base = nw_game_time_ns();
 }
 
 unsigned int timeUserRead(void)
 {
-    return (unsigned int)((SDL_GetTicksNS() - nw_t0_base) * NW_T0_HZ / SDL_NS_PER_SECOND) & 0xffffu;
+    return (unsigned int)((nw_game_time_ns() - nw_t0_base) * NW_T0_HZ / SDL_NS_PER_SECOND) & 0xffffu;
 }

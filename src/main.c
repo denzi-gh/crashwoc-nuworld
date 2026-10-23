@@ -21,6 +21,7 @@
 #include "gfx/view.h"
 #include "port/game.h"
 #include "port/scene.h"
+#include "port/trace.h"
 #include "shim/shim.h"
 #include "vfs/sha256.h"
 #include "vfs/vfs.h"
@@ -275,7 +276,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 /* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
    too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both. The file
    system stays open for the game. Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
-static int nw_boot_prepare(const char *data_dir)
+static int nw_boot_prepare(const char *data_dir, NwClockMode mode)
 {
     static NwVfs vfs;
     size_t size = 0;
@@ -300,7 +301,7 @@ static int nw_boot_prepare(const char *data_dir)
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
         return 1;
     }
-    if (!nw_game_init(NW_CLOCK_REALTIME, NW_VBLANK_HZ)) {
+    if (!nw_game_init(mode, NW_VBLANK_HZ)) {
         fprintf(stderr, NW_APP_NAME ": no vblank clock: %s\n", SDL_GetError());
         return 1;
     }
@@ -362,9 +363,9 @@ static void nw_print_stub_hits(const char *mode, NwGameState state)
    swap, or with `loads`, until the game parks itself after that many background loads; then prints the stub hits
    in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
    the watchdog, 2 without usable data. */
-static int nw_boot_check(const char *data_dir, int vblanks, int loads)
+static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMode mode)
 {
-    int code = nw_boot_prepare(data_dir);
+    int code = nw_boot_prepare(data_dir, mode);
     if (code) {
         return code;
     }
@@ -378,7 +379,7 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads)
     bool swapped = false;
     NwGameState state = NW_GAME_RUNNING;
     while (state == NW_GAME_RUNNING && SDL_GetTicks() - start < NW_BOOT_CHECK_MS) {
-        edge = nw_game_wait_edge(edge, 100);
+        edge = nw_game_watch_edge(edge, 100);
         if (!swapped && nw_game_swaps() > 0) {
             swapped = true;
             first = edge;
@@ -445,7 +446,7 @@ static void nw_window_close(NwPlatform *p)
    end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
 static int nw_boot(const char *data_dir)
 {
-    int code = nw_boot_prepare(data_dir);
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME);
     if (code) {
         return code;
     }
@@ -516,7 +517,7 @@ static const NwManifestEntry *nw_scene_entry(const char *path)
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
     const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
-    int code = e || !*path ? nw_boot_prepare(data_dir) : 2;
+    int code = e || !*path ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME) : 2;
     if (code) {
         return code;
     }
@@ -605,7 +606,7 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
         return nw_scene_check_all(exe, data_dir);
     }
     const NwManifestEntry *e = nw_scene_entry(path);
-    int code = e ? nw_boot_prepare(data_dir) : 2;
+    int code = e ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME) : 2;
     if (code) {
         return code;
     }
@@ -618,7 +619,7 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
     uint64_t start = SDL_GetTicks(), edge = 0;
     while (nw_game_state() == NW_GAME_RUNNING && nw_game_swaps() < NW_SCENE_CHECK_FRAMES &&
            SDL_GetTicks() - start < NW_BOOT_CHECK_MS) {
-        edge = nw_game_wait_edge(edge, 100);
+        edge = nw_game_watch_edge(edge, 100);
     }
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();
@@ -643,6 +644,7 @@ int main(int argc, char *argv[])
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
+    bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
     int boot_loads = 0; /* --loads: background loads instead of vblanks */
 
@@ -689,6 +691,10 @@ int main(int argc, char *argv[])
                 fprintf(stderr, NW_APP_NAME ": --loads takes a positive number of background loads\n");
                 return 2;
             }
+        } else if (strcmp(argv[i], "--stepped") == 0) {
+            stepped = true;
+        } else if (strcmp(argv[i], "--trace-sound") == 0) {
+            trace_sound = true;
         }
     }
     if (import) {
@@ -708,8 +714,13 @@ int main(int argc, char *argv[])
         if (scene) {
             return nw_scene(data_dir, scene, max_frames);
         }
-        return check_data ? nw_check_data(data_dir) : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads)
-                                                                 : nw_boot(data_dir);
+        if (trace_sound) {
+            nw_trace_sound_start();
+        }
+        return check_data   ? nw_check_data(data_dir)
+               : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
+                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME)
+                            : nw_boot(data_dir);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
         return 2;

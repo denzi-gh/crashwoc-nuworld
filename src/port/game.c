@@ -24,7 +24,9 @@ static struct {
     int argc;
     char **argv;
     uint64_t delivered; /* the running EE thread: the edges whose interrupts ran */
-    char error[512];    /* written before NW_GAME_FATAL */
+    uint64_t spent_us;  /* the running EE thread: its time spent since edge spent_edge */
+    uint64_t spent_edge;
+    char error[512]; /* written before NW_GAME_FATAL */
 } nw_game;
 
 bool nw_game_init(NwClockMode mode, unsigned hz)
@@ -122,12 +124,47 @@ uint64_t nw_game_edges(void)
 
 uint64_t nw_game_us(void)
 {
-    return nw_clock_edges(&nw_game.clock) * nw_game.clock.timing.period / 1000;
+    uint64_t edges = nw_clock_edges(&nw_game.clock);
+    return edges * nw_game.clock.timing.period / 1000 + (edges == nw_game.spent_edge ? nw_game.spent_us : 0);
+}
+
+void nw_game_spend_us(uint64_t us)
+{
+    uint64_t edges = nw_clock_edges(&nw_game.clock), period = nw_game.clock.timing.period / 1000;
+    if (!period) { /* no clock */
+        return;
+    }
+    if (edges != nw_game.spent_edge) {
+        nw_game.spent_edge = edges;
+        nw_game.spent_us = 0;
+    }
+    nw_game.spent_us += us;
+    if (nw_game.spent_us < period) {
+        return;
+    }
+    if (nw_game.clock.mode == NW_CLOCK_STEPPED) {
+        unsigned n = (unsigned)(nw_game.spent_us / period);
+        nw_clock_step(&nw_game.clock, n);
+        nw_game.spent_edge = edges + n;
+        nw_game.spent_us %= period;
+    } else {
+        nw_game.spent_us = period - 1;
+    }
+}
+
+uint64_t nw_game_time_ns(void)
+{
+    return nw_game.clock.mode == NW_CLOCK_STEPPED ? nw_game_us() * 1000 : SDL_GetTicksNS();
 }
 
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms)
 {
     return nw_clock_wait(&nw_game.clock, seen, timeout_ms);
+}
+
+uint64_t nw_game_watch_edge(uint64_t seen, int32_t timeout_ms)
+{
+    return nw_clock_watch(&nw_game.clock, seen, timeout_ms);
 }
 
 uint64_t nw_game_swaps(void)

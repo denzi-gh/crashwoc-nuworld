@@ -2,6 +2,7 @@
    host0: the writable <data>/host0/. Descriptors are 0..15: nufile.c indexes its file_info[16] with them. */
 #include <stdio.h>
 
+#include "audio/nusound.h"
 #include "shim/shim.h"
 #include "vfs/vfs.h"
 
@@ -74,6 +75,7 @@ int sceRead(int fd, void *addr, int size)
         return -NW_SCE_EBADF;
     }
     nw_ee_yield();
+    nw_nusound_cd_moved();
     int64_t n = size > 0 ? nw_vfs_read(f, addr, (size_t)size) : 0;
     return n < 0 ? -NW_SCE_EIO : (int)n;
 }

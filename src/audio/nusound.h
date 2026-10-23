@@ -18,4 +18,7 @@ void nw_nusound_init(const struct NwVfs *vfs, uint64_t (*now_us)(void));
 /* ProcessEECommand: function 0 runs the batch in send; every call copies the reply into recv. */
 void nw_nusound_rpc(unsigned fno, const void *send, size_t ssize, void *recv, size_t rsize);
 
+/* The game read the disc: the drive's head is no longer where the module left it. */
+void nw_nusound_cd_moved(void);
+
 #endif
