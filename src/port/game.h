@@ -1,7 +1,8 @@
-/* The game thread: the decomp's main runs on it, paced by the virtual vblank clock. It is the EE's main thread:
-   the decomp only ever runs there. Yield points (sceGsSyncV, WaitSema, the screen swap) wait for clock edges and
-   deliver the vblank interrupts; quitting parks the game thread at its next yield point and the process exits
-   around it, so the decomp is never unwound. */
+/* The game thread: the decomp's main runs on it, paced by the virtual vblank clock. It is the EE's main thread;
+   the EE threads the game starts run on host threads of their own, one at a time (src/shim/ee.c). Yield points
+   (sceGsSyncV, WaitSema, the screen swap) wait for clock edges and deliver the vblank interrupts; quitting parks
+   the running EE thread at its next yield point and the process exits around it, so quitting never unwinds the
+   decomp. */
 #ifndef NUWORLD_PORT_GAME_H
 #define NUWORLD_PORT_GAME_H
 
@@ -9,6 +10,9 @@
 #include <stdint.h>
 
 #include "platform/clock.h"
+
+/* The EE main thread's stack is the rest of RAM; the host gives each EE thread a generous fixed one. */
+#define NW_GAME_STACK (16u << 20)
 
 typedef int (*NwGameEntry)(int argc, char **argv);
 
@@ -33,17 +37,21 @@ uint64_t nw_game_edges(void);
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms);
 /* Frames the game has swapped. */
 uint64_t nw_game_swaps(void);
-/* Asks the game thread to park at its next yield point; waits up to timeout_ms for it to stop for any reason. */
+/* Asks the running EE thread to park at its next yield point, without waiting. */
+void nw_game_request_stop(void);
+/* Asks the running EE thread to park at its next yield point; waits up to timeout_ms for it to stop for any reason. */
 NwGameState nw_game_stop(uint32_t timeout_ms);
 /* The message of NW_GAME_FATAL. */
 const char *nw_game_error(void);
 
-/* Game thread. A yield point: waits for the next clock edge if asked, then delivers the vblank interrupts of the
-   edges since the last one; returns the edge count. */
+/* The running EE thread. A yield point: waits for the next clock edge if asked, then delivers the vblank
+   interrupts of the edges since the last one; returns the edge count. */
 uint64_t nw_game_yield(bool wait_edge);
 /* The game cannot go on (the message is printed): parks for good. */
 _Noreturn void nw_game_fatal(const char *message);
 /* NuPs2ScreenSwap swapped a frame. */
 void nw_game_swap(void);
+/* A new host thread of an EE thread: the EE FPU's float mode. */
+void nw_game_host_enter(void);
 
 #endif

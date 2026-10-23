@@ -164,10 +164,10 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-data)
   set_tests_properties(data-image-retail PROPERTIES SKIP_RETURN_CODE 77)
-  # Local only: the game from the imported disc to 50 vblanks after its first screen swap.
+  # Local only: the game from the imported disc until it leaves its first load screen (BGLoadSfx's loader ends).
   add_test(NAME boot-check
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
-      --data-dir {root} --boot-check 50)
+      --data-dir {root} --boot-check --loads 1)
   set_tests_properties(boot-check PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail
@@ -223,6 +223,14 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_clock PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_clock PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME clock COMMAND nuworld_test_clock)
+
+  # The EE threads under the decomp's bgload, on a stepped clock, then on a real game thread.
+  add_executable(nuworld_test_ee tests/c/test_ee.c)
+  target_include_directories(nuworld_test_ee PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_ee PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_ee PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_ee PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME ee COMMAND nuworld_test_ee)
 
   add_executable(nuworld_test_hle tests/c/test_hle.c)
   target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})

@@ -9,7 +9,6 @@
 #include "nups2/ps2video.h"
 #include "platform/clock.h"
 #include "port/game.h"
-#include "port/stub.h"
 
 /* The data image root the vblank start interrupt counts. */
 extern volatile int nuvideo_global_vbcnt;
@@ -27,7 +26,6 @@ int nw_ee_CreateSema(void *param);
 int nw_ee_PollSema(int sema_id);
 int nw_ee_WaitSema(int sema_id);
 int nw_ee_iSignalSema(int sema_id);
-int nw_ee_CreateThread(void *param);
 int nw_ee_StartThread(int thid, void *arg);
 int nw_ee_GetThreadId(void);
 int sceGsSyncV(int mode);
@@ -212,9 +210,8 @@ static void test_semaphores(void)
     CHECK(nw_ee_PollSema(sema) == -419);
     NuIntRemVBlankS(&h_s);
 
-    /* One EE thread: the loader thread is "none". */
+    /* The main thread is thread 1; 0 is no thread (the EE threads: test_ee.c). */
     CHECK(nw_ee_GetThreadId() == 1);
-    CHECK(nw_ee_CreateThread(param) == 0);
     CHECK(nw_ee_StartThread(0, NULL) < 0);
 
     /* The field sceGsSyncV returns alternates. */
@@ -232,7 +229,6 @@ static int spin_entry(int argc, char **argv)
 
 int main(void)
 {
-    nw_stub_set_continue(true); /* CreateThread is a stub hit */
     test_due();
     test_stepped();
     test_realtime();

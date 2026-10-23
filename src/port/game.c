@@ -9,8 +9,6 @@
 #include "app.h"
 #include "port/ps2video.h"
 
-/* The EE main thread's stack is the rest of RAM; the host gives the game thread a generous fixed one. */
-#define NW_GAME_STACK (16u << 20)
 /* A yield that finds more edges than this delivers only this many (the game was stalled, not slow). */
 #define NW_GAME_MAX_CATCHUP 8
 
@@ -25,7 +23,7 @@ static struct {
     NwGameEntry entry;
     int argc;
     char **argv;
-    uint64_t delivered; /* game thread: the edges whose interrupts ran */
+    uint64_t delivered; /* the running EE thread: the edges whose interrupts ran */
     char error[512];    /* written before NW_GAME_FATAL */
 } nw_game;
 
@@ -71,13 +69,18 @@ _Noreturn static void nw_game_park(NwGameState state)
     }
 }
 
-static int SDLCALL nw_game_run(void *arg)
+void nw_game_host_enter(void)
 {
-    (void)arg;
 #if defined(__x86_64__) || defined(_M_X64)
     /* The EE FPU has no denormals: flush them to zero (FTZ) and read them as zero (DAZ). */
     _mm_setcsr(_mm_getcsr() | 0x8040);
 #endif
+}
+
+static int SDLCALL nw_game_run(void *arg)
+{
+    (void)arg;
+    nw_game_host_enter();
     nw_game.entry(nw_game.argc, nw_game.argv);
     nw_game_set_state(NW_GAME_RETURNED);
     return 0;
@@ -127,10 +130,15 @@ uint64_t nw_game_swaps(void)
     return (uint32_t)SDL_GetAtomicInt(&nw_game.swaps);
 }
 
-NwGameState nw_game_stop(uint32_t timeout_ms)
+void nw_game_request_stop(void)
 {
     SDL_SetAtomicInt(&nw_game.stop, 1);
     nw_clock_wake(&nw_game.clock);
+}
+
+NwGameState nw_game_stop(uint32_t timeout_ms)
+{
+    nw_game_request_stop();
     SDL_LockMutex(nw_game.lock);
     uint64_t start = SDL_GetTicks();
     while (nw_game.state == NW_GAME_RUNNING) {

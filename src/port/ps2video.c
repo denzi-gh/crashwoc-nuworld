@@ -9,6 +9,7 @@
 #include "nups2/ps2video.h"
 #include "port/game.h"
 #include "port/ps2video.h"
+#include "shim/shim.h"
 
 void *NuMemAllocFn(int size, char *file, int line);
 void NuMemFreeFn(void *ptr, char *file, int line);
@@ -28,7 +29,7 @@ extern int ps2video_novsync;
 static char nw_ps2video_file[] = "ps2video.c";
 
 /* The two vblank interrupts as the INTC sees them: hooked, masked (DisableIntc), pending (fired while masked).
-   Vblank start is shared with the clock thread, which counts it; vblank end is the game thread's alone. */
+   Vblank start is shared with the clock thread, which counts it; vblank end is the running EE thread's alone. */
 #define NW_INTC_HOOKED 0x1
 #define NW_INTC_MASKED 0x2
 #define NW_INTC_PENDING_COUNT 0x4 /* a masked edge not counted yet */
@@ -89,7 +90,9 @@ static int nw_vbs_clear(int bits)
 }
 
 /* DisableIntc / EnableIntc of INTC 2 and 3. Unmasking with an edge pending fires it at once, unless already
-   inside an interrupt (the EE does not nest them): then the next yield point runs it. */
+   inside an interrupt (the EE does not nest them): then the next yield point runs it. The return from it may switch
+   EE threads; NuEnableVBlank unmasks start before end, so a switch there leaves vblank end masked until the thread
+   runs again, as on the PS2. */
 static void nw_intc_disable(int cause)
 {
     if (cause == 2) {
@@ -108,12 +111,14 @@ static void nw_intc_enable(int cause)
         }
         if ((old & NW_INTC_HOOKED) && (old & NW_INTC_PENDING_RUN) && !nw_in_vblank) {
             nw_vbs_run();
+            nw_ee_schedule();
         }
     } else {
         int old = nw_vbe_intc;
         nw_vbe_intc &= ~(NW_INTC_MASKED | (nw_in_vblank ? 0 : NW_INTC_PENDING_RUN));
         if ((old & NW_INTC_HOOKED) && (old & NW_INTC_PENDING_RUN) && !nw_in_vblank) {
             nw_vbe_run();
+            nw_ee_schedule();
         }
     }
 }
@@ -158,6 +163,7 @@ void nw_vblank_deliver(unsigned edges)
             }
         }
     }
+    nw_ee_schedule();
 }
 
 /* ps2videoAddAllHandlers, the vblank half (the VIF1 and DMAC handlers have nothing to do on the host). */
