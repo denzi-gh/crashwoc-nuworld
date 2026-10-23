@@ -4,6 +4,7 @@
 
 #include "gfx/rndr.h"
 #include "nu3d/numtl.h"
+#include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
 
 extern struct nutexslot_s *D_0062EBEC;
@@ -11,6 +12,7 @@ extern struct nutexslot_s *D_0062EBEC;
 extern int numtl_force_mipmap;
 extern int sys_mm_k;
 extern int sys_mm_l;
+extern struct rndrstream_s *rndrstream_mtl_sort;
 
 _Static_assert(sizeof(NwStateBlock) <= sizeof(((struct numtl_s *)0)->sbdata), "the state block fits sbdata");
 
@@ -40,4 +42,14 @@ int CreateStateBlock(struct numtl_s *mtl, int keep)
 const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl)
 {
     return (const NwStateBlock *)mtl->sbdata;
+}
+
+/* Retail's order: the materials as NuMtlInsert sorted them (sort_pri, then tid), each one's stream after mtl_sort's
+   records; a record carries its state block, texture and microcode, which retail calls before the stream. */
+void NuMtlBuildRenderList(void)
+{
+    for (struct numtl_s *mtl = NuMtlIterate(1); mtl; mtl = mtl->snext) {
+        nw_rndr_splice(rndrstream_mtl_sort, &mtl->rs);
+        NuRndrStreamResetStream(&mtl->rs, 1);
+    }
 }

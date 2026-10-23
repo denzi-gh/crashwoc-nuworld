@@ -47,14 +47,14 @@ schema = 1
 "nu3d/nunode" = { treatment = "compile" }
 # nugscn defines a global ReadNuIFFGeomVtx too; dead: NuNodeRead, ReadNuIFFTextureSet
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
-"nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock"] }
+"nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimData2FixPtrs"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
-"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary", "NuGScnRndr*",
+"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
     "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }

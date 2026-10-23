@@ -9,12 +9,23 @@
 
 #include "gfx/rndr.h"
 #include "nu3d/numtl.h"
+#include "nu3d/nurndr.h"
+#include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
 
 #include "gsc_builder.h"
 
 extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[];
 extern struct nutexslot_s *D_0062EBEC;
+extern int no_default_font, PS2_REZ_W, PS2_REZ_H;
+
+/* Declared by no header. */
+int NuRndrBeginScene(int target);
+void NuRndrEndScene(void);
+void NuRndrStreamLink(struct rndrstream_s *stream);
+extern u8 *rndrstream_free;
+extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
+    *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
 
 static int failures;
 
@@ -163,13 +174,132 @@ static void test_state(void)
     gsc_free(&b);
 }
 
+
+/* A command whose mesh field only marks where it came from. */
+static void mark(struct rndrstream_s *s, uintptr_t id)
+{
+    nw_rndr_cmd(s, NW_CMD_DRAW)->mesh = (const NwVifMesh *)id;
+}
+
+static bool packet_is(const uintptr_t *ids, uint32_t n)
+{
+    const NwPacket *p = nw_rndr_packet();
+    bool same = p->ncmds == n;
+    for (uint32_t i = 0; i < n && same; i++) {
+        same = (uintptr_t)p->cmds[i].mesh == ids[i];
+    }
+    if (!same) {
+        fprintf(stderr, "packet:");
+        for (uint32_t i = 0; i < p->ncmds; i++) {
+            fprintf(stderr, " %u", (unsigned)(uintptr_t)p->cmds[i].mesh);
+        }
+        fprintf(stderr, "\n");
+    }
+    return same;
+}
+
+/* Retail's stream order (descending drawpri, a later stream before an equal key), the material order (sort_pri,
+   then tid) inside mtl_sort, the ordering table back to front with the latest item first in a bin, and one sorted
+   group per flush. */
+static void test_order(void)
+{
+    struct rndrstream_s *pool[] = { rndrstream_2d, rndrstream_ptl, rndrstream_fx, rndrstream_ot_sort,
+                                    rndrstream_mtl_sort, rndrstream_faceon, rndrstream_3d_u, rndrstream_3d_l,
+                                    rndrstream_system };
+    for (size_t i = 0; i < SDL_arraysize(pool); i++) {
+        mark(pool[i], i + 1);
+    }
+    NuRndrStreamFlush();
+    CHECK(packet_is((const uintptr_t[]){ 9, 8, 7, 6, 5, 4, 3, 2, 1 }, 9));
+
+    struct numtl_s *m[3];
+    static const int pri[3] = { 5, 2, 2 }, tid[3] = { 0, 3, 1 };
+    for (int i = 0; i < 3; i++) {
+        m[i] = NuMtlCreate(1);
+        m[i]->sort_pri = pri[i];
+        m[i]->tid = tid[i];
+        NuMtlUpdateEx(m[i], 1);
+    }
+    NuRndrSwapStreamBuffers();
+    mark(&m[0]->rs, 10);
+    mark(&m[1]->rs, 11);
+    mark(&m[2]->rs, 12);
+    mark(&m[0]->rs, 13);
+    mark(rndrstream_3d_l, 14);
+    static const float depth[5] = { 0.0f, 1000.0f, 2000.0f, 100.25f, 100.0f };
+    for (int i = 0; i < 5; i++) {
+        NwRecord *item = nw_rndr_record(NW_CMD_DRAW, m[0], m[0]->rs.mpg);
+        item->cmd.mesh = (const NwVifMesh *)(uintptr_t)(20 + i);
+        nw_rndr_ot_insert(item, depth[i]);
+    }
+    mark(rndrstream_2d, 15);
+    NuRndrEndScene();
+    mark(&m[1]->rs, 16);
+    NuRndrEndSceneEx(0);
+    mark(rndrstream_2d, 17);
+    NuRndrEndScene();
+    CHECK(packet_is((const uintptr_t[]){ 14, 12, 11, 10, 13, 22, 21, 24, 23, 20, 15, 16, 17 }, 13));
+    CHECK(nw_rndr_packet()->cmds[0].mtl == NULL && nw_rndr_packet()->cmds[1].mtl == m[2]);
+    CHECK(nw_rndr_packet()->cmds[1].mpg == m[2]->rs.mpg);
+    NuRndrSwapStreamBuffers();
+    CHECK(nw_rndr_packet()->ncmds == 0);
+}
+
+/* A record keeps the view and local matrix it was made under; the packet holds each view once. */
+static void test_state_capture(void)
+{
+    struct numtx_s a, b;
+    memset(&a, 0, sizeof(a));
+    a._00 = 1.0f;
+    b = a;
+    b._30 = 7.0f;
+    NuRndrBeginScene(-1);
+    NuRndrSetViewMtx(&a, &a, &a);
+    NuRndrSetLocalMtx(&b, 1);
+    mark(rndrstream_3d_l, 1);
+    b._30 = 8.0f;
+    NuRndrSetLocalMtx(&b, 1);
+    mark(rndrstream_3d_l, 2);
+    a._00 = 2.0f;
+    NuRndrSetViewMtx(&a, &a, &a);
+    mark(rndrstream_3d_l, 3);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    CHECK(p->ncmds == 3 && p->nviews == 2);
+    CHECK(p->cmds[0].local[12] == 7.0f && p->cmds[1].local[12] == 8.0f && p->cmds[2].local[12] == 8.0f);
+    CHECK(p->cmds[0].view == p->cmds[1].view && p->views[p->cmds[2].view].vs[0] == 2.0f);
+    const NwView *v = &p->views[p->cmds[0].view];
+    CHECK(v->xyoffset[0] == (0x800 - 320) << 4 && v->xyoffset[1] == (0x800 - 256) << 4);
+    CHECK(v->scissor[2] == 639 && v->scissor[3] == 511 && v->vs[0] == 1.0f);
+    NuRndrSwapStreamBuffers();
+}
+
+/* Packets the compiled decomp writes into a stream itself are reported, not drawn. */
+static void test_raw(void)
+{
+    CHECK(nw_rndr_raw_streams() == 0);
+    NuRndrStreamLink(rndrstream_2d);
+    rndrstream_2d->ptr.u8 += 16;
+    rndrstream_free = rndrstream_2d->ptr.u8;
+    NuRndrStreamFlush();
+    CHECK(nw_rndr_raw_streams() == 1 && nw_rndr_packet()->ncmds == 0);
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
+    PS2_REZ_W = 640;
+    PS2_REZ_H = 512;
+    no_default_font = 1;
     NuTexInit();
     NuMtlInit();
+    NuRndrInitEx(0x10000);
     test_native();
     test_bitmap();
     test_state();
+    test_order();
+    test_state_capture();
+    test_raw();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

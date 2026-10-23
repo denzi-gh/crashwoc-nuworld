@@ -1,14 +1,45 @@
-/* nu3d/nurndr, which the port overrides whole (port/units.toml): the frame bracket. Drawing belongs to the
-   renderer (M3): every other NuRndr* is a stub, and their hits are its worklist. */
+/* nu3d/nurndr, which the port overrides whole (port/units.toml): the scene bracket and the draws, as records in
+   the streams (src/gfx/nustream.c) instead of DMA packets. Every other NuRndr* is a stub, and their hits are the
+   renderer's worklist. */
+#include <string.h>
+
+#include "gfx/rndr.h"
+#include "nu3d/nucamera.h"
+#include "nu3d/nugobj.h"
+#include "nu3d/numtl.h"
+#include "nu3d/nustream.h"
+#include "numath/numtx.h"
+
 int NuPs2ScreenSwap(int vsync);
 void NuPs2DisableAutoScreenSwap(void);
+void NuFntInit(void);
+int Ps2TxValToPowerOfTwo(int value);
 
 struct nugscn_s;
 struct nugspline_s;
 int NuSplineFindAllSub(struct nugscn_s *scene, char *name, struct nugspline_s **list, int max);
 
-/* The data image root main.c reads. */
+/* Roots of the data image. */
 extern int nurndr_tritot_this_frame;
+extern int nurndr_pixel_width;
+extern int nurndr_pixel_height;
+extern int nurndr_pixel_p2w;
+extern int nurndr_pixel_p2h;
+extern int PS2_REZ_W;
+extern int PS2_REZ_H;
+extern struct rndrstream_s *rndrstream_3d;
+extern struct numtl_s *nurndr_forced_mtl;
+extern struct numtl_s **nurndr_forced_mtl_table;
+
+extern struct rndrstream_s *rndrstream_system;
+extern struct rndrstream_s *rndrstream_ot_sort;
+
+#define NW_OT_BINS 0x1000
+#define NW_OT_ITEMS 0x400
+
+static const float otscale = 2.0f;
+static NwRecord *ot_bins[NW_OT_BINS];
+static int ot_batch_free;
 
 /* Shadow masks: scene splines named like "stencil" (D_0062ECA8); only nurndr reads them. */
 int NuRndrShadMaskCount;
@@ -21,16 +52,95 @@ void NuRndrSplineSearch(void *spline)
     NuRndrShadMaskCount += NuSplineFindAllSub(spline, nw_stencil, &NuRndrShadMasks[n], 32 - n);
 }
 
-/* Retail links the system stream and sets the target, Z buffer, offset and scissor: no stream yet. */
-int NuRndrBeginScene(int target)
+void NuRndrOTInit(void)
+{
+    ot_batch_free = NW_OT_ITEMS;
+    memset(ot_bins, 0, sizeof(ot_bins));
+}
+
+/* NuRndrOTInsertItem: bin depth * otscale, the latest first in its bin. */
+void nw_rndr_ot_insert(NwRecord *item, float depth)
+{
+    int index = (int)(depth * otscale);
+    index = index < 0 ? 0 : index > NW_OT_BINS - 1 ? NW_OT_BINS - 1 : index;
+    item->next = ot_bins[index];
+    ot_bins[index] = item;
+    ot_batch_free--;
+}
+
+/* Back to front: bin 0xFFF first, each bin from its latest item. */
+void NuRndrOTFlush(void)
+{
+    if (ot_batch_free == NW_OT_ITEMS) {
+        return;
+    }
+    for (int bin = NW_OT_BINS - 1; bin >= 0; bin--) {
+        NwRecord *item = ot_bins[bin];
+        while (item) {
+            NwRecord *next = item->next;
+            nw_rndr_push(rndrstream_ot_sort, item);
+            item = next;
+        }
+        ot_bins[bin] = NULL;
+    }
+    ot_batch_free = NW_OT_ITEMS;
+}
+
+/* Retail also builds the shadow and blend-deformer DMA data, which the shadow and skin work (#56, #46) brings. */
+void NuRndrInitEx(int streamsize)
+{
+    NuRndrStreamInit(streamsize);
+    NuFntInit();
+    NuRndrOTInit();
+}
+
+/* The back buffer's size for every target the port has so far. */
+static void nw_rndr_target(int target)
 {
     (void)target;
+    nurndr_pixel_width = PS2_REZ_W;
+    nurndr_pixel_height = PS2_REZ_H;
+    nurndr_pixel_p2w = Ps2TxValToPowerOfTwo(PS2_REZ_W);
+    nurndr_pixel_p2h = Ps2TxValToPowerOfTwo(PS2_REZ_H);
+}
+
+/* halfoffset adds nurndr_half_offset, which is 0 in retail. */
+int NuRndrBeginSceneEx(int target, int zbuffer, int halfoffset)
+{
+    (void)zbuffer;
+    (void)halfoffset;
+    nw_rndr_target(target);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
     return 1;
 }
 
-/* Retail builds the material render list and flushes the ordering table and the stream: nothing was drawn. */
+int NuRndrBeginScene(int target)
+{
+    return NuRndrBeginSceneEx(target, -2, target == -1);
+}
+
 void NuRndrEndScene(void)
 {
+    NuMtlBuildRenderList();
+    NuRndrOTFlush();
+    NuRndrStreamFlush();
+}
+
+void NuRndrEndSceneEx(int flags)
+{
+    if (flags & 1) {
+        NuMtlBuildRenderList();
+    }
+    if (flags & 2) {
+        NuRndrOTFlush();
+    }
+    NuRndrStreamFlush();
+}
+
+void NuRndrFlush(int flags)
+{
+    NuRndrEndSceneEx(flags);
 }
 
 /* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame
@@ -39,6 +149,56 @@ int NuRndrSwapScreen(int target)
 {
     NuPs2DisableAutoScreenSwap();
     int swapped = NuPs2ScreenSwap(target != -3);
+    NuRndrVu1Draw();
+    NuRndrSwapStreamBuffers();
     nurndr_tritot_this_frame = 0;
     return swapped;
+}
+
+/* A scene object: each sub-object in view draws its geoms into their materials' streams (each material of the
+   multipass chain mtl->next once), under its instance's matrix. Returns retail's clip state: 0 out of view, 1 in
+   view, 2 partly. */
+int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
+{
+    struct numtx_s mtx;
+    struct numtx_s offset;
+    int clip = -1;
+    int n = gobj->ngobjs;
+    int instanced = n > 1;
+    while (n-- != 0) {
+        struct numtx_s *m = wm;
+        if (instanced) {
+            NuMtxSetIdentity(&offset);
+            offset._30 = gobj->origin.x;
+            offset._31 = gobj->origin.y;
+            offset._32 = gobj->origin.z;
+            NuMtxMul(&mtx, &offset, wm);
+            m = &mtx;
+        }
+        int vis = NuCameraClipTestExtents(&gobj->min, &gobj->max, m);
+        if (clip == -1) {
+            clip = vis;
+        } else if ((clip == 1 && vis != 1) || (clip == 0 && vis != 0)) {
+            clip = 2;
+        }
+        if (vis) {
+            nurndr_tritot_this_frame += gobj->tricount;
+            NuRndrSetLocalMtx(m, vis);
+            for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+                struct numtl_s *mtl = nurndr_forced_mtl ? nurndr_forced_mtl : geom->mtl;
+                if (nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
+                    mtl = nurndr_forced_mtl_table[mtl->special_id];
+                }
+                for (; mtl; mtl = mtl->next) {
+                    rndrstream_3d = &mtl->rs;
+                    if (geom->dmastream) {
+                        NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW);
+                        c->mesh = geom->dmastream;
+                    }
+                }
+            }
+        }
+        gobj++;
+    }
+    return clip;
 }
