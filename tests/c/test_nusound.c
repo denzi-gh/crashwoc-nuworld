@@ -1,14 +1,20 @@
-/* The NUSOUND.IRX port (src/audio/nusound.c) behind the SIF shim, driven by the decomp's own nusound.c.
-   Usage: test_nusound. */
+/* The NUSOUND.IRX port (src/audio/nusound.c) behind the SIF shim, driven by the decomp's own nusound.c, on a
+   synthetic SFX.DAT and a clock the test sets. Usage: test_nusound <scratch dir>. */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "audio/irx.h"
 #include "audio/nusound.h"
 #include "audio/spu2.h"
 #include "nusound/nusound.h"
+#include "platform/paths.h"
+#include "vfs/vfs.h"
+
+#include "vag_builder.h"
 
 /* decomp nusound.c (no header declares them) */
 int SOUND_InitIOP(void);
@@ -21,9 +27,18 @@ void SOUND_AddSamples(struct nusound_filename_info_s *sfx_info);
 void SOUND_SetMaxStreamLimit(int limit);
 void SOUND_SetSPUWriteAddress(unsigned int address);
 void SOUND_AllocateStreamBuffer(int stream, unsigned int address, unsigned int size);
+void SOUND_InitStreamData(void);
 extern volatile int sbuff2[128];
 
 static int failures;
+static NwVfs vfs; /* the scratch disc with SFX.DAT */
+static uint64_t test_us;
+static size_t a_size, bl_size; /* sfx\generic\a.vag, sfx\music\bl.vag */
+
+static uint64_t test_clock(void)
+{
+    return test_us;
+}
 
 #define CHECK(cond) \
     do { \
@@ -45,7 +60,7 @@ static bool reply_is(int32_t value)
 
 static void test_transport(void)
 {
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
 
     /* Unbound, the call has no server and the reply stays. */
     memset((void *)sbuff2, 0x55, sizeof(sbuff2));
@@ -66,7 +81,7 @@ static void test_batch(void)
     const uint16_t past_end[] = { 2, 8, 100 };     /* the data runs past the batch */
     const uint16_t negative[] = { 1, 8, 0xffff }; /* nwords -1 */
 
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     nw_nusound_rpc(0, past_end, sizeof(past_end), reply, 8);
     CHECK(reply[0] == 0 && reply[1] == 0 && reply[2] == -1);
     nw_nusound_rpc(0, negative, sizeof(negative), NULL, 0);
@@ -85,7 +100,7 @@ static void test_status(void)
 {
     int32_t ret[128];
 
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     status(ret);
     CHECK(ret[24] == -1);
     for (int i = 0; i < 32; i++) {
@@ -127,7 +142,7 @@ static void test_init_spu(void)
 {
     int32_t ret[128];
 
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     nw_spu2_set_switch(NW_SD_S_KON, 1u << 5);
     send_string(7, "cdrom0:\\");
     status(ret);
@@ -146,7 +161,7 @@ static void test_dat_path(void)
 {
     const NwIrx *irx = nw_nusound_irx();
 
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     send_string(0x1e, "SFX.DAT");
     send_string(0x1f, "LOCAL.DAT");
     CHECK(strcmp(irx->new_global_dat_name, "SFX.DAT") == 0 && strcmp(irx->new_local_dat_name, "LOCAL.DAT") == 0);
@@ -166,7 +181,7 @@ static void test_sample_info(void)
         info[i].LoopInfo = i & 1;
         info[i].ID = 0x1000 + i;
     }
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     SOUND_AddSamples(info); /* 12 per batch */
     CHECK(irx->fileinfo_cnt == 13);
     CHECK(strcmp(irx->ADPCM_FileNames[12].Filename, "SFX\\GENERIC\\S12.VAG") == 0);
@@ -189,7 +204,7 @@ static void test_sample_info(void)
 
 static void test_max_streams(void)
 {
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     SOUND_SetMaxStreamLimit(5);
     FlushIOPCommand(0);
     CHECK(nw_nusound_irx()->UserMaxStreams == 5);
@@ -200,7 +215,7 @@ static void test_max_streams(void)
 
 static void test_write_address(void)
 {
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     SOUND_SetSPUWriteAddress(0x48310);
     FlushIOPCommand(0);
     CHECK(nw_nusound_irx()->StreamMemoryEnd == 0x48310);
@@ -210,7 +225,7 @@ static void test_stream_buffers(void)
 {
     const STREAMDATA *sb = nw_nusound_irx()->StreamBuffer;
 
-    nw_nusound_init();
+    nw_nusound_init(NULL, NULL);
     for (int i = 0; i < 5; i++) { /* init_adpcm's */
         SOUND_AllocateStreamBuffer(i, 0x5010 + i * 0xd700, 0xd700);
     }
@@ -226,8 +241,88 @@ static void test_stream_buffers(void)
     CHECK(sb[0].AllocSize == 0xd700 && sb[0].AllocSPUAddress == 0x5010);
 }
 
-int main(void)
+static void test_init_stream_data(void)
 {
+    const NwIrx *irx = nw_nusound_irx();
+    int32_t ret[128];
+    struct nusound_filename_info_s info[] = {
+        { "SFX\\GENERIC\\A.VAG", 22050, 1, 0x1000 },
+        { "SFX\\MUSIC\\BL.VAG", 44100, 0, 1 },
+        { "SFX\\GENERIC\\MISSING.VAG", 22050, 1, 0x1001 },
+        { "SFX\\GENERIC\\README.TXT", 0, 1, 0x1002 }, /* Pitch 0: unused */
+        { "", 0, 0, 0 },
+    };
+
+    nw_nusound_init(&vfs, test_clock);
+    test_us = 1000000;
+    send_string(0x1e, "SFX.DAT");
+    send_string(7, "cdrom0:\\");
+    SOUND_AddSamples(info);
+    SOUND_InitStreamData();
+    FlushIOPCommand(0);
+    CHECK(irx->global_dat && irx->AnyFiles == 1 && irx->FilesOnCD == 2);
+    const ADPCMFILE *f = irx->ADPCM_FileInfo;
+    CHECK(f[0].size == a_size && f[0].lsn == 1 && f[0].ID == 0x1000 && f[0].Source == 1);
+    CHECK(f[0].datfile == irx->global_dat);
+    CHECK(f[1].size == bl_size && f[1].lsn == 2 && f[1].ID == 1);
+    CHECK(f[2].size == 0 && f[3].size == 0);
+    CHECK(irx->StreamBuffer[47].Channel == 47 && irx->StreamBuffer[47].iStatus == 3);
+    CHECK(irx->StreamBuffer[47].Error == 0x8000);
+
+    /* The stream thread ticks at 60 Hz from the call on, caught up at the next one. */
+    int direction = irx->Direction;
+    test_us += 3 * 16666;
+    status(ret);
+    CHECK(irx->Direction == (direction ^ 1));
+    test_us += 16666;
+    status(ret);
+    CHECK(irx->Direction == direction);
+
+    /* Without the DAT nothing is found. */
+    nw_nusound_init(&vfs, test_clock);
+    send_string(0x1e, "NONE.DAT");
+    send_string(7, "cdrom0:\\");
+    SOUND_AddSamples(info);
+    SOUND_InitStreamData();
+    FlushIOPCommand(0);
+    CHECK(!irx->global_dat && irx->AnyFiles == 0 && irx->ADPCM_FileInfo[0].size == 0);
+}
+
+/* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
+static bool setup_disc(const char *scratch)
+{
+    static uint8_t arc[SFX_DAT_MAX];
+    static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
+    uint8_t blocks[4][NW_ADPCM_BLOCK], a[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
+    char dir[1024], path[1100];
+
+    vag_block_fill(blocks[0], 0, 0, 0, 1);
+    vag_block_fill(blocks[1], 1, 12, NW_ADPCM_END, 0);
+    vag_block_fill(blocks[2], 0, 0, 7, 0);
+    a_size = vag_file(a, 22050, blocks[0], 3);
+    vag_block_fill(blocks[1], 2, 3, NW_ADPCM_START | NW_ADPCM_REPEAT, -5);
+    vag_block_fill(blocks[2], 3, 5, NW_ADPCM_REPEAT, 3);
+    vag_block_fill(blocks[3], 4, 8, NW_ADPCM_END | NW_ADPCM_REPEAT, -2);
+    bl_size = vag_file(bl, 44100, blocks[0], 4);
+    const uint8_t *const files[3] = { a, bl, (const uint8_t *)text };
+    const size_t sizes[3] = { a_size, bl_size, sizeof(text) - 1 };
+    size_t size = sfx_dat(arc, files, sizes);
+
+    SDL_snprintf(dir, sizeof(dir), "%s/disc", scratch);
+    SDL_snprintf(path, sizeof(path), "%s/SFX.DAT", dir);
+    return SDL_CreateDirectory(dir) && SDL_SaveFile(path, arc, size) && nw_vfs_mount(&vfs, NW_VFS_DISC, dir);
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 2) {
+        fprintf(stderr, "usage: test_nusound <scratch dir>\n");
+        return 2;
+    }
+    if (!nw_paths_remove_tree(argv[1]) || !SDL_CreateDirectory(argv[1]) || !setup_disc(argv[1])) {
+        fprintf(stderr, "%s: %s\n", argv[1], SDL_GetError());
+        return 1;
+    }
     test_transport();
     test_batch();
     test_status();
@@ -237,6 +332,10 @@ int main(void)
     test_max_streams();
     test_write_address();
     test_stream_buffers();
+    test_init_stream_data();
+    nw_nusound_init(NULL, NULL);
+    nw_vfs_shutdown(&vfs);
+    nw_paths_remove_tree(argv[1]);
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

@@ -255,7 +255,7 @@ if(NUWORLD_TESTS)
   target_compile_definitions(nuworld_test_nusound PRIVATE NW_HOST)
   target_compile_options(nuworld_test_nusound PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_nusound PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
-  add_test(NAME nusound COMMAND nuworld_test_nusound)
+  add_test(NAME nusound COMMAND nuworld_test_nusound ${CMAKE_CURRENT_BINARY_DIR}/test-nusound)
 
   # The port's Nu render layer under the decomp code that drives it.
   add_executable(nuworld_test_rndr tests/c/test_rndr.c)

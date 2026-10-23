@@ -6,6 +6,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "app.h"
+#include "audio/nusound.h"
 #include "frontend/ui.h"
 #include "frontend/wizard.h"
 #include "gfx/gl.h"
@@ -272,8 +273,8 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 
 /* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
-   too), newlib's state, the data image from the boot ELF, the vblank clock. The file system stays open for the
-   game. Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
+   too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both. The file
+   system stays open for the game. Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
 static int nw_boot_prepare(const char *data_dir)
 {
     static NwVfs vfs;
@@ -303,6 +304,7 @@ static int nw_boot_prepare(const char *data_dir)
         fprintf(stderr, NW_APP_NAME ": no vblank clock: %s\n", SDL_GetError());
         return 1;
     }
+    nw_nusound_init(&vfs, nw_game_us);
     return 0;
 }
 

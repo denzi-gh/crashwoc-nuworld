@@ -1,6 +1,8 @@
 #include "audio/nusound.h"
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,8 +12,22 @@
 #define NW_IRX_DT 256     /* AdpcmSetParam's dt[] */
 #define NW_IRX_REPORTED 4 /* streams in the reply */
 #define NW_IRX_NO_REQUEST 0xffff
+#define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
+#define NW_IRX_SECTOR 2048
+#define NW_IRX_PATH 600
 
 static NwIrx irx;
+
+/* The port's side: the file system, the clock and how far the stream thread's ticks got. */
+static struct {
+    const NwVfs *vfs;
+    uint64_t (*now_us)(void);
+    bool timer;
+    uint64_t timer_us;
+    uint64_t ticks;
+    NwDat global_dat;
+    NwDat local_dat;
+} iop;
 
 /* A string command's data, NUL-terminated within its words (the IRX strcpys it whole). */
 static void nw_irx_string(char *dst, size_t size, const uint16_t *p, int length)
@@ -23,12 +39,21 @@ static void nw_irx_string(char *dst, size_t size, const uint16_t *p, int length)
     dst[len] = '\0';
 }
 
-void nw_nusound_init(void)
+void nw_nusound_init(const NwVfs *vfs, uint64_t (*now_us)(void))
 {
     for (int i = 0; i < NW_IRX_CHANNELS; i++) {
         free(irx.StreamBuffer[i].IOPAddress);
     }
+    if (irx.global_dat) {
+        nw_dat_close(irx.global_dat);
+    }
+    if (irx.local_dat) {
+        nw_dat_close(irx.local_dat);
+    }
     memset(&irx, 0, sizeof(irx));
+    memset(&iop, 0, sizeof(iop));
+    iop.vfs = vfs;
+    iop.now_us = now_us;
     irx.IOPRequestLoad = -1;
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
     nw_spu2_init();
@@ -119,6 +144,148 @@ static void SoundAddSample(const uint16_t *p, int length)
     }
 }
 
+/* SetGlobalDat / SetLocalDat: reopened only for another name; a DAT that fails to open is tried again next time. */
+static void nw_irx_set_dat(NwDat **dat, NwDat *store, char *dat_name, const char *dfname)
+{
+    char path[NW_IRX_PATH];
+
+    if (*dat) {
+        if (strcmp(dfname, dat_name) == 0) {
+            return;
+        }
+        nw_dat_close(*dat);
+        *dat = NULL;
+    }
+    strcpy(dat_name, dfname);
+    if (dat_name[0] && iop.vfs) {
+        snprintf(path, sizeof(path), "%s%s%s", irx.nu_filepath, dat_name, irx.nu_fileterm);
+        if (nw_dat_open(store, iop.vfs, path)) {
+            *dat = store;
+        }
+    }
+}
+
+static void SetGlobalDat(const char *dfname)
+{
+    nw_irx_set_dat(&irx.global_dat, &iop.global_dat, irx.global_dat_name, dfname);
+}
+
+static void SetLocalDat(const char *dfname)
+{
+    nw_irx_set_dat(&irx.local_dat, &iop.local_dat, irx.local_dat_name, dfname);
+}
+
+/* Finds the samples from `start` on in the local DAT (from 0: the global one); a Pitch of 0 marks an unused entry.
+   Loose files (the IRX's sceCdSearchFile and host0: open) are not looked up: the disc keeps every sample in
+   SFX.DAT. */
+static void InitADPCMFiles(int start)
+{
+    NwDat *current_dat;
+    char fn[NW_IRX_PATH];
+
+    if (start) {
+        SetLocalDat(irx.new_local_dat_name);
+        current_dat = irx.local_dat;
+        if (!current_dat) {
+            SetGlobalDat(irx.new_global_dat_name);
+            current_dat = irx.global_dat;
+        }
+    } else {
+        SetGlobalDat(irx.new_global_dat_name);
+        current_dat = irx.global_dat;
+    }
+    for (int i = start; i < NW_IRX_FILES; i++) {
+        const NwIrxFilename *n = &irx.ADPCM_FileNames[i];
+        ADPCMFILE *f = &irx.ADPCM_FileInfo[i];
+        if (n->ID == -1) {
+            break;
+        }
+        if (n->Pitch == 0) {
+            continue;
+        }
+        snprintf(fn, sizeof(fn), "%s%s%s", irx.nu_filepath, n->Filename, irx.nu_fileterm);
+        bool cd = strncmp(fn, "cdrom0:", 7) == 0;
+        int ix = current_dat ? nw_dat_find(current_dat, n->Filename) : -1;
+        if (ix < 0 || (!cd && strncmp(fn, "host0:", 6) != 0)) {
+            f->size = 0;
+            continue;
+        }
+        const NwDatEntry *e = &current_dat->entries[ix];
+        irx.FilesOnCD += cd;
+        f->lsn = cd ? e->offset / NW_IRX_SECTOR : e->offset;
+        f->size = e->size;
+        f->ID = (int16_t)n->ID;
+        f->Source = cd;
+        f->datfile = current_dat;
+        irx.AnyFiles = 1;
+    }
+}
+
+/* The stream table, the files, then the stream thread on its 60 Hz timer. The IRX drops the slots' buffers
+   without freeing them, and a second call starts a second timer; the game sends this once, before the buffers. */
+static void InitStreamData(void)
+{
+    irx.FilesOnCD = 0;
+    irx.CD_SPOT_TRANS = 0;
+    irx.StereoStarted = irx.StereoChan1 = irx.StereoChan2 = irx.StereoPitch = 0;
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        s->Error = 0x8000;
+        s->Status = 0;
+        s->FileHandle = 0;
+        s->Channel = (uint8_t)i;
+        s->VolL = s->VolR = 0;
+        free(s->IOPAddress);
+        s->IOPAddress = NULL;
+        s->PlayingHalf = 0;
+        s->iStatus = 3;
+    }
+    InitADPCMFiles(0);
+    if (!iop.timer) {
+        iop.timer = true;
+        iop.timer_us = iop.now_us ? iop.now_us() : 0;
+        iop.ticks = 0;
+    }
+}
+
+/* The IRX reads NAX until two reads agree, as it moves while the voice plays. */
+static int GetNAX(int core, int ch)
+{
+    return (int)nw_spu2_get_addr((uint16_t)(core | ch << 1 | NW_SD_VA_NAX));
+}
+
+/* One tick of the stream thread. Its CD-not-ready handling (sceCdDiskReady 6 pauses the streams) is left out: the
+   disc is always ready here. */
+static void StreamADPCM(void)
+{
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        if (s->Status == 1) {
+            int core = s->Channel >= NW_SPU2_VOICES, ch = s->Channel - NW_SPU2_VOICES * core;
+            s->SPUCurrent = GetNAX(core, ch);
+            s->KeyStat = nw_spu2_get_param((uint16_t)(core | ch << 1 | NW_SD_VP_ENVX));
+        }
+    }
+    irx.Direction ^= 1;
+}
+
+/* The ticks due since the timer started, all before the call they precede. */
+static void nw_iop_catch_up(void)
+{
+    if (!iop.timer || !iop.now_us) {
+        return;
+    }
+    uint64_t now = iop.now_us();
+    if (now < iop.timer_us) {
+        return;
+    }
+    uint64_t due = (now - iop.timer_us) / NW_IRX_TICK_US;
+    while (iop.ticks < due) {
+        iop.ticks++;
+        StreamADPCM();
+    }
+}
+
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */
 static void AdpcmSdInit(const uint16_t *p, int length)
 {
@@ -183,6 +350,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         case 0xd:
             ADPCM_AllocIOPMemory(dt[0], (uint32_t)dt[1] << 16 | dt[2], (int)((uint32_t)dt[3] << 16 | dt[4]));
             break;
+        case 0xc:
+            InitStreamData();
+            break;
         default: /* 8, >= 0x22: no handler */
             break;
         }
@@ -191,6 +361,7 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
 
 void nw_nusound_rpc(unsigned fno, const void *send, size_t ssize, void *recv, size_t rsize)
 {
+    nw_iop_catch_up();
     if (fno == 0 && send) {
         AdpcmSetParam(send, ssize / sizeof(uint16_t));
     }

@@ -6,11 +6,10 @@
 #include <stdint.h>
 
 #include "audio/nusound.h"
+#include "vfs/dat.h"
 
 #define NW_IRX_CHANNELS 48 /* core * 24 + voice */
 #define NW_IRX_FILES 300
-
-struct NwDat;
 
 /* nusound_filename_info_s, the 0x1A record */
 typedef struct NwIrxFilename {
@@ -19,6 +18,16 @@ typedef struct NwIrxFilename {
     int LoopInfo;
     int ID; /* >= 0x1000 resident, else streamed */
 } NwIrxFilename;
+
+/* Where a sample's VAG lies. The IRX keeps datfile only for host0:; here the disc sectors are the DAT's own, so it
+   is kept for cdrom0: too. */
+typedef struct ADPCMFILE {
+    int16_t ID;
+    uint32_t size; /* 0: not found */
+    uint32_t lsn;  /* cdrom0: the sector in the DAT; host0: the byte offset */
+    int Source;    /* 1 cdrom0:, 0 host0: */
+    NwDat *datfile;
+} ADPCMFILE;
 
 /* A stream slot, one per channel. */
 typedef struct STREAMDATA {
@@ -59,7 +68,7 @@ typedef struct STREAMDATA {
     uint32_t AllocSPUAddress;
     int Error;
     int Source;
-    struct NwDat *datfile;
+    NwDat *datfile;
     int fileoffset;
 } STREAMDATA;
 
@@ -73,6 +82,10 @@ typedef struct NwIrx {
     int8_t CD_SPOT_TRANS;
     int StreamShutDown;
     int StereoStarted;
+    int StereoChan1;
+    int StereoChan2;
+    int StereoPitch;
+    int Direction;
     unsigned LoadFromEE;
     int cd_stream;
     int cd_stage;
@@ -81,8 +94,15 @@ typedef struct NwIrx {
     char nu_fileterm[4];
     char new_global_dat_name[256];
     char new_local_dat_name[256];
+    char global_dat_name[256];
+    char local_dat_name[256];
+    NwDat *global_dat;
+    NwDat *local_dat;
     NwIrxFilename ADPCM_FileNames[NW_IRX_FILES];
     int fileinfo_cnt;
+    ADPCMFILE ADPCM_FileInfo[NW_IRX_FILES];
+    int FilesOnCD;
+    int AnyFiles;
     unsigned UserMaxStreams;
     uint32_t StreamMemoryEnd; /* SPU RAM: where the next resident sample goes */
     int32_t ret[NW_NUSOUND_REPLY / 4];

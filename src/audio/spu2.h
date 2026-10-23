@@ -1,6 +1,6 @@
 /* The SPU2 as NUSOUND.IRX drives it through libsd: two cores of 24 voices. Register ids are libsd's: the core in
-   bit 0, the voice in bits 1-5, the register in bits 8+. No time passes: a keyed-on voice keeps its envelope until
-   it is keyed off. */
+   bit 0, the voice in bits 1-5, the register in bits 8+. No time passes: a keyed-on voice stays at its start
+   address (NAX = SSA) with its envelope up until it is keyed off. */
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
@@ -18,6 +18,11 @@
 #define NW_SD_S_KOFF 0x1600
 #define NW_SD_S_ENDX 0x1700
 
+/* sceSdSetAddr / sceSdGetAddr: voice addresses (bit 6), in bytes */
+#define NW_SD_VA_SSA 0x2040
+#define NW_SD_VA_LSAX 0x2140
+#define NW_SD_VA_NAX 0x2240
+
 /* sceSdSetCoreAttr / sceSdGetCoreAttr */
 #define NW_SD_C_SPDIF_MODE 0x000a
 
@@ -28,6 +33,7 @@ void nw_spu2_set_param(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_param(uint16_t entry);
 void nw_spu2_set_switch(uint16_t entry, uint32_t value);
 uint32_t nw_spu2_get_switch(uint16_t entry);
+uint32_t nw_spu2_get_addr(uint16_t entry);
 void nw_spu2_set_core_attr(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_core_attr(uint16_t entry);
 
