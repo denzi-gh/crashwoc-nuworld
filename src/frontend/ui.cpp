@@ -48,6 +48,7 @@ static void nw_ui_style(float scale)
     c[ImGuiCol_WindowBg] = nw_ui_rgb(0x141c30);
     c[ImGuiCol_ChildBg] = nw_ui_rgb(0x0d1324);
     c[ImGuiCol_PopupBg] = nw_ui_rgb(0x141c30);
+    c[ImGuiCol_MenuBarBg] = nw_ui_rgb(0x141c30);
     c[ImGuiCol_Border] = nw_ui_rgb(0x2c3858);
     c[ImGuiCol_FrameBg] = nw_ui_rgb(0x0d1324);
     c[ImGuiCol_FrameBgHovered] = nw_ui_rgb(0x1d2742);

@@ -14,6 +14,7 @@
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
+#include "frontend/debug.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -402,6 +403,29 @@ static int nw_boot_check(const char *data_dir, int vblanks)
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
+static bool nw_window_open(NwPlatform *p)
+{
+    if (!nw_platform_init(p, NW_APP_NAME, 1280, 720)) {
+        return false;
+    }
+    if (nw_backend_init()) {
+        if (nw_debug_init(p)) {
+            return true;
+        }
+        nw_backend_shutdown();
+    }
+    fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
+    nw_platform_shutdown(p);
+    return false;
+}
+
+static void nw_window_close(NwPlatform *p)
+{
+    nw_debug_shutdown();
+    nw_backend_shutdown();
+    nw_platform_shutdown(p);
+}
+
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
 static int nw_boot(const char *data_dir)
@@ -411,19 +435,13 @@ static int nw_boot(const char *data_dir)
         return code;
     }
     NwPlatform platform;
-    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
-        return 1;
-    }
-    if (!nw_backend_init()) {
-        fprintf(stderr, NW_APP_NAME ": %s\n", SDL_GetError());
-        nw_platform_shutdown(&platform);
+    if (!nw_window_open(&platform)) {
         return 1;
     }
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
-        nw_backend_shutdown();
-        nw_platform_shutdown(&platform);
+        nw_window_close(&platform);
         return 1;
     }
     uint64_t titled = 0;
@@ -431,7 +449,7 @@ static int nw_boot(const char *data_dir)
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
+            if (!nw_debug_event(&event) && event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
         }
@@ -447,6 +465,7 @@ static int nw_boot(const char *data_dir)
         int width, height;
         SDL_GetWindowSizeInPixels(platform.window, &width, &height);
         nw_backend_frame(width, height);
+        nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
     }
     bool parked = nw_game_parked();
@@ -456,8 +475,7 @@ static int nw_boot(const char *data_dir)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
-    nw_backend_shutdown();
-    nw_platform_shutdown(&platform);
+    nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
@@ -495,13 +513,13 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
         return code;
     }
     NwPlatform platform;
-    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+    if (!nw_window_open(&platform)) {
         return 1;
     }
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_scene_main, 2, argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
-        nw_platform_shutdown(&platform);
+        nw_window_close(&platform);
         return 1;
     }
     code = nw_view_scene(&platform, e->path, max_frames);
@@ -512,7 +530,7 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
-    nw_platform_shutdown(&platform);
+    nw_window_close(&platform);
     return nw_boot_exit(code, parked);
 }
 

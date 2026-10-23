@@ -1,8 +1,8 @@
 #include "gfx/view.h"
 
 #include <math.h>
-#include <stdio.h>
 
+#include "frontend/debug.h"
 #include "gfx/backend.h"
 #include "port/game.h"
 #include "port/scene.h"
@@ -23,10 +23,6 @@ static void nw_view_move(NwSceneCam *c, float speed, float dt)
 
 int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
 {
-    if (!nw_backend_init()) {
-        fprintf(stderr, "%s: %s\n", name, SDL_GetError());
-        return 1;
-    }
     NwSceneInfo info;
     NwSceneCam cam = { { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f };
     float speed = 1.0f;
@@ -36,6 +32,9 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
     while (running && nw_game_state() == NW_GAME_RUNNING) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
+            if (nw_debug_event(&e)) {
+                continue;
+            }
             if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE)) {
                 running = false;
             } else if (e.type == SDL_EVENT_MOUSE_MOTION && (e.motion.state & SDL_BUTTON_RMASK)) {
@@ -56,7 +55,9 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
             SDL_SetWindowTitle(p->window, title);
         }
         if (ready) {
-            nw_view_move(&cam, speed, (float)(now - last) * 1e-9f);
+            if (!nw_debug_wants_keyboard()) {
+                nw_view_move(&cam, speed, (float)(now - last) * 1e-9f);
+            }
             nw_scene_set_camera(&cam);
         }
         last = now;
@@ -64,11 +65,11 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
         int width, height;
         SDL_GetWindowSizeInPixels(p->window, &width, &height);
         nw_backend_frame(width, height);
+        nw_debug_frame();
         SDL_GL_SwapWindow(p->window);
         if (max_frames > 0 && ++frames >= max_frames) {
             running = false;
         }
     }
-    nw_backend_shutdown();
     return nw_game_state() == NW_GAME_FATAL ? 1 : 0;
 }
