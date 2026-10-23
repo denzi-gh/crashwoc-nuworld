@@ -21,12 +21,32 @@ static void nw_view_move(NwSceneCam *c, float speed, float dt)
     c->pos[2] += step * (fwd * cy * cp - side * sy);
 }
 
+typedef struct NwViewer {
+    NwSceneInfo info;
+    NwSceneCam cam;
+    float speed;
+    bool ready;
+} NwViewer;
+
+static NwViewer nw_view;
+
+static void nw_view_stats(void *user)
+{
+    (void)user;
+    if (!nw_view.ready) {
+        nw_debug_text("loading");
+        return;
+    }
+    nw_debug_text("%u objects", nw_view.info.objects);
+    nw_debug_text("%u instances", nw_view.info.instances);
+    nw_debug_text("%llu triangles", (unsigned long long)nw_view.info.tris);
+}
+
 int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
 {
-    NwSceneInfo info;
-    NwSceneCam cam = { { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f };
-    float speed = 1.0f;
-    bool ready = false, running = true;
+    nw_view = (NwViewer){ .speed = 1.0f };
+    nw_debug_panel("Scene", "Stats", nw_view_stats, NULL, false);
+    bool running = true;
     int frames = 0;
     uint64_t last = SDL_GetTicksNS();
     while (running && nw_game_state() == NW_GAME_RUNNING) {
@@ -38,27 +58,26 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
             if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE)) {
                 running = false;
             } else if (e.type == SDL_EVENT_MOUSE_MOTION && (e.motion.state & SDL_BUTTON_RMASK)) {
-                cam.yaw += e.motion.xrel * 0.004f;
-                cam.pitch = fmaxf(-1.5f, fminf(1.5f, cam.pitch - e.motion.yrel * 0.004f));
+                nw_view.cam.yaw += e.motion.xrel * 0.004f;
+                nw_view.cam.pitch = fmaxf(-1.5f, fminf(1.5f, nw_view.cam.pitch - e.motion.yrel * 0.004f));
             } else if (e.type == SDL_EVENT_MOUSE_WHEEL) {
-                speed *= powf(1.25f, e.wheel.y);
+                nw_view.speed *= powf(1.25f, e.wheel.y);
             }
         }
         uint64_t now = SDL_GetTicksNS();
-        if (!ready && nw_scene_info(&info)) {
-            ready = true;
-            cam = info.cam;
-            speed = info.speed;
+        if (!nw_view.ready && nw_scene_info(&nw_view.info)) {
+            nw_view.ready = true;
+            nw_view.cam = nw_view.info.cam;
+            nw_view.speed = nw_view.info.speed;
             char title[256];
-            SDL_snprintf(title, sizeof(title), "%s - %u instances, %llu triangles (WASD QE, right mouse, wheel)", name,
-                         info.instances, (unsigned long long)info.tris);
+            SDL_snprintf(title, sizeof(title), "%s (WASD QE, right mouse, wheel; F1 debug overlay)", name);
             SDL_SetWindowTitle(p->window, title);
         }
-        if (ready) {
+        if (nw_view.ready) {
             if (!nw_debug_wants_keyboard()) {
-                nw_view_move(&cam, speed, (float)(now - last) * 1e-9f);
+                nw_view_move(&nw_view.cam, nw_view.speed, (float)(now - last) * 1e-9f);
             }
-            nw_scene_set_camera(&cam);
+            nw_scene_set_camera(&nw_view.cam);
         }
         last = now;
 

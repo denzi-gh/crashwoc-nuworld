@@ -121,6 +121,7 @@ static float nw_scene_frame(const struct nugscn_s *sc, NwSceneInfo *info)
     SDL_free(at);
     extent = fmaxf(sqrtf(extent), 10.0f);
     spread = fmaxf(spread, extent * 0.02f);
+    info->objects = (uint32_t)sc->numgobj;
     info->instances = n;
     info->cam = (NwSceneCam){ { centre[0], centre[1] + spread * 0.3f, centre[2] - spread * 0.8f }, 0.0f, -0.3f };
     info->speed = spread * 0.25f;

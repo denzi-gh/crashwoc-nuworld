@@ -15,6 +15,7 @@ typedef struct NwSceneCam {
 typedef struct NwSceneInfo {
     NwSceneCam cam; /* behind the median instance */
     float speed;    /* a quarter of the instances' spread a second */
+    uint32_t objects;
     uint32_t instances;
     uint64_t tris;
 } NwSceneInfo;
