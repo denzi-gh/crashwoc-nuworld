@@ -142,10 +142,25 @@ static void nw_be_sprites_upload(NwGpuSprites *s)
     SDL_free(idx);
 }
 
+static void nw_be_skin_upload(NwGpuSkin *s)
+{
+    glGenVertexArrays(1, &s->vao);
+    glBindVertexArray(s->vao);
+    glGenBuffers(1, &s->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, s->vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)s->skin.nverts * (GLsizeiptr)sizeof(NwVifSkinVertex), s->skin.verts,
+                 GL_STATIC_DRAW);
+    glGenBuffers(1, &s->ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s->ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)s->skin.ntris * 12, s->skin.tris, GL_STATIC_DRAW);
+    nw_vu_skin_attribs();
+}
+
 static void nw_be_job(const NwGpuJob *job)
 {
     NwGpuMesh *m = job->obj;
     NwGpuTex *t = job->obj;
+    NwGpuSkin *sk = job->obj;
     switch (job->op) {
     case NW_GPU_UPLOAD_MESH:
         glGenVertexArrays(1, &m->vao);
@@ -182,6 +197,19 @@ static void nw_be_job(const NwGpuJob *job)
         glDeleteBuffers(1, &((NwGpuSprites *)job->obj)->vbo);
         glDeleteBuffers(1, &((NwGpuSprites *)job->obj)->ibo);
         nw_vif_sprites_free(&((NwGpuSprites *)job->obj)->sprites);
+        SDL_free(job->obj);
+        break;
+    case NW_GPU_UPLOAD_SKIN:
+        nw_be_skin_upload(sk);
+        break;
+    case NW_GPU_FREE_SKIN:
+        glDeleteVertexArrays(1, &sk->vao);
+        glDeleteBuffers(1, &sk->vbo);
+        glDeleteBuffers(1, &sk->ibo);
+        nw_vif_skin_free(&sk->skin);
+        SDL_free(sk);
+        break;
+    case NW_GPU_FREE_HOST:
         SDL_free(job->obj);
         break;
     }

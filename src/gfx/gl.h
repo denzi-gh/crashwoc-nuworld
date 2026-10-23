@@ -48,6 +48,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
+#define GL_UNSIGNED_SHORT 0x1403
 #define GL_UNSIGNED_INT 0x1405
 #define GL_RGBA 0x1908
 #define GL_FLOAT 0x1406
@@ -124,6 +125,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glEnableVertexAttribArray, (GLuint index)) \
     X(void, glVertexAttribPointer, \
         (GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer)) \
+    X(void, glVertexAttribIPointer, (GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer)) \
     X(GLuint, glCreateShader, (GLenum type)) \
     X(void, glShaderSource, (GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length)) \
     X(void, glCompileShader, (GLuint shader)) \
@@ -195,6 +197,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindVertexArray nw_glBindVertexArray
 #define glEnableVertexAttribArray nw_glEnableVertexAttribArray
 #define glVertexAttribPointer nw_glVertexAttribPointer
+#define glVertexAttribIPointer nw_glVertexAttribIPointer
 #define glCreateShader nw_glCreateShader
 #define glShaderSource nw_glShaderSource
 #define glCompileShader nw_glCompileShader

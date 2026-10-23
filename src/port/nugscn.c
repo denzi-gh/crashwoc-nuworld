@@ -10,6 +10,7 @@
 #include "nw_convert.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
+#include "port/xfile.h"
 
 #define nugscn_srcfile "..\\nu2crash.ps2\\nu3d\\nugscn.c"
 #define NW_GSCN_VERSION 6 /* scene_version */
@@ -55,35 +56,6 @@ static struct {
     NwGpuOp free;
 } *nw_gscn_gpu;
 static uint32_t nw_gscn_ngpu, nw_gscn_gpucap;
-
-/* File pointer fields hold indexes, offsets or -1: kept as integers for the fixups. */
-static void *nw_gscn_ptr_in(NwXCtx *ctx, uint32_t addr, const NwType *type, const char *site)
-{
-    (void)ctx;
-    (void)type;
-    (void)site;
-    return (void *)(intptr_t)(int32_t)addr;
-}
-
-static uintptr_t nw_gscn_addr_in(NwXCtx *ctx, uint32_t value, int is_signed, const char *site)
-{
-    (void)ctx;
-    (void)site;
-    return is_signed ? (uintptr_t)(intptr_t)(int32_t)value : value;
-}
-
-static NwXCtx nw_gscn_x = { .ptr_in = nw_gscn_ptr_in, .addr_in = nw_gscn_addr_in };
-
-/* A file record to its host copy, copied out first (the file is only 4-byte aligned). */
-#define NW_GSCN_X(type, dst, src) \
-    do { \
-        nw_ps2_##type nw_rec_; \
-        memcpy(&nw_rec_, (src), sizeof(nw_rec_)); \
-        nw_x_##type((dst), &nw_rec_, &nw_gscn_x); \
-    } while (0)
-
-/* The integer a converted pointer field kept. */
-#define NW_GSCN_IX(p) ((int)(intptr_t)(p))
 
 /* Carves size bytes off the scene load buffer. */
 static void *GScnBufferAlloc(size_t size, size_t align)
@@ -172,7 +144,7 @@ struct nugscn_s *NuGScnLoadFix(void);
 static struct nuanimcurveset_s *nw_gscn_curveset(char *p)
 {
     struct nuanimcurveset_s *curveset = NW_GSCN_NEW(struct nuanimcurveset_s, 1);
-    NW_GSCN_X(nuanimcurveset_s, curveset, p);
+    NW_FILE_X(nuanimcurveset_s, curveset, p);
     curveset->constants = (float *)nw_gscn_rel(p + offsetof(nw_ps2_nuanimcurveset_s, constants));
     char *set = nw_gscn_rel(p + offsetof(nw_ps2_nuanimcurveset_s, set));
     int ncurves = set ? curveset->ncurves : 0;
@@ -182,7 +154,7 @@ static struct nuanimcurveset_s *nw_gscn_curveset(char *p)
         curveset->set[m] = 0;
         if (c != 0) {
             curveset->set[m] = NW_GSCN_NEW(struct nuanimcurve_s, 1);
-            NW_GSCN_X(nuanimcurve_s, curveset->set[m], c);
+            NW_FILE_X(nuanimcurve_s, curveset->set[m], c);
             curveset->set[m]->animkeys =
                 (struct nuanimkey_s *)nw_gscn_rel(c + offsetof(nw_ps2_nuanimcurve_s, animkeys));
         }
@@ -193,7 +165,7 @@ static struct nuanimcurveset_s *nw_gscn_curveset(char *p)
 static struct nuanimdatachunk_s *nw_gscn_animchunk(char *p)
 {
     struct nuanimdatachunk_s *chunk = NW_GSCN_NEW(struct nuanimdatachunk_s, 1);
-    NW_GSCN_X(nuanimdatachunk_s, chunk, p);
+    NW_FILE_X(nuanimdatachunk_s, chunk, p);
     char *sets = nw_gscn_rel(p + offsetof(nw_ps2_nuanimdatachunk_s, animcurvesets));
     int nodes = sets ? chunk->numnodes : 0;
     chunk->animcurvesets = sets ? NW_GSCN_NEW(struct nuanimcurveset_s *, nodes > 0 ? nodes : 0) : 0;
@@ -215,7 +187,7 @@ void ReadAnimationLibrary(int fh)
         struct nuanimdata_s *anim = 0;
         if (p != 0) {
             anim = NW_GSCN_NEW(struct nuanimdata_s, 1);
-            NW_GSCN_X(nuanimdata_s, anim, p);
+            NW_FILE_X(nuanimdata_s, anim, p);
             char *chunks = nw_gscn_rel(p + offsetof(nw_ps2_nuanimdata_s, chunks));
             int nchunks = chunks ? anim->nchunks : 0;
             anim->chunks = chunks ? NW_GSCN_NEW(struct nuanimdatachunk_s *, nchunks > 0 ? nchunks : 0) : 0;
@@ -287,7 +259,7 @@ void ReadMaterialSet(int fh)
     gscene->nummtl = nmtls;
     for (int i = 0; i < nmtls; i++) {
         struct numtl_s *mtl = NW_GSCN_NEW(struct numtl_s, 1);
-        NW_GSCN_X(numtl_s, mtl, NuMemFileAddr(fh));
+        NW_FILE_X(numtl_s, mtl, NuMemFileAddr(fh));
         NuMemFileSeek(fh, sizeof(nw_ps2_numtl_s), 1);
         gscene->mtls[i] = mtl;
         if (mtl->tid == -1) {
@@ -295,7 +267,7 @@ void ReadMaterialSet(int fh)
         } else {
             mtl->tid = gscene->tids[mtl->tid];
         }
-        if (NW_GSCN_IX(mtl->next) == -1) {
+        if (NW_FILE_IX(mtl->next) == -1) {
             mtl->next = 0;
         }
         struct numtl_s *next = mtl->next;
@@ -461,16 +433,16 @@ void ReadTexAnimSet(int fh)
 
     for (int i = 0; i < gscene->numtexanims; i++) {
         struct nutexanim_s *tex = &gscene->texanims[i];
-        NW_GSCN_X(nutexanim_s, tex, src + i * sizeof(nw_ps2_nutexanim_s));
+        NW_FILE_X(nutexanim_s, tex, src + i * sizeof(nw_ps2_nutexanim_s));
         tex->succ = 0;
         tex->prev = 0;
-        tex->tids = tidtab + NW_GSCN_IX(tex->tids);
+        tex->tids = tidtab + NW_FILE_IX(tex->tids);
         for (int j = 0; j < tex->numtids; j++) {
             tex->tids[j] = gscene->tids[tex->tids[j]];
         }
-        tex->ntaname = gscene->nametable + NW_GSCN_IX(tex->ntaname);
-        char *scriptname = gscene->nametable + NW_GSCN_IX(tex->scriptname);
-        tex->mtl = gscene->mtls[NW_GSCN_IX(tex->mtl)];
+        tex->ntaname = gscene->nametable + NW_FILE_IX(tex->ntaname);
+        char *scriptname = gscene->nametable + NW_FILE_IX(tex->scriptname);
+        tex->mtl = gscene->mtls[NW_FILE_IX(tex->mtl)];
         tex->dynalloc = 0;
         struct nutexanimprog_s *prog = NuTexAnimProgFind(scriptname);
         union variptr_u buff;
@@ -562,7 +534,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                         NuMemFileSeek(fh, gscene->numinstance * sizeof(nw_ps2_nuinstance_s), 1);
                         gscene->instances = NW_GSCN_NEW(struct nuinstance_s, gscene->numinstance);
                         for (int i = 0; i < gscene->numinstance; i++) {
-                            NW_GSCN_X(nuinstance_s, &gscene->instances[i], src + i * sizeof(nw_ps2_nuinstance_s));
+                            NW_FILE_X(nuinstance_s, &gscene->instances[i], src + i * sizeof(nw_ps2_nuinstance_s));
                             gscene->instances[i].flags.visitest = -1; /* the signed 1-bit field's set bit */
                         }
                         break;
@@ -585,11 +557,11 @@ struct nugscn_s *NuGScnLoadFix(void)
                         gscene->specials = NW_GSCN_NEW(struct nuspecial_s, gscene->numspecial);
                         struct nuspecial_s *special = gscene->specials;
                         for (int k = 0; k < gscene->numspecial; k++, special++) {
-                            NW_GSCN_X(nuspecial_s, special, src + k * sizeof(nw_ps2_nuspecial_s));
-                            int ix = NW_GSCN_IX(special->instance);
+                            NW_FILE_X(nuspecial_s, special, src + k * sizeof(nw_ps2_nuspecial_s));
+                            int ix = NW_FILE_IX(special->instance);
                             special->mtx = gscene->instances[ix].mtx;
                             special->instance = &gscene->instances[ix];
-                            special->name = gscene->nametable + NW_GSCN_IX(special->name);
+                            special->name = gscene->nametable + NW_FILE_IX(special->name);
                             special->flags &= ~1;
                         }
                         break;

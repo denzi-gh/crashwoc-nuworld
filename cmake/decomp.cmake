@@ -133,7 +133,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustream.c src/gfx/numtl.c
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/ps2video.c src/port/scene.c src/shim/cdvd.c
+  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c src/port/ps2video.c src/port/scene.c
+  src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
@@ -207,6 +208,16 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_nugscn PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_nugscn PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME nugscn COMMAND nuworld_test_nugscn ${CMAKE_CURRENT_BINARY_DIR}/test-nugscn)
+
+  # The .ghg loader override on a synthetic file; nughg-retail loads every .ghg of NUWORLD_TEST_DATA.
+  add_executable(nuworld_test_nughg tests/c/test_nughg.c)
+  add_dependencies(nuworld_test_nughg nuworld_types)
+  target_include_directories(nuworld_test_nughg PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_nughg PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_nughg PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nughg COMMAND nuworld_test_nughg ${CMAKE_CURRENT_BINARY_DIR}/test-nughg)
+  add_test(NAME nughg-retail COMMAND nuworld_test_nughg retail)
+  set_tests_properties(nughg-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 
   # The port's Nu render layer under the decomp code that drives it.
   add_executable(nuworld_test_rndr tests/c/test_rndr.c)

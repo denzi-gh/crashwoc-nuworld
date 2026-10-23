@@ -29,6 +29,11 @@ typedef struct NwGpuSprites {
     unsigned int vao, vbo, ibo;
 } NwGpuSprites;
 
+typedef struct NwGpuSkin {
+    NwVifSkin skin;
+    unsigned int vao, vbo, ibo;
+} NwGpuSkin;
+
 /* A texture the GS reads from its own memory: the back or front buffer, or a render target by its GS address (0:
    none). tw x th is the power-of-two size it is addressed at. */
 #define NW_SURF_BACK (-1)
@@ -134,13 +139,17 @@ void nw_packet_publish(int32_t vbcnt);
 /* Render thread: the newest published packet, the one it took last if none is newer; NULL before the first. */
 const NwPacket *nw_packet_take(void);
 
+/* The frees come last: nw_gpu_take fences every op from NW_GPU_FREE_MESH on. */
 typedef enum NwGpuOp {
     NW_GPU_UPLOAD_MESH,
     NW_GPU_UPLOAD_TEX,
     NW_GPU_UPLOAD_SPRITES,
+    NW_GPU_UPLOAD_SKIN,
     NW_GPU_FREE_MESH,
     NW_GPU_FREE_TEX,
     NW_GPU_FREE_SPRITES,
+    NW_GPU_FREE_SKIN,
+    NW_GPU_FREE_HOST, /* SDL_malloc'd memory the game thread's draws read until the fence */
 } NwGpuOp;
 
 typedef struct NwGpuJob {

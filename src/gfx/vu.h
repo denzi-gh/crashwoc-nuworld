@@ -81,5 +81,7 @@ void nw_vu_texture_free(NwVuTexture *tex);
 void nw_vu_attribs(void);
 /* The NwVuSpriteVertex attributes of the bound VAO and VBO. */
 void nw_vu_sprite_attribs(void);
+/* The NwVifSkinVertex attributes of the bound VAO and VBO. */
+void nw_vu_skin_attribs(void);
 
 #endif

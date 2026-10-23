@@ -344,6 +344,30 @@ void nw_vu_attribs(void)
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, col));
 }
 
+/* The weights as FTOI15 integers, the joints and the delta range as integers. */
+void nw_vu_skin_attribs(void)
+{
+    const GLsizei stride = sizeof(NwVifSkinVertex);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, nrm));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, uv));
+    for (GLuint i = 0; i < 2; i++) {
+        glEnableVertexAttribArray(3 + i);
+        glVertexAttribIPointer(3 + i, 4, GL_UNSIGNED_SHORT, stride,
+                               (const void *)(offsetof(NwVifSkinVertex, weight) + i * 8));
+        glEnableVertexAttribArray(5 + i);
+        glVertexAttribIPointer(5 + i, 4, GL_UNSIGNED_BYTE, stride,
+                               (const void *)(offsetof(NwVifSkinVertex, joint) + i * 4));
+    }
+    glEnableVertexAttribArray(7);
+    glVertexAttribIPointer(7, 2, GL_UNSIGNED_BYTE, stride, (const void *)offsetof(NwVifSkinVertex, nrmjoint));
+    glEnableVertexAttribArray(8);
+    glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, stride, (const void *)offsetof(NwVifSkinVertex, delta));
+}
+
 void nw_vu_sprite_attribs(void)
 {
     const GLsizei stride = sizeof(NwVuSpriteVertex);
