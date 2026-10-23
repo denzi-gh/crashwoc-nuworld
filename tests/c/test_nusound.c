@@ -6,11 +6,15 @@
 #include <string.h>
 
 #include "audio/nusound.h"
+#include "audio/spu2.h"
+#include "nusound/nusound.h"
 
 /* decomp nusound.c (no header declares them) */
 int SOUND_InitIOP(void);
 void SetIOPCommand(short command, short count);
 int FlushIOPCommand(int mode);
+void SOUND_CopyIOPBuffer(void);
+void SOUND_GetStatus(int request);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -64,10 +68,53 @@ static void test_batch(void)
     CHECK(reply[3] == 0);
 }
 
+/* GetStatus as the EE sends it (-1: no load request). */
+static void status(int32_t ret[128])
+{
+    const uint16_t batch[] = { 1, 9, 1, 0xffff };
+    nw_nusound_rpc(0, batch, sizeof(batch), ret, NW_NUSOUND_REPLY);
+}
+
+static void test_status(void)
+{
+    int32_t ret[128];
+
+    nw_nusound_init();
+    status(ret);
+    CHECK(ret[24] == -1);
+    for (int i = 0; i < 32; i++) {
+        CHECK(i == 24 || ret[i] == 0);
+    }
+
+    /* Key status: channel j of a word at bits 30 - 2j; 3 is core 0 voice 3, 24 and 47 core 1 voices 0 and 23. */
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 3);
+    nw_spu2_set_switch(NW_SD_S_KON | 1, 1u << 0 | 1u << 23);
+    status(ret);
+    CHECK(ret[29] == 1 << 24 && ret[30] == 1 << 14 && ret[31] == 1);
+
+    SOUND_GetStatus(-1);
+    CHECK(FlushIOPCommand(0) == 3);
+    SOUND_CopyIOPBuffer();
+    CHECK(NuSoundKeyStatus(3) == 1 && NuSoundKeyStatus(24) == 1 && NuSoundKeyStatus(47) == 1);
+    CHECK(NuSoundKeyStatus(4) == 0);
+
+    /* The reply only changes on a GetStatus. */
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 3);
+    SetIOPCommand(8, 0);
+    FlushIOPCommand(0);
+    SOUND_CopyIOPBuffer();
+    CHECK(NuSoundKeyStatus(3) == 1);
+    SOUND_GetStatus(-1);
+    FlushIOPCommand(0);
+    SOUND_CopyIOPBuffer();
+    CHECK(NuSoundKeyStatus(3) == 0 && NuSoundKeyStatus(24) == 1);
+}
+
 int main(void)
 {
     test_transport();
     test_batch();
+    test_status();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

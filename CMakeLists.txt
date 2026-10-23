@@ -123,6 +123,7 @@ target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)
 add_library(nuworld_audio STATIC
   src/audio/nusound.c
   src/audio/sfx.c
+  src/audio/spu2.c
   src/audio/vag.c)
 target_include_directories(nuworld_audio PUBLIC src)
 target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)
