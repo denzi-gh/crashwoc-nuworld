@@ -45,6 +45,8 @@ void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, fl
                      struct numtl_s *mtl);
 void NuCameraSet(struct nucamera_s *cam);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
+int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
+                   int vis);
 int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
                       float **dwa);
 u32 *NuRndrCreateBlendShapeDeformerWeightsArray(u32 count);
@@ -623,6 +625,56 @@ static void test_hgobj(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* A stream's VU 0x0C block by its attr & 0x43: a specular material (lighting 1) gets the specular UV matrix (row 2 the
+   half vector of the light and the view, negated; the offset 0.5), an fx one the fx matrix, both in xformuv. A skin
+   draw keeps its deformer weights. */
+static void test_xuv(void)
+{
+    struct numtl_s *spec = NuMtlCreate(1), *fx = NuMtlCreate(1), *tri = NuMtlCreate(1);
+    spec->attrib.lighting = 1;
+    fx->attrib.fx = 1;
+    NuMtlUpdate(spec);
+    NuMtlUpdate(fx);
+    NuMtlUpdate(tri);
+    CHECK(spec->rs.mpg == (unsigned char *)vu_load_xformuv_mpg && fx->rs.mpg == (unsigned char *)vu_load_xformuv_mpg);
+    CHECK((spec->rs.attr & 0x43) == 2 && (fx->rs.attr & 0x43) == 0x40);
+    set_mtx(&global_camera.mtx, 0.0f, 0.0f, 0.0f, 0.0f);
+    struct nuvec_s dir = { 1.0f, 0.0f, 0.0f };
+    NuRndrSetSpecularLight(&dir, NULL);
+    struct numtx_s fxm, id;
+    set_mtx(&fxm, 0.5f, 0.25f, 0.75f, 0.0f);
+    NuRndrSetFxMtx(&fxm);
+    mark(&spec->rs, 90);
+    mark(&fx->rs, 91);
+
+    set_mtx(&id, 0.0f, 0.0f, 0.0f, 0.0f);
+    *nw_rndr_joints(1) = id;
+    u32 *weights = NuRndrCreateBlendShapeDeformerWeightsArray(2);
+    ((float *)weights)[6] = 0.25f;
+    ((float *)weights)[7] = 0.5f;
+    struct nugeom_s geom;
+    struct nugobj_s g;
+    memset(&geom, 0, sizeof(geom));
+    memset(&g, 0, sizeof(g));
+    geom.mtl = tri;
+    geom.skindma = (struct SkinDmaTag *)(uintptr_t)0x77;
+    g.geom = &geom;
+    NuRndrGobjSkin(&g, &id, 1, &id, weights, 1);
+    NuRndrEndScene();
+
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *s = marked(p, 90), *f = marked(p, 91), *k = drawn(p, NW_CMD_SKIN, (void *)0x77, tri);
+    CHECK(s && f && s->light != NW_LIGHT_NONE && f->light != NW_LIGHT_NONE && s->light != f->light);
+    if (s && f && s->light != NW_LIGHT_NONE && f->light != NW_LIGHT_NONE) {
+        const float(*m)[4] = p->lights[s->light].uv;
+        CHECK(memcmp(p->lights[f->light].uv, &fxm, sizeof(fxm)) == 0);
+        CHECK(SDL_fabsf(m[2][0] + 0.70710678f) < 1e-5f && SDL_fabsf(m[2][2] - 0.70710678f) < 1e-5f && m[2][1] == 0.0f);
+        CHECK(m[3][0] == 0.5f && m[3][1] == 0.5f && m[3][2] == 0.0f && m[3][3] == 1.0f && m[0][3] == 0.0f);
+    }
+    CHECK(k && k->nweights == 2 && p->weights[k->weights] == 0.25f && p->weights[k->weights + 1] == 0.5f);
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -713,6 +765,7 @@ int main(void)
     test_faceon_dir();
     test_render_target();
     test_hgobj();
+    test_xuv();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

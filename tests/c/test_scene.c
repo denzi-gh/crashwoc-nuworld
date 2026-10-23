@@ -956,6 +956,7 @@ static void test_vu1init(void)
         { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.6f, 0.8f } },
         { { 0.5f, 0.25f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } },
         { 0.1f, 0.2f, 0.3f },
+        { { 0.0f } },
     };
     NwVuObject o;
     nw_vu1init(&o, local, screen);
@@ -965,6 +966,13 @@ static void test_vu1init(void)
     CHECK(o.lightdir[1][1] == 1.0f && SDL_fabsf(o.lightdir[2][0] + 0.8f) < 1e-6f);
     CHECK(SDL_fabsf(o.lightdir[2][1] - 0.6f) < 1e-6f && o.lightdir[2][2] == 0.0f);
     CHECK(o.lightcol[0][1] == 0.25f && o.lightcol[0][3] == 0.0f && o.ambient[2] == 0.3f && o.lv[12] == 5.0f);
+
+    /* A UV matrix taking world y to u and world x to v: the object's +z, world +x here, gives u 0 and v 1. */
+    static const NwLights uv = { .uv = { { 0, 1, 0, 0 }, { 1, 0, 0, 0 }, { 0, 0, 1, 0 }, { 0.5f, 0.25f, 0, 1 } } };
+    nw_vu1init_uv(&o, local, &uv);
+    CHECK(o.uv[0][0] == 0.0f && o.uv[0][1] == 1.0f && o.uv[0][2] == 0.0f);
+    CHECK(o.uv[1][0] == 0.0f && o.uv[1][1] == 0.0f && o.uv[1][2] == 1.0f);
+    CHECK(o.uv[3][0] == 0.5f && o.uv[3][1] == 0.25f && o.lightdir[2][2] == 0.0f);
 }
 
 /* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free

@@ -138,7 +138,7 @@ void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh 
         first[z] = (uint16_t)t;
         highest = z > highest ? z : highest;
     }
-    NwRecord *item = nw_rndr_record(NW_CMD_DRAW_OT, mtl, mtl->rs.mpg, true);
+    NwRecord *item = nw_rndr_record(NW_CMD_DRAW_OT, mtl, mtl->rs.mpg, 1);
     uint32_t *idx = nw_rndr_alloc((size_t)count * 3 * sizeof(*idx));
     uint32_t n = 0;
     for (int z = highest; z >= 0; z--) {
@@ -415,17 +415,18 @@ int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
 }
 
 /* A skin object's geoms (not its next_gobj, as retail) under wm, each material pass a SKIN record with the palette
-   NuHGobjRndrMtxDwa made; retail ignores njoints and joints too. skinskipix is -1 in retail and nothing sets it. */
+   NuHGobjRndrMtxDwa made and the deformer weights (NULL: retail's default, none); retail ignores njoints and joints
+   too. skinskipix is -1 in retail and nothing sets it. */
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis)
 {
     (void)njoints;
     (void)joints;
-    (void)weights;
     if (!vis) {
         return vis;
     }
     NuRndrSetLocalMtx(wm, vis);
+    nw_rndr_blend(weights);
     for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
         struct numtl_s *mtl = nurndr_forced_mtl ? nurndr_forced_mtl : geom->mtl;
         if (mtl && nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {

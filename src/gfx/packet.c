@@ -98,6 +98,16 @@ float (*nw_packet_joints(NwPacket *p, uint32_t n, uint32_t *first))[16]
     return &p->joints[*first];
 }
 
+float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first)
+{
+    if (!nw_packet_grow((void **)&p->weights, &p->weightcap, p->nweights + n - 1, sizeof(*p->weights))) {
+        return NULL;
+    }
+    *first = p->nweights;
+    p->nweights += n;
+    return &p->weights[*first];
+}
+
 void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
@@ -108,6 +118,7 @@ void nw_packet_reset(NwPacket *p)
     p->nlights = 0;
     p->nidx = 0;
     p->njoints = 0;
+    p->nweights = 0;
 }
 
 NwPacket *nw_packet_building(void)

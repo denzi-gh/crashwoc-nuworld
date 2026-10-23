@@ -9,7 +9,7 @@
 #include "gfx/tex.h"
 
 /* The triangle packages' per-vertex programs (tri runs the same code as tric), the sprite programs they jump to for
-   face-on geoms, and tri's skin program (MSCAL 0x302). */
+   face-on geoms, and the skin programs of tri and xformuv (MSCAL 0x302). */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
@@ -18,16 +18,20 @@ typedef enum NwVuProgram {
     NW_VU_FACEON,
     NW_VU_FACEY,
     NW_VU_SKIN,
+    NW_VU_TRIXUV,
+    NW_VU_SKINXUV,
     NW_VU_PROGRAMS
 } NwVuProgram;
 
-/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights), and for
-   the sprite programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15. */
+/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights, or for the
+   xuv programs the UV matrix: u, v and w dotted with the object's normal, then the offset), and for the sprite
+   programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15. */
 typedef struct NwVuObject {
     float lv[16];
     float ambient[4];
     float lightdir[3][4];
     float lightcol[3][4];
+    float uv[4][4];
     float sprite[4];
 } NwVuObject;
 
@@ -39,11 +43,13 @@ typedef struct NwVuSpriteVertex {
 } NwVuSpriteVertex;
 
 /* The lights a lit stream uploads to VU 0x0C-0x12, as NuRndrSetDirectionalLights and NuRndrSetAmbientLight set
-   them: three directions and colours in world space, the ambient colour. */
+   them: three directions and colours in world space, the ambient colour; or the UV matrix a specular or fx stream
+   uploads to 0x0C-0x0F (NuRndrSetSpecularLight, NuRndrSetFxMtx), row-major with the offset in row 3. */
 typedef struct NwLights {
     float dir[3][3];
     float col[3][3];
     float ambient[3];
+    float uv[4][4];
 } NwLights;
 
 /* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT, or a
@@ -64,18 +70,22 @@ typedef struct NwVuMaterial {
 
 bool nw_vu_init(void);
 void nw_vu_shutdown(void);
-/* The program of a microcode package name; NW_VU_PROGRAMS for xformuv, which the port does not draw yet. */
+/* The program of a microcode package name. */
 NwVuProgram nw_vu_program(const char *package);
-/* The program a package's MSCAL 0x302 runs: skin in tri; NW_VU_PROGRAMS for the others, whose entry draws nothing
-   (tric, tricu, trica) or falls into the triangle program (tricdv). */
+/* The program a package's MSCAL 0x302 runs: skin in tri, skinxuv in xformuv; NW_VU_PROGRAMS for the others, whose
+   entry draws nothing (tric, tricu, trica) or falls into the triangle program (tricdv). */
 NwVuProgram nw_vu_skin_program(const char *package);
-/* The SKIN draw's palette: its first matrix in the packet's joints, bound as a texture buffer on unit 3. */
-void nw_vu_joints(NwVuProgram program, uint32_t first);
+/* A skin draw's palette and blend-shape weights in the packet's texture buffers (units 3 and 4), its geom's deltas
+   on unit 5. */
+void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t nweights);
 /* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
 /* Their lights for a lit stream (mode 1): each direction dotted with the normalised rows of the local matrix, the
    colours with w 0, the ambient colour. */
 void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l);
+/* The UV matrix of a specular or fx stream (mode 4) the same way: its first three rows into the object's space, the
+   offset as it is. */
+void nw_vu1init_uv(NwVuObject *o, const float local[16], const NwLights *l);
 /* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */

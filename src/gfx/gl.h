@@ -91,6 +91,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_RGBA_INTEGER 0x8D99
 #define GL_TEXTURE_BUFFER 0x8C2A
 #define GL_RGBA32F 0x8814
+#define GL_R32F 0x822E
 
 /* X(return type, name, parameter list) */
 #define NW_GL_FUNCTIONS(X) \
@@ -146,6 +147,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
     X(void, glUniform1i, (GLint location, GLint v0)) \
     X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
+    X(void, glUniform2i, (GLint location, GLint v0, GLint v1)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
     X(void, glGenFramebuffers, (GLsizei n, GLuint *framebuffers)) \
@@ -219,6 +221,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniformMatrix4fv nw_glUniformMatrix4fv
 #define glUniform1i nw_glUniform1i
 #define glUniform4i nw_glUniform4i
+#define glUniform2i nw_glUniform2i
 #define glUniform4fv nw_glUniform4fv
 #define glDrawElements nw_glDrawElements
 #define glGenFramebuffers nw_glGenFramebuffers

@@ -9,10 +9,13 @@
 
 #include "app.h"
 #include "gfx/rndr.h"
+#include "nu3d/nucamera.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nuvport.h"
 #include "nucore/nuerror.h"
+#include "numath/numtx.h"
+#include "numath/nuvec.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
 #define NW_STREAMS 32
@@ -28,6 +31,8 @@ extern struct rndrstream_s *rndrstream_3d_u;
 extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_fx;
 extern char vu_load_faceon_mpg[], vu_load_tricu_mpg[], vu_load_tric_mpg[], vu_load_ptl_mpg[], vu_load_fx_mpg[];
+extern struct nucamera_s global_camera;
+extern struct numtx_s numtx_identity;
 
 struct rndrstream_s *rndrstream_system;
 struct rndrstream_s *rndrstream_mtl_sort;
@@ -79,7 +84,12 @@ static NwView nw_view;             /* what SetViewMtx, SetXYOffset and SetScisso
 static NwViewSnap *nw_view_snap;   /* its copy in the arena; NULL after a change */
 static NwLights nw_lights;         /* what SetDirectionalLights and SetAmbientLight set */
 static NwLightSnap *nw_light_snap; /* its copy in the arena; NULL after a change */
+static NwLights nw_spec, nw_fx;    /* the UV matrices of SetSpecularLight and SetFxMtx */
+static NwLightSnap *nw_spec_snap, *nw_fx_snap;
 static NwJointSnap *nw_joint_snap; /* nw_rndr_joints' */
+static const uint32_t *nw_blend;   /* nw_rndr_blend's */
+static struct nuvec_s spec_light_dir = { 0.0f, 0.0f, 1.0f }; /* retail's data */
+static struct nuvec_s spec_view_dir = { 0.0f, 0.0f, -1.0f };
 static float nw_local[16];       /* NuRndrSetLocalMtx's */
 static uint64_t nw_frame;
 static const struct numtl_s **nw_snap_key; /* nw_rndr_snap's table, by material address */
@@ -116,14 +126,20 @@ static NwViewSnap *nw_view_now(void)
     return nw_view_snap;
 }
 
-static NwLightSnap *nw_lights_now(void)
+static NwLightSnap *nw_misc_now(int misc)
 {
-    if (!nw_light_snap) {
-        nw_light_snap = nw_rndr_alloc(sizeof(*nw_light_snap));
-        nw_light_snap->lights = nw_lights;
-        nw_light_snap->frame = 0;
+    NwLightSnap **snap = misc == 1 ? &nw_light_snap : misc == 2 ? &nw_spec_snap : misc == 0x40 ? &nw_fx_snap : NULL;
+    if (snap && !*snap) {
+        *snap = nw_rndr_alloc(sizeof(**snap));
+        (*snap)->lights = misc == 1 ? nw_lights : misc == 2 ? nw_spec : nw_fx;
+        (*snap)->frame = 0;
     }
-    return nw_light_snap;
+    return snap ? *snap : NULL;
+}
+
+void nw_rndr_blend(const uint32_t *weights)
+{
+    nw_blend = weights;
 }
 
 struct numtx_s *nw_rndr_joints(uint32_t n)
@@ -135,7 +151,7 @@ struct numtx_s *nw_rndr_joints(uint32_t n)
     return (struct numtx_s *)j->mtx;
 }
 
-NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit)
+NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, int misc)
 {
     NwRecord *r = nw_rndr_alloc(sizeof(*r));
     memset(r, 0, sizeof(*r));
@@ -144,8 +160,10 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool 
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
     r->view = nw_view_now();
-    r->lights = lit ? nw_lights_now() : NULL;
+    r->lights = nw_misc_now(misc);
+    r->misc = (uint8_t)misc;
     r->joints = op == NW_CMD_SKIN ? nw_joint_snap : NULL;
+    r->blend = op == NW_CMD_SKIN ? nw_blend : NULL;
     return r;
 }
 
@@ -163,12 +181,12 @@ void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r)
 void nw_rndr_latch(NwRecord *r)
 {
     r->view = nw_view_now();
-    r->lights = r->lights ? nw_lights_now() : NULL;
+    r->lights = nw_misc_now(r->misc);
 }
 
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op)
 {
-    NwRecord *r = nw_rndr_record(op, stream->mtl, stream->mpg, (stream->attr & 0x43) == 1);
+    NwRecord *r = nw_rndr_record(op, stream->mtl, stream->mpg, (int)(stream->attr & 0x43));
     nw_rndr_push(stream, r);
     return &r->cmd;
 }
@@ -256,6 +274,12 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
                 c->first = j->index;
                 c->count = j->n;
             }
+            uint32_t n = r->blend ? r->blend[5] : 0;
+            float *w = n ? nw_packet_weights(nw_packet_building(), n, &c->weights) : NULL;
+            c->nweights = w ? n : 0;
+            if (w) {
+                memcpy(w, r->blend + 6, n * sizeof(*w));
+            }
         }
     }
     if (stream->base.voidptr && stream->ptr.voidptr != stream->base.voidptr) {
@@ -295,7 +319,10 @@ void NuRndrInitStreams(void)
     nw_arena[rndrstream_buffer_index].cur = NULL;
     nw_view_snap = NULL;
     nw_light_snap = NULL;
+    nw_spec_snap = NULL;
+    nw_fx_snap = NULL;
     nw_joint_snap = NULL;
+    nw_blend = NULL;
     nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
@@ -501,11 +528,39 @@ int NuRndrSetAmbientLight(struct nucolour3_s *colour)
     return 1;
 }
 
-/* The specular light is the xformuv program's (lighting 1), which no material the port draws uses: nothing to keep. */
+/* Retail's UV matrix: aligned to the half vector of the light and the view in camera space, its offset 0.5. Its
+   colour (VU 0x10) no program reads. */
 int NuRndrSetSpecularLight(struct nuvec_s *dir, struct nucolour4_s *col)
 {
-    (void)dir;
+    struct nuvec_s v;
+    struct numtx_s m;
+    const float half = 0.5f;
     (void)col;
+    if (dir) {
+        spec_light_dir = *dir;
+    }
+    NuVecInvMtxRotate(&v, &spec_light_dir, &global_camera.mtx);
+    NuVecLerp(&v, &v, &spec_view_dir, half);
+    NuVecMtxRotate(&v, &v, &global_camera.mtx);
+    NuVecNorm(&v, &v);
+    m = numtx_identity;
+    NuMtxAlignZ(&m, &v);
+    m._20 = -m._20;
+    m._21 = -m._21;
+    m._22 = -m._22;
+    m._32 = m._03 = m._13 = m._23 = 0.0f;
+    m._30 = half;
+    m._31 = half;
+    m._33 = 1.0f;
+    memcpy(nw_spec.uv, &m, sizeof(nw_spec.uv));
+    nw_spec_snap = NULL;
+    return 1;
+}
+
+int NuRndrSetFxMtx(struct numtx_s *mtx)
+{
+    memcpy(nw_fx.uv, mtx, sizeof(nw_fx.uv));
+    nw_fx_snap = NULL;
     return 1;
 }
 
