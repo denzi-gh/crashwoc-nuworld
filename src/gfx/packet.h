@@ -52,6 +52,7 @@ typedef enum NwCmdOp {
     NW_CMD_RECT,    /* a 2D sprite */
     NW_CMD_SPRITES, /* a face-on geom's sprites under the local matrix */
     NW_CMD_TARGET,  /* what the draws after it go to: the back or front buffer, or a render target */
+    NW_CMD_SKIN,    /* a skin geom under the local matrix and its joint palette */
 } NwCmdOp;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
@@ -87,9 +88,10 @@ typedef struct NwCmd {
             union {
                 const NwGpuMesh *mesh;
                 const NwGpuSprites *sprites; /* SPRITES */
+                const NwGpuSkin *skin;       /* SKIN */
             };
             float local[16];
-            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx */
+            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */
@@ -121,6 +123,8 @@ typedef struct NwPacket {
     uint32_t nlights, lightcap;
     uint32_t *idx; /* the DRAW_OT triangles */
     uint32_t nidx, idxcap;
+    float (*joints)[16]; /* the SKIN palettes, INV_WT times the joint matrices (row-major, row vectors) */
+    uint32_t njoints, jointcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -128,8 +132,9 @@ NwCmd *nw_packet_cmd(NwPacket *p);
 NwView *nw_packet_view(NwPacket *p, uint32_t *index);
 NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index);
 NwLights *nw_packet_light(NwPacket *p, uint32_t *index);
-/* Appends n vertex indices; NULL on out of memory. */
+/* Appends n vertex indices or joint matrices; NULL on out of memory. */
 uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first);
+float (*nw_packet_joints(NwPacket *p, uint32_t n, uint32_t *first))[16];
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

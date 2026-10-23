@@ -69,10 +69,17 @@ struct NwLightSnap {
     uint32_t index;
 };
 
+struct NwJointSnap {
+    uint64_t frame;
+    uint32_t index, n;
+    _Alignas(16) float mtx[][16];
+};
+
 static NwView nw_view;             /* what SetViewMtx, SetXYOffset and SetScissor set */
 static NwViewSnap *nw_view_snap;   /* its copy in the arena; NULL after a change */
 static NwLights nw_lights;         /* what SetDirectionalLights and SetAmbientLight set */
 static NwLightSnap *nw_light_snap; /* its copy in the arena; NULL after a change */
+static NwJointSnap *nw_joint_snap; /* nw_rndr_joints' */
 static float nw_local[16];       /* NuRndrSetLocalMtx's */
 static uint64_t nw_frame;
 static const struct numtl_s **nw_snap_key; /* nw_rndr_snap's table, by material address */
@@ -119,6 +126,15 @@ static NwLightSnap *nw_lights_now(void)
     return nw_light_snap;
 }
 
+struct numtx_s *nw_rndr_joints(uint32_t n)
+{
+    NwJointSnap *j = nw_rndr_alloc(sizeof(*j) + (size_t)n * sizeof(j->mtx[0]));
+    j->frame = 0;
+    j->n = n;
+    nw_joint_snap = j;
+    return (struct numtx_s *)j->mtx;
+}
+
 NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit)
 {
     NwRecord *r = nw_rndr_alloc(sizeof(*r));
@@ -129,6 +145,7 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool 
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
     r->view = nw_view_now();
     r->lights = lit ? nw_lights_now() : NULL;
+    r->joints = op == NW_CMD_SKIN ? nw_joint_snap : NULL;
     return r;
 }
 
@@ -227,6 +244,18 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             if (idx) {
                 memcpy(idx, r->idx, r->cmd.count * sizeof(*idx));
             }
+            NwJointSnap *j = (NwJointSnap *)r->joints;
+            if (j && j->n && j->frame != nw_frame + 1) {
+                float(*copy)[16] = nw_packet_joints(nw_packet_building(), j->n, &j->index);
+                if (copy) {
+                    memcpy(copy, j->mtx, j->n * sizeof(j->mtx[0]));
+                    j->frame = nw_frame + 1;
+                }
+            }
+            if (j) {
+                c->first = j->index;
+                c->count = j->n;
+            }
         }
     }
     if (stream->base.voidptr && stream->ptr.voidptr != stream->base.voidptr) {
@@ -266,6 +295,7 @@ void NuRndrInitStreams(void)
     nw_arena[rndrstream_buffer_index].cur = NULL;
     nw_view_snap = NULL;
     nw_light_snap = NULL;
+    nw_joint_snap = NULL;
     nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
@@ -389,6 +419,16 @@ void NuRndrVu1Draw(void)
 {
     nw_rndr_snap(nw_packet_building());
     nw_packet_publish(nuvideo_global_vbcnt);
+}
+
+/* Retail carves qwords from the stream buffer; the room is doubled for the pointer arrays NuHGobjEvalDwa keeps in
+   it, whose host pointers are twice as wide. */
+void *NuRndrStreamAlloc(int qwords)
+{
+    size_t size = (size_t)(qwords > 0 ? qwords : 0) * 32;
+    void *p = nw_rndr_alloc(size);
+    memset(p, 0, size);
+    return p;
 }
 
 int NuRndrStreamAddMtl(struct rndrstream_s *stream, struct numtl_s *mtl)

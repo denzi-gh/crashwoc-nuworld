@@ -35,6 +35,7 @@ NwSurf nw_ps2tx_surf(int tid);
 
 typedef struct NwViewSnap NwViewSnap;
 typedef struct NwLightSnap NwLightSnap;
+typedef struct NwJointSnap NwJointSnap;
 
 /* A command as a stream (or an OT bin) holds it until a flush copies it to the frame packet. */
 typedef struct NwRecord {
@@ -42,6 +43,7 @@ typedef struct NwRecord {
     const NwViewSnap *view;
     const NwLightSnap *lights; /* NULL unlit */
     const uint32_t *idx;       /* DRAW_OT: cmd.count vertex indices */
+    const NwJointSnap *joints; /* SKIN: the palette */
     struct NwRecord *next;
 } NwRecord;
 
@@ -55,12 +57,15 @@ void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r);
 void nw_rndr_latch(NwRecord *r);
 /* Memory that lives as long as this frame's records (and the next frame's, as retail's output buffers). */
 void *nw_rndr_alloc(size_t size);
+struct numtx_s;
+/* The joint palette of the SKIN records from now on, n matrices to fill in that memory; the records share it and a
+   flush copies it to the packet once. */
+struct numtx_s *nw_rndr_joints(uint32_t n);
 /* Moves the records of src to the end of dst. */
 void nw_rndr_splice(struct rndrstream_s *dst, struct rndrstream_s *src);
 /* NuRndrOTInsertItem: the item into its depth's bin of the ordering table, which NuRndrOTFlush empties into the
    ot_sort stream. */
 void nw_rndr_ot_insert(NwRecord *item, float depth);
-struct numtx_s;
 struct nutribatch_s;
 /* NuRndrOTInsertTriBatch with the geom's mesh (src/gfx/nurndr.c). */
 void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutribatch_s *batch);

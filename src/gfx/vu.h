@@ -8,8 +8,8 @@
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 
-/* The triangle packages' per-vertex programs (tri runs the same code as tric), and the sprite programs they jump to
-   for face-on geoms. */
+/* The triangle packages' per-vertex programs (tri runs the same code as tric), the sprite programs they jump to for
+   face-on geoms, and tri's skin program (MSCAL 0x302). */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
@@ -17,6 +17,7 @@ typedef enum NwVuProgram {
     NW_VU_TRICDV,
     NW_VU_FACEON,
     NW_VU_FACEY,
+    NW_VU_SKIN,
     NW_VU_PROGRAMS
 } NwVuProgram;
 
@@ -63,8 +64,13 @@ typedef struct NwVuMaterial {
 
 bool nw_vu_init(void);
 void nw_vu_shutdown(void);
-/* The program of a microcode package name; xformuv (no scene material uses it) falls back to tric. */
+/* The program of a microcode package name; NW_VU_PROGRAMS for xformuv, which the port does not draw yet. */
 NwVuProgram nw_vu_program(const char *package);
+/* The program a package's MSCAL 0x302 runs: skin in tri; NW_VU_PROGRAMS for the others, whose entry draws nothing
+   (tric, tricu, trica) or falls into the triangle program (tricdv). */
+NwVuProgram nw_vu_skin_program(const char *package);
+/* The SKIN draw's palette: its first matrix in the packet's joints, bound as a texture buffer on unit 3. */
+void nw_vu_joints(NwVuProgram program, uint32_t first);
 /* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
 /* Their lights for a lit stream (mode 1): each direction dotted with the normalised rows of the local matrix, the

@@ -89,6 +89,8 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
+#define GL_TEXTURE_BUFFER 0x8C2A
+#define GL_RGBA32F 0x8814
 
 /* X(return type, name, parameter list) */
 #define NW_GL_FUNCTIONS(X) \
@@ -119,6 +121,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers)) \
     X(void, glBindBuffer, (GLenum target, GLuint buffer)) \
     X(void, glBufferData, (GLenum target, GLsizeiptr size, const void *data, GLenum usage)) \
+    X(void, glTexBuffer, (GLenum target, GLenum internalformat, GLuint buffer)) \
     X(void, glGenVertexArrays, (GLsizei n, GLuint *arrays)) \
     X(void, glDeleteVertexArrays, (GLsizei n, const GLuint *arrays)) \
     X(void, glBindVertexArray, (GLuint array)) \
@@ -192,6 +195,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDeleteBuffers nw_glDeleteBuffers
 #define glBindBuffer nw_glBindBuffer
 #define glBufferData nw_glBufferData
+#define glTexBuffer nw_glTexBuffer
 #define glGenVertexArrays nw_glGenVertexArrays
 #define glDeleteVertexArrays nw_glDeleteVertexArrays
 #define glBindVertexArray nw_glBindVertexArray

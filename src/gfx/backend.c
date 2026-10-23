@@ -6,6 +6,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "app.h"
 #include "data/image_tables.h"
 #include "frontend/debug.h"
 #include "gfx/gl.h"
@@ -34,6 +35,7 @@ static struct {
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo; /* the packet's sprites, four vertices each */
     GLuint ot_ibo;                       /* the packet's OT triangles */
+    GLuint pool, pool_tex;               /* the packet's joint palettes, a texture buffer on unit 3 */
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
     bool wireframe;
@@ -97,6 +99,8 @@ void nw_backend_shutdown(void)
     glDeleteBuffers(1, &nw_be.rect_vbo);
     glDeleteBuffers(1, &nw_be.rect_ibo);
     glDeleteBuffers(1, &nw_be.ot_ibo);
+    glDeleteBuffers(1, &nw_be.pool);
+    glDeleteTextures(1, &nw_be.pool_tex);
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -449,11 +453,31 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
 }
 
+/* A package whose program the port does not draw, once per package and kind of geom. */
+static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
+{
+    static const NwVuProg *seen[2][16];
+    for (int i = 0; i < 16 && seen[skin][i] != mpg; i++) {
+        if (!seen[skin][i]) {
+            seen[skin][i] = mpg;
+            fprintf(stderr, NW_APP_NAME ": %s: its %s program is not drawn\n", mpg ? mpg->name : "no package",
+                    skin ? "skin" : "triangle");
+            break;
+        }
+    }
+}
+
 /* A geom's mesh; an OT batch draws its triangles in the packet's order through the packet's index buffer. */
 static void nw_be_draw(const NwPacket *p, const NwCmd *c)
 {
     const NwGpuMesh *mesh = c->mesh;
+    const NwVuProg *mpg = c->mpg;
+    NwVuProgram program = nw_vu_program(mpg ? mpg->name : NULL);
     if (!mesh || !mesh->vao) {
+        return;
+    }
+    if (program == NW_VU_PROGRAMS) {
+        nw_be_undrawn(mpg, false);
         return;
     }
     float screen[16];
@@ -464,16 +488,64 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
         nw_vu1init_lights(&o, c->local, &p->lights[c->light]);
     }
     NwVuMaterial m = nw_be_material(p, c, mesh->mesh.uvrow);
-    const NwVuProg *mpg = c->mpg;
     glBindVertexArray(mesh->vao);
     if (c->op == NW_CMD_DRAW_OT) {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
-        nw_be_passes(nw_vu_program(mpg ? mpg->name : NULL), &o, &m, (GLsizei)c->count,
-                     (const void *)(uintptr_t)(c->first * sizeof(uint32_t)));
+        nw_be_passes(program, &o, &m, (GLsizei)c->count, (const void *)(uintptr_t)(c->first * sizeof(uint32_t)));
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
     } else {
-        nw_be_passes(nw_vu_program(mpg ? mpg->name : NULL), &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
+        nw_be_passes(program, &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
     }
+}
+
+/* A skin geom under its draw's palette, lit in the local matrix's space as vu1init lights it. */
+static void nw_be_skin(const NwPacket *p, const NwCmd *c)
+{
+    const NwGpuSkin *s = c->skin;
+    const NwVuProg *mpg = c->mpg;
+    NwVuProgram program = nw_vu_skin_program(mpg ? mpg->name : NULL);
+    if (!s || !s->vao || c->first + c->count > p->njoints) {
+        return;
+    }
+    if (program == NW_VU_PROGRAMS) {
+        nw_be_undrawn(mpg, true);
+        return;
+    }
+    float screen[16];
+    nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, screen);
+    NwVuObject o;
+    nw_vu1init(&o, c->local, screen);
+    if (c->light != NW_LIGHT_NONE) {
+        nw_vu1init_lights(&o, c->local, &p->lights[c->light]);
+    }
+    NwVuMaterial m = nw_be_material(p, c, false);
+    NwMtlPass pass[2];
+    glBindVertexArray(s->vao);
+    uint32_t n = nw_vu_use(program, &o, &m, pass);
+    nw_vu_joints(program, c->first);
+    for (uint32_t k = 0; k < n; k++) {
+        nw_vu_pass(program, &m, &pass[k]);
+        glDrawElements(GL_TRIANGLES, (GLsizei)(s->skin.ntris * 3), GL_UNSIGNED_INT, NULL);
+    }
+}
+
+/* The packet's palettes as RGBA32F texels, four rows a matrix. */
+static void nw_be_pool(const NwPacket *p)
+{
+    if (!p->njoints) {
+        return;
+    }
+    if (!nw_be.pool) {
+        glGenBuffers(1, &nw_be.pool);
+        glGenTextures(1, &nw_be.pool_tex);
+    }
+    glBindBuffer(GL_TEXTURE_BUFFER, nw_be.pool);
+    glBufferData(GL_TEXTURE_BUFFER, (GLsizeiptr)p->njoints * (GLsizeiptr)sizeof(*p->joints), p->joints,
+                 GL_STREAM_DRAW);
+    glActiveTexture(GL_TEXTURE0 + 3);
+    glBindTexture(GL_TEXTURE_BUFFER, nw_be.pool_tex);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, nw_be.pool);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 /* faceon's corners, sizes in GS units before the divide scaled by VU 0x16; facey's quads, along VF15, the camera's
@@ -515,6 +587,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     glEnable(GL_DEPTH_TEST);
     glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
     nw_be_rects(p);
+    nw_be_pool(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
             glGenBuffers(1, &nw_be.ot_ibo);
@@ -543,6 +616,9 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_TARGET:
             nw_be_target(c);
+            break;
+        case NW_CMD_SKIN:
+            nw_be_skin(p, c);
             break;
         }
     }

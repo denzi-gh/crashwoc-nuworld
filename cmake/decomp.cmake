@@ -175,7 +175,8 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-scenes)
   set_tests_properties(check-scenes-retail PROPERTIES SKIP_RETURN_CODE 77)
-  # Local only: every .gsc of the imported disc loaded and drawn by the decomp into a frame packet with draws.
+  # Local only: every .gsc and .ghg of the imported disc loaded and drawn by the decomp into a frame packet with
+  # draws.
   add_test(NAME scene-render-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --scene-check all)

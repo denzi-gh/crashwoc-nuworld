@@ -1,5 +1,5 @@
 /* --scene on the game thread (src/port/scene.c): the engine set up as the decomp's main sets it up, one scene drawn
-   by NuGScnRndr3 at 50 Hz under the viewer's camera. */
+   by NuGScnRndr3, or one character (.ghg) by NuHGobjRndr, at 50 Hz under the viewer's camera. */
 #ifndef NUWORLD_PORT_SCENE_H
 #define NUWORLD_PORT_SCENE_H
 
