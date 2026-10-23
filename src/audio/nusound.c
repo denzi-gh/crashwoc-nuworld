@@ -1006,10 +1006,41 @@ static int GetNAX(int core, int ch)
     return (int)nw_spu2_get_addr((uint16_t)(core | ch << 1 | NW_SD_VA_NAX));
 }
 
+/* Kill all (0x21), on the tick after it: every voice off, every stream and request dropped, then StreamShutDown
+   back to 0, which the EE waits for. A CD read in flight is dropped too; IOP buffers and effects stay. */
+static void SOUND_DoShutOff(void)
+{
+    irx.CD_EVENT_OCCURED = 0;
+    irx.cd_stage = 0;
+    irx.SYSTEMWAIT = irx.SYSTEMWAIT2 = 0;
+    irx.CD_IDLE = 1;
+    irx.LoadFromEE = NW_IRX_NO_REQUEST;
+    irx.IOPRequestLoad = -1;
+    irx.StreamBusy = 0;
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        s->Status = 0;
+        s->iStatus = 3;
+        s->Error = 0;
+        s->KeyStat = 0;
+        SetChannelPitch(i, 0);
+        nw_irx_key_off(i);
+        irx.SPU_KeyStatus[i] = 0;
+    }
+    irx.ResStatus = 0;
+    irx.StereoStarted = irx.StereoChan1 = irx.StereoChan2 = irx.StereoPitch = 0;
+    irx.CD_SPOT_TRANS = 0;
+    irx.CD_SPOT_FILE_ID = 0;
+    irx.StreamShutDown = 0;
+}
+
 /* One tick of the stream thread. Its CD-not-ready handling (sceCdDiskReady 6 pauses the streams) is left out: the
    disc is always ready here. */
 static void StreamADPCM(void)
 {
+    if (irx.StreamShutDown) {
+        SOUND_DoShutOff();
+    }
     CheckTwoStreamsStatus(irx.StereoChan1, irx.StereoChan2, irx.StereoPitch);
     for (int i = 0; i < NW_IRX_CHANNELS; i++) {
         STREAMDATA *s = &irx.StreamBuffer[i];
@@ -1157,6 +1188,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 0x1d:
             InitADPCMFiles(irx.GlobalSfxfileinfo_cnt);
+            break;
+        case 0x21: /* SOUND_ShutOff: done by the next tick */
+            irx.StreamShutDown = 1;
             break;
         default:
             memcpy(dt, p, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));

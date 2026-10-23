@@ -12,6 +12,7 @@
 #include "audio/spu2.h"
 #include "nusound/nusound.h"
 #include "platform/paths.h"
+#include "port/game.h"
 #include "vfs/vfs.h"
 
 #include "vag_builder.h"
@@ -49,6 +50,7 @@ void SOUND_SetChannelEffectOn(int channel);
 void SOUND_SetChannelEffectOff(int channel);
 void SOUND_AllChannelEffectsOn(int core);
 void SOUND_AllChannelEffectsOff(int core);
+void NuSoundKillAllAudio(void);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -628,6 +630,33 @@ static void test_reverb(void)
     CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0 && nw_spu2_get_effect_attr(0).mode == 0x100);
 }
 
+/* NuSoundKillAllAudio: shutoff seen raised, then cleared by the module's next tick; its vblank waits run on a
+   stepped game clock. */
+static void test_kill_all(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    int frames = 0;
+
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
+    SOUND_PlaySFX(0x1000, 7, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    while (frames++ < 50 && NuSoundKeyStatus(4) != 1) {
+        frame();
+    }
+    CHECK(NuSoundKeyStatus(4) == 1 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) != 0);
+    CHECK(nw_game_init(NW_CLOCK_STEPPED, 50));
+    test_auto = true;
+    NuSoundKillAllAudio();
+    test_auto = false;
+    nw_game_shutdown();
+    CHECK(irx->StreamShutDown == 0 && irx->StreamBuffer[4].Status == 0 && irx->StreamBuffer[4].iStatus == 3);
+    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) == 0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0);
+    ee_status();
+    CHECK(NuSoundKeyStatus(4) == 0 && NuSoundKeyStatus(7) == 0);
+    nusound_irx_loaded = 0;
+}
+
 static void test_pause(void)
 {
     nw_nusound_init(&vfs, test_clock);
@@ -753,6 +782,7 @@ int main(int argc, char *argv[])
     test_pause();
     test_stereo();
     test_reverb();
+    test_kill_all();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
