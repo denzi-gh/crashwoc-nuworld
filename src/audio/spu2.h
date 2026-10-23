@@ -10,7 +10,10 @@
 #define NW_SPU2_RAM (2u << 20) /* bytes */
 
 /* sceSdSetParam / sceSdGetParam: voice registers, then core registers (bit 7) */
+#define NW_SD_VP_VOLL 0x0000
+#define NW_SD_VP_VOLR 0x0100
 #define NW_SD_VP_PITCH 0x0200
+#define NW_SD_VP_ADSR1 0x0300
 #define NW_SD_VP_ADSR2 0x0400
 #define NW_SD_VP_ENVX 0x0500
 #define NW_SD_P_MVOLL 0x0980
@@ -36,6 +39,7 @@ void nw_spu2_set_param(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_param(uint16_t entry);
 void nw_spu2_set_switch(uint16_t entry, uint32_t value);
 uint32_t nw_spu2_get_switch(uint16_t entry);
+void nw_spu2_set_addr(uint16_t entry, uint32_t addr);
 uint32_t nw_spu2_get_addr(uint16_t entry);
 void nw_spu2_set_core_attr(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_core_attr(uint16_t entry);

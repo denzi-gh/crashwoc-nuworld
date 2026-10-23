@@ -84,10 +84,25 @@ uint32_t nw_spu2_get_switch(uint16_t entry)
     return spu.core[entry & 1].sw[nw_spu2_reg(entry)];
 }
 
-uint32_t nw_spu2_get_addr(uint16_t entry)
+static uint32_t *nw_spu2_addr(uint16_t entry)
 {
     unsigned voice = (entry >> 1) & 0x1f, reg = nw_spu2_reg(entry) - nw_spu2_reg(NW_SD_VA_SSA);
-    return voice < NW_SPU2_VOICES && reg < 3 ? spu.core[entry & 1].voice[voice].addr[reg] : 0;
+    return voice < NW_SPU2_VOICES && reg < 3 ? &spu.core[entry & 1].voice[voice].addr[reg] : NULL;
+}
+
+/* NAX is the voice's own. */
+void nw_spu2_set_addr(uint16_t entry, uint32_t addr)
+{
+    uint32_t *a = nw_spu2_addr(entry);
+    if (a && nw_spu2_reg(entry) != nw_spu2_reg(NW_SD_VA_NAX)) {
+        *a = addr;
+    }
+}
+
+uint32_t nw_spu2_get_addr(uint16_t entry)
+{
+    const uint32_t *a = nw_spu2_addr(entry);
+    return a ? *a : 0;
 }
 
 void nw_spu2_set_core_attr(uint16_t entry, uint16_t value)

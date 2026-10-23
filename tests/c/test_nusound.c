@@ -32,6 +32,7 @@ void TransferAllSpotFX(int first);
 void SOUND_TransferSFX(int sample, int channel);
 void SOUND_StoreLocalStart(void);
 void NuSoundLocalSet(NUSOUND_FILENAME_INFO *sfx_info, int unused, int first);
+int SOUND_PlaySFX(int sample, unsigned int channel, int left, int right, int pitch, int flags, int priority);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -392,6 +393,43 @@ static void test_local_bank(void)
     CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
 }
 
+/* The global bank of `bank` in SPU RAM, as after NuSoundInit. */
+static void boot_bank(void)
+{
+    boot_module(bank);
+    test_auto = true;
+    TransferAllSpotFX(0);
+    test_auto = false;
+}
+
+/* Status as the EE sees it after its next flush. */
+static void ee_status(void)
+{
+    SOUND_GetStatus(-1);
+    FlushIOPCommand(0);
+    SOUND_CopyIOPBuffer();
+}
+
+static void test_play_sfx(void)
+{
+    boot_bank();
+    SOUND_PlaySFX(0x1002, 7, 0x3fff, 0x2000, 0x1000, 3, 0x14);
+    SOUND_PlaySFX(0x1000, 30, 0x1000, 0x1000, 0x800, 0, 0); /* core 1 voice 6 */
+    ee_status();
+    CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(30) == 1 && NuSoundKeyStatus(8) == 0);
+    CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_VOLL) == 0x3fff && nw_spu2_get_param(7 << 1 | NW_SD_VP_VOLR) == 0x2000);
+    CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_PITCH) == 0x1000 && nw_nusound_irx()->SPU_PausePitch[7] == 0x1000);
+    CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_ADSR1) == 0x03ff && nw_spu2_get_param(7 << 1 | NW_SD_VP_ADSR2) == 0x1fd4);
+    CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_SSA) == 0x48310 + a_size);
+    CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_NAX) == 0x48310 + a_size);
+    CHECK(nw_spu2_get_addr(1 | 6 << 1 | NW_SD_VA_SSA) == 0x48310);
+
+    /* An ID without a sample still keys on, from -1. */
+    SOUND_PlaySFX(0x1100, 9, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    ee_status();
+    CHECK(NuSoundKeyStatus(9) == 1 && nw_spu2_get_addr(9 << 1 | NW_SD_VA_SSA) == 0xffffffffu);
+}
+
 /* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
 static bool setup_disc(const char *scratch)
 {
@@ -439,6 +477,7 @@ int main(int argc, char *argv[])
     test_init_stream_data();
     test_transfer_sfx();
     test_local_bank();
+    test_play_sfx();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);

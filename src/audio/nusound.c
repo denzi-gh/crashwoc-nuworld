@@ -284,6 +284,54 @@ static void SetChannelPitch(int ch, uint16_t pitch)
     }
 }
 
+static void SetChannelVolume(int ch, uint16_t VolL, uint16_t VolR)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_VOLL), VolL);
+        nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_VOLR), VolR);
+    }
+}
+
+/* AR is the EE's attack | release << 8: ADSR1 gets the attack with decay and sustain level at their maximum, ADSR2
+   the release with the fastest sustain. */
+static void SetVoiceData(int ch, int Pitch, int VolL, int VolR, uint32_t SPUAddress, int AR)
+{
+    if (ch >= NW_IRX_CHANNELS) {
+        return;
+    }
+    SetChannelVolume(ch, (uint16_t)VolL, (uint16_t)VolR);
+    SetChannelPitch(ch, (uint16_t)Pitch);
+    nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_ADSR1), (uint16_t)((AR & 0xff) << 8 | 0xff));
+    nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_ADSR2), (uint16_t)(AR >> 8 | 0x1fc0));
+    nw_spu2_set_addr(nw_irx_voice(ch, NW_SD_VA_SSA), SPUAddress);
+}
+
+static void nw_irx_key_on(int ch)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        int core = ch >= NW_SPU2_VOICES;
+        nw_spu2_set_switch((uint16_t)(core | NW_SD_S_KON), 1u << (ch - NW_SPU2_VOICES * core));
+    }
+}
+
+/* The resident sample's SPU address, -1 when none has the ID (the low 16 bits compared signed). */
+static uint32_t GetFXSPUAddress(int ID)
+{
+    for (int i = 0; i < NW_IRX_FILES; i++) {
+        if ((int16_t)irx.ADPCM_SpotFX[i].ID == ID) {
+            return irx.ADPCM_SpotFX[i].SPUAddress;
+        }
+    }
+    return 0xffffffffu;
+}
+
+/* Keyed on even when the ID has no sample, from address -1. */
+static void PlayResidentSFX(int ID, int Channel, int VolL, int VolR, int Pitch, int AR)
+{
+    SetVoiceData(Channel, Pitch, VolL, VolR, GetFXSPUAddress(ID), AR);
+    nw_irx_key_on(Channel);
+}
+
 /* KOFF and the fastest release. The IRX takes the channel on trust; here one past 47 is left alone. */
 static void nw_irx_key_off(int ch)
 {
@@ -836,6 +884,11 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 6:
             irx.ResStatus = irx.AnyFiles == 1 ? TransferResidentSampleBank(dt[0], dt[1]) : 1;
+            break;
+        case 0:
+            if (irx.AnyFiles == 1) {
+                PlayResidentSFX(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
+            }
             break;
         default: /* 8, >= 0x22: no handler */
             break;
