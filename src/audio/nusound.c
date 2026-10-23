@@ -67,8 +67,21 @@ static struct NwIrx {
     unsigned LoadFromEE;
     int cd_stream;
     int cd_stage;
+    uint32_t g_ReverbChans[2];
+    char nu_filepath[256];
+    char nu_fileterm[4];
     int32_t ret[NW_NUSOUND_REPLY / 4];
 } irx;
+
+/* A string command's data, NUL-terminated within its words (the IRX strcpys it whole). */
+static void nw_irx_string(char *dst, size_t size, const uint16_t *p, int length)
+{
+    size_t n = (size_t)length * sizeof(*p);
+    const char *s = (const char *)p;
+    size_t len = strnlen(s, n < size - 1 ? n : size - 1);
+    memcpy(dst, s, len);
+    dst[len] = '\0';
+}
 
 void nw_nusound_init(void)
 {
@@ -126,6 +139,24 @@ static void AdpcmGetStatus(void)
     }
 }
 
+static void AdpcmSetMasterVolume(int core, uint16_t vol)
+{
+    nw_spu2_set_param((uint16_t)(core | NW_SD_P_MVOLL), vol);
+    nw_spu2_set_param((uint16_t)(core | NW_SD_P_MVOLR), vol);
+}
+
+/* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */
+static void AdpcmSdInit(const uint16_t *p, int length)
+{
+    nw_irx_string(irx.nu_filepath, sizeof(irx.nu_filepath), p, length);
+    strcpy(irx.nu_fileterm, strncmp(irx.nu_filepath, "cdrom0:", 7) == 0 ? ";1" : "");
+    nw_spu2_init();
+    nw_spu2_set_core_attr(NW_SD_C_SPDIF_MODE, 0x800);
+    AdpcmSetMasterVolume(0, 0x3fff);
+    AdpcmSetMasterVolume(1, 0x3fff);
+    irx.g_ReverbChans[0] = irx.g_ReverbChans[1] = 0;
+}
+
 /* count, then per command {cmd, nwords, data[nwords]}, all s16. The commands with a string or a struct take the
    data in place, the others a copy in dt[] read zero-extended. The IRX trusts the counts; here a batch that runs
    past the buffer ends. */
@@ -142,9 +173,13 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         if (length < 0 || (size_t)length > words - at) {
             return;
         }
+        const uint16_t *p = jdata + at;
         switch (f) {
+        case 7:
+            AdpcmSdInit(p, length);
+            break;
         default:
-            memcpy(dt, jdata + at, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));
+            memcpy(dt, p, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));
             break;
         }
         at += (size_t)length;

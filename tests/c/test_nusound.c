@@ -12,6 +12,7 @@
 /* decomp nusound.c (no header declares them) */
 int SOUND_InitIOP(void);
 void SetIOPCommand(short command, short count);
+void SetIOPCommandEx(short command, short size, void *data);
 int FlushIOPCommand(int mode);
 void SOUND_CopyIOPBuffer(void);
 void SOUND_GetStatus(int request);
@@ -110,11 +111,35 @@ static void test_status(void)
     CHECK(NuSoundKeyStatus(3) == 0 && NuSoundKeyStatus(24) == 1);
 }
 
+/* A string command as the EE queues it. */
+static void send_string(short command, const char *s)
+{
+    SetIOPCommandEx(command, (short)(strlen(s) + 1), (void *)s);
+    FlushIOPCommand(0);
+}
+
+static void test_init_spu(void)
+{
+    int32_t ret[128];
+
+    nw_nusound_init();
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 5);
+    send_string(7, "cdrom0:\\");
+    status(ret);
+    CHECK(ret[29] == 0);
+    for (int core = 0; core < 2; core++) {
+        CHECK(nw_spu2_get_param((uint16_t)(core | NW_SD_P_MVOLL)) == 0x3fff);
+        CHECK(nw_spu2_get_param((uint16_t)(core | NW_SD_P_MVOLR)) == 0x3fff);
+    }
+    CHECK(nw_spu2_get_core_attr(NW_SD_C_SPDIF_MODE) == 0x800);
+}
+
 int main(void)
 {
     test_transport();
     test_batch();
     test_status();
+    test_init_spu();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
