@@ -18,6 +18,7 @@ void nw_debug_shutdown(void);
 /* True when the window should ignore the event. */
 bool nw_debug_event(const SDL_Event *e);
 bool nw_debug_wants_keyboard(void);
+void nw_debug_show(bool shown);
 
 void nw_debug_frame(void);
 
@@ -35,6 +36,11 @@ char *nw_debug_file(const char *folder, const char *ext);
 void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
 bool nw_debug_button(const char *label);
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log);
+bool nw_debug_filter(const char *hint, char *buf, size_t size);
+/* A scrolling list rows lines high; always closed with nw_debug_list_end. */
+void nw_debug_list_begin(const char *id, int rows);
+void nw_debug_list_end(void);
+bool nw_debug_selectable(const char *label, bool selected);
 
 #ifdef __cplusplus
 }

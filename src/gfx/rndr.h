@@ -27,6 +27,7 @@ const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl);
 void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
 /* tid as NuTexCreate returns it; NULL for 0, a surface (< 0) or a slot with no decoded texture. */
 const NwGpuTex *nw_rndr_texture(int tid);
+void nw_rndr_texture_free(int tid);
 /* A tid in GS memory: -1 and -3 the back and front buffer, a render target at its address as NuTexSetRenderTarget
    finds it; addr 0 for any other, and for the Z buffer and the palette and Z render targets the port does not draw
    (reported once). */

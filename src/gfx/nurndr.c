@@ -64,6 +64,12 @@ void NuRndrSplineSearch(void *spline)
     NuRndrShadMaskCount += NuSplineFindAllSub(spline, nw_stencil, &NuRndrShadMasks[n], 32 - n);
 }
 
+/* Retail also resets the footprint timers (not drawn yet). */
+void NuRndrInitWorld(void)
+{
+    NuRndrShadMaskCount = 0;
+}
+
 void NuRndrOTInit(void)
 {
     ot_batch_free = NW_OT_ITEMS;

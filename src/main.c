@@ -485,9 +485,8 @@ static int nw_boot(const char *data_dir)
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
-/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. The game thread
-   opens it by the same path with backslashes, written to cdpath. */
-static const NwManifestEntry *nw_scene_entry(const char *path, char *cdpath, size_t size)
+/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
+static const NwManifestEntry *nw_scene_entry(const char *path)
 {
     char name[NW_VFS_PATH_MAX];
     SDL_strlcpy(name, path, sizeof(name));
@@ -499,36 +498,33 @@ static const NwManifestEntry *nw_scene_entry(const char *path, char *cdpath, siz
         fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
         return NULL;
     }
-    SDL_strlcpy(cdpath, e->path, size);
-    for (char *c = cdpath; *c; c++) {
-        *c = *c == '/' ? '\\' : *c;
-    }
     return e;
 }
 
 /* The scene viewer: the decomp loads and draws the scene on the game thread (stubs logged and passed), the window
    shows its frames under a fly camera; at the end it prints the stub hits (stdout). Returns the exit code: 2 without
-   the disc or the scene. */
+   the disc or the scene. An empty path starts on the scene list. */
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
-    static char cdpath[NW_VFS_PATH_MAX];
-    static char *argv[] = { nw_game_arg0, cdpath, NULL };
-    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
-    int code = e ? nw_boot_prepare(data_dir) : 2;
+    const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
+    int code = e || !*path ? nw_boot_prepare(data_dir) : 2;
     if (code) {
         return code;
+    }
+    if (e) {
+        nw_scene_load(e->path);
     }
     NwPlatform platform;
     if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
     nw_stub_set_continue(true);
-    if (!nw_game_start(nw_scene_main, 2, argv)) {
+    if (!nw_game_start(nw_scene_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
         nw_window_close(&platform);
         return 1;
     }
-    code = nw_view_scene(&platform, e->path, max_frames);
+    code = nw_view_scene(&platform, e ? e->path : NULL, max_frames);
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();
     fflush(stderr);
@@ -592,18 +588,17 @@ static int nw_scene_check_all(const char *exe, const char *data_dir)
    stub hits (stdout). Returns 0 when the packet holds draws, 1 when not or on a fatal error, 2 without the disc. */
 static int nw_scene_check(const char *exe, const char *data_dir, const char *path)
 {
-    static char cdpath[NW_VFS_PATH_MAX];
-    static char *argv[] = { nw_game_arg0, cdpath, NULL };
     if (strcmp(path, "all") == 0) {
         return nw_scene_check_all(exe, data_dir);
     }
-    const NwManifestEntry *e = nw_scene_entry(path, cdpath, sizeof(cdpath));
+    const NwManifestEntry *e = nw_scene_entry(path);
     int code = e ? nw_boot_prepare(data_dir) : 2;
     if (code) {
         return code;
     }
+    nw_scene_load(e->path);
     nw_stub_set_continue(true);
-    if (!nw_game_start(nw_scene_main, 2, argv)) {
+    if (!nw_game_start(nw_scene_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
         return 1;
     }
@@ -643,7 +638,7 @@ int main(int argc, char *argv[])
             return 0;
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
-             strcmp(argv[i], "--scene") == 0 || strcmp(argv[i], "--scene-check") == 0) &&
+             strcmp(argv[i], "--scene-check") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -663,7 +658,7 @@ int main(int argc, char *argv[])
         } else if (strcmp(argv[i], "--check-scenes") == 0) {
             check_scenes = true;
         } else if (strcmp(argv[i], "--scene") == 0) {
-            scene = argv[++i];
+            scene = i + 1 < argc && argv[i + 1][0] != '-' ? argv[++i] : "";
         } else if (strcmp(argv[i], "--scene-check") == 0) {
             scene_check = argv[++i];
         } else if (strcmp(argv[i], "--boot") == 0) {

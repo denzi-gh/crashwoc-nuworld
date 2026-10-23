@@ -1,5 +1,6 @@
 #include "frontend/debug.h"
 
+#include <float.h>
 #include <stdarg.h>
 
 #include "app.h"
@@ -105,6 +106,31 @@ bool nw_debug_button(const char *label)
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log)
 {
     return ImGui::SliderFloat(label, value, lo, hi, "%.3g", log ? ImGuiSliderFlags_Logarithmic : 0);
+}
+
+bool nw_debug_filter(const char *hint, char *buf, size_t size)
+{
+    ImGui::PushID(hint);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    bool changed = ImGui::InputTextWithHint("##filter", hint, buf, size);
+    ImGui::PopID();
+    return changed;
+}
+
+void nw_debug_list_begin(const char *id, int rows)
+{
+    float height = ImGui::GetTextLineHeightWithSpacing() * (float)rows + ImGui::GetStyle().WindowPadding.y * 2;
+    ImGui::BeginChild(id, ImVec2(ImGui::GetFontSize() * 20, height), ImGuiChildFlags_Borders);
+}
+
+void nw_debug_list_end(void)
+{
+    ImGui::EndChild();
+}
+
+bool nw_debug_selectable(const char *label, bool selected)
+{
+    return ImGui::Selectable(label, selected);
 }
 
 static void nw_debug_menus(void)
@@ -224,6 +250,11 @@ bool nw_debug_event(const SDL_Event *e)
 bool nw_debug_wants_keyboard(void)
 {
     return nw_debug.shown && ImGui::GetIO().WantCaptureKeyboard;
+}
+
+void nw_debug_show(bool shown)
+{
+    nw_debug.shown = shown;
 }
 
 void nw_debug_frame(void)

@@ -36,6 +36,7 @@ extern int nugscn_mtlupdate_enabled;
 extern char vu_load_tricu_mpg[], vu_load_tric_mpg[];
 extern int NuRndrShadMaskCount;
 extern struct nugspline_s *NuRndrShadMasks[];
+void NuRndrInitWorld(void);
 
 static int failures;
 static char scene_buffer[1 << 20];
@@ -142,6 +143,15 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK((char *)tex->env > file && (char *)tex->env < scene_buffer + sizeof(scene_buffer));
 }
 
+static int count_mtls(void)
+{
+    int n = 0;
+    for (struct numtl_s *m = NuMtlIterate(1); m; m = m->snext) {
+        n++;
+    }
+    return n;
+}
+
 static void test_load(const char *scratch)
 {
     char *root = NULL, *disc = NULL, *path = NULL;
@@ -168,16 +178,30 @@ static void test_load(const char *scratch)
     NuMtlInit();
     nugscn_mtlupdate_enabled = 1;
 
-    char *buf = scene_buffer + 3, *end = scene_buffer + sizeof(scene_buffer);
-    char *file = (char *)(((uintptr_t)buf + 0x7F) & ~(uintptr_t)0x7F);
-    struct nugscn_s *sc = NuGScnRead(&buf, end, "test.gsc");
-    CHECK(sc != NULL && ((uintptr_t)buf & 15) == 0 && buf > file + b.len);
-    CHECK(memcmp(file, b.buf, 16) == 0);
-    if (sc) {
-        check_scene(sc, file, &s);
-        NuTexAnimRemoveList(sc->texanims);
+    char *end = scene_buffer + sizeof(scene_buffer);
+    char *file = (char *)(((uintptr_t)scene_buffer + 3 + 0x7F) & ~(uintptr_t)0x7F);
+    int mtls = count_mtls();
+    /* Twice into the same buffer, as the scene viewer switches scenes. */
+    for (int pass = 0; pass < 2; pass++) {
+        char *buf = scene_buffer + 3;
+        NuRndrInitWorld();
+        struct nugscn_s *sc = NuGScnRead(&buf, end, "test.gsc");
+        CHECK(sc != NULL && ((uintptr_t)buf & 15) == 0 && buf > file + b.len);
+        CHECK(memcmp(file, b.buf, 16) == 0);
+        if (sc) {
+            check_scene(sc, file, &s);
+            CHECK(count_mtls() == mtls + sc->nummtl);
+            nw_gscn_remove(sc);
+        }
+        CHECK(count_mtls() == mtls);
     }
-    nw_gscn_free_meshes();
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0, uploads = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; i < n; i++) {
+        uploads += jobs[i].op < NW_GPU_FREE_MESH;
+    }
+    CHECK(n > 0 && uploads * 2 == n);
+    SDL_free(jobs);
 
     nw_shim_file_init(NULL);
     nw_vfs_shutdown(&vfs);

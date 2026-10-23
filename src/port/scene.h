@@ -18,13 +18,17 @@ typedef struct NwSceneInfo {
     uint32_t objects;
     uint32_t instances;
     uint64_t tris;
+    uint32_t seq; /* loads so far */
+    bool drawn;   /* false: nothing to draw */
 } NwSceneInfo;
 
-/* Game thread entry: argv[1] is the scene as NuFileOpen takes it. */
+/* Game thread entry; it draws the scenes nw_scene_load asks for. */
 int nw_scene_main(int argc, char **argv);
-/* Any thread: false until the scene is loaded. */
+/* Any thread: false until the first load. */
 bool nw_scene_info(NwSceneInfo *info);
 /* The camera for the next tick. */
 void nw_scene_set_camera(const NwSceneCam *cam);
+/* Any thread: a disc path (either slash), loaded in place of the current scene. */
+void nw_scene_load(const char *path);
 
 #endif
