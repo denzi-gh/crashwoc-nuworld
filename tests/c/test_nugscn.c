@@ -8,11 +8,13 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
+#include "gfx/rndr.h"
 #include "gfx/vif.h"
 #include "nu3d/nuanim.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
 #include "nu3d/numtl.h"
+#include "nu3d/nutex.h"
 #include "nu3d/nutexanm.h"
 #include "nucore/nufile.h"
 #include "nw_ps2types.h"
@@ -31,6 +33,7 @@ _Static_assert(sizeof(nw_ps2_nuinstance_s) == NW_GSC_INST_SIZE && offsetof(nw_ps
                "nuinstance_s");
 
 extern int nugscn_mtlupdate_enabled;
+extern char vu_load_tricu_mpg[], vu_load_tric_mpg[];
 extern int NuRndrShadMaskCount;
 extern struct nugspline_s *NuRndrShadMasks[];
 
@@ -78,6 +81,9 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(sc->numtid == 0 && sc->nummtl == 3);
     CHECK(sc->mtls[0]->next == sc->mtls[2] && sc->mtls[1]->next == NULL && sc->mtls[2]->next == NULL);
     CHECK(sc->mtls[0]->tid == 0 && sc->mtls[0]->attrib.lighting == 2 && sc->mtls[1]->attrib.ot == 1);
+    CHECK(sc->mtls[0]->rs.mpg == (unsigned char *)vu_load_tricu_mpg);
+    CHECK(sc->mtls[1]->rs.mpg == (unsigned char *)vu_load_tric_mpg && sc->mtls[2]->vuattr.u32 != NULL);
+    CHECK(nw_rndr_state(sc->mtls[2])->diffuse[1] == 64.0f);
     CHECK(sc->mtls[2]->diffuse.g == 0.5f && sc->mtls[2]->alpha == 1.0f);
 
     CHECK(sc->numgobj == 2);
@@ -153,7 +159,9 @@ static void test_load(const char *scratch)
     CHECK(nw_vfs_init(&vfs, root));
     nw_shim_file_init(&vfs);
     NuFileInitEx(1, 1);
-    nugscn_mtlupdate_enabled = 0; /* NuMtlUpdate's state block is the material work's */
+    NuTexInit();
+    NuMtlInit();
+    nugscn_mtlupdate_enabled = 1;
 
     char *buf = scene_buffer + 3, *end = scene_buffer + sizeof(scene_buffer);
     char *file = (char *)(((uintptr_t)buf + 0x7F) & ~(uintptr_t)0x7F);

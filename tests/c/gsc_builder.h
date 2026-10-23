@@ -173,7 +173,7 @@ static void gsc_vtx(VifVtx *v, uint32_t n, float z)
 }
 
 /* Materials tricu, OT tric, tric; object 0 a V4-32 chain and a packed geom, object 1 an OT and a face-on geom. */
-static void gsc_build_scene(GscBuild *b, GscScene *s)
+static inline void gsc_build_scene(GscBuild *b, GscScene *s)
 {
     memset(b, 0, sizeof(*b));
     memset(s, 0, sizeof(*s));
