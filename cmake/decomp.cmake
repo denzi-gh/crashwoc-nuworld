@@ -289,6 +289,16 @@ if(NUWORLD_TESTS)
   add_test(NAME texanim-retail COMMAND nuworld_test_texanim retail)
   set_tests_properties(texanim-retail PROPERTIES SKIP_RETURN_CODE 77)
 
+  # Text3D's glyphs on a synthetic scene; font3d-retail loads STUFF\FONT.GSC of NUWORLD_TEST_DATA with the data image.
+  add_executable(nuworld_test_font3d tests/c/test_font3d.c)
+  add_dependencies(nuworld_test_font3d nuworld_types)
+  target_include_directories(nuworld_test_font3d PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_font3d PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_font3d PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME font3d COMMAND nuworld_test_font3d ${CMAKE_CURRENT_BINARY_DIR}/test-font3d)
+  add_test(NAME font3d-retail COMMAND nuworld_test_font3d retail)
+  set_tests_properties(font3d-retail PROPERTIES SKIP_RETURN_CODE 77)
+
   # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
   add_executable(nuworld_test_clock tests/c/test_clock.c)
   target_include_directories(nuworld_test_clock PRIVATE ${nw_decomp_includes})
