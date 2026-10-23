@@ -29,6 +29,9 @@ static bool nw_packet_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
         return true;
     }
     uint32_t c = *cap ? *cap * 2 : 256;
+    while (c <= n) {
+        c *= 2;
+    }
     void *grown = SDL_realloc(*items, c * size);
     if (!grown) {
         return false;
@@ -75,6 +78,16 @@ NwLights *nw_packet_light(NwPacket *p, uint32_t *index)
     return &p->lights[p->nlights++];
 }
 
+uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first)
+{
+    if (!nw_packet_grow((void **)&p->idx, &p->idxcap, p->nidx + n - 1, sizeof(*p->idx))) {
+        return NULL;
+    }
+    *first = p->nidx;
+    p->nidx += n;
+    return &p->idx[*first];
+}
+
 void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
@@ -83,6 +96,7 @@ void nw_packet_reset(NwPacket *p)
     p->nviews = 0;
     p->nmtls = 0;
     p->nlights = 0;
+    p->nidx = 0;
 }
 
 NwPacket *nw_packet_building(void)

@@ -100,7 +100,10 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     }
     g = sc->gobjs[1];
     CHECK(g->ngobjs == 2 && g[0].type == 0 && g[1].type == 1);
-    CHECK(g[0].geom->otbatch == (void *)(file + s->blob[2]) && g[0].geom->dmastream == NULL);
+    const NwGpuMesh *ot = g[0].geom->dmastream;
+    CHECK(g[0].geom->otbatch == (void *)(file + s->blob[2]) && ot && ot->mesh.ntris == 1 && ot->mesh.nverts == 3);
+    CHECK(ot && ot->mesh.verts[2].pos[2] == 6.0f && ot->mesh.verts[1].tex[0] == 4096 && ot->mesh.verts[2].col[0] == 32);
+    CHECK(ot && ot->mesh.verts[0].col[3] == 0x80 && ot->mesh.tris[2] == 2);
     struct nufaceongeom_s *f = g[1].faceon_geom;
     CHECK(f->mtl == sc->mtls[0] && f->faceon_type == 3 && f->faceon_radius == 1.5f);
     CHECK(f->dmastream == (void *)(file + s->blob[3]) && f->next == NULL);

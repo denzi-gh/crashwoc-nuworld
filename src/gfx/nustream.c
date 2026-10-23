@@ -79,7 +79,7 @@ static uint32_t nw_snap_cap;
 static const struct rndrstream_s *nw_raw[64];
 static unsigned nw_nraw;
 
-static void *nw_alloc(size_t size)
+void *nw_rndr_alloc(size_t size)
 {
     NwArena *a = &nw_arena[rndrstream_buffer_index];
     size = (size + 15) & ~(size_t)15;
@@ -96,26 +96,37 @@ static void *nw_alloc(size_t size)
     return p;
 }
 
-NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit)
+/* The current view and lights, copied to the arena once after each change. */
+static NwViewSnap *nw_view_now(void)
 {
     if (!nw_view_snap) {
-        nw_view_snap = nw_alloc(sizeof(*nw_view_snap));
+        nw_view_snap = nw_rndr_alloc(sizeof(*nw_view_snap));
         nw_view_snap->view = nw_view;
         nw_view_snap->frame = 0;
     }
-    if (lit && !nw_light_snap) {
-        nw_light_snap = nw_alloc(sizeof(*nw_light_snap));
+    return nw_view_snap;
+}
+
+static NwLightSnap *nw_lights_now(void)
+{
+    if (!nw_light_snap) {
+        nw_light_snap = nw_rndr_alloc(sizeof(*nw_light_snap));
         nw_light_snap->lights = nw_lights;
         nw_light_snap->frame = 0;
     }
-    NwRecord *r = nw_alloc(sizeof(*r));
+    return nw_light_snap;
+}
+
+NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit)
+{
+    NwRecord *r = nw_rndr_alloc(sizeof(*r));
     memset(r, 0, sizeof(*r));
     r->cmd.op = (uint8_t)op;
     r->cmd.material = mtl;
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
-    r->view = nw_view_snap;
-    r->lights = lit ? nw_light_snap : NULL;
+    r->view = nw_view_now();
+    r->lights = lit ? nw_lights_now() : NULL;
     return r;
 }
 
@@ -128,6 +139,12 @@ void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r)
         stream->t_base.voidptr = r;
     }
     stream->t_ptr.voidptr = r;
+}
+
+void nw_rndr_latch(NwRecord *r)
+{
+    r->view = nw_view_now();
+    r->lights = r->lights ? nw_lights_now() : NULL;
 }
 
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op)
@@ -204,6 +221,10 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             *c = r->cmd;
             c->view = v->index;
             c->light = l ? l->index : NW_LIGHT_NONE;
+            uint32_t *idx = r->idx ? nw_packet_idx(nw_packet_building(), r->cmd.count, &c->first) : NULL;
+            if (idx) {
+                memcpy(idx, r->idx, r->cmd.count * sizeof(*idx));
+            }
         }
     }
     if (stream->base.voidptr && stream->ptr.voidptr != stream->base.voidptr) {

@@ -24,6 +24,9 @@ typedef struct NwVifMesh {
 
 /* Appends one geom's batches; false (mesh unchanged) on a malformed chain or stream. */
 bool nw_vif_decode(NwVifMesh *mesh, const void *geom, size_t size);
+/* Appends an ordering-table geom's triangles, each one its own three vertices, in batch order; false (mesh
+   unchanged) on a malformed batch. */
+bool nw_vif_otbatch(NwVifMesh *mesh, const void *batch, size_t size);
 void nw_vif_free(NwVifMesh *mesh);
 
 #endif

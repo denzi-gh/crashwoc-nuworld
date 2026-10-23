@@ -25,7 +25,8 @@ typedef struct NwGpuTex {
 } NwGpuTex;
 
 typedef enum NwCmdOp {
-    NW_CMD_DRAW,  /* a geom's mesh under the local matrix */
+    NW_CMD_DRAW,    /* a geom's mesh under the local matrix */
+    NW_CMD_DRAW_OT, /* an ordering-table batch: some of its mesh's triangles, in their order in NwPacket.idx */
     NW_CMD_CLEAR, /* NuRndrClear: the scissor rectangle's colour and Z */
     NW_CMD_RECT,  /* a 2D sprite */
 } NwCmdOp;
@@ -60,6 +61,7 @@ typedef struct NwCmd {
         struct {
             const NwGpuMesh *mesh;
             float local[16];
+            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */
@@ -85,6 +87,8 @@ typedef struct NwPacket {
     uint32_t nmtls, mtlcap;
     NwLights *lights;
     uint32_t nlights, lightcap;
+    uint32_t *idx; /* the DRAW_OT triangles */
+    uint32_t nidx, idxcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -92,6 +96,8 @@ NwCmd *nw_packet_cmd(NwPacket *p);
 NwView *nw_packet_view(NwPacket *p, uint32_t *index);
 NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index);
 NwLights *nw_packet_light(NwPacket *p, uint32_t *index);
+/* Appends n vertex indices; NULL on out of memory. */
+uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

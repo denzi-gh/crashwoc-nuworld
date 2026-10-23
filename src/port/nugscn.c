@@ -104,8 +104,8 @@ static char *nw_gscn_rel(char *field)
     return off ? field + off : 0;
 }
 
-/* A plain geom's DMA chain decoded once and queued for the GPU; the mesh becomes its dmastream. */
-static NwGpuMesh *nw_gscn_mesh(void *stream, int size)
+/* A geom's DMA chain, or an ordering-table geom's triangle batch, decoded once and queued for the GPU. */
+static NwGpuMesh *nw_gscn_mesh(void *stream, int size, bool ot)
 {
     if (nw_gscn_nmeshes == nw_gscn_mcap) {
         uint32_t n = nw_gscn_mcap ? nw_gscn_mcap * 2 : 1024;
@@ -117,7 +117,9 @@ static NwGpuMesh *nw_gscn_mesh(void *stream, int size)
         nw_gscn_mcap = n;
     }
     NwGpuMesh *mesh = SDL_calloc(1, sizeof(*mesh));
-    if (!mesh || !nw_vif_decode(&mesh->mesh, stream, (size_t)size)) {
+    bool ok = mesh && (ot ? nw_vif_otbatch(&mesh->mesh, stream, (size_t)size)
+                          : nw_vif_decode(&mesh->mesh, stream, (size_t)size));
+    if (!ok) {
         NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": %s", gsc_load_context.filename, SDL_GetError());
     }
     nw_gscn_meshes[nw_gscn_nmeshes++] = mesh;
@@ -336,12 +338,13 @@ void ReadObjSet(int fh)
                     if (size & 0xF) {
                         NuErrorProlog(nugscn_srcfile, 0xB95)("invalid qwc");
                     }
-                    /* No in-place block->data = block->qw: a host pointer does not fit the 32-bit field. */
+                    /* No in-place block->data = block->qw: a host pointer does not fit the 32-bit field. An OT
+                       geom keeps its batch, which XFormVuTriZ reads, and its triangles as a mesh in dmastream,
+                       which NuRndrGScnObj draws through the ordering table. */
                     if (geom->mtl->attrib.ot == 1) {
                         geom->otbatch = NuMemFileAddr(fh);
-                    } else {
-                        geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size);
                     }
+                    geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size, geom->otbatch != NULL);
                     NuMemFileSeek(fh, size, 1);
                 }
                 gobj->tricount = tricount;

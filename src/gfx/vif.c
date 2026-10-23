@@ -350,6 +350,43 @@ bool nw_vif_decode(NwVifMesh *mesh, const void *geom, size_t size)
     return ok;
 }
 
+/* A count, then a block per triangle: a REF tag and three vertices of three V4-32 quadwords, x, y, z and the normal's
+   x as floats, u, v and the normal's y, z x4096 as ints, r, g, b, a as ints. The normal saturates: only the lit
+   programs read it, and the unlit batches carry ones that are not unit length. */
+bool nw_vif_otbatch(NwVifMesh *mesh, const void *batch, size_t size)
+{
+    const uint8_t *p = batch;
+    uint32_t count = size >= 16 ? nw_rd32(p) : 0;
+    if (size < 16 || count > (size - 16) / 0xA0) {
+        return SDL_SetError("vif: %u triangles in an OT batch of %zu bytes", count, size);
+    }
+    uint64_t nverts = (uint64_t)mesh->nverts + count * 3u, ntris = (uint64_t)mesh->ntris + count;
+    if (!nw_vif_reserve((void **)&mesh->verts, &mesh->vcap, nverts, sizeof(*mesh->verts)) ||
+        !nw_vif_reserve((void **)&mesh->tris, &mesh->tcap, ntris * 3, sizeof(*mesh->tris))) {
+        return false;
+    }
+    for (uint32_t t = 0; t < count; t++) {
+        const uint8_t *v = p + 16 + (size_t)t * 0xA0 + 16;
+        for (int k = 0; k < 3; k++, v += 0x30) {
+            NwVifVertex *out = &mesh->verts[mesh->nverts + t * 3 + k];
+            memcpy(out->pos, v, 16);
+            for (int i = 0; i < 4; i++) {
+                int32_t tex = (int32_t)nw_rd32(v + 16 + i * 4), col = (int32_t)nw_rd32(v + 32 + i * 4);
+                if ((i < 2 && (tex < INT16_MIN || tex > INT16_MAX)) || col < 0 || col > 255) {
+                    return SDL_SetError("vif: OT triangle %u vertex %d out of range", t, k);
+                }
+                out->tex[i] = (int16_t)(tex < INT16_MIN ? INT16_MIN : tex > INT16_MAX ? INT16_MAX : tex);
+                out->col[i] = (uint8_t)col;
+            }
+            mesh->tris[(mesh->ntris + t) * 3 + k] = mesh->nverts + t * 3 + k;
+        }
+    }
+    mesh->nverts = (uint32_t)nverts;
+    mesh->ntris = (uint32_t)ntris;
+    mesh->nbatches++;
+    return true;
+}
+
 void nw_vif_free(NwVifMesh *mesh)
 {
     SDL_free(mesh->verts);

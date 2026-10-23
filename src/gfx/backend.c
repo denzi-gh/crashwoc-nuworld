@@ -15,6 +15,7 @@ static struct {
     NwGpuJob *jobs;
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo; /* the packet's sprites, four vertices each */
+    GLuint ot_ibo;                       /* the packet's OT triangles */
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
 } nw_be;
@@ -35,6 +36,7 @@ void nw_backend_shutdown(void)
     glDeleteVertexArrays(1, &nw_be.rect_vao);
     glDeleteBuffers(1, &nw_be.rect_vbo);
     glDeleteBuffers(1, &nw_be.rect_ibo);
+    glDeleteBuffers(1, &nw_be.ot_ibo);
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -239,10 +241,11 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
 }
 
+/* A geom's mesh; an OT batch draws its triangles in the packet's order through the packet's index buffer. */
 static void nw_be_draw(const NwPacket *p, const NwCmd *c)
 {
     const NwGpuMesh *mesh = c->mesh;
-    if (c->op != NW_CMD_DRAW || !mesh || !mesh->vao) {
+    if (!mesh || !mesh->vao) {
         return;
     }
     float screen[16];
@@ -255,7 +258,14 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     NwVuMaterial m = nw_be_material(p, c, mesh->mesh.uvrow);
     const NwVuProg *mpg = c->mpg;
     glBindVertexArray(mesh->vao);
-    nw_be_passes(nw_vu_program(mpg ? mpg->name : NULL), &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
+    if (c->op == NW_CMD_DRAW_OT) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
+        nw_be_passes(nw_vu_program(mpg ? mpg->name : NULL), &o, &m, (GLsizei)c->count,
+                     (const void *)(uintptr_t)(c->first * sizeof(uint32_t)));
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
+    } else {
+        nw_be_passes(nw_vu_program(mpg ? mpg->name : NULL), &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
+    }
 }
 
 /* A packet runs once into the GS framebuffer, which keeps what it drew as GS memory does. */
@@ -264,11 +274,21 @@ static void nw_be_run(const NwPacket *p)
     glViewport(0, 0, nw_be.width, nw_be.height);
     glEnable(GL_DEPTH_TEST);
     nw_be_rects(p);
+    if (p->nidx) {
+        if (!nw_be.ot_ibo) {
+            glGenBuffers(1, &nw_be.ot_ibo);
+        }
+        glBindVertexArray(0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)p->nidx * (GLsizeiptr)sizeof(uint32_t), p->idx,
+                     GL_STREAM_DRAW);
+    }
     uint32_t rects = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
         switch (c->op) {
         case NW_CMD_DRAW:
+        case NW_CMD_DRAW_OT:
             nw_be_draw(p, c);
             break;
         case NW_CMD_CLEAR:

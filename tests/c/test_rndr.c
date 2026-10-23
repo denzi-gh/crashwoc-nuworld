@@ -8,6 +8,7 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/rndr.h"
+#include "nu3d/nucamera.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nurndr.h"
 #include "nu3d/nustream.h"
@@ -20,6 +21,7 @@ extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_
 extern struct nutexslot_s *D_0062EBEC;
 extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
 extern struct numtl_s *numtl_defaultmtl2d;
+extern struct nucamera_s global_camera;
 
 /* Declared by no header. */
 int NuRndrBeginScene(int target);
@@ -419,6 +421,40 @@ static void test_lights(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* An ordering-table batch: its triangles bucket by view z and draw far to near, in batch order within a bucket;
+   the batch goes into the ordering table at its nearest triangle. */
+static void test_ot_batch(void)
+{
+    static const float z[4] = { 1.0f, 0.0f, 1.0f, 100.0f };
+    static uint8_t batch[16 + 4 * 0xA0];
+    memset(batch, 0, sizeof(batch));
+    batch[0] = 4;
+    for (int t = 0; t < 4; t++) {
+        for (int k = 0; k < 3; k++) {
+            const float pos[4] = { (float)k, 0.0f, z[t], 0.0f };
+            memcpy(batch + 16 + t * 0xA0 + 16 + k * 0x30, pos, 16);
+        }
+    }
+    NwGpuMesh mesh = { 0 };
+    CHECK(nw_vif_otbatch(&mesh.mesh, batch, sizeof(batch)) && mesh.mesh.ntris == 4);
+    struct numtx_s id;
+    memset(&id, 0, sizeof(id));
+    id._00 = id._11 = id._22 = id._33 = 1.0f;
+    global_camera.mtx = id;
+    struct numtl_s *m = NuMtlCreate(1);
+    NuMtlUpdate(m);
+    nw_rndr_ot_batch(&id, m, &mesh, (struct nutribatch_s *)batch);
+    mark(rndrstream_3d_l, 70);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    static const uint32_t order[12] = { 9, 10, 11, 0, 1, 2, 6, 7, 8, 3, 4, 5 };
+    CHECK(p->ncmds == 2 && p->cmds[1].op == NW_CMD_DRAW_OT && p->cmds[1].count == 12 && p->nidx == 12);
+    CHECK(p->ncmds == 2 && p->cmds[1].mesh == &mesh && p->cmds[1].light != NW_LIGHT_NONE && p->cmds[1].mpg == m->rs.mpg);
+    CHECK(p->nidx == 12 && memcmp(p->idx + p->cmds[1].first, order, sizeof(order)) == 0);
+    NuRndrSwapStreamBuffers();
+    nw_vif_free(&mesh.mesh);
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -439,6 +475,7 @@ int main(void)
     test_animate();
     test_2d();
     test_lights();
+    test_ot_batch();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

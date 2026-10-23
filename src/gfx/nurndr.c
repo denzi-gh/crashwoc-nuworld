@@ -18,6 +18,7 @@ int Ps2TxValToPowerOfTwo(int value);
 struct nugscn_s;
 struct nugspline_s;
 int NuSplineFindAllSub(struct nugscn_s *scene, char *name, struct nugspline_s **list, int max);
+float XFormVuTriZ(float *depth, void *tri, struct numtx_s *mtx, int count);
 
 /* Roots of the data image. */
 extern int nurndr_tritot_this_frame;
@@ -34,12 +35,14 @@ extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
+extern struct nucamera_s global_camera;
 
 extern struct rndrstream_s *rndrstream_system;
 extern struct rndrstream_s *rndrstream_ot_sort;
 
 #define NW_OT_BINS 0x1000
 #define NW_OT_ITEMS 0x400
+#define NW_OT_TRIS 0x800 /* a batch's most, the per-triangle buckets' slots */
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -72,7 +75,7 @@ void nw_rndr_ot_insert(NwRecord *item, float depth)
     ot_batch_free--;
 }
 
-/* Back to front: bin 0xFFF first, each bin from its latest item. */
+/* Back to front: bin 0xFFF first, each bin from its latest item, under the view and lights of the flush. */
 void NuRndrOTFlush(void)
 {
     if (ot_batch_free == NW_OT_ITEMS) {
@@ -82,12 +85,57 @@ void NuRndrOTFlush(void)
         NwRecord *item = ot_bins[bin];
         while (item) {
             NwRecord *next = item->next;
+            nw_rndr_latch(item);
             nw_rndr_push(rndrstream_ot_sort, item);
             item = next;
         }
         ot_bins[bin] = NULL;
     }
     ot_batch_free = NW_OT_ITEMS;
+}
+
+/* NuRndrOTInsertTriBatch with the geom's mesh: each triangle's view z (XFormVuTriZ, from the end of the batch)
+   buckets it, the buckets drawn far to near and each from its latest triangle, so a batch is drawn in batch order
+   within a bucket; the batch goes into the ordering table at its nearest triangle. Retail drops a batch over 0x800
+   triangles or with the item pool used up. */
+void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutribatch_s *batch)
+{
+    static float depth[NW_OT_TRIS];
+    static uint16_t bucket[NW_OT_TRIS];
+    static uint16_t first[NW_OT_BINS], next[NW_OT_TRIS];
+    int count = *(int *)batch;
+    if (count <= 0 || count > NW_OT_TRIS || !ot_batch_free) {
+        return;
+    }
+    struct numtx_s caminv, local;
+    NuMtxInv(&caminv, &global_camera.mtx);
+    NuMtxMulH(&local, mtx, &caminv);
+    uint8_t *tris = (uint8_t *)batch + 16;
+    float batchz = XFormVuTriZ(&depth[count - 1], tris + (size_t)(count - 1) * 0xA0, &local, count);
+    int highest = 0;
+    memset(first, 0xFF, sizeof(first));
+    for (int t = count - 1; t >= 0; t--) {
+        int z = (int)depth[t];
+        z = z < 0 ? 0 : z > NW_OT_BINS - 1 ? NW_OT_BINS - 1 : z;
+        bucket[t] = (uint16_t)z;
+        next[t] = first[z];
+        first[z] = (uint16_t)t;
+        highest = z > highest ? z : highest;
+    }
+    NwRecord *item = nw_rndr_record(NW_CMD_DRAW_OT, mtl, mtl->rs.mpg, true);
+    uint32_t *idx = nw_rndr_alloc((size_t)count * 3 * sizeof(*idx));
+    uint32_t n = 0;
+    for (int z = highest; z >= 0; z--) {
+        for (uint16_t t = first[z]; t != 0xFFFF; t = next[t]) {
+            for (int k = 0; k < 3; k++) {
+                idx[n++] = mesh->mesh.tris[t * 3 + k];
+            }
+        }
+    }
+    item->cmd.mesh = mesh;
+    item->cmd.count = n;
+    item->idx = idx;
+    nw_rndr_ot_insert(item, batchz);
 }
 
 /* Retail also builds the shadow and blend-deformer DMA data, which the shadow and skin work (#56, #46) brings. */
@@ -243,7 +291,9 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
                 }
                 for (; mtl; mtl = mtl->next) {
                     rndrstream_3d = &mtl->rs;
-                    if (geom->dmastream) {
+                    if (geom->otbatch) {
+                        nw_rndr_ot_batch(m, mtl, geom->dmastream, geom->otbatch);
+                    } else if (geom->dmastream) {
                         NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW);
                         c->mesh = geom->dmastream;
                     }
