@@ -249,6 +249,9 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, screen);
     NwVuObject o;
     nw_vu1init(&o, c->local, screen);
+    if (c->light != NW_LIGHT_NONE) {
+        nw_vu1init_lights(&o, c->local, &p->lights[c->light]);
+    }
     NwVuMaterial m = nw_be_material(p, c, mesh->mesh.uvrow);
     const NwVuProg *mpg = c->mpg;
     glBindVertexArray(mesh->vao);

@@ -714,6 +714,28 @@ static void test_package(void)
     }
 }
 
+/* vu1init: local times screen; for a lit stream the light directions in the space of the local matrix's normalised
+   rows, the colours with w 0 and the ambient colour. */
+static void test_vu1init(void)
+{
+    /* A quarter turn about y, scaled by 2, then moved. */
+    static const float local[16] = { 0, 0, -2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 5, 6, 7, 1 };
+    static const float screen[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2 };
+    static const NwLights l = {
+        { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.6f, 0.8f } },
+        { { 0.5f, 0.25f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } },
+        { 0.1f, 0.2f, 0.3f },
+    };
+    NwVuObject o;
+    nw_vu1init(&o, local, screen);
+    CHECK(o.lv[2] == -2.0f && o.lv[12] == 5.0f && o.lv[15] == 2.0f && o.lightdir[0][2] == 0.0f);
+    nw_vu1init_lights(&o, local, &l);
+    CHECK(o.lightdir[0][0] == 0.0f && o.lightdir[0][1] == 0.0f && o.lightdir[0][2] == 1.0f);
+    CHECK(o.lightdir[1][1] == 1.0f && SDL_fabsf(o.lightdir[2][0] + 0.8f) < 1e-6f);
+    CHECK(SDL_fabsf(o.lightdir[2][1] - 0.6f) < 1e-6f && o.lightdir[2][2] == 0.0f);
+    CHECK(o.lightcol[0][1] == 0.25f && o.lightcol[0][3] == 0.0f && o.ambient[2] == 0.3f && o.lv[12] == 5.0f);
+}
+
 /* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free
    waits until a packet after the one being built when it was queued is drawn. */
 static void test_packet(void)
@@ -800,6 +822,7 @@ int main(int argc, char *argv[])
     test_blend();
     test_depth();
     test_atest();
+    test_vu1init();
     test_packet();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");

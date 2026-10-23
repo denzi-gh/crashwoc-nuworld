@@ -66,6 +66,15 @@ NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index)
     return &p->mtls[p->nmtls++];
 }
 
+NwLights *nw_packet_light(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->lights, &p->lightcap, p->nlights, sizeof(*p->lights))) {
+        return NULL;
+    }
+    *index = p->nlights;
+    return &p->lights[p->nlights++];
+}
+
 void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
@@ -73,6 +82,7 @@ void nw_packet_reset(NwPacket *p)
     p->ncmds = 0;
     p->nviews = 0;
     p->nmtls = 0;
+    p->nlights = 0;
 }
 
 NwPacket *nw_packet_building(void)

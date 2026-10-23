@@ -25,6 +25,14 @@ typedef struct NwVuObject {
     float lightcol[3][4];
 } NwVuObject;
 
+/* The lights a lit stream uploads to VU 0x0C-0x12, as NuRndrSetDirectionalLights and NuRndrSetAmbientLight set
+   them: three directions and colours in world space, the ambient colour. */
+typedef struct NwLights {
+    float dir[3][3];
+    float col[3][3];
+    float ambient[3];
+} NwLights;
+
 /* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT. */
 typedef struct NwVuTexture {
     unsigned int index, clut;
@@ -43,8 +51,11 @@ bool nw_vu_init(void);
 void nw_vu_shutdown(void);
 /* The program of a microcode package name; xformuv (no scene material uses it) falls back to tric. */
 NwVuProgram nw_vu_program(const char *package);
-/* vu1init and clipinit alike, with no lights yet: the GPU clips, so clip and trivclip need no counterpart. */
+/* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
+/* Their lights for a lit stream (mode 1): each direction dotted with the normalised rows of the local matrix, the
+   colours with w 0, the ambient colour. */
+void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l);
 /* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */

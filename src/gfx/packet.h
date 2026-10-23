@@ -46,12 +46,14 @@ typedef struct NwMtlSnap {
     const NwGpuTex *tex;
 } NwMtlSnap;
 
-#define NW_MTL_NONE UINT32_MAX /* NwCmd.mtl of a command with no material */
+#define NW_MTL_NONE UINT32_MAX   /* NwCmd.mtl of a command with no material */
+#define NW_LIGHT_NONE UINT32_MAX /* NwCmd.light of an unlit draw */
 
 typedef struct NwCmd {
     uint8_t op;
     uint32_t view;                  /* into NwPacket.views */
     uint32_t mtl;                   /* into NwPacket.mtls, from material when the packet is published */
+    uint32_t light;                 /* into NwPacket.lights */
     const void *mpg;                /* the microcode package (an NwVuProg) */
     const struct numtl_s *material; /* game thread only */
     union {
@@ -81,12 +83,15 @@ typedef struct NwPacket {
     uint32_t nviews, viewcap;
     NwMtlSnap *mtls;
     uint32_t nmtls, mtlcap;
+    NwLights *lights;
+    uint32_t nlights, lightcap;
 } NwPacket;
 
-/* Appends a command, a view or a material; NULL on out of memory. */
+/* Appends a command, a view, a material or lights; NULL on out of memory. */
 NwCmd *nw_packet_cmd(NwPacket *p);
 NwView *nw_packet_view(NwPacket *p, uint32_t *index);
 NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index);
+NwLights *nw_packet_light(NwPacket *p, uint32_t *index);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

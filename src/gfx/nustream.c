@@ -61,8 +61,16 @@ struct NwViewSnap {
     uint32_t index;
 };
 
-static NwView nw_view;           /* what SetViewMtx, SetXYOffset and SetScissor set */
-static NwViewSnap *nw_view_snap; /* its copy in the arena; NULL after a change */
+struct NwLightSnap {
+    NwLights lights;
+    uint64_t frame;
+    uint32_t index;
+};
+
+static NwView nw_view;             /* what SetViewMtx, SetXYOffset and SetScissor set */
+static NwViewSnap *nw_view_snap;   /* its copy in the arena; NULL after a change */
+static NwLights nw_lights;         /* what SetDirectionalLights and SetAmbientLight set */
+static NwLightSnap *nw_light_snap; /* its copy in the arena; NULL after a change */
 static float nw_local[16];       /* NuRndrSetLocalMtx's */
 static uint64_t nw_frame;
 static const struct numtl_s **nw_snap_key; /* nw_rndr_snap's table, by material address */
@@ -88,12 +96,17 @@ static void *nw_alloc(size_t size)
     return p;
 }
 
-NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg)
+NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit)
 {
     if (!nw_view_snap) {
         nw_view_snap = nw_alloc(sizeof(*nw_view_snap));
         nw_view_snap->view = nw_view;
         nw_view_snap->frame = 0;
+    }
+    if (lit && !nw_light_snap) {
+        nw_light_snap = nw_alloc(sizeof(*nw_light_snap));
+        nw_light_snap->lights = nw_lights;
+        nw_light_snap->frame = 0;
     }
     NwRecord *r = nw_alloc(sizeof(*r));
     memset(r, 0, sizeof(*r));
@@ -102,6 +115,7 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg)
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
     r->view = nw_view_snap;
+    r->lights = lit ? nw_light_snap : NULL;
     return r;
 }
 
@@ -118,7 +132,7 @@ void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r)
 
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op)
 {
-    NwRecord *r = nw_rndr_record(op, stream->mtl, stream->mpg);
+    NwRecord *r = nw_rndr_record(op, stream->mtl, stream->mpg, (stream->attr & 0x43) == 1);
     nw_rndr_push(stream, r);
     return &r->cmd;
 }
@@ -178,9 +192,18 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
                 v->frame = nw_frame + 1;
             }
         }
+        NwLightSnap *l = (NwLightSnap *)r->lights;
+        if (l && l->frame != nw_frame + 1) {
+            NwLights *copy = nw_packet_light(nw_packet_building(), &l->index);
+            if (copy) {
+                *copy = l->lights;
+                l->frame = nw_frame + 1;
+            }
+        }
         if (c) {
             *c = r->cmd;
             c->view = v->index;
+            c->light = l ? l->index : NW_LIGHT_NONE;
         }
     }
     if (stream->base.voidptr && stream->ptr.voidptr != stream->base.voidptr) {
@@ -219,6 +242,7 @@ void NuRndrInitStreams(void)
     rndrstream_free = stream_outbuf[rndrstream_buffer_index];
     nw_arena[rndrstream_buffer_index].cur = NULL;
     nw_view_snap = NULL;
+    nw_light_snap = NULL;
     nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
@@ -383,4 +407,40 @@ void NuRndrSetScissor(int x0, int y0, int x1, int y1)
     nw_view.scissor[2] = x1;
     nw_view.scissor[3] = y1;
     nw_view_snap = NULL;
+}
+
+/* Retail keeps them transposed for the VU (dirx, diry, dirz) and gives the colours the alphas 0, 0, 1, which vu1init
+   drops. */
+int NuRndrSetDirectionalLights(struct nuvec_s *d0, struct nucolour3_s *c0, struct nuvec_s *d1, struct nucolour3_s *c1,
+                               struct nuvec_s *d2, struct nucolour3_s *c2)
+{
+    const struct nuvec_s *d[3] = { d0, d1, d2 };
+    const struct nucolour3_s *c[3] = { c0, c1, c2 };
+    for (int i = 0; i < 3; i++) {
+        nw_lights.dir[i][0] = d[i]->x;
+        nw_lights.dir[i][1] = d[i]->y;
+        nw_lights.dir[i][2] = d[i]->z;
+        nw_lights.col[i][0] = c[i]->r;
+        nw_lights.col[i][1] = c[i]->g;
+        nw_lights.col[i][2] = c[i]->b;
+    }
+    nw_light_snap = NULL;
+    return 1;
+}
+
+int NuRndrSetAmbientLight(struct nucolour3_s *colour)
+{
+    nw_lights.ambient[0] = colour->r;
+    nw_lights.ambient[1] = colour->g;
+    nw_lights.ambient[2] = colour->b;
+    nw_light_snap = NULL;
+    return 1;
+}
+
+/* The specular light is the xformuv program's (lighting 1), which no material the port draws uses: nothing to keep. */
+int NuRndrSetSpecularLight(struct nuvec_s *dir, struct nucolour4_s *col)
+{
+    (void)dir;
+    (void)col;
+    return 1;
 }

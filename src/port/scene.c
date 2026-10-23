@@ -34,6 +34,14 @@ int NuRndrSwapScreen(int target);
 void NuMtlAnimate(float dt);
 void NuCameraSet(struct nucamera_s *cam);
 struct nucamera_s *NuCameraCreate(void);
+void RotateDirectionalLight(struct nuvec_s *v, int xrot, int yrot);
+void SetLights(struct nucolour3_s *col0, struct nuvec_s *dir0, struct nucolour3_s *col1, struct nuvec_s *dir1,
+               struct nucolour3_s *col2, struct nuvec_s *dir2, struct nuvec_s *ambient);
+
+/* DrawWorld's lights (SetLevelLights' level branch), roots of the data image. */
+extern struct nucolour3_s lcol[3];
+extern struct nuvec_s ldir[3];
+extern struct nuvec_s acol;
 
 static SDL_Mutex *nw_scene_mutex;
 static SDL_InitState nw_scene_init;
@@ -187,7 +195,7 @@ int nw_scene_main(int argc, char **argv)
     nw_scene_cam = info.cam;
     nw_scene_ready = true;
     SDL_UnlockMutex(nw_scene_mutex);
-    for (;;) {
+    for (unsigned frame = 0;; frame++) {
         NwSceneCam c;
         nw_scene_lock();
         c = nw_scene_cam;
@@ -196,6 +204,8 @@ int nw_scene_main(int argc, char **argv)
         NuCameraSet(cam);
         NuMtlAnimate(0.02f);
         NuGScnUpdate(sc, 0.02f);
+        RotateDirectionalLight(ldir, -0x2000, (int)(((frame % 400) << 16) / 400));
+        SetLights(&lcol[0], &ldir[0], &lcol[1], &ldir[1], &lcol[2], &ldir[2], &acol);
         NuRndrBeginScene(-1);
         NuRndrClear(7, 0, 1.0f);
         NuGScnRndr3(sc);

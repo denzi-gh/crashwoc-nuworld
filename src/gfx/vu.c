@@ -219,17 +219,6 @@ NwVuProgram nw_vu_program(const char *package)
     return NW_VU_TRIC;
 }
 
-void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
-{
-    memset(o, 0, sizeof(*o));
-    for (int r = 0; r < 4; r++) {
-        for (int c = 0; c < 4; c++) {
-            o->lv[r * 4 + c] = local[r * 4] * view[c] + local[r * 4 + 1] * view[4 + c] +
-                               local[r * 4 + 2] * view[8 + c] + local[r * 4 + 3] * view[12 + c];
-        }
-    }
-}
-
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
 {
     glUseProgram(nw_vu[program].prog);

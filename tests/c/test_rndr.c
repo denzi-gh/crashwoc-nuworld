@@ -235,7 +235,7 @@ static void test_order(void)
     mark(rndrstream_3d_l, 14);
     static const float depth[5] = { 0.0f, 1000.0f, 2000.0f, 100.25f, 100.0f };
     for (int i = 0; i < 5; i++) {
-        NwRecord *item = nw_rndr_record(NW_CMD_DRAW, m[0], m[0]->rs.mpg);
+        NwRecord *item = nw_rndr_record(NW_CMD_DRAW, m[0], m[0]->rs.mpg, true);
         item->cmd.mesh = (const NwGpuMesh *)(uintptr_t)(20 + i);
         nw_rndr_ot_insert(item, depth[i]);
     }
@@ -376,6 +376,49 @@ static void test_2d(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The command of the packet whose mesh field marks id. */
+static const NwCmd *marked(const NwPacket *p, uintptr_t id)
+{
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        if (p->cmds[i].op == NW_CMD_DRAW && (uintptr_t)p->cmds[i].mesh == id) {
+            return &p->cmds[i];
+        }
+    }
+    return NULL;
+}
+
+/* A draw into a lit material's stream latches the lights set at that point; one into an unlit material's does not;
+   the packet holds each set of lights once. */
+static void test_lights(void)
+{
+    struct numtl_s *lit = NuMtlCreate(1), *unlit = NuMtlCreate(1);
+    unlit->attrib.lighting = 2;
+    NuMtlUpdate(lit);
+    NuMtlUpdate(unlit);
+    struct nuvec_s d[3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+    struct nucolour3_s c[3] = { { 0.5f, 0.5f, 0.5f }, { 0.25f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+    struct nucolour3_s ambient = { 0.1f, 0.2f, 0.3f };
+    NuRndrSetDirectionalLights(&d[0], &c[0], &d[1], &c[1], &d[2], &c[2]);
+    NuRndrSetAmbientLight(&ambient);
+    mark(&lit->rs, 60);
+    mark(&unlit->rs, 61);
+    mark(&lit->rs, 62);
+    c[0].r = 1.0f;
+    NuRndrSetDirectionalLights(&d[0], &c[0], &d[1], &c[1], &d[2], &c[2]);
+    mark(&lit->rs, 63);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *a = marked(p, 60), *u = marked(p, 61), *b = marked(p, 62), *e = marked(p, 63);
+    CHECK(a && u && b && e && p->nlights == 2);
+    if (a && u && b && e && p->nlights == 2) {
+        CHECK(u->light == NW_LIGHT_NONE && a->light == b->light && e->light != a->light);
+        const NwLights *la = &p->lights[a->light], *le = &p->lights[e->light];
+        CHECK(la->col[0][0] == 0.5f && le->col[0][0] == 1.0f && la->dir[1][1] == 1.0f && la->col[1][0] == 0.25f);
+        CHECK(la->ambient[0] == 0.1f && le->ambient[2] == 0.3f);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -395,6 +438,7 @@ int main(void)
     test_raw();
     test_animate();
     test_2d();
+    test_lights();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

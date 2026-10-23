@@ -29,19 +29,21 @@ void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
 const NwGpuTex *nw_rndr_texture(int tid);
 
 typedef struct NwViewSnap NwViewSnap;
+typedef struct NwLightSnap NwLightSnap;
 
 /* A command as a stream (or an OT bin) holds it until a flush copies it to the frame packet. */
 typedef struct NwRecord {
     NwCmd cmd;
     const NwViewSnap *view;
+    const NwLightSnap *lights; /* NULL unlit */
     struct NwRecord *next;
 } NwRecord;
 
 /* A record of op under the current view and local matrix, with the stream's material and microcode, appended to
-   stream. */
+   stream; a stream with retail's RT lights (attr & 0x43 == 1) latches the current lights. */
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 /* The same record in no stream yet. */
-NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg);
+NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit);
 void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r);
 /* Moves the records of src to the end of dst. */
 void nw_rndr_splice(struct rndrstream_s *dst, struct rndrstream_s *src);
