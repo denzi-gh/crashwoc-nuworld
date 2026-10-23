@@ -8,6 +8,7 @@
 
 #include "audio/irx.h"
 #include "audio/spu2.h"
+#include "audio/vag.h"
 
 #define NW_IRX_DT 256     /* AdpcmSetParam's dt[] */
 #define NW_IRX_REPORTED 4 /* streams in the reply */
@@ -549,10 +550,42 @@ static void cdend11(int moo)
     irx.endfunc_load(1);
 }
 
-/* Reads the next Size bytes of slot i's file into its IOP buffer, then endfunc. */
+/* A loop read past the end and on from the start: the end's two block flags are cleared, so the voice runs on.
+   With less than two blocks left the IRX writes before its buffer; not here (nor in cdend12). */
+static void cdend10(int moo)
+{
+    STREAMDATA *s = &irx.StreamBuffer[irx.cd_stream];
+    (void)moo;
+    if (irx.ldd_remain >= 2 * NW_ADPCM_BLOCK) {
+        s->IOPCurrentAddress[irx.ldd_remain - 0xf] = 0;
+        s->IOPCurrentAddress[irx.ldd_remain - 0x1f] = 0;
+    }
+    s->FileSeek = (uint32_t)(irx.ldd_size - irx.ldd_remain + NW_IRX_VAG_HEADER);
+    s->FileRemainder = s->FileSize - s->FileSeek;
+    irx.endfunc_load(1);
+}
+
+/* A one-shot's end is in: its last data block ends the voice, nothing more to read. */
+static void cdend12(int moo)
+{
+    STREAMDATA *s = &irx.StreamBuffer[irx.cd_stream];
+    (void)moo;
+    s->LoopInfo = 2;
+    if (irx.ldd_remain >= 2 * NW_ADPCM_BLOCK) {
+        s->IOPCurrentAddress[irx.ldd_remain - 0x1f] = 1;
+        s->IOPCurrentAddress[irx.ldd_remain - 0xf] = 7;
+    }
+    irx.endfunc_load(1);
+}
+
+/* Reads the next Size bytes of slot i's file into its IOP buffer, then endfunc: a loop (LoopInfo 0) wraps to the
+   file's start, a one-shot (1) or a resident sample reads what is left. */
 static int LoadDataFromDisk(int i, int Size, void (*endfunc)(int))
 {
     STREAMDATA *s = &irx.StreamBuffer[i];
+    void (*done)(int);
+    int size = Size;
+
     if (s->LoopInfo == 2) { /* all of it is loaded */
         irx.cd_stream = i;
         endfunc(1);
@@ -562,17 +595,29 @@ static int LoadDataFromDisk(int i, int Size, void (*endfunc)(int))
     irx.ldd_size = Size;
     irx.ldd_remain = remain;
     irx.endfunc_load = endfunc;
-    if (Size < remain || s->LoopInfo == NW_IRX_SPOT) {
-        _CdStreamStart(s->SectorStart, (int)s->FileSeek, s->IOPCurrentAddress, (int)s->FileSize,
-                       Size < remain ? Size : remain, i, cdend11, s->datfile);
-        return 0;
+    if (Size < remain) {
+        done = cdend11;
+    } else if (s->LoopInfo == 0) {
+        done = cdend10;
+    } else if (s->LoopInfo == 1) {
+        size = remain;
+        done = cdend12;
+    } else if (s->LoopInfo == NW_IRX_SPOT) {
+        size = remain;
+        done = cdend11;
+    } else {
+        return -1;
     }
-    return -1;
+    _CdStreamStart(s->SectorStart, (int)s->FileSeek, s->IOPCurrentAddress, (int)s->FileSize, size, i, done,
+                   s->datfile);
+    return 0;
 }
 
-/* DMAs Size bytes of the IOP buffer to SPU RAM: all of it (BufferHalf 2) or a half. The DMA is done when the
-   transfer returns, so its interrupt (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
-static void UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(int))
+/* DMAs Size bytes of the IOP buffer to SPU RAM: all of it (BufferHalf 2) or a half, whose block flags make the
+   SPU buffer a ring (the first block starts the loop, the last one jumps back); after a half the next one is read
+   ahead. All of a file in (LoopInfo 2) goes to the half once and plays out (PlayingHalf 3). The DMA is done when
+   the transfer returns, so its interrupt (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
+static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(int))
 {
     STREAMDATA *s = &irx.StreamBuffer[i];
 
@@ -587,9 +632,21 @@ static void UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(i
         irx.cd_stream = i;
         endfunc(1);
         irx.SYSTEMWAIT = 0;
-        return;
+        return 0;
     }
-    nw_spu2_voice_trans(s->SPUAddress, s->IOPLoadAddress, Size);
+    if (BufferHalf == 2) {
+        if (s->LoopInfo != NW_IRX_SPOT) {
+            s->IOPAddress[1] = NW_ADPCM_START | NW_ADPCM_REPEAT;
+            s->IOPAddress[0x11] = NW_ADPCM_REPEAT;
+            s->IOPAddress[Size - 0xf] = NW_ADPCM_END | NW_ADPCM_REPEAT;
+        }
+        nw_spu2_voice_trans(s->SPUAddress, s->IOPLoadAddress, Size);
+    } else {
+        s->IOPLoadAddress[1] = BufferHalf ? NW_ADPCM_REPEAT : NW_ADPCM_START | NW_ADPCM_REPEAT;
+        s->IOPLoadAddress[0x11] = NW_ADPCM_REPEAT;
+        s->IOPLoadAddress[Size - 0xf] = BufferHalf ? NW_ADPCM_END | NW_ADPCM_REPEAT : NW_ADPCM_REPEAT;
+        nw_spu2_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
+    }
     irx.SYSTEMWAIT = 0;
     s->IOPLoadAddress = s->IOPCurrentAddress;
     s->IOPCurrentAddress += Size;
@@ -599,7 +656,50 @@ static void UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(i
         s->IOPCurrentAddress = s->IOPAddress;
         s->IOPLoadAddress = s->IOPCurrentAddress;
     }
-    endfunc(1);
+    if (BufferHalf == 2) {
+        endfunc(1);
+        return 1;
+    }
+    return LoadDataFromDisk(i, (int)s->AllocHalfSize, endfunc);
+}
+
+/* The stream's start: the whole buffer is in SPU RAM, the key-on comes with the next handshake. */
+static void cdend2(int moo)
+{
+    (void)moo;
+    irx.StreamBuffer[irx.cd_stream].iStatus = 1;
+    irx.StreamBusy = 0;
+}
+
+static void cdend1(int moo)
+{
+    (void)moo;
+    UpdateStream(irx.cd_stream, irx.StreamBuffer[irx.cd_stream].AllocSize, 2, cdend2);
+}
+
+/* Keyed on, the next half read ahead: streaming. */
+static void cdend3(int moo)
+{
+    STREAMDATA *s = &irx.StreamBuffer[irx.cd_stream];
+    (void)moo;
+    if (s->iStatus == 1) {
+        s->iStatus = 0;
+    }
+    irx.StreamBusy = 0;
+}
+
+static void cdend4(int moo)
+{
+    (void)moo;
+    irx.StreamBuffer[irx.cd_stream].PlayingHalf = 1;
+    irx.StreamBusy = 0;
+}
+
+static void cdend5(int moo)
+{
+    (void)moo;
+    irx.StreamBuffer[irx.cd_stream].PlayingHalf = 0;
+    irx.StreamBusy = 0;
 }
 
 /* A resident sample is in SPU RAM: the next one goes after it, header bytes included. */
@@ -667,7 +767,8 @@ static int StartStream(int Stream, int SPUChannel, int VolL, int VolR, int Strea
         }
         s->Pitch = (int16_t)a;
     }
-    if (OpenADPCMFile(Stream, FileIndex)) {
+    /* Without a buffer (no 0xD for the slot) the IRX would read to IOP address 0; a missing file here. */
+    if (!IOPAddress || OpenADPCMFile(Stream, FileIndex)) {
         if (LoopInfo == NW_IRX_SPOT) {
             free(irx.SPOT_IOPAddress);
             irx.SPOT_IOPAddress = NULL;
@@ -757,6 +858,39 @@ static int TransferResidentSampleBank(int id, int slot)
     return 1;
 }
 
+/* The EE answered slot i's load request: read the first buffer (iStatus 2), key on and read ahead (1), or refill
+   the half the voice left (0). */
+static void HandleEERequest(int i)
+{
+    STREAMDATA *s = &irx.StreamBuffer[i];
+
+    if (s->Status != 1) {
+        return;
+    }
+    irx.StreamBusy = 1;
+    if (s->iStatus == 2) {
+        LoadDataFromDisk(i, (int)s->AllocSize, cdend1);
+    } else if (s->iStatus == 1) {
+        SetVoiceData(s->Channel, s->Pitch, s->VolL, s->VolR, s->SPUAddress, s->AR);
+        nw_irx_key_on(s->Channel);
+        if (s->Channel < NW_IRX_CHANNELS) {
+            irx.SPU_KeyStatus[s->Channel] = 1;
+        }
+        if (s->PlayingHalf != 3) {
+            LoadDataFromDisk(i, (int)s->AllocHalfSize, cdend3);
+        } else {
+            s->iStatus = 0;
+            irx.StreamBusy = 0;
+        }
+    } else if (s->iStatus == 0) {
+        if (s->PlayingHalf == 0) {
+            UpdateStream(i, s->AllocHalfSize, 0, cdend4);
+        } else if (s->PlayingHalf == 1) {
+            UpdateStream(i, s->AllocHalfSize, 1, cdend5);
+        }
+    }
+}
+
 /* The IRX reads NAX until two reads agree, as it moves while the voice plays. */
 static int GetNAX(int core, int ch)
 {
@@ -777,6 +911,63 @@ static void StreamADPCM(void)
     }
     if (irx.CD_EVENT_OCCURED) {
         _CdHandleEvent();
+    }
+    if (irx.IOPRequestLoad != -1 && irx.StreamBuffer[irx.IOPRequestLoad].Status == 0) {
+        /* The stream went before the EE answered. The IRX also clears SPU_KeyStatus at the channel of slot 48 (its
+           loop index), past its table; left out. */
+        irx.IOPRequestLoad = -1;
+        irx.LoadFromEE = NW_IRX_NO_REQUEST;
+        irx.SYSTEMWAIT = 0;
+    }
+    if (irx.LoadFromEE != NW_IRX_NO_REQUEST && irx.IOPRequestLoad == (int)irx.LoadFromEE) {
+        if (irx.LoadEECounter == irx.MyCounter) {
+            int i = (int)irx.LoadFromEE;
+            irx.IOPRequestLoad = -1;
+            irx.LoadFromEE = NW_IRX_NO_REQUEST;
+            HandleEERequest(i);
+            irx.MyCounter++;
+        }
+    } else if (!irx.StreamBusy) {
+        /* A slot that needs the CD asks the EE (IOPRequestLoad); its GetStatus echo starts the load next tick. The
+           slots are scanned up and down by turns. A start that fails leaves SYSTEMWAIT set, as the IRX does. */
+        irx.LoadEECounter = irx.MyCounter;
+        int i = irx.Direction ? (int)irx.UserMaxStreams - 1 : 0;
+        for (int a = 0; a < (int)irx.UserMaxStreams; a++, i += irx.Direction ? -1 : 1) {
+            STREAMDATA *s = &irx.StreamBuffer[i];
+            if (irx.SYSTEMWAIT || irx.CD_IDLE != 1 || irx.SYSTEMWAIT2 || irx.IOPRequestLoad != -1 || s->Status != 1) {
+                continue;
+            }
+            if (s->iStatus == 2) {
+                int stat = StartStream(i, s->USR_Channel, s->USR_VolL, s->USR_VolR, s->USR_StrID, s->USR_Pitch,
+                                       s->USR_LInfo, s->USR_AR);
+                irx.SYSTEMWAIT = 1;
+                if (stat != -1) {
+                    if (s->USR_Channel < NW_IRX_CHANNELS) {
+                        irx.SPU_KeyStatus[s->USR_Channel] = 2;
+                    }
+                    irx.IOPRequestLoad = i;
+                }
+            } else if (s->iStatus == 1) {
+                irx.IOPRequestLoad = i;
+            } else if (s->iStatus == 0) {
+                int core = s->Channel >= NW_SPU2_VOICES, ch = s->Channel - NW_SPU2_VOICES * core;
+                uint32_t StreamAddress = (uint32_t)GetNAX(core, ch), half = s->SPUAddress + s->AllocHalfSize;
+                if (s->PlayingHalf == 0) {
+                    if (half < StreamAddress) {
+                        irx.IOPRequestLoad = i;
+                    }
+                } else if (s->PlayingHalf == 1 && StreamAddress < half) {
+                    irx.IOPRequestLoad = i;
+                }
+                if (nw_spu2_get_param((uint16_t)(core | ch << 1 | NW_SD_VP_ENVX)) == 0) { /* played out */
+                    SetChannelVolume(s->Channel, 0, 0);
+                    if (s->Channel < NW_IRX_CHANNELS) {
+                        nw_spu2_set_switch((uint16_t)(core | NW_SD_S_KOFF), 1u << ch);
+                    }
+                    s->Status = 0;
+                }
+            }
+        }
     }
     for (int i = 0; i < (int)irx.UserMaxStreams; i++) { /* resident sample transfers */
         STREAMDATA *s = &irx.StreamBuffer[i];
@@ -888,6 +1079,13 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         case 0:
             if (irx.AnyFiles == 1) {
                 PlayResidentSFX(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
+            }
+            break;
+        case 1: /* stream, channel | bank << 8, volumes, pitch, LoopInfo, AR */
+            if (irx.AnyFiles == 1) {
+                irx.SYSTEMWAIT2 = 1;
+                USR_StartStream(dt[1], dt[2], dt[3], dt[0], dt[4], dt[5], dt[6]);
+                irx.SYSTEMWAIT2 = 0;
             }
             break;
         case 2:

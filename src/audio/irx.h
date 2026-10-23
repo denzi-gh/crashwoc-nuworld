@@ -100,7 +100,9 @@ typedef struct NwIrx {
     int StereoPitch;
     int Direction;
     unsigned LoadFromEE;
-    int SYSTEMWAIT; /* a DMA to SPU RAM in flight */
+    int SYSTEMWAIT;  /* a DMA to SPU RAM in flight */
+    int SYSTEMWAIT2; /* a PlayStream being queued */
+    int MyCounter;
     int CD_IDLE;
     int CD_EVENT_OCCURED;
     int CD_SPOT_FILE_ID;

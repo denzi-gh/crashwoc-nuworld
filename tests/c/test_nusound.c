@@ -36,14 +36,20 @@ int SOUND_PlaySFX(int sample, unsigned int channel, int left, int right, int pit
 int SOUND_SetChannelVolume(unsigned int channel, int left, int right);
 int SOUND_SetChannelPitch(unsigned int channel, int pitch);
 int SOUND_StopSound(unsigned int channel);
+int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
+                     int priority);
+void NuSoundUpdate(void);
+extern int nusound_irx_loaded;
 extern volatile int sbuff2[128];
 
 static int failures;
 static NwVfs vfs; /* the scratch disc with SFX.DAT */
 static uint64_t test_us;
 static bool test_auto; /* each RPC moves the clock on, for the EE's busy loops */
+#define BIG_BLOCKS 4096
 static uint8_t a_vag[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl_vag[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
-static size_t a_size, bl_size; /* sfx\generic\a.vag, sfx\music\bl.vag */
+static uint8_t big_blocks[BIG_BLOCKS * NW_ADPCM_BLOCK], big_vag[NW_VAG_HEADER + sizeof(big_blocks)];
+static size_t a_size, bl_size, big_size; /* sfx\generic\a.vag, sfx\music\bl.vag, sfx\music\big.vag */
 
 static uint64_t test_clock(void)
 {
@@ -467,13 +473,85 @@ static void test_stop_sound(void)
     CHECK(nw_spu2_get_param(1 | 7 << 1 | NW_SD_VP_ADSR2) == 0x1fc0);
 }
 
-/* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
+static struct nusound_filename_info_s streams[] = {
+    { "SFX\\GENERIC\\A.VAG", 22050, 1, 2 }, /* a one-shot */
+    { "SFX\\MUSIC\\BL.VAG", 44100, 0, 1 },  /* a loop */
+    { "SFX\\MUSIC\\BIG.VAG", 44100, 1, 3 }, /* a one-shot longer than the buffer */
+    { "", 0, 0, 0 },
+};
+
+/* A game frame: a vblank of time, then NuSoundUpdate, which answers the module's load request. */
+static void frame(void)
+{
+    test_us += 20000;
+    NuSoundUpdate();
+}
+
+static void test_play_stream(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const STREAMDATA *s = &irx->StreamBuffer[4];
+    const uint32_t spu = 0x5010 + 4 * 0xd700;
+    int frames = 0;
+    bool starting = false;
+
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    /* NuSoundPlayChan's stream on channel 4 (a cut's audio): bank 4, the file's rate (pitch 1), its LoopInfo (2). */
+    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x2000, 1, 2, 0, 0x10);
+    for (; frames < 50 && NuSoundKeyStatus(4) != 1; frames++) {
+        frame();
+        starting |= NuSoundKeyStatus(4) == 2;
+    }
+    CHECK(NuSoundKeyStatus(4) == 1 && starting && frames == 8); /* two handshakes, the CD's steps */
+    CHECK(s->Status == 1 && s->iStatus == 0 && s->PlayingHalf == 3 && s->LoopInfo == 2);
+    CHECK(s->ID == 2 && s->Channel == 4 && s->Pitch == 0x759 && s->SPUAddress == spu);
+    CHECK(nw_spu2_get_addr(4 << 1 | NW_SD_VA_SSA) == spu && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0x759);
+    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_VOLR) == 0x2000 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ADSR2) == 0x1fd0);
+    CHECK(memcmp(nw_spu2_ram() + spu, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+
+    /* Without time in the SPU it plays on. */
+    for (int i = 0; i < 20; i++) {
+        frame();
+    }
+    CHECK(NuSoundKeyStatus(4) == 1 && s->Status == 1);
+
+    /* A stream longer than its buffer, on slot 0: the whole buffer as a ring in SPU RAM, then the rest (less than
+       a half) read ahead with the end's flags set, waiting for the voice to leave the first half. */
+    const STREAMDATA *s0 = &irx->StreamBuffer[0];
+    const uint8_t *ram = nw_spu2_ram() + 0x5010;
+    SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
+    for (frames = 0; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
+        frame();
+    }
+    CHECK(frames == 12 && s0->iStatus == 1); /* keyed on, reading ahead */
+    for (; frames < 50 && s0->iStatus != 0; frames++) {
+        frame();
+    }
+    CHECK(frames == 14 && NuSoundKeyStatus(0) == 1 && s0->PlayingHalf == 0 && s0->LoopInfo == 2);
+    CHECK(s0->Pitch == 0xeb3 && s0->FileSeek == 0x30 + 0xd700);
+    CHECK(ram[1] == (NW_ADPCM_START | NW_ADPCM_REPEAT) && ram[0x11] == NW_ADPCM_REPEAT);
+    CHECK(ram[0xd700 - 0xf] == (NW_ADPCM_END | NW_ADPCM_REPEAT));
+    CHECK(memcmp(ram + 0x20, big_blocks + 0x20, 0xd700 - 0x30) == 0);
+    CHECK(memcmp(s0->IOPAddress, big_blocks + 0xd700, sizeof(big_blocks) - 0xd700) == 0);
+    nusound_irx_loaded = 0;
+}
+
+/* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; a text file; sfx\music\big.vag: a
+   one-shot of BIG_BLOCKS, more than a stream buffer and a half, each block numbered in its nibbles. */
 static bool setup_disc(const char *scratch)
 {
-    static uint8_t arc[SFX_DAT_MAX];
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
     uint8_t blocks[4][NW_ADPCM_BLOCK];
     char dir[1024], path[1100];
+
+    for (uint32_t b = 0; b < BIG_BLOCKS; b++) {
+        uint8_t *p = big_blocks + (size_t)b * NW_ADPCM_BLOCK;
+        unsigned flags = b == BIG_BLOCKS - 2 ? NW_ADPCM_END : b == BIG_BLOCKS - 1 ? 7 : 0;
+        vag_block_fill(p, 0, 0, flags, 0);
+        memcpy(p + 2, &b, sizeof(b));
+    }
+    big_size = vag_file(big_vag, 44100, big_blocks, BIG_BLOCKS);
 
     vag_block_fill(blocks[0], 0, 0, 0, 1);
     vag_block_fill(blocks[1], 1, 12, NW_ADPCM_END, 0);
@@ -483,13 +561,16 @@ static bool setup_disc(const char *scratch)
     vag_block_fill(blocks[2], 3, 5, NW_ADPCM_REPEAT, 3);
     vag_block_fill(blocks[3], 4, 8, NW_ADPCM_END | NW_ADPCM_REPEAT, -2);
     bl_size = vag_file(bl_vag, 44100, blocks[0], 4);
-    const uint8_t *const files[3] = { a_vag, bl_vag, (const uint8_t *)text };
-    const size_t sizes[3] = { a_size, bl_size, sizeof(text) - 1 };
-    size_t size = sfx_dat(arc, files, sizes);
+    const uint8_t *const files[SFX_DAT_FILES] = { a_vag, bl_vag, (const uint8_t *)text, big_vag };
+    const size_t sizes[SFX_DAT_FILES] = { a_size, bl_size, sizeof(text) - 1, big_size };
+    uint8_t *arc = SDL_malloc(sfx_dat_size(sizes));
+    size_t size = arc ? sfx_dat(arc, files, sizes) : 0;
 
     SDL_snprintf(dir, sizeof(dir), "%s/disc", scratch);
     SDL_snprintf(path, sizeof(path), "%s/SFX.DAT", dir);
-    return SDL_CreateDirectory(dir) && SDL_SaveFile(path, arc, size) && nw_vfs_mount(&vfs, NW_VFS_DISC, dir);
+    bool ok = arc && SDL_CreateDirectory(dir) && SDL_SaveFile(path, arc, size) && nw_vfs_mount(&vfs, NW_VFS_DISC, dir);
+    SDL_free(arc);
+    return ok;
 }
 
 int main(int argc, char *argv[])
@@ -518,6 +599,7 @@ int main(int argc, char *argv[])
     test_channel_volume();
     test_channel_pitch();
     test_stop_sound();
+    test_play_stream();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
