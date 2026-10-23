@@ -7,8 +7,9 @@
 /* Clock edge callback (the clock thread): counts nuvideo_global_vbcnt as the start interrupt would, so a busy
    wait on it ends without a yield point. */
 void nw_vblank_count(void *user, unsigned edges);
-/* Game thread, at a yield point: the handlers of `edges` new edges, in order. A masked interrupt keeps one
-   pending and runs when unmasked, as the INTC's pending bit does. */
+/* The running EE thread, at a yield point: the handlers of `edges` new edges, in order, then the return from the
+   interrupt (nw_ee_schedule). A masked interrupt keeps one pending and runs when unmasked, as the INTC's pending
+   bit does. */
 void nw_vblank_deliver(unsigned edges);
 
 #endif

@@ -9,6 +9,7 @@
 #include "nups2/ps2video.h"
 #include "port/game.h"
 #include "port/ps2video.h"
+#include "shim/shim.h"
 
 void *NuMemAllocFn(int size, char *file, int line);
 void NuMemFreeFn(void *ptr, char *file, int line);
@@ -28,7 +29,7 @@ extern int ps2video_novsync;
 static char nw_ps2video_file[] = "ps2video.c";
 
 /* The two vblank interrupts as the INTC sees them: hooked, masked (DisableIntc), pending (fired while masked).
-   Vblank start is shared with the clock thread, which counts it; vblank end is the game thread's alone. */
+   Vblank start is shared with the clock thread, which counts it; vblank end is the running EE thread's alone. */
 #define NW_INTC_HOOKED 0x1
 #define NW_INTC_MASKED 0x2
 #define NW_INTC_PENDING_COUNT 0x4 /* a masked edge not counted yet */
@@ -158,6 +159,7 @@ void nw_vblank_deliver(unsigned edges)
             }
         }
     }
+    nw_ee_schedule();
 }
 
 /* ps2videoAddAllHandlers, the vblank half (the VIF1 and DMAC handlers have nothing to do on the host). */

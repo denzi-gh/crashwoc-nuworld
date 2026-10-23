@@ -224,6 +224,14 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_clock PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME clock COMMAND nuworld_test_clock)
 
+  # The EE threads under the decomp's bgload, on a stepped clock, then on a real game thread.
+  add_executable(nuworld_test_ee tests/c/test_ee.c)
+  target_include_directories(nuworld_test_ee PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_ee PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_ee PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_ee PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME ee COMMAND nuworld_test_ee)
+
   add_executable(nuworld_test_hle tests/c/test_hle.c)
   target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_hle PRIVATE NW_HOST)

@@ -73,6 +73,7 @@ int sceRead(int fd, void *addr, int size)
     if (!f) {
         return -NW_SCE_EBADF;
     }
+    nw_ee_yield();
     int64_t n = size > 0 ? nw_vfs_read(f, addr, (size_t)size) : 0;
     return n < 0 ? -NW_SCE_EIO : (int)n;
 }

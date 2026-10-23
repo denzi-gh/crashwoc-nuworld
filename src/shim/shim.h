@@ -16,4 +16,11 @@ void nw_newlib_init(void);
    open. */
 void nw_shim_file_init(const struct NwVfs *vfs);
 
+/* src/shim/ee.c. The return from an interrupt: the best ready EE thread runs. */
+void nw_ee_schedule(void);
+/* A yield point of the threads other than main (file reads): delivers the vblanks due. */
+void nw_ee_yield(void);
+/* NW_HOST_IDLE (decomp nu_port.h): an EE thread's final spin waits for the next vblank. */
+void nw_ee_idle(void);
+
 #endif
