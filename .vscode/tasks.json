@@ -41,10 +41,30 @@
     // ---- Run ---------------------------------------------------------------------------------------------
     {
       "label": "Run",
-      "detail": "Build, then start the game with your data folder",
+      "detail": "Build, then open the launcher (the setup wizard until a disc is imported)",
       "type": "process",
       "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
       "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "dependsOn": "Build (release)",
+      "problemMatcher": []
+    },
+    {
+      "label": "Boot game",
+      "detail": "Build, then boot the game in a window",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "args": ["--boot"],
+      "dependsOn": "Build (release)",
+      "problemMatcher": []
+    },
+    {
+      "label": "View scene",
+      "detail": "Build, then have the decomp load and draw one scene under the fly camera",
+      "type": "process",
+      "command": "${workspaceFolder}/build/release/crashwoc-nuworld",
+      "windows": { "command": "${workspaceFolder}/build/release/crashwoc-nuworld.exe" },
+      "args": ["--scene", "${input:scene}"],
       "dependsOn": "Build (release)",
       "problemMatcher": []
     },
@@ -79,12 +99,35 @@
       "dependsOn": "Build (release)",
       "problemMatcher": []
     },
+
+    // ---- Test --------------------------------------------------------------------------------------------
     {
       "label": "Test",
       "detail": "Build, then run the C tests (ctest)",
       "type": "shell",
       "command": "ctest",
       "args": ["--test-dir", "build/release", "--output-on-failure"],
+      "dependsOn": "Build (release)",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test with game data",
+      "detail": "Build, then run the C tests plus the local ones on your imported disc",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--test-dir", "build/release", "--output-on-failure"],
+      "windows": {
+        "options": {
+          "env": {
+            "PATH": "C:\\msys64\\clang64\\bin;${env:PATH}",
+            "NUWORLD_TEST_DATA": "${env:APPDATA}\\crashwoc-nuworld\\disc"
+          }
+        }
+      },
+      "linux": {
+        "options": { "env": { "NUWORLD_TEST_DATA": "${env:HOME}/.local/share/crashwoc-nuworld/disc" } }
+      },
       "dependsOn": "Build (release)",
       "group": "test",
       "problemMatcher": []
@@ -114,6 +157,81 @@
       "args": ["-E", "rm", "-rf", "${workspaceFolder}/build/scratch-data"],
       "hide": true,
       "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    // Every .gsc of src/vfs/disc_manifest.inc that has something to draw (FINAL.GSC is truncated, TITLESPL.GSC a stub).
+    {
+      "id": "scene",
+      "type": "pickString",
+      "description": "Scene to draw",
+      "default": "LEVELS/B/HUB/HUB.GSC",
+      "options": [
+        "LEVELS/A/AIRSHIP/AIRSHIP.GSC",
+        "LEVELS/A/AVALANCH/AVALANCH.GSC",
+        "LEVELS/A/CASTLE/CASTLE.GSC",
+        "LEVELS/A/CASTLE_A/CASTLE_A.GSC",
+        "LEVELS/A/CASTLE_C/CASTLE_C.GSC",
+        "LEVELS/A/COLD_A/COLD_A.GSC",
+        "LEVELS/A/CORAL_C/CORAL.GSC",
+        "LEVELS/A/DROID/DROID.GSC",
+        "LEVELS/A/EARTH_R/EARTH.GSC",
+        "LEVELS/A/FARM/FARM.GSC",
+        "LEVELS/A/FIREBALL/BALLSOF.GSC",
+        "LEVELS/A/FIRE_FLY/FIRE_FLY.GSC",
+        "LEVELS/A/FIRE_ISL/FIRE.GSC",
+        "LEVELS/A/FIRE_R/FIRE_R.GSC",
+        "LEVELS/A/GARDEN/GARDEN.GSC",
+        "LEVELS/A/JUNGLE_A/JUNGLE_A.GSC",
+        "LEVELS/A/JUNGLE_R/JUNGLE.GSC",
+        "LEVELS/A/SEASHELL/SEASHELL.GSC",
+        "LEVELS/A/SNOW_M/SNOW.GSC",
+        "LEVELS/A/SPACE_A/SPACE_A.GSC",
+        "LEVELS/A/SPACE_R/SPACE_R.GSC",
+        "LEVELS/A/TSUNAMI/TOONARMY.GSC",
+        "LEVELS/A/TSUNAMI/WAVE.GSC",
+        "LEVELS/A/VOLCANO/VOLCANO.GSC",
+        "LEVELS/A/WATER_R/WATER.GSC",
+        "LEVELS/A/WEATH_R/WEATHER.GSC",
+        "LEVELS/A/WESTERN/WESTERN.GSC",
+        "LEVELS/A/WEST_A/WEST_A.GSC",
+        "LEVELS/B/DISCO/DISCO.GSC",
+        "LEVELS/B/GAMEOVER/CHAMBER.GSC",
+        "LEVELS/B/HUB/E3HUB.GSC",
+        "LEVELS/B/HUB/HUB.GSC",
+        "LEVELS/B/INTRO/CHAMBER.GSC",
+        "LEVELS/B/INTRO/CONTROL.GSC",
+        "LEVELS/B/INTRO/CORRIDOR.GSC",
+        "LEVELS/B/INTRO/ELEMEN.GSC",
+        "LEVELS/B/INTRO/HOUSE.GSC",
+        "LEVELS/B/INTRO/SPACE.GSC",
+        "LEVELS/B/INTRO/VOLCANO.GSC",
+        "LEVELS/B/INTRO2/BLACKBOX.GSC",
+        "LEVELS/B/LOGOS/JAPLOGOS.GSC",
+        "LEVELS/B/LOGOS/LOGOS.GSC",
+        "LEVELS/B/OUTRO/ICEBERG.GSC",
+        "LEVELS/B/OUTRO/STATION.GSC",
+        "LEVELS/B/OUTRO2/HOUSE.GSC",
+        "LEVELS/B/OUTRO2/ICEBERG.GSC",
+        "LEVELS/B/TITLES/TITLE.GSC",
+        "LEVELS/C/CAST_BUG/CAST_BUG.GSC",
+        "LEVELS/C/COLD_B/COLD_B.GSC",
+        "LEVELS/C/EARTH_B/EARTH_B.GSC",
+        "LEVELS/C/FIRE_B/FIRE_B.GSC",
+        "LEVELS/C/SNOW_B/SNOW_B.GSC",
+        "LEVELS/C/SNOW_B/SPACE_B.GSC",
+        "LEVELS/C/SPACE_B/SPACE_B.GSC",
+        "LEVELS/C/S_BALLS/S_BALLS.GSC",
+        "LEVELS/C/WATER_B/WATER_B.GSC",
+        "LEVELS/C/WEATH_B/WEATH_B.GSC",
+        "LEVELS/C/WEST_B/WEST_B.GSC",
+        "STUFF/CRATES.GSC",
+        "STUFF/FONT.GSC",
+        "STUFF/JEEPBITS.GSC",
+        "STUFF/PAUSE.GSC",
+        "STUFF/REDBITS.GSC",
+        "STUFF/WUMPA.GSC"
+      ]
     }
   ]
 }
