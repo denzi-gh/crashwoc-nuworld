@@ -333,6 +333,22 @@ static void PlayResidentSFX(int ID, int Channel, int VolL, int VolR, int Pitch, 
     nw_irx_key_on(Channel);
 }
 
+/* Pausing stops the voices' pitch, saved for ResumeAll; a second pause before the resume saves the zeros. */
+static void PauseAll(void)
+{
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        irx.SPU_PausePitch[i] = (int16_t)nw_spu2_get_param(nw_irx_voice(i, NW_SD_VP_PITCH));
+        nw_spu2_set_param(nw_irx_voice(i, NW_SD_VP_PITCH), 0);
+    }
+}
+
+static void ResumeAll(void)
+{
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        nw_spu2_set_param(nw_irx_voice(i, NW_SD_VP_PITCH), (uint16_t)irx.SPU_PausePitch[i]);
+    }
+}
+
 /* KOFF and the fastest release. The IRX takes the channel on trust; here one past 47 is left alone. */
 static void nw_irx_key_off(int ch)
 {
@@ -1107,6 +1123,12 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
             nw_irx_key_off(dt[0]);
+            break;
+        case 0xa:
+            PauseAll();
+            break;
+        case 0xb:
+            ResumeAll();
             break;
         default: /* 8, >= 0x22: no handler */
             break;

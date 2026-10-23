@@ -37,6 +37,8 @@ int SOUND_SetChannelVolume(unsigned int channel, int left, int right);
 int SOUND_SetChannelPitch(unsigned int channel, int pitch);
 int SOUND_StopSound(unsigned int channel);
 void SOUND_CloseStreamBuffer(int stream);
+void SOUND_Pause(void);
+void SOUND_Resume(void);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -546,6 +548,27 @@ static void test_play_stream(void)
     nusound_irx_loaded = 0;
 }
 
+static void test_pause(void)
+{
+    nw_nusound_init(&vfs, test_clock);
+    SOUND_SetChannelPitch(3, 0x1000);
+    SOUND_SetChannelPitch(45, 0x0800); /* core 1 voice 21 */
+    SOUND_Pause();
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(3 << 1 | NW_SD_VP_PITCH) == 0 && nw_spu2_get_param(1 | 21 << 1 | NW_SD_VP_PITCH) == 0);
+    SOUND_Resume();
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(3 << 1 | NW_SD_VP_PITCH) == 0x1000);
+    CHECK(nw_spu2_get_param(1 | 21 << 1 | NW_SD_VP_PITCH) == 0x0800);
+
+    /* Paused twice, the resume finds the zeros. */
+    SOUND_Pause();
+    SOUND_Pause();
+    SOUND_Resume();
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(3 << 1 | NW_SD_VP_PITCH) == 0);
+}
+
 /* CutSceneNextFunction's way: stop the cut's stream, then wait for its key status to drop. */
 static void test_stop_stream(void)
 {
@@ -647,6 +670,7 @@ int main(int argc, char *argv[])
     test_stop_sound();
     test_play_stream();
     test_stop_stream();
+    test_pause();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
