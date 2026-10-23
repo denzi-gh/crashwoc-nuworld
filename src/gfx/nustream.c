@@ -377,6 +377,7 @@ static void nw_rndr_snap(NwPacket *p)
             memcpy(s->uvoff, sb->vuattr, sizeof(s->uvoff));
             memcpy(s->row, sb->vuattr + 9, sizeof(s->row));
             s->tex = nw_rndr_texture(m->tid);
+            s->surf = nw_ps2tx_surf(m->tid);
         }
         c->mtl = nw_snap_index[h];
     }

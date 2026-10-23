@@ -29,12 +29,24 @@ typedef struct NwGpuSprites {
     unsigned int vao, vbo, ibo;
 } NwGpuSprites;
 
+/* A texture the GS reads from its own memory: the back or front buffer, or a render target by its GS address (0:
+   none). tw x th is the power-of-two size it is addressed at. */
+#define NW_SURF_BACK (-1)
+#define NW_SURF_FRONT (-3)
+
+typedef struct NwSurf {
+    int32_t addr;
+    uint16_t tw, th;
+    bool tcc;
+} NwSurf;
+
 typedef enum NwCmdOp {
     NW_CMD_DRAW,    /* a geom's mesh under the local matrix */
     NW_CMD_DRAW_OT, /* an ordering-table batch: some of its mesh's triangles, in their order in NwPacket.idx */
     NW_CMD_CLEAR, /* NuRndrClear: the scissor rectangle's colour and Z */
     NW_CMD_RECT,    /* a 2D sprite */
     NW_CMD_SPRITES, /* a face-on geom's sprites under the local matrix */
+    NW_CMD_TARGET,  /* what the draws after it go to: the back or front buffer, or a render target */
 } NwCmdOp;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
@@ -52,6 +64,7 @@ typedef struct NwMtlSnap {
     float uvoff[2]; /* VU 0x14: NuMtlAnimate's UV offset */
     int32_t row[2]; /* the STROW row: the offset x4096, for geoms that unpack their texcoords under STMOD 1 */
     const NwGpuTex *tex;
+    NwSurf surf; /* a texture in GS memory instead of tex */
 } NwMtlSnap;
 
 #define NW_MTL_NONE UINT32_MAX   /* NwCmd.mtl of a command with no material */
@@ -83,6 +96,10 @@ typedef struct NwCmd {
             uint32_t z;   /* GS Z */
             uint8_t mask; /* 1 colour, 2 Z */
         } clear;
+        struct {
+            NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere */
+            int32_t width, height; /* the target's pixels (nurndr_pixel_width, height) */
+        } target;
     };
 } NwCmd;
 

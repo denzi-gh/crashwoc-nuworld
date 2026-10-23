@@ -48,6 +48,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
 #define GL_UNSIGNED_INT 0x1405
+#define GL_RGBA 0x1908
 #define GL_FLOAT 0x1406
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
@@ -141,6 +142,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDeleteFramebuffers, (GLsizei n, const GLuint *framebuffers)) \
     X(void, glBindFramebuffer, (GLenum target, GLuint framebuffer)) \
     X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
+    X(void, glFramebufferTexture2D, \
+        (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level)) \
     X(void, glFramebufferRenderbuffer, \
         (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
     X(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers)) \
@@ -208,6 +211,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDeleteFramebuffers nw_glDeleteFramebuffers
 #define glBindFramebuffer nw_glBindFramebuffer
 #define glCheckFramebufferStatus nw_glCheckFramebufferStatus
+#define glFramebufferTexture2D nw_glFramebufferTexture2D
 #define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
 #define glGenRenderbuffers nw_glGenRenderbuffers
 #define glDeleteRenderbuffers nw_glDeleteRenderbuffers

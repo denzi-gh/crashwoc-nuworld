@@ -1,13 +1,16 @@
 /* nu3d/nurndr, which the port overrides whole (port/units.toml): the scene bracket and the draws, as records in
    the streams (src/gfx/nustream.c) instead of DMA packets. Every other NuRndr* is a stub, and their hits are the
    renderer's worklist. */
+#include <stdio.h>
 #include <string.h>
 
+#include "app.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
+#include "nu3d/nutex.h"
 #include "numath/numtx.h"
 
 int NuPs2ScreenSwap(int vsync);
@@ -36,6 +39,8 @@ extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern struct nucamera_s global_camera;
+extern struct nutexslot_s *D_0062EBEC;
+#define TexList D_0062EBEC
 
 extern struct rndrstream_s *rndrstream_system;
 extern struct rndrstream_s *rndrstream_ot_sort;
@@ -146,22 +151,57 @@ void NuRndrInitEx(int streamsize)
     NuRndrOTInit();
 }
 
-/* The back buffer's size for every target the port has so far. */
-static void nw_rndr_target(int target)
+/* A TARGET into stream: the back buffer (-1), the front buffer (-3), or a render target texture, whose size
+   becomes nurndr_pixel_width and height. -2 and -4 put the Z buffer behind the frame, which the port does not draw;
+   their draws go nowhere. */
+void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
 {
-    (void)target;
-    nurndr_pixel_width = PS2_REZ_W;
-    nurndr_pixel_height = PS2_REZ_H;
-    nurndr_pixel_p2w = Ps2TxValToPowerOfTwo(PS2_REZ_W);
-    nurndr_pixel_p2h = Ps2TxValToPowerOfTwo(PS2_REZ_H);
+    NwSurf surf = { 0, 0, 0, false };
+    int width = PS2_REZ_W, height = PS2_REZ_H;
+    if (target > 0) {
+        const struct nutexslot_s *e = &TexList[target - 1];
+        if (!e->valid) {
+            return;
+        }
+        surf = nw_ps2tx_surf(target);
+        width = e->width;
+        height = e->height;
+    } else if (target == -2 || target == -4) {
+        static bool reported;
+        if (!reported) {
+            reported = true;
+            fprintf(stderr, NW_APP_NAME ": the Z buffer as a target is not drawn\n");
+        }
+    } else {
+        surf = nw_ps2tx_surf(target == -3 ? NW_SURF_FRONT : NW_SURF_BACK);
+    }
+    nurndr_pixel_width = width;
+    nurndr_pixel_height = height;
+    nurndr_pixel_p2w = Ps2TxValToPowerOfTwo(width);
+    nurndr_pixel_p2h = Ps2TxValToPowerOfTwo(height);
+    NwCmd *c = nw_rndr_cmd(stream, NW_CMD_TARGET);
+    c->target.surf = surf;
+    c->target.width = width;
+    c->target.height = height;
+}
+
+/* Each target the port draws into has a Z buffer of its own; a render target's Z (zbuffer > 0) is not drawn. */
+void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer)
+{
+    static bool reported;
+    (void)stream;
+    if (zbuffer > 0 && !reported) {
+        reported = true;
+        fprintf(stderr, NW_APP_NAME ": a render target's Z buffer is not drawn\n");
+    }
 }
 
 /* halfoffset adds nurndr_half_offset, which is 0 in retail. */
 int NuRndrBeginSceneEx(int target, int zbuffer, int halfoffset)
 {
-    (void)zbuffer;
     (void)halfoffset;
-    nw_rndr_target(target);
+    NuRndrSetRTarget(rndrstream_system, target);
+    NuRndrSetZBuffer(rndrstream_system, zbuffer);
     NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
     NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
     return 1;

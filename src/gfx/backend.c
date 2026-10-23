@@ -9,10 +9,24 @@
 #include "gfx/gl.h"
 #include "gfx/vu.h"
 
+#define NW_BE_SURFS 16
+
+/* GS memory the packets draw into and read back: the back and front buffers and the render targets, by GS address.
+   Each is a texture of the power-of-two size the GS addresses it at, drawn with GS row y at row th - 1 - y. */
+typedef struct NwBeSurf {
+    int32_t addr; /* NW_SURF_BACK, NW_SURF_FRONT, a GS address, 0 for the targets the port does not draw */
+    int tw, th;
+    GLuint tex, depth, fbo;
+} NwBeSurf;
+
 static struct {
-    GLuint fbo, colour, depth;
-    int width, height; /* of the GS framebuffer */
-    uint64_t drawn;    /* the packet in it */
+    NwBeSurf surf[NW_BE_SURFS];
+    uint32_t nsurf;
+    NwBeSurf copy;         /* a target a draw also reads, copied */
+    NwBeSurf *target;      /* what the draws go to */
+    int width, height;     /* the target's pixels */
+    int shown_w, shown_h;  /* those of the back buffer */
+    uint64_t drawn;        /* the last packet run */
     NwGpuJob *jobs;
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo; /* the packet's sprites, four vertices each */
@@ -29,11 +43,20 @@ bool nw_backend_init(void)
     return nw_vu_init();
 }
 
+static void nw_be_surf_free(NwBeSurf *s)
+{
+    glDeleteFramebuffers(1, &s->fbo);
+    glDeleteTextures(1, &s->tex);
+    glDeleteRenderbuffers(1, &s->depth);
+    memset(s, 0, sizeof(*s));
+}
+
 void nw_backend_shutdown(void)
 {
-    glDeleteFramebuffers(1, &nw_be.fbo);
-    glDeleteRenderbuffers(1, &nw_be.colour);
-    glDeleteRenderbuffers(1, &nw_be.depth);
+    for (uint32_t i = 0; i < nw_be.nsurf; i++) {
+        nw_be_surf_free(&nw_be.surf[i]);
+    }
+    nw_be_surf_free(&nw_be.copy);
     glDeleteVertexArrays(1, &nw_be.rect_vao);
     glDeleteBuffers(1, &nw_be.rect_vbo);
     glDeleteBuffers(1, &nw_be.rect_ibo);
@@ -128,28 +151,99 @@ static void nw_be_job(const NwGpuJob *job)
     }
 }
 
-/* Binds the GS framebuffer at the target's size, black when new: colour and a 24-bit Z, as the GS has. */
-static bool nw_be_target(int width, int height)
+/* (Re)makes a surface tw x th, black: colour and a 24-bit Z, as the GS has; leaves its framebuffer bound. */
+static void nw_be_surf_make(NwBeSurf *s, int32_t addr, int tw, int th)
 {
-    if (!nw_be.fbo) {
-        glGenFramebuffers(1, &nw_be.fbo);
-        glGenRenderbuffers(1, &nw_be.colour);
-        glGenRenderbuffers(1, &nw_be.depth);
+    if (!s->fbo) {
+        glGenFramebuffers(1, &s->fbo);
+        glGenTextures(1, &s->tex);
+        glGenRenderbuffers(1, &s->depth);
     }
-    glBindFramebuffer(GL_FRAMEBUFFER, nw_be.fbo);
-    if (nw_be.width != width || nw_be.height != height) {
-        glBindRenderbuffer(GL_RENDERBUFFER, nw_be.colour);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
-        glBindRenderbuffer(GL_RENDERBUFFER, nw_be.depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, nw_be.colour);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, nw_be.depth);
-        nw_be.width = width;
-        nw_be.height = height;
+    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    if (s->tw != tw || s->th != th) {
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, s->tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glActiveTexture(GL_TEXTURE0);
+        glBindRenderbuffer(GL_RENDERBUFFER, s->depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, tw, th);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->tex, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, s->depth);
+        s->tw = tw;
+        s->th = th;
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
-    return glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    s->addr = addr;
+}
+
+/* The surface at a GS address, made at tw x th if it is new or its size changed; NULL with none left. */
+static NwBeSurf *nw_be_surf(int32_t addr, int tw, int th)
+{
+    NwBeSurf *s = NULL;
+    for (uint32_t i = 0; i < nw_be.nsurf && !s; i++) {
+        s = nw_be.surf[i].addr == addr ? &nw_be.surf[i] : NULL;
+    }
+    if (!s && nw_be.nsurf < NW_BE_SURFS) {
+        s = &nw_be.surf[nw_be.nsurf++];
+    }
+    if (s) {
+        nw_be_surf_make(s, addr, tw, th);
+    }
+    return s;
+}
+
+/* The draws go to s, width x height pixels at its top left. */
+static void nw_be_bind(NwBeSurf *s, int width, int height)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    glViewport(0, s->th - height, width, height);
+    nw_be.target = s;
+    nw_be.width = width;
+    nw_be.height = height;
+    if (s->addr == NW_SURF_BACK) {
+        nw_be.shown_w = width;
+        nw_be.shown_h = height;
+    }
+}
+
+static void nw_be_target(const NwCmd *c)
+{
+    NwSurf surf = c->target.surf;
+    if (!surf.addr) {
+        surf.tw = (uint16_t)c->target.width;
+        surf.th = (uint16_t)c->target.height;
+    }
+    NwBeSurf *s = nw_be_surf(surf.addr, surf.tw, surf.th);
+    if (s) {
+        nw_be_bind(s, c->target.width, c->target.height);
+    }
+}
+
+/* A surface for a draw to read: the target itself is read from a copy, as a texture cannot be both. */
+static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
+{
+    static NwVuTexture tex;
+    NwBeSurf *s = NULL;
+    for (uint32_t i = 0; i < nw_be.nsurf && !s; i++) {
+        s = nw_be.surf[i].addr == surf->addr && nw_be.surf[i].fbo ? &nw_be.surf[i] : NULL;
+    }
+    if (!s) {
+        return NULL;
+    }
+    if (s == nw_be.target) {
+        nw_be_surf_make(&nw_be.copy, 0, s->tw, s->th);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
+        glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+        s = &nw_be.copy;
+    }
+    tex = (NwVuTexture){ s->tex, 0, tcc, true };
+    return &tex;
 }
 
 /* The matrix from GS coordinates (12.4 pixels from XYOFFSET, Z 0 .. 2^23 - 1 with the nearer point larger) to GL
@@ -187,7 +281,7 @@ static NwVuMaterial nw_be_material(const NwPacket *p, const NwCmd *c, bool uvrow
         m.uvoff[1] = s->uvoff[1];
         m.uvoff[2] = uvrow ? (float)s->row[0] : 0.0f;
         m.uvoff[3] = uvrow ? (float)s->row[1] : 0.0f;
-        m.tex = s->tex ? &s->tex->gl : NULL;
+        m.tex = s->surf.addr ? nw_be_surf_tex(&s->surf, s->surf.tcc) : s->tex ? &s->tex->gl : NULL;
         m.state = s->gs;
     }
     return m;
@@ -210,7 +304,7 @@ static void nw_be_clear(const NwPacket *p, const NwCmd *c)
 {
     const int32_t *sc = p->views[c->view].scissor;
     glEnable(GL_SCISSOR_TEST);
-    glScissor(sc[0], nw_be.height - 1 - sc[3], sc[2] - sc[0] + 1, sc[3] - sc[1] + 1);
+    glScissor(sc[0], nw_be.target->th - 1 - sc[3], sc[2] - sc[0] + 1, sc[3] - sc[1] + 1);
     bool rgb = c->clear.mask & 1, z = c->clear.mask & 2;
     glColorMask(rgb, rgb, rgb, rgb);
     glDepthMask(z);
@@ -349,10 +443,11 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
     nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL);
 }
 
-/* A packet runs once into the GS framebuffer, which keeps what it drew as GS memory does. */
-static void nw_be_run(const NwPacket *p)
+/* A packet runs once into GS memory, which keeps what it drew; it starts on the back buffer, and the front buffer
+   is the back buffer as it ends. */
+static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
-    glViewport(0, 0, nw_be.width, nw_be.height);
+    nw_be_bind(back, nw_be.shown_w, nw_be.shown_h);
     glEnable(GL_DEPTH_TEST);
     nw_be_rects(p);
     if (p->nidx) {
@@ -381,9 +476,27 @@ static void nw_be_run(const NwPacket *p)
         case NW_CMD_SPRITES:
             nw_be_sprites(p, c);
             break;
+        case NW_CMD_TARGET:
+            nw_be_target(c);
+            break;
         }
     }
+    NwBeSurf *front = nw_be_surf(NW_SURF_FRONT, back->tw, back->th);
+    if (front) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+        glBlitFramebuffer(0, 0, back->tw, back->th, 0, 0, back->tw, back->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
     nw_be.drawn = p->seq;
+}
+
+/* Ps2TxValToPowerOfTwo: the exponent of the power of two at or above n. */
+static int nw_be_log2(int n)
+{
+    int shift = 0;
+    while ((1 << shift) < n) {
+        shift++;
+    }
+    return shift;
 }
 
 const NwPacket *nw_backend_frame(int width, int height)
@@ -393,15 +506,22 @@ const NwPacket *nw_backend_frame(int width, int height)
     for (uint32_t i = 0; i < njobs; i++) {
         nw_be_job(&nw_be.jobs[i]);
     }
-    int gw = nw_be.width ? nw_be.width : 640, gh = nw_be.height ? nw_be.height : 512;
-    if (p && p->nviews) {
-        gw = p->views[0].scissor[2] + 1;
-        gh = p->views[0].scissor[3] + 1;
+    /* The back buffer at the size of the packet's first back-buffer target, 640 x 512 before one. */
+    int bw = nw_be.shown_w ? nw_be.shown_w : 640, bh = nw_be.shown_h ? nw_be.shown_h : 512;
+    for (uint32_t i = 0; p && i < p->ncmds; i++) {
+        if (p->cmds[i].op == NW_CMD_TARGET && p->cmds[i].target.surf.addr == NW_SURF_BACK) {
+            bw = p->cmds[i].target.width;
+            bh = p->cmds[i].target.height;
+            break;
+        }
     }
+    nw_be.shown_w = bw;
+    nw_be.shown_h = bh;
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
     glDepthMask(GL_TRUE);
-    if (nw_be_target(gw, gh) && p && p->seq != nw_be.drawn) {
-        nw_be_run(p);
+    NwBeSurf *back = nw_be_surf(NW_SURF_BACK, 1 << nw_be_log2(bw), 1 << nw_be_log2(bh));
+    if (back && p && p->seq != nw_be.drawn) {
+        nw_be_run(p, back);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
     }
@@ -417,9 +537,11 @@ const NwPacket *nw_backend_frame(int width, int height)
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, nw_be.fbo);
-    glBlitFramebuffer(0, 0, nw_be.width, nw_be.height, (width - w) / 2, (height - h) / 2, (width + w) / 2,
-                      (height + h) / 2, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    if (back) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+        glBlitFramebuffer(0, back->th - bh, bw, back->th, (width - w) / 2, (height - h) / 2, (width + w) / 2,
+                          (height + h) / 2, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return p;
 }

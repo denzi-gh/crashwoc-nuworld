@@ -63,24 +63,33 @@ static const char nw_vu_fs[] =
     "in vec2 v_uv;\n"
     "uniform usampler2D u_tex;\n"
     "uniform usampler2D u_clut;\n"
-    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; MMAG; CLAMP u; CLAMP v */
+    "uniform sampler2D u_surf;\n"
+    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface; MMAG; CLAMP u; CLAMP v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
     "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
     "out vec4 o_col;\n"
+    "ivec2 tex_size(int lod)\n"
+    "{\n"
+    "    return u_texmode.x == 3 ? textureSize(u_surf, 0) : textureSize(u_tex, lod);\n"
+    "}\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
-    "    ivec2 size = textureSize(u_tex, lod);\n"
+    "    ivec2 size = tex_size(lod);\n"
     /* GS sizes are powers of two (TW, TH); a mask wraps negative coordinates too, where % is undefined. */
     "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : p.x & (size.x - 1),\n"
     "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : p.y & (size.y - 1));\n"
+    "    if (u_texmode.x == 3) {\n"
+    "        vec4 s = texelFetch(u_surf, ivec2(p.x, size.y - 1 - p.y), 0);\n"
+    "        return floor(vec4(s.rgb * 255.0, s.a * 128.0) + 0.5);\n"
+    "    }\n"
     "    uvec4 c = texelFetch(u_tex, p, lod);\n"
     "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
     "}\n"
     "vec4 sample_level(vec2 uv, int lod, bool bilinear)\n"
     "{\n"
-    "    vec2 t = uv * vec2(textureSize(u_tex, lod));\n"
+    "    vec2 t = uv * vec2(tex_size(lod));\n"
     "    if (!bilinear) {\n"
     "        return texel(ivec2(floor(t)), lod);\n"
     "    }\n"
@@ -195,6 +204,7 @@ static bool nw_vu_link(NwVuProgram program)
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
+    glUniform1i(glGetUniformLocation(p, "u_surf"), 2);
     return true;
 }
 
@@ -246,7 +256,8 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
     glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     bool textured = m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
+    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0, m->state.mmag,
+                m->state.wms == 1,
                 m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].tcc, textured && m->tex->tcc);
@@ -264,7 +275,11 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     /* The GS keeps the larger z; the screen matrices give GL the smaller one for the nearer point. */
     static const GLenum ztst[4] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
     glDepthFunc(ztst[m->state.ztst & 3]);
-    if (textured) {
+    if (textured && m->tex->surface) {
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, m->tex->index);
+        glActiveTexture(GL_TEXTURE0);
+    } else if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
         glActiveTexture(GL_TEXTURE0);
@@ -308,6 +323,7 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
     tex->index = names[0];
     tex->clut = names[1];
     tex->tcc = t->tcc;
+    tex->surface = false;
 }
 
 void nw_vu_texture_free(NwVuTexture *tex)

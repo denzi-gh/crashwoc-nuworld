@@ -23,6 +23,7 @@ extern struct nutexslot_s *D_0062EBEC;
 extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
 extern struct numtl_s *numtl_defaultmtl2d;
 extern struct nucamera_s global_camera;
+extern int nurndr_pixel_width, nurndr_pixel_height;
 
 /* Declared by no header. */
 int NuRndrBeginScene(int target);
@@ -30,6 +31,8 @@ void NuRndrEndScene(void);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuMtlAnimate(float dt);
 void FaceYDirStream(int angle);
+int NuRndrBeginSceneEx(int target, int zbuffer, int halfoffset);
+void NuTexAssignAddr(int tex, int addr);
 void NuRndrClear(int flags, int colour, float depth);
 void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl_s *mtl);
 void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
@@ -276,10 +279,11 @@ static void test_state_capture(void)
     mark(rndrstream_3d_l, 3);
     NuRndrEndScene();
     const NwPacket *p = nw_rndr_packet();
-    CHECK(p->ncmds == 3 && p->nviews == 2);
-    CHECK(p->cmds[0].local[12] == 7.0f && p->cmds[1].local[12] == 8.0f && p->cmds[2].local[12] == 8.0f);
-    CHECK(p->cmds[0].view == p->cmds[1].view && p->views[p->cmds[2].view].vs[0] == 2.0f);
-    const NwView *v = &p->views[p->cmds[0].view];
+    const NwCmd *c = p->cmds + 1; /* after the TARGET of NuRndrBeginScene, made before its offset and scissor */
+    CHECK(p->ncmds == 4 && p->nviews == 3 && p->cmds[0].op == NW_CMD_TARGET);
+    CHECK(c[0].local[12] == 7.0f && c[1].local[12] == 8.0f && c[2].local[12] == 8.0f);
+    CHECK(c[0].view == c[1].view && p->views[c[2].view].vs[0] == 2.0f);
+    const NwView *v = &p->views[c[0].view];
     CHECK(v->xyoffset[0] == (0x800 - 320) << 4 && v->xyoffset[1] == (0x800 - 256) << 4);
     CHECK(v->scissor[2] == 639 && v->scissor[3] == 511 && v->vs[0] == 1.0f);
     NuRndrSwapStreamBuffers();
@@ -356,14 +360,15 @@ static void test_2d(void)
     NuRndrRectUV2di(0, 0, 640 << 4, 256 << 4, 0.25f, 0.0f, 0.75f, 1.0f, 0x10203040, m);
     NuRndrClear(5, 0, 0.0f);
     const NwPacket *p = nw_rndr_packet();
-    static const uint8_t ops[6] = { NW_CMD_CLEAR, NW_CMD_DRAW, NW_CMD_DRAW, NW_CMD_CLEAR, NW_CMD_RECT, NW_CMD_RECT };
-    bool same = p->ncmds == 6;
-    for (uint32_t i = 0; i < 6 && same; i++) {
+    static const uint8_t ops[7] = { NW_CMD_TARGET, NW_CMD_CLEAR, NW_CMD_DRAW, NW_CMD_DRAW,
+                                    NW_CMD_CLEAR,  NW_CMD_RECT,  NW_CMD_RECT };
+    bool same = p->ncmds == 7;
+    for (uint32_t i = 0; i < 7 && same; i++) {
         same = p->cmds[i].op == ops[i];
     }
     CHECK(same);
     if (same) {
-        const NwCmd *c = p->cmds;
+        const NwCmd *c = p->cmds + 1;
         CHECK(c[0].clear.mask == 2 && c[0].clear.z == (uint32_t)(int)(0.75f * 8388607.0f));
         CHECK(memcmp(c[0].clear.rgba, (uint8_t[]){ 0x10, 0x20, 0x40, 0x80 }, 4) == 0 && c[0].material == NULL);
         CHECK((uintptr_t)c[1].mesh == 50 && (uintptr_t)c[2].mesh == 51);
@@ -376,7 +381,7 @@ static void test_2d(void)
     }
     NuRndrClear(2, 0, 1.0f);
     NuRndrEndScene();
-    CHECK(p->ncmds == 8 && p->cmds[6].clear.mask == 1 && p->cmds[7].clear.mask == 2);
+    CHECK(p->ncmds == 9 && p->cmds[7].clear.mask == 1 && p->cmds[8].clear.mask == 2);
     NuRndrSwapStreamBuffers();
 }
 
@@ -478,6 +483,72 @@ static void test_faceon_dir(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The TARGET command of the packet, by order among them. */
+static const NwCmd *target(const NwPacket *p, int n)
+{
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        if (p->cmds[i].op == NW_CMD_TARGET && n-- == 0) {
+            return &p->cmds[i];
+        }
+    }
+    return NULL;
+}
+
+/* Render targets: a scene drawn into one is a TARGET at its GS address with its size; types 11-13 reserve their
+   memory, the others take the address NuTexAssignAddr gives them; a material with the target as its texture, or
+   with -1 (the back buffer), reads GS memory. The palette and Z render targets are not drawn. */
+static void test_render_target(void)
+{
+    struct nutex_s spec = { 11, 256, 128, 0, NULL, NULL };
+    int rt = NuTexCreate(&spec);
+    spec = (struct nutex_s){ 15, 640, 512, 0, NULL, NULL };
+    int temp = NuTexCreate(&spec);
+    spec = (struct nutex_s){ 8, 64, 64, 0, NULL, NULL };
+    int pal = NuTexCreate(&spec);
+    const struct nups2tex_s *t = &D_0062EBEC[rt - 1].ps2tex;
+    CHECK(rt > 0 && t->tbp[0] != 0 && t->psm == 0 && t->tcc && t->tw == 8 && t->th == 7 && t->tbw[0] == 4);
+    CHECK(nw_rndr_texture(rt) == NULL && D_0062EBEC[temp - 1].ps2tex.tbp[0] == 0);
+    CHECK(D_0062EBEC[temp - 1].ps2tex.psm == 1 && !D_0062EBEC[temp - 1].ps2tex.tcc);
+    NuTexAssignAddr(temp, 0x1234);
+
+    struct numtl_s *m = NuMtlCreate(1), *grab = NuMtlCreate(1), *p8 = NuMtlCreate(1);
+    m->tid = rt;
+    grab->tid = -1;
+    p8->tid = pal;
+    NuMtlUpdate(m);
+    NuMtlUpdate(grab);
+    NuMtlUpdate(p8);
+    NuRndrBeginSceneEx(rt, -2, 0);
+    CHECK(nurndr_pixel_width == 256 && nurndr_pixel_height == 128);
+    mark(&grab->rs, 90);
+    NuRndrEndScene();
+    NuRndrBeginSceneEx(temp, -2, 0);
+    NuRndrEndScene();
+    NuRndrBeginScene(-1);
+    mark(&m->rs, 91);
+    mark(&p8->rs, 92);
+    NuRndrEndScene();
+    NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take();
+    const NwCmd *a = target(p, 0), *b = target(p, 1), *c = target(p, 2);
+    CHECK(a && b && c && target(p, 3) == NULL);
+    if (a && b && c) {
+        CHECK(a->target.surf.addr == t->tbp[0] && a->target.surf.tw == 256 && a->target.surf.th == 128);
+        CHECK(a->target.width == 256 && a->target.height == 128);
+        CHECK(b->target.surf.addr == 0x1234 && b->target.surf.tw == 1024 && !b->target.surf.tcc);
+        CHECK(c->target.surf.addr == NW_SURF_BACK && c->target.width == 640 && c->target.surf.th == 512);
+    }
+    const NwCmd *g = marked(p, 90), *r = marked(p, 91), *q = marked(p, 92);
+    CHECK(g && r && q);
+    if (g && r && q) {
+        CHECK(p->mtls[g->mtl].surf.addr == NW_SURF_BACK && p->mtls[g->mtl].surf.tw == 1024);
+        CHECK(p->views[g->view].scissor[2] == 255 && p->views[g->view].scissor[3] == 127);
+        CHECK(p->mtls[r->mtl].surf.addr == t->tbp[0] && p->mtls[r->mtl].tex == NULL);
+        CHECK(p->mtls[q->mtl].surf.addr == 0 && p->mtls[q->mtl].tex == NULL);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -500,6 +571,7 @@ int main(void)
     test_lights();
     test_ot_batch();
     test_faceon_dir();
+    test_render_target();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }
