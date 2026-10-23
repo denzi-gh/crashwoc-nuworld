@@ -7,8 +7,11 @@
 #include <stdint.h>
 
 #define NW_SPU2_VOICES 24
+#define NW_SPU2_RAM (2u << 20) /* bytes */
 
 /* sceSdSetParam / sceSdGetParam: voice registers, then core registers (bit 7) */
+#define NW_SD_VP_PITCH 0x0200
+#define NW_SD_VP_ADSR2 0x0400
 #define NW_SD_VP_ENVX 0x0500
 #define NW_SD_P_MVOLL 0x0980
 #define NW_SD_P_MVOLR 0x0a80
@@ -26,7 +29,7 @@
 /* sceSdSetCoreAttr / sceSdGetCoreAttr */
 #define NW_SD_C_SPDIF_MODE 0x000a
 
-/* sceSdInit */
+/* sceSdInit: the registers; sound RAM keeps what it holds. */
 void nw_spu2_init(void);
 
 void nw_spu2_set_param(uint16_t entry, uint16_t value);
@@ -36,5 +39,9 @@ uint32_t nw_spu2_get_switch(uint16_t entry);
 uint32_t nw_spu2_get_addr(uint16_t entry);
 void nw_spu2_set_core_attr(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_core_attr(uint16_t entry);
+
+/* sceSdVoiceTrans to sound RAM, done when it returns; clipped at the end of RAM. */
+void nw_spu2_voice_trans(uint32_t spu_addr, const void *src, uint32_t size);
+const uint8_t *nw_spu2_ram(void);
 
 #endif

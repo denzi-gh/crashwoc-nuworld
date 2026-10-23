@@ -15,6 +15,8 @@
 #define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
 #define NW_IRX_SECTOR 2048
 #define NW_IRX_PATH 600
+#define NW_IRX_SPOT 0x7f /* LoopInfo of a resident sample's transfer */
+#define NW_IRX_VAG_HEADER 0x30
 
 static NwIrx irx;
 
@@ -44,6 +46,7 @@ void nw_nusound_init(const NwVfs *vfs, uint64_t (*now_us)(void))
     for (int i = 0; i < NW_IRX_CHANNELS; i++) {
         free(irx.StreamBuffer[i].IOPAddress);
     }
+    free(irx.SPOT_IOPAddress);
     if (irx.global_dat) {
         nw_dat_close(irx.global_dat);
     }
@@ -56,6 +59,7 @@ void nw_nusound_init(const NwVfs *vfs, uint64_t (*now_us)(void))
     iop.now_us = now_us;
     irx.IOPRequestLoad = -1;
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
+    irx.CD_IDLE = 1;
     nw_spu2_init();
 }
 
@@ -176,8 +180,8 @@ static void SetLocalDat(const char *dfname)
 }
 
 /* Finds the samples from `start` on in the local DAT (from 0: the global one); a Pitch of 0 marks an unused entry.
-   Loose files (the IRX's sceCdSearchFile and host0: open) are not looked up: the disc keeps every sample in
-   SFX.DAT. */
+   Only cdrom0: is served, the game's path: loose files (sceCdSearchFile) and host0: are not looked up, the disc
+   keeps every sample in SFX.DAT. */
 static void InitADPCMFiles(int start)
 {
     NwDat *current_dat;
@@ -204,18 +208,17 @@ static void InitADPCMFiles(int start)
             continue;
         }
         snprintf(fn, sizeof(fn), "%s%s%s", irx.nu_filepath, n->Filename, irx.nu_fileterm);
-        bool cd = strncmp(fn, "cdrom0:", 7) == 0;
         int ix = current_dat ? nw_dat_find(current_dat, n->Filename) : -1;
-        if (ix < 0 || (!cd && strncmp(fn, "host0:", 6) != 0)) {
+        if (ix < 0 || strncmp(fn, "cdrom0:", 7) != 0) {
             f->size = 0;
             continue;
         }
         const NwDatEntry *e = &current_dat->entries[ix];
-        irx.FilesOnCD += cd;
-        f->lsn = cd ? e->offset / NW_IRX_SECTOR : e->offset;
+        irx.FilesOnCD++;
+        f->lsn = e->offset / NW_IRX_SECTOR;
         f->size = e->size;
         f->ID = (int16_t)n->ID;
-        f->Source = cd;
+        f->Source = 1;
         f->datfile = current_dat;
         irx.AnyFiles = 1;
     }
@@ -248,6 +251,447 @@ static void InitStreamData(void)
     }
 }
 
+/* libsd's id of a channel's voice register. */
+static uint16_t nw_irx_voice(int ch, uint16_t reg)
+{
+    int core = ch >= NW_SPU2_VOICES;
+    return (uint16_t)(core | (ch - NW_SPU2_VOICES * core) << 1 | reg);
+}
+
+/* Remembered for ResumeAll. */
+static void SetChannelPitch(int ch, uint16_t pitch)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_PITCH), pitch);
+        irx.SPU_PausePitch[ch] = (int16_t)pitch;
+    }
+}
+
+/* KOFF and the fastest release. The IRX takes the channel on trust; here one past 47 is left alone. */
+static void nw_irx_key_off(int ch)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        int core = ch >= NW_SPU2_VOICES;
+        nw_spu2_set_switch((uint16_t)(core | NW_SD_S_KOFF), 1u << (ch - NW_SPU2_VOICES * core));
+        nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_ADSR2), 0x1fc0);
+    }
+}
+
+static void nw_irx_stopped(int ch)
+{
+    if (ch < NW_IRX_CHANNELS) {
+        irx.SPU_KeyStatus[ch] = 0;
+    }
+}
+
+/* Ch >= 0x40: stream slot Ch & 0x3f; otherwise the first active stream on channel Ch (keyed off twice). The IRX's
+   busy waits between the register writes are left out. */
+static void StopStream(int Ch)
+{
+    if (Ch >= 0x40) {
+        int i = Ch & 0x3f;
+        if (i >= NW_IRX_CHANNELS || !irx.StreamBuffer[i].Status) {
+            return;
+        }
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        s->Status = 0;
+        s->iStatus = 3;
+        SetChannelPitch(s->Channel, 0);
+        nw_irx_key_off(s->Channel);
+        nw_irx_stopped(s->Channel);
+        return;
+    }
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        if (s->Status && s->Channel == Ch) {
+            s->Status = 0;
+            s->iStatus = 3;
+            SetChannelPitch(Ch, 0);
+            nw_irx_key_off(Ch);
+            nw_irx_key_off(Ch);
+            nw_irx_stopped(Ch);
+            return;
+        }
+    }
+}
+
+/* The sample entry of an ID: NW_IRX_FILES when it is not there, -1 at an ID of -1. */
+static int GetFileID(int ID)
+{
+    int a;
+    for (a = 0; a < NW_IRX_FILES; a++) {
+        if (irx.ADPCM_FileNames[a].ID == -1) {
+            return -1;
+        }
+        if (irx.ADPCM_FileNames[a].ID == ID) {
+            break;
+        }
+    }
+    return a;
+}
+
+/* The IRX reads ADPCM_FileInfo[300] (past the table) for an ID it has no entry for; here that is a missing file. */
+static const ADPCMFILE *nw_irx_file(int ix)
+{
+    static const ADPCMFILE missing;
+    return ix >= 0 && ix < NW_IRX_FILES ? &irx.ADPCM_FileInfo[ix] : &missing;
+}
+
+/* 1 when the file is missing. */
+static int OpenADPCMFile(int Stream, int idx)
+{
+    STREAMDATA *s = &irx.StreamBuffer[Stream];
+    const ADPCMFILE *f = nw_irx_file(idx);
+    s->SectorStart = (int)f->lsn;
+    s->FileSize = f->size;
+    s->Source = f->Source;
+    s->datfile = f->datfile;
+    s->fileoffset = 0; /* host0: only */
+    if (f->size == 0) {
+        return 1;
+    }
+    s->FileRemainder = f->size - NW_IRX_VAG_HEADER;
+    return 0;
+}
+
+/* sceCdCallback: a seek or read finished. */
+static void _CdStreamInt(void)
+{
+    if (irx.cd_stage != 0) {
+        irx.CD_EVENT_OCCURED = 1;
+    }
+}
+
+/* sceCdRead of the DAT's sectors, done at once; past the end of the DAT it reads zeros. */
+static int nw_irx_cd_read(int lsn, int sectors, uint8_t *dst)
+{
+    size_t size = (size_t)sectors * NW_IRX_SECTOR;
+    int64_t got = 0;
+    if (irx.cd_dat && irx.cd_dat->file && lsn >= 0 &&
+        nw_vfs_seek(irx.cd_dat->file, (int64_t)lsn * NW_IRX_SECTOR, 0) >= 0) {
+        got = nw_vfs_read(irx.cd_dat->file, dst, size);
+    }
+    if (got < 0) {
+        return 0;
+    }
+    memset(dst + got, 0, size - (size_t)got);
+    _CdStreamInt();
+    return 1;
+}
+
+/* Starts a read of size bytes at readptr into a file of filelen bytes at sector startsec; it runs one step per
+   tick (_CdHandleEvent) and calls endfunc when done. The seek finishes at once. */
+static void _CdStreamStart(int startsec, int readptr, uint8_t *writeptr, int filelen, int size, int i,
+                           void (*endfunc)(int), NwDat *datfile)
+{
+    if (irx.cd_stage != 0) {
+        return;
+    }
+    irx.cd_stream = i;
+    irx.cd_startsec = startsec;
+    irx.cd_readptr = readptr;
+    irx.cd_writeptr = writeptr;
+    irx.cd_filelen = filelen;
+    irx.cd_dataleft = size;
+    irx.cd_readlen = 0;
+    irx.cd_stage = 1;
+    irx.cd_localcopy = 0;
+    irx.cd_localstart = 0;
+    irx.cd_func = endfunc;
+    irx.cd_dat = datfile;
+    irx.CD_IDLE = 0;
+    _CdStreamInt();
+}
+
+/* One step of the read: an unaligned head or a tail shorter than a sector goes through cd_buffer, whole sectors
+   straight to the target. At the end of the file it goes on at 0x30, past the header (looping streams). */
+static void _CdHandleEvent(void)
+{
+    int local = 0;
+
+    irx.CD_EVENT_OCCURED = 0;
+    if (irx.cd_stage == 0) {
+        irx.CD_IDLE = 1;
+    } else {
+        irx.cd_stage = 2;
+        if (irx.cd_localcopy) {
+            memcpy(irx.cd_writeptr, irx.cd_buffer + irx.cd_localstart, (size_t)irx.cd_readlen);
+        }
+        int last_readptr = irx.cd_readptr, last_dataleft = irx.cd_dataleft;
+        uint8_t *last_writeptr = irx.cd_writeptr;
+        irx.cd_readptr += irx.cd_readlen;
+        irx.cd_dataleft -= irx.cd_readlen;
+        irx.cd_writeptr += irx.cd_readlen;
+        if (irx.cd_dataleft == 0) {
+            irx.cd_stage = 0;
+        } else {
+            if (irx.cd_readptr == irx.cd_filelen) {
+                irx.cd_readptr = NW_IRX_VAG_HEADER;
+            }
+            int start = irx.cd_readptr, end = irx.cd_readptr + irx.cd_dataleft;
+            if ((start & (NW_IRX_SECTOR - 1)) == 0) {
+                if (end > irx.cd_filelen) {
+                    end = irx.cd_filelen;
+                }
+                if (end & (NW_IRX_SECTOR - 1)) {
+                    if (end - start > NW_IRX_SECTOR) {
+                        end &= ~(NW_IRX_SECTOR - 1);
+                    } else {
+                        local = 1;
+                    }
+                }
+            } else {
+                local = 1;
+                if ((start / NW_IRX_SECTOR + 1) * NW_IRX_SECTOR < end) {
+                    end = (start / NW_IRX_SECTOR + 1) * NW_IRX_SECTOR;
+                }
+                if (end > irx.cd_filelen) {
+                    end = irx.cd_filelen;
+                }
+            }
+            irx.cd_readlen = end - start;
+            int result;
+            if (local) {
+                irx.cd_localstart = start % NW_IRX_SECTOR;
+                result = nw_irx_cd_read(start / NW_IRX_SECTOR + irx.cd_startsec, 1, irx.cd_buffer);
+                irx.cd_localcopy = 1;
+            } else {
+                result = nw_irx_cd_read(start / NW_IRX_SECTOR + irx.cd_startsec, (end - start) / NW_IRX_SECTOR,
+                                        irx.cd_writeptr);
+                irx.cd_localcopy = 0;
+            }
+            if (!result) { /* tried again next tick */
+                irx.cd_readptr = last_readptr;
+                irx.cd_dataleft = last_dataleft;
+                irx.cd_writeptr = last_writeptr;
+                irx.cd_stage = 2;
+                _CdStreamInt();
+            }
+        }
+    }
+    if (irx.cd_stage == 0) {
+        irx.CD_IDLE = 1;
+        irx.cd_func(1);
+    }
+}
+
+static void cdend11(int moo)
+{
+    STREAMDATA *s = &irx.StreamBuffer[irx.cd_stream];
+    (void)moo;
+    s->FileSeek += (uint32_t)irx.ldd_size;
+    s->FileRemainder -= (uint32_t)irx.ldd_size;
+    irx.endfunc_load(1);
+}
+
+/* Reads the next Size bytes of slot i's file into its IOP buffer, then endfunc. */
+static int LoadDataFromDisk(int i, int Size, void (*endfunc)(int))
+{
+    STREAMDATA *s = &irx.StreamBuffer[i];
+    if (s->LoopInfo == 2) { /* all of it is loaded */
+        irx.cd_stream = i;
+        endfunc(1);
+        return 0;
+    }
+    int remain = (int)s->FileRemainder;
+    irx.ldd_size = Size;
+    irx.ldd_remain = remain;
+    irx.endfunc_load = endfunc;
+    if (Size < remain || s->LoopInfo == NW_IRX_SPOT) {
+        _CdStreamStart(s->SectorStart, (int)s->FileSeek, s->IOPCurrentAddress, (int)s->FileSize,
+                       Size < remain ? Size : remain, i, cdend11, s->datfile);
+        return 0;
+    }
+    return -1;
+}
+
+/* DMAs Size bytes of the IOP buffer to SPU RAM: all of it (BufferHalf 2) or a half. The DMA is done when the
+   transfer returns, so its interrupt (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
+static void UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(int))
+{
+    STREAMDATA *s = &irx.StreamBuffer[i];
+
+    irx.SYSTEMWAIT = 1;
+    if (s->LoopInfo == 2) {
+        if (BufferHalf == 2) {
+            BufferHalf = 0;
+        }
+        nw_spu2_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
+        s->PlayingHalf = 3;
+        irx.StreamBusy = 0;
+        irx.cd_stream = i;
+        endfunc(1);
+        irx.SYSTEMWAIT = 0;
+        return;
+    }
+    nw_spu2_voice_trans(s->SPUAddress, s->IOPLoadAddress, Size);
+    irx.SYSTEMWAIT = 0;
+    s->IOPLoadAddress = s->IOPCurrentAddress;
+    s->IOPCurrentAddress += Size;
+    s->IOPCurrentRemainder -= Size;
+    if (s->IOPCurrentRemainder == 0) {
+        s->IOPCurrentRemainder = s->AllocSize;
+        s->IOPCurrentAddress = s->IOPAddress;
+        s->IOPLoadAddress = s->IOPCurrentAddress;
+    }
+    endfunc(1);
+}
+
+/* A resident sample is in SPU RAM: the next one goes after it, header bytes included. */
+static void cdend7(int moo)
+{
+    (void)moo;
+    irx.StreamBuffer[irx.cd_stream].Status = 0;
+    irx.StreamMemoryEnd += nw_irx_file(GetFileID(irx.ADPCM_FileNames[irx.CD_SPOT_FILE_ID].ID))->size;
+    free(irx.SPOT_IOPAddress);
+    irx.SPOT_IOPAddress = NULL;
+    irx.CD_SPOT_TRANS = 0;
+    irx.CD_IDLE = 1;
+}
+
+static void cdend6(int moo)
+{
+    (void)moo;
+    UpdateStream(irx.cd_stream, irx.StreamBuffer[irx.cd_stream].IOPBufferSize, 2, cdend7);
+}
+
+/* Sets slot Stream up for its file; a resident sample's transfer (LoopInfo 0x7f) gets an IOP buffer of its own
+   and goes to the end of the resident samples. -1 when the file is missing. */
+static int StartStream(int Stream, int SPUChannel, int VolL, int VolR, int StreamID, int Pitch, int LoopInfo, int AR)
+{
+    STREAMDATA *s = &irx.StreamBuffer[Stream];
+    uint8_t *IOPAddress;
+    int FileIndex;
+
+    if (LoopInfo == NW_IRX_SPOT) {
+        FileIndex = GetFileID(StreamID);
+        uint32_t file_size = nw_irx_file(FileIndex)->size;
+        uint32_t size = file_size > NW_IRX_VAG_HEADER ? file_size - NW_IRX_VAG_HEADER : 0;
+        free(irx.SPOT_IOPAddress);
+        irx.SPOT_IOPAddress = malloc(size ? size : 1);
+        IOPAddress = irx.SPOT_IOPAddress;
+        s->IOPBufferSize = size;
+        s->SPUAddress = irx.StreamMemoryEnd;
+    } else {
+        IOPAddress = s->IOPAddress;
+        s->IOPBufferSize = s->AllocSize;
+        s->SPUAddress = s->AllocSPUAddress;
+        s->ID = StreamID;
+        FileIndex = GetFileID(StreamID);
+    }
+    s->AR = AR;
+    s->PlayingHalf = 0;
+    s->VolL = (int16_t)VolL;
+    s->VolR = (int16_t)VolR;
+    s->IOPLoadAddress = IOPAddress;
+    s->IOPCurrentAddress = IOPAddress;
+    s->IOPBufferHalfSize = s->AllocHalfSize;
+    s->Channel = (uint8_t)SPUChannel;
+    s->IOPCurrentRemainder = s->AllocSize;
+    s->FileSeek = NW_IRX_VAG_HEADER;
+    s->LoopInfo = (uint8_t)(LoopInfo == 2 && FileIndex >= 0 && FileIndex < NW_IRX_FILES
+                                ? irx.ADPCM_FileNames[FileIndex].LoopInfo
+                                : LoopInfo);
+    if (LoopInfo != NW_IRX_SPOT) {
+        int a = Pitch;
+        if (Pitch == 1) { /* the file's rate */
+            a = FileIndex >= 0 && FileIndex < NW_IRX_FILES ? irx.ADPCM_FileNames[FileIndex].Pitch : 0;
+            if (a > 11024) {
+                a = (a << 12) / 48000;
+            }
+        }
+        s->Pitch = (int16_t)a;
+    }
+    if (OpenADPCMFile(Stream, FileIndex)) {
+        if (LoopInfo == NW_IRX_SPOT) {
+            free(irx.SPOT_IOPAddress);
+            irx.SPOT_IOPAddress = NULL;
+            irx.CD_SPOT_TRANS = 0;
+        }
+        s->Status = 0;
+        return -1;
+    }
+    return Stream;
+}
+
+/* Queues a stream for the next ticks: bank 0x80 takes the first free slot, any other bank is the slot. */
+static int USR_StartStream(int SPUChannel, int VolL, int VolR, int StreamID, int Pitch, int LoopInfo, int AR)
+{
+    int S = -1, a = (SPUChannel >> 8) & 0xff;
+
+    SPUChannel &= 0xff;
+    StopStream(SPUChannel);
+    if (a == 0x80) {
+        for (int i = 0; i < (int)irx.UserMaxStreams; i++) {
+            if (irx.StreamBuffer[i].Status == 0) {
+                S = i;
+                break;
+            }
+        }
+    } else {
+        S = a;
+        if (S >= (int)irx.UserMaxStreams) {
+            return -3;
+        }
+    }
+    if (S == -1) {
+        return -2;
+    }
+    STREAMDATA *s = &irx.StreamBuffer[S];
+    s->iStatus = LoopInfo == NW_IRX_SPOT ? 4 : 2;
+    s->USR_Channel = SPUChannel;
+    s->USR_VolL = VolL;
+    s->USR_VolR = VolR;
+    s->USR_StrID = StreamID;
+    s->USR_Pitch = Pitch;
+    s->USR_LInfo = LoopInfo;
+    s->USR_AR = AR;
+    s->Status = 1;
+    return S;
+}
+
+/* Slot 299 marks slot 300 free in the IRX (past the table); not here. */
+static int SpotFX_LoadAndTransfer(int ID, int Slot)
+{
+    if (Slot >= NW_IRX_FILES) {
+        return -1;
+    }
+    irx.CD_SPOT_TRANS = 1;
+    irx.ADPCM_SpotFX[Slot].ID = ID;
+    if (Slot + 1 < NW_IRX_FILES) {
+        irx.ADPCM_SpotFX[Slot + 1].ID = -1;
+    }
+    int last = (int)irx.UserMaxStreams - 1;
+    USR_StartStream(last | last << 8, 0, 0, ID, 0, NW_IRX_SPOT, 0);
+    irx.ADPCM_SpotFX[Slot].SPUAddress = irx.StreamMemoryEnd;
+    return 0;
+}
+
+/* TransferSFX: 0 started, 1 no such ID (the end of the bank), 2 its file is missing, 3 a transfer is running. The
+   IRX scans on past the 300 entries until an ID of -1; the game never sends one, so here the table's end is the
+   end of the bank. */
+static int TransferResidentSampleBank(int id, int slot)
+{
+    if (irx.CD_SPOT_TRANS) {
+        return 3;
+    }
+    for (int i = 0; i < NW_IRX_FILES; i++) {
+        int list_id = irx.ADPCM_FileNames[i].ID;
+        if (list_id == id) {
+            if (nw_irx_file(GetFileID(id))->size == 0) {
+                return 2;
+            }
+            irx.CD_SPOT_FILE_ID = i;
+            SpotFX_LoadAndTransfer(list_id, slot);
+            return 0;
+        }
+        if (list_id == -1) {
+            return 1;
+        }
+    }
+    return 1;
+}
+
 /* The IRX reads NAX until two reads agree, as it moves while the voice plays. */
 static int GetNAX(int core, int ch)
 {
@@ -264,6 +708,17 @@ static void StreamADPCM(void)
             int core = s->Channel >= NW_SPU2_VOICES, ch = s->Channel - NW_SPU2_VOICES * core;
             s->SPUCurrent = GetNAX(core, ch);
             s->KeyStat = nw_spu2_get_param((uint16_t)(core | ch << 1 | NW_SD_VP_ENVX));
+        }
+    }
+    if (irx.CD_EVENT_OCCURED) {
+        _CdHandleEvent();
+    }
+    for (int i = 0; i < (int)irx.UserMaxStreams; i++) { /* resident sample transfers */
+        STREAMDATA *s = &irx.StreamBuffer[i];
+        if (!irx.SYSTEMWAIT && irx.CD_IDLE == 1 && s->Status == 1 && s->iStatus == 4 &&
+            StartStream(i, s->USR_Channel, s->USR_VolL, s->USR_VolR, s->USR_StrID, s->USR_Pitch, s->USR_LInfo,
+                        s->USR_AR) != -1) {
+            LoadDataFromDisk(i, (int)s->IOPBufferSize, cdend6);
         }
     }
     irx.Direction ^= 1;
@@ -352,6 +807,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 0xc:
             InitStreamData();
+            break;
+        case 6:
+            irx.ResStatus = irx.AnyFiles == 1 ? TransferResidentSampleBank(dt[0], dt[1]) : 1;
             break;
         default: /* 8, >= 0x22: no handler */
             break;

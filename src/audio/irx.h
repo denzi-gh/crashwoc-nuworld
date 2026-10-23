@@ -19,15 +19,28 @@ typedef struct NwIrxFilename {
     int ID; /* >= 0x1000 resident, else streamed */
 } NwIrxFilename;
 
-/* Where a sample's VAG lies. The IRX keeps datfile only for host0:; here the disc sectors are the DAT's own, so it
-   is kept for cdrom0: too. */
+/* Where a sample's VAG lies. Only cdrom0: is served, whose sectors here are the DAT's own; so datfile, which the
+   IRX keeps for host0: only, is kept. */
 typedef struct ADPCMFILE {
     int16_t ID;
     uint32_t size; /* 0: not found */
-    uint32_t lsn;  /* cdrom0: the sector in the DAT; host0: the byte offset */
-    int Source;    /* 1 cdrom0:, 0 host0: */
+    uint32_t lsn;  /* the sector in the DAT */
+    int Source;    /* 1: cdrom0: */
     NwDat *datfile;
 } ADPCMFILE;
+
+/* A resident sample in SPU RAM, by TransferSFX slot. */
+typedef struct ADPCM_SPOTINFO {
+    uint8_t SPUChannel;
+    uint8_t SPUCore;
+    uint8_t Status;
+    int ID;
+    uint32_t SPUAddress;
+    int16_t LVol;
+    int16_t RVol;
+    int16_t Pitch;
+    int AR;
+} ADPCM_SPOTINFO;
 
 /* A stream slot, one per channel. */
 typedef struct STREAMDATA {
@@ -87,8 +100,30 @@ typedef struct NwIrx {
     int StereoPitch;
     int Direction;
     unsigned LoadFromEE;
+    int SYSTEMWAIT; /* a DMA to SPU RAM in flight */
+    int CD_IDLE;
+    int CD_EVENT_OCCURED;
+    int CD_SPOT_FILE_ID;
+    uint8_t *SPOT_IOPAddress;
+    ADPCM_SPOTINFO ADPCM_SpotFX[NW_IRX_FILES];
+    int16_t SPU_PausePitch[NW_IRX_CHANNELS];
+    int ldd_size;
+    int ldd_remain;
+    void (*endfunc_load)(int);
+    /* the read in progress (_CdStreamStart) */
     int cd_stream;
-    int cd_stage;
+    int cd_stage; /* 0 idle, 1 seeking, 2 reading */
+    int cd_startsec;
+    int cd_readptr;
+    uint8_t *cd_writeptr;
+    int cd_filelen;
+    int cd_dataleft;
+    int cd_readlen;
+    int cd_localcopy;
+    int cd_localstart;
+    void (*cd_func)(int);
+    NwDat *cd_dat;
+    uint8_t cd_buffer[2048];
     uint32_t g_ReverbChans[2];
     char nu_filepath[256];
     char nu_fileterm[4];

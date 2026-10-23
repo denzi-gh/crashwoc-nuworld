@@ -28,15 +28,22 @@ void SOUND_SetMaxStreamLimit(int limit);
 void SOUND_SetSPUWriteAddress(unsigned int address);
 void SOUND_AllocateStreamBuffer(int stream, unsigned int address, unsigned int size);
 void SOUND_InitStreamData(void);
+void TransferAllSpotFX(int first);
+void SOUND_TransferSFX(int sample, int channel);
 extern volatile int sbuff2[128];
 
 static int failures;
 static NwVfs vfs; /* the scratch disc with SFX.DAT */
 static uint64_t test_us;
+static bool test_auto; /* each RPC moves the clock on, for the EE's busy loops */
+static uint8_t a_vag[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl_vag[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
 static size_t a_size, bl_size; /* sfx\generic\a.vag, sfx\music\bl.vag */
 
 static uint64_t test_clock(void)
 {
+    if (test_auto) {
+        test_us += 2000;
+    }
     return test_us;
 }
 
@@ -288,23 +295,89 @@ static void test_init_stream_data(void)
     CHECK(!irx->global_dat && irx->AnyFiles == 0 && irx->ADPCM_FileInfo[0].size == 0);
 }
 
+/* What init_adpcm sends, on the cdrom0: path, with info as the sample table. */
+static void boot_module(struct nusound_filename_info_s *info)
+{
+    nw_nusound_init(&vfs, test_clock);
+    test_us = 0;
+    send_string(0x1e, "SFX.DAT");
+    send_string(7, "cdrom0:\\");
+    SOUND_AddSamples(info);
+    SOUND_InitStreamData();
+    for (int i = 0; i < 5; i++) {
+        SOUND_AllocateStreamBuffer(i, 0x5010 + i * 0xd700, 0xd700);
+    }
+    SOUND_SetSPUWriteAddress(0x48310);
+    SOUND_SetMaxStreamLimit(5);
+    FlushIOPCommand(0);
+}
+
+static struct nusound_filename_info_s bank[] = {
+    { "SFX\\GENERIC\\A.VAG", 22050, 1, 0x1000 },
+    { "SFX\\GENERIC\\MISSING.VAG", 22050, 1, 0x1001 },
+    { "SFX\\GENERIC\\A.VAG", 11025, 1, 0x1002 },
+    { "SFX\\MUSIC\\BL.VAG", 44100, 0, 1 },
+    { "", 0, 0, 0 },
+};
+
+static void test_transfer_sfx(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const uint8_t *ram = nw_spu2_ram();
+    int32_t ret[128];
+
+    /* One transfer: the slot starts it on the next tick, the CD seeks, reads the one sector, then the DMA. */
+    boot_module(bank);
+    SOUND_TransferSFX(0x1000, 0);
+    FlushIOPCommand(0);
+    status(ret);
+    CHECK(irx->ResStatus == 0 && ret[26] == 1);
+    for (int tick = 1; tick <= 3; tick++) {
+        test_us += 16666;
+        status(ret);
+        CHECK(ret[26] == (tick < 3));
+    }
+    CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+    CHECK(irx->StreamMemoryEnd == 0x48310 + a_size && !irx->SPOT_IOPAddress);
+
+    /* The game's loop: loaded, missing (2), loaded again after the first with its header's size, then the end. */
+    boot_module(bank);
+    test_auto = true;
+    TransferAllSpotFX(0);
+    test_auto = false;
+    CHECK(irx->ResStatus == 1 && irx->CD_SPOT_TRANS == 0);
+    CHECK(irx->ADPCM_SpotFX[0].ID == 0x1000 && irx->ADPCM_SpotFX[0].SPUAddress == 0x48310);
+    CHECK(irx->ADPCM_SpotFX[2].ID == 0x1002 && irx->ADPCM_SpotFX[2].SPUAddress == 0x48310 + a_size);
+    CHECK(irx->ADPCM_SpotFX[3].ID == -1);
+    CHECK(memcmp(ram + 0x48310 + a_size, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+    CHECK(irx->StreamMemoryEnd == 0x48310 + 2 * a_size);
+    CHECK(irx->StreamBuffer[4].Status == 0);
+
+    /* Without files the IRX answers 1 at once. */
+    nw_nusound_init(&vfs, test_clock);
+    SOUND_TransferSFX(0x1000, 0);
+    FlushIOPCommand(0);
+    status(ret);
+    CHECK(ret[22] == 1 && ret[26] == 0);
+}
+
 /* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
 static bool setup_disc(const char *scratch)
 {
     static uint8_t arc[SFX_DAT_MAX];
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
-    uint8_t blocks[4][NW_ADPCM_BLOCK], a[NW_VAG_HEADER + 3 * NW_ADPCM_BLOCK], bl[NW_VAG_HEADER + 4 * NW_ADPCM_BLOCK];
+    uint8_t blocks[4][NW_ADPCM_BLOCK];
     char dir[1024], path[1100];
 
     vag_block_fill(blocks[0], 0, 0, 0, 1);
     vag_block_fill(blocks[1], 1, 12, NW_ADPCM_END, 0);
     vag_block_fill(blocks[2], 0, 0, 7, 0);
-    a_size = vag_file(a, 22050, blocks[0], 3);
+    a_size = vag_file(a_vag, 22050, blocks[0], 3);
     vag_block_fill(blocks[1], 2, 3, NW_ADPCM_START | NW_ADPCM_REPEAT, -5);
     vag_block_fill(blocks[2], 3, 5, NW_ADPCM_REPEAT, 3);
     vag_block_fill(blocks[3], 4, 8, NW_ADPCM_END | NW_ADPCM_REPEAT, -2);
-    bl_size = vag_file(bl, 44100, blocks[0], 4);
-    const uint8_t *const files[3] = { a, bl, (const uint8_t *)text };
+    bl_size = vag_file(bl_vag, 44100, blocks[0], 4);
+    const uint8_t *const files[3] = { a_vag, bl_vag, (const uint8_t *)text };
     const size_t sizes[3] = { a_size, bl_size, sizeof(text) - 1 };
     size_t size = sfx_dat(arc, files, sizes);
 
@@ -333,6 +406,7 @@ int main(int argc, char *argv[])
     test_write_address();
     test_stream_buffers();
     test_init_stream_data();
+    test_transfer_sfx();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);

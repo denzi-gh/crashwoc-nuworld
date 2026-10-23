@@ -21,6 +21,8 @@ static struct {
     NwSpu2Core core[2];
 } spu;
 
+static uint8_t nw_spu2_mem[NW_SPU2_RAM];
+
 static unsigned nw_spu2_reg(uint16_t entry)
 {
     return (entry >> 8) & 0x1f;
@@ -96,4 +98,16 @@ void nw_spu2_set_core_attr(uint16_t entry, uint16_t value)
 uint16_t nw_spu2_get_core_attr(uint16_t entry)
 {
     return spu.core[entry & 1].attr[(entry >> 1) & 7];
+}
+
+void nw_spu2_voice_trans(uint32_t spu_addr, const void *src, uint32_t size)
+{
+    if (spu_addr < NW_SPU2_RAM) {
+        memcpy(nw_spu2_mem + spu_addr, src, size < NW_SPU2_RAM - spu_addr ? size : NW_SPU2_RAM - spu_addr);
+    }
+}
+
+const uint8_t *nw_spu2_ram(void)
+{
+    return nw_spu2_mem;
 }
