@@ -547,6 +547,7 @@ static struct nusound_filename_info_s streams[] = {
     { "SFX\\GENERIC\\A.VAG", 22050, 1, 2 }, /* a one-shot */
     { "SFX\\MUSIC\\BL.VAG", 44100, 0, 1 },  /* a loop */
     { "SFX\\MUSIC\\BIG.VAG", 44100, 1, 3 }, /* a one-shot longer than the buffer */
+    { "SFX\\MUSIC\\BIG.VAG", 44100, 0, 4 }, /* the same as a loop */
     { "", 0, 0, 0 },
 };
 
@@ -619,6 +620,33 @@ static void test_play_stream(void)
     CHECK(frames == 142 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
+    nusound_irx_loaded = 0;
+}
+
+/* A loop longer than its buffer, on slot 0: each refill of a half carries the flags that close the ring (the second
+   half's ends on END|REPEAT), so the voice goes round the buffer, 3440 blocks at 0xeb3 (109 frames) a turn. */
+static void test_stream_ring(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const STREAMDATA *s = &irx->StreamBuffer[0];
+    const uint8_t *ram = nw_spu2_ram() + 0x5010;
+    int refills = 0, half = 0;
+    bool inside = true;
+
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    SOUND_PlayStream(4, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
+    for (int frames = 0; frames < 400; frames++) {
+        frame();
+        inside &= NuSoundKeyStatus(0) != 1 || nw_spu2_get_addr(NW_SD_VA_NAX) - 0x5010 < 0xd700;
+        if (s->PlayingHalf != half) {
+            half = s->PlayingHalf;
+            if (++refills == 2) {
+                CHECK(ram[0x6b80 + 1] == NW_ADPCM_REPEAT && ram[0xd700 - 0xf] == (NW_ADPCM_END | NW_ADPCM_REPEAT));
+            }
+        }
+    }
+    CHECK(inside && refills == 7 && NuSoundKeyStatus(0) == 1 && s->Status == 1 && s->LoopInfo == 0);
     nusound_irx_loaded = 0;
 }
 
@@ -880,6 +908,15 @@ static int test_retail(void)
     }
     printf("logos stream: id %#x, keyed on after %d frames\n", irx->StreamBuffer[4].ID, frames);
     CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == 13);
+
+    /* It plays through its buffer's refills to the file's END block: 799092 samples at 22050 Hz, 1812.6 frames. On
+       PCSX2 the key status of channel 4 drops 1812 vblanks after it went to 1. */
+    int keyed = frames;
+    for (; frames < 3000 && NuSoundKeyStatus(4) == 1; frames++) {
+        frame();
+    }
+    printf("logos stream: played out %d frames after its key-on\n", frames - keyed);
+    CHECK(frames - keyed == 1812);
     return failures ? 1 : 0;
 }
 
@@ -913,6 +950,7 @@ int main(int argc, char *argv[])
     test_channel_pitch();
     test_stop_sound();
     test_play_stream();
+    test_stream_ring();
     test_stop_stream();
     test_pause();
     test_stereo();

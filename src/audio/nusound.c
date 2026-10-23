@@ -742,8 +742,9 @@ static int LoadDataFromDisk(int i, int Size, void (*endfunc)(int))
 
 /* DMAs Size bytes of the IOP buffer to SPU RAM: all of it (BufferHalf 2) or a half, whose block flags make the
    SPU buffer a ring (the first block starts the loop, the last one jumps back); after a half the next one is read
-   ahead. All of a file in (LoopInfo 2) goes to the half once and plays out (PlayingHalf 3). The DMA is done when
-   the transfer returns, so its interrupt (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
+   ahead, into the chunk IOPLoadAddress now points at, where the next half's flags go. All of a file in (LoopInfo 2)
+   goes to the half once and plays out (PlayingHalf 3). The DMA is done when the transfer returns, so its interrupt
+   (_AdpcmDmaInt) clears SYSTEMWAIT at once. */
 static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(int))
 {
     STREAMDATA *s = &irx.StreamBuffer[i];
@@ -775,14 +776,13 @@ static int UpdateStream(int i, uint32_t Size, int BufferHalf, void (*endfunc)(in
         nw_spu2_voice_trans(s->SPUAddress + (uint32_t)BufferHalf * s->AllocHalfSize, s->IOPCurrentAddress, Size);
     }
     irx.SYSTEMWAIT = 0;
-    s->IOPLoadAddress = s->IOPCurrentAddress;
     s->IOPCurrentAddress += Size;
     s->IOPCurrentRemainder -= Size;
     if (s->IOPCurrentRemainder == 0) {
         s->IOPCurrentRemainder = s->AllocSize;
         s->IOPCurrentAddress = s->IOPAddress;
-        s->IOPLoadAddress = s->IOPCurrentAddress;
     }
+    s->IOPLoadAddress = s->IOPCurrentAddress;
     if (BufferHalf == 2) {
         endfunc(1);
         return 1;
