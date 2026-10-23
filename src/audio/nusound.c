@@ -890,6 +890,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
                 PlayResidentSFX(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
             }
             break;
+        case 2:
+            SetChannelVolume(dt[0], dt[1], dt[2]);
+            break;
         default: /* 8, >= 0x22: no handler */
             break;
         }
