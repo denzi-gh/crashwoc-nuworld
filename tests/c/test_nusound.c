@@ -30,6 +30,8 @@ void SOUND_AllocateStreamBuffer(int stream, unsigned int address, unsigned int s
 void SOUND_InitStreamData(void);
 void TransferAllSpotFX(int first);
 void SOUND_TransferSFX(int sample, int channel);
+void SOUND_StoreLocalStart(void);
+void NuSoundLocalSet(NUSOUND_FILENAME_INFO *sfx_info, int unused, int first);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -361,6 +363,35 @@ static void test_transfer_sfx(void)
     CHECK(ret[22] == 1 && ret[26] == 0);
 }
 
+/* NuSoundInit's end, then two levels' banks the way InitLocalSfx sets them. */
+static void test_local_bank(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const uint8_t *ram = nw_spu2_ram();
+    struct nusound_filename_info_s level1[] = { { "SFX\\GENERIC\\A.VAG", 22050, 1, 0x1004 }, { "", 0, 0, 0 } };
+    struct nusound_filename_info_s level2[] = { { "SFX\\MUSIC\\BL.VAG", 22050, 1, 0x1004 }, { "", 0, 0, 0 } };
+
+    boot_module(bank);
+    test_auto = true;
+    TransferAllSpotFX(0);
+    SOUND_StoreLocalStart();
+    uint32_t global_end = 0x48310 + 2 * (uint32_t)a_size;
+    CHECK(irx->GlobalSfxfileinfo_cnt == 4 && irx->GlobalSfxMemoryEnd == global_end);
+
+    NuSoundLocalSet(level1, 1, 4);
+    CHECK(irx->fileinfo_cnt == 5 && irx->ADPCM_FileInfo[4].size == a_size);
+    CHECK(irx->ADPCM_SpotFX[4].ID == 0x1004 && irx->ADPCM_SpotFX[4].SPUAddress == global_end);
+    CHECK(irx->StreamMemoryEnd == global_end + a_size);
+
+    /* The next level's samples take the same place. */
+    NuSoundLocalSet(level2, 1, 4);
+    test_auto = false;
+    CHECK(irx->fileinfo_cnt == 5 && irx->ADPCM_FileInfo[4].size == bl_size);
+    CHECK(irx->StreamMemoryEnd == global_end + bl_size && irx->ADPCM_SpotFX[4].SPUAddress == global_end);
+    CHECK(memcmp(ram + global_end, bl_vag + NW_VAG_HEADER, bl_size - NW_VAG_HEADER) == 0);
+    CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+}
+
 /* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; then a text file. */
 static bool setup_disc(const char *scratch)
 {
@@ -407,6 +438,7 @@ int main(int argc, char *argv[])
     test_stream_buffers();
     test_init_stream_data();
     test_transfer_sfx();
+    test_local_bank();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);

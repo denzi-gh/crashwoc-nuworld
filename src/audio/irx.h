@@ -140,6 +140,8 @@ typedef struct NwIrx {
     int AnyFiles;
     unsigned UserMaxStreams;
     uint32_t StreamMemoryEnd; /* SPU RAM: where the next resident sample goes */
+    int GlobalSfxfileinfo_cnt; /* where a level's samples start */
+    uint32_t GlobalSfxMemoryEnd;
     int32_t ret[NW_NUSOUND_REPLY / 4];
 } NwIrx;
 

@@ -137,6 +137,23 @@ static void ADPCM_AllocIOPMemory(unsigned i, uint32_t spuaddr, int size)
     }
 }
 
+/* The global bank ends here; a level's samples go after it. */
+static void SoundStoreLocalStart(void)
+{
+    irx.GlobalSfxfileinfo_cnt = irx.fileinfo_cnt;
+    irx.GlobalSfxMemoryEnd = irx.StreamMemoryEnd;
+}
+
+/* Back to the global bank. The level's entries lose their Pitch (so InitADPCMFiles skips them), not their ID. */
+static void SoundRestoreLocalStart(void)
+{
+    irx.fileinfo_cnt = irx.GlobalSfxfileinfo_cnt;
+    for (int n = irx.fileinfo_cnt; n < NW_IRX_FILES; n++) {
+        irx.ADPCM_FileNames[n].Pitch = 0;
+    }
+    irx.StreamMemoryEnd = irx.GlobalSfxMemoryEnd;
+}
+
 /* The IRX also sprintf's each name over a .rodata string, dropped here. */
 static void SoundAddSample(const uint16_t *p, int length)
 {
@@ -782,6 +799,15 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 0x1a:
             SoundAddSample(p, length);
+            break;
+        case 0x1b:
+            SoundStoreLocalStart();
+            break;
+        case 0x1c:
+            SoundRestoreLocalStart();
+            break;
+        case 0x1d:
+            InitADPCMFiles(irx.GlobalSfxfileinfo_cnt);
             break;
         default:
             memcpy(dt, p, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));
