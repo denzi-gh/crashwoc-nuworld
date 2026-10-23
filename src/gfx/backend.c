@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include "data/image_tables.h"
+#include "frontend/debug.h"
 #include "gfx/gl.h"
 #include "gfx/vu.h"
 
@@ -33,6 +34,7 @@ static struct {
     GLuint ot_ibo;                       /* the packet's OT triangles */
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
+    bool wireframe;
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
@@ -40,6 +42,7 @@ static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 } };
 
 bool nw_backend_init(void)
 {
+    nw_debug_toggle("Render", "Wireframe", &nw_be.wireframe);
     return nw_vu_init();
 }
 
@@ -449,6 +452,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
     nw_be_bind(back, nw_be.shown_w, nw_be.shown_h);
     glEnable(GL_DEPTH_TEST);
+    glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
     nw_be_rects(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
@@ -481,6 +485,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         }
     }
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     NwBeSurf *front = nw_be_surf(NW_SURF_FRONT, back->tw, back->th);
     if (front) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);

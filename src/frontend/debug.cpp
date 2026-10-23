@@ -8,11 +8,18 @@
 
 #define NW_DEBUG_ITEMS 64
 
+typedef enum NwDebugKind {
+    NW_DEBUG_PANEL,
+    NW_DEBUG_TOGGLE,
+} NwDebugKind;
+
 typedef struct NwDebugItem {
+    NwDebugKind kind;
     const char *menu, *label;
     NwDebugFn fn;
     void *user;
     bool open;
+    bool *value;
 } NwDebugItem;
 
 static struct {
@@ -22,24 +29,32 @@ static struct {
     uint32_t nitems;
 } nw_debug;
 
-static NwDebugItem *nw_debug_add(const char *menu, const char *label)
+static NwDebugItem *nw_debug_add(NwDebugKind kind, const char *menu, const char *label)
 {
     SDL_assert(nw_debug.nitems < NW_DEBUG_ITEMS);
     if (nw_debug.nitems == NW_DEBUG_ITEMS) {
         return NULL;
     }
     NwDebugItem *item = &nw_debug.items[nw_debug.nitems++];
-    *item = NwDebugItem{ menu, label, NULL, NULL, false };
+    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, NULL };
     return item;
 }
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open)
 {
-    NwDebugItem *item = nw_debug_add(menu, title);
+    NwDebugItem *item = nw_debug_add(NW_DEBUG_PANEL, menu, title);
     if (item) {
         item->fn = draw;
         item->user = user;
         item->open = open;
+    }
+}
+
+void nw_debug_toggle(const char *menu, const char *label, bool *value)
+{
+    NwDebugItem *item = nw_debug_add(NW_DEBUG_TOGGLE, menu, label);
+    if (item) {
+        item->value = value;
     }
 }
 
@@ -75,7 +90,7 @@ static void nw_debug_menus(void)
         for (uint32_t j = i; j < nw_debug.nitems; j++) {
             NwDebugItem *item = &nw_debug.items[j];
             if (SDL_strcmp(item->menu, menu) == 0) {
-                ImGui::MenuItem(item->label, NULL, &item->open);
+                ImGui::MenuItem(item->label, NULL, item->kind == NW_DEBUG_TOGGLE ? item->value : &item->open);
             }
         }
         ImGui::EndMenu();
@@ -87,7 +102,7 @@ static void nw_debug_panels(void)
     float step = ImGui::GetFrameHeight();
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
         NwDebugItem *item = &nw_debug.items[i];
-        if (!item->open) {
+        if (item->kind != NW_DEBUG_PANEL || !item->open) {
             continue;
         }
         char name[128];

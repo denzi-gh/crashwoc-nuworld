@@ -25,6 +25,7 @@ void nw_debug_frame(void);
 typedef void (*NwDebugFn)(void *user);
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open);
+void nw_debug_toggle(const char *menu, const char *label, bool *value);
 
 void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
 bool nw_debug_button(const char *label);

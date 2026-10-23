@@ -38,6 +38,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_DST_COLOR 0x0306
 #define GL_LEQUAL 0x0203
 #define GL_ALWAYS 0x0207
+#define GL_FRONT_AND_BACK 0x0408
 #define GL_DEPTH_BUFFER_BIT 0x00000100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
@@ -50,6 +51,8 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_UNSIGNED_INT 0x1405
 #define GL_RGBA 0x1908
 #define GL_FLOAT 0x1406
+#define GL_LINE 0x1B01
+#define GL_FILL 0x1B02
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
@@ -101,6 +104,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a)) \
     X(void, glBlendFunc, (GLenum sfactor, GLenum dfactor)) \
     X(void, glBlendEquation, (GLenum mode)) \
+    X(void, glPolygonMode, (GLenum face, GLenum mode)) \
     X(void, glPixelStorei, (GLenum pname, GLint param)) \
     X(void, glGenTextures, (GLsizei n, GLuint *textures)) \
     X(void, glDeleteTextures, (GLsizei n, const GLuint *textures)) \
@@ -172,6 +176,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glColorMask nw_glColorMask
 #define glBlendFunc nw_glBlendFunc
 #define glBlendEquation nw_glBlendEquation
+#define glPolygonMode nw_glPolygonMode
 #define glPixelStorei nw_glPixelStorei
 #define glGenTextures nw_glGenTextures
 #define glDeleteTextures nw_glDeleteTextures
