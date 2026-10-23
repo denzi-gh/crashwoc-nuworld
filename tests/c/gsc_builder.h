@@ -173,7 +173,7 @@ static void gsc_vtx(VifVtx *v, uint32_t n, float z)
 }
 
 /* Materials tricu, OT tric, tric; object 0 a V4-32 chain and a packed geom, object 1 an OT and a face-on geom. */
-static void gsc_build_scene(GscBuild *b, GscScene *s)
+static inline void gsc_build_scene(GscBuild *b, GscScene *s)
 {
     memset(b, 0, sizeof(*b));
     memset(s, 0, sizeof(*s));
@@ -239,7 +239,14 @@ static void gsc_build_scene(GscBuild *b, GscScene *s)
     gsc_u32(b, 0);
     gsc_u32(b, 1);
     gsc_zero(b, 12 + 12);
-    uint8_t ot[16 + 0xA0] = { 1 }; /* one triangle block */
+    uint8_t ot[16 + 0xA0] = { 1 }; /* one triangle block: vertex k at (k, 2k, 3k), u 4096k, r 16k */
+    for (int k = 0; k < 3; k++) {
+        const float pos[4] = { (float)k, 2.0f * k, 3.0f * k, 0.0f };
+        const int32_t tex[4] = { 4096 * k, 0, 0, 0 }, col[4] = { 16 * k, 0, 0, 0x80 };
+        memcpy(ot + 32 + k * 0x30, pos, 16);
+        memcpy(ot + 48 + k * 0x30, tex, 16);
+        memcpy(ot + 64 + k * 0x30, col, 16);
+    }
     s->blob[2] = gsc_geom(b, 1, ot, sizeof(ot), NULL);
     s->blob_size[2] = sizeof(ot);
     gsc_bounds(b);

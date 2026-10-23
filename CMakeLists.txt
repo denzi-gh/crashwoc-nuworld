@@ -66,7 +66,6 @@ add_executable(crashwoc-nuworld
   src/main.c
   src/platform/platform.c
   src/gfx/gl.c
-  src/gfx/view.c
   src/gfx/vu.c
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
@@ -107,12 +106,14 @@ target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
 
-# Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state.
+# Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state, the frame packets.
 add_library(nuworld_gfx STATIC
   src/gfx/gsc.c
   src/gfx/mtl.c
+  src/gfx/packet.c
   src/gfx/tex.c
-  src/gfx/vif.c)
+  src/gfx/vif.c
+  src/gfx/vu1init.c)
 target_include_directories(nuworld_gfx PUBLIC src)
 target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)

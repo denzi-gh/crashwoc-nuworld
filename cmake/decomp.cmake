@@ -130,9 +130,11 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # whole: nuworld_port's function map reads tables its decomp objects define, a cycle one-pass linkers (GNU ld) do
 # not resolve, and for the executable the link is what proves the closure.
 # Never build it with LTO: the data image defines the roots as raw bytes.
-set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/hle/asmmem.c src/hle/asmstrm.c
+set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustream.c src/gfx/numtl.c
+  src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/ps2video.c src/shim/cdvd.c src/shim/ee.c
+  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/ps2video.c src/port/scene.c src/shim/cdvd.c
+  src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
@@ -142,6 +144,8 @@ target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
 target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_gfx nuworld_port nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+# The renderer draws the game thread's frame packets, so it comes with the decomp.
+target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
 if(NUWORLD_TESTS)
@@ -170,6 +174,11 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
       --data-dir {root} --check-scenes)
   set_tests_properties(check-scenes-retail PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: every .gsc of the imported disc loaded and drawn by the decomp into a frame packet with draws.
+  add_test(NAME scene-render-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
+      --data-dir {root} --scene-check all)
+  set_tests_properties(scene-render-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
   # Local only: those lines against the crashwoc tooling's decode ($CRASHWOC_TOOLING; skipped without it).
   add_test(NAME scene-hashes-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
@@ -198,6 +207,14 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_nugscn PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_nugscn PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME nugscn COMMAND nuworld_test_nugscn ${CMAKE_CURRENT_BINARY_DIR}/test-nugscn)
+
+  # The port's Nu render layer under the decomp code that drives it.
+  add_executable(nuworld_test_rndr tests/c/test_rndr.c)
+  add_dependencies(nuworld_test_rndr nuworld_types)
+  target_include_directories(nuworld_test_rndr PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_rndr PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_rndr PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME rndr COMMAND nuworld_test_rndr)
 
   # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
   add_executable(nuworld_test_clock tests/c/test_clock.c)

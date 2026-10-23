@@ -8,11 +8,13 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
+#include "gfx/rndr.h"
 #include "gfx/vif.h"
 #include "nu3d/nuanim.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
 #include "nu3d/numtl.h"
+#include "nu3d/nutex.h"
 #include "nu3d/nutexanm.h"
 #include "nucore/nufile.h"
 #include "nw_ps2types.h"
@@ -31,6 +33,7 @@ _Static_assert(sizeof(nw_ps2_nuinstance_s) == NW_GSC_INST_SIZE && offsetof(nw_ps
                "nuinstance_s");
 
 extern int nugscn_mtlupdate_enabled;
+extern char vu_load_tricu_mpg[], vu_load_tric_mpg[];
 extern int NuRndrShadMaskCount;
 extern struct nugspline_s *NuRndrShadMasks[];
 
@@ -78,6 +81,9 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(sc->numtid == 0 && sc->nummtl == 3);
     CHECK(sc->mtls[0]->next == sc->mtls[2] && sc->mtls[1]->next == NULL && sc->mtls[2]->next == NULL);
     CHECK(sc->mtls[0]->tid == 0 && sc->mtls[0]->attrib.lighting == 2 && sc->mtls[1]->attrib.ot == 1);
+    CHECK(sc->mtls[0]->rs.mpg == (unsigned char *)vu_load_tricu_mpg);
+    CHECK(sc->mtls[1]->rs.mpg == (unsigned char *)vu_load_tric_mpg && sc->mtls[2]->vuattr.u32 != NULL);
+    CHECK(nw_rndr_state(sc->mtls[2])->diffuse[1] == 64.0f);
     CHECK(sc->mtls[2]->diffuse.g == 0.5f && sc->mtls[2]->alpha == 1.0f);
 
     CHECK(sc->numgobj == 2);
@@ -89,15 +95,20 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(geom->next == geom + 1 && geom[1].next == NULL);
     CHECK(geom->mtl == sc->mtls[0] && geom[1].mtl == sc->mtls[2] && geom->otbatch == NULL);
     for (int i = 0; i < 2; i++) {
-        const NwVifMesh *m = geom[i].dmastream;
+        const NwVifMesh *m = &((const NwGpuMesh *)geom[i].dmastream)->mesh;
         CHECK(m && m->nbatches == s->batches[i] && m->nverts == s->verts[i] && m->ntris == s->tris[i]);
     }
     g = sc->gobjs[1];
     CHECK(g->ngobjs == 2 && g[0].type == 0 && g[1].type == 1);
-    CHECK(g[0].geom->otbatch == (void *)(file + s->blob[2]) && g[0].geom->dmastream == NULL);
+    const NwGpuMesh *ot = g[0].geom->dmastream;
+    CHECK(g[0].geom->otbatch == (void *)(file + s->blob[2]) && ot && ot->mesh.ntris == 1 && ot->mesh.nverts == 3);
+    CHECK(ot && ot->mesh.verts[2].pos[2] == 6.0f && ot->mesh.verts[1].tex[0] == 4096 && ot->mesh.verts[2].col[0] == 32);
+    CHECK(ot && ot->mesh.verts[0].col[3] == 0x80 && ot->mesh.tris[2] == 2);
     struct nufaceongeom_s *f = g[1].faceon_geom;
     CHECK(f->mtl == sc->mtls[0] && f->faceon_type == 3 && f->faceon_radius == 1.5f);
-    CHECK(f->dmastream == (void *)(file + s->blob[3]) && f->next == NULL);
+    const NwGpuSprites *sprites = f->dmastream;
+    CHECK(sprites && sprites->sprites.count == 2 && !sprites->sprites.facey && f->next == NULL);
+    CHECK(sprites && sprites->sprites.sprites[1].pos[0] == 3.0f && sprites->sprites.sprites[0].size[0] == -1.0f);
 
     CHECK(sc->numinstance == 3);
     struct nuinstance_s *in = sc->instances;
@@ -153,7 +164,9 @@ static void test_load(const char *scratch)
     CHECK(nw_vfs_init(&vfs, root));
     nw_shim_file_init(&vfs);
     NuFileInitEx(1, 1);
-    nugscn_mtlupdate_enabled = 0; /* NuMtlUpdate's state block is the material work's */
+    NuTexInit();
+    NuMtlInit();
+    nugscn_mtlupdate_enabled = 1;
 
     char *buf = scene_buffer + 3, *end = scene_buffer + sizeof(scene_buffer);
     char *file = (char *)(((uintptr_t)buf + 0x7F) & ~(uintptr_t)0x7F);

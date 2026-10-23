@@ -20,10 +20,24 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_lightdir[3];\n"
     "uniform vec4 u_lightcol[3];\n"
     "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
+    "uniform vec4 u_sprite;\n"
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
     "void main()\n"
     "{\n"
+    /* faceon adds its corners in GS units before the divide; facey spans its quad along VF15 and the object's y. */
+    "#if PROGRAM >= 4\n"
+    "    vec2 corner = 1.0 - 2.0 * a_tex.xy;\n"
+    "#if PROGRAM == 4\n"
+    "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
+    "    gl_Position.xy += corner * a_tex.zw * u_sprite.xy;\n"
+    "#else\n"
+    "    vec3 p = a_pos.xyz - corner.x * a_tex.z * u_sprite.xyz + vec3(0.0, corner.y * a_tex.w, 0.0);\n"
+    "    gl_Position = u_lv * vec4(p, 1.0);\n"
+    "#endif\n"
+    "    v_uv = a_tex.xy;\n"
+    "    v_col = a_col;\n"
+    "#else\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
     "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
@@ -40,6 +54,7 @@ static const char nw_vu_vs[] =
     "    v_col = vec4(min((u_ambient.rgb + lit.rgb) * a_col.rgb, 255.0), a_col.a);\n"
     "    v_uv += u_uvoff.xy;\n"
     "#endif\n"
+    "#endif\n"
     "}\n";
 
 /* The GS texture unit: CLUT lookups in GS units, CLAMP/REPEAT, the TEX1 filters and LOD over the mip levels. */
@@ -48,24 +63,33 @@ static const char nw_vu_fs[] =
     "in vec2 v_uv;\n"
     "uniform usampler2D u_tex;\n"
     "uniform usampler2D u_clut;\n"
-    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour; MMAG; CLAMP u; CLAMP v */
+    "uniform sampler2D u_surf;\n"
+    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface; MMAG; CLAMP u; CLAMP v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
     "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
     "out vec4 o_col;\n"
+    "ivec2 tex_size(int lod)\n"
+    "{\n"
+    "    return u_texmode.x == 3 ? textureSize(u_surf, 0) : textureSize(u_tex, lod);\n"
+    "}\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
-    "    ivec2 size = textureSize(u_tex, lod);\n"
+    "    ivec2 size = tex_size(lod);\n"
     /* GS sizes are powers of two (TW, TH); a mask wraps negative coordinates too, where % is undefined. */
     "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : p.x & (size.x - 1),\n"
     "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : p.y & (size.y - 1));\n"
+    "    if (u_texmode.x == 3) {\n"
+    "        vec4 s = texelFetch(u_surf, ivec2(p.x, size.y - 1 - p.y), 0);\n"
+    "        return floor(vec4(s.rgb * 255.0, s.a * 128.0) + 0.5);\n"
+    "    }\n"
     "    uvec4 c = texelFetch(u_tex, p, lod);\n"
     "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
     "}\n"
     "vec4 sample_level(vec2 uv, int lod, bool bilinear)\n"
     "{\n"
-    "    vec2 t = uv * vec2(textureSize(u_tex, lod));\n"
+    "    vec2 t = uv * vec2(tex_size(lod));\n"
     "    if (!bilinear) {\n"
     "        return texel(ivec2(floor(t)), lod);\n"
     "    }\n"
@@ -121,7 +145,7 @@ static const char nw_vu_fs[] =
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc, ascolour, atest;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -171,6 +195,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].lightdir = glGetUniformLocation(p, "u_lightdir");
     nw_vu[program].lightcol = glGetUniformLocation(p, "u_lightcol");
     nw_vu[program].uvoff = glGetUniformLocation(p, "u_uvoff");
+    nw_vu[program].sprite = glGetUniformLocation(p, "u_sprite");
     nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
@@ -179,6 +204,7 @@ static bool nw_vu_link(NwVuProgram program)
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
+    glUniform1i(glGetUniformLocation(p, "u_surf"), 2);
     return true;
 }
 
@@ -219,17 +245,6 @@ NwVuProgram nw_vu_program(const char *package)
     return NW_VU_TRIC;
 }
 
-void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
-{
-    memset(o, 0, sizeof(*o));
-    for (int r = 0; r < 4; r++) {
-        for (int c = 0; c < 4; c++) {
-            o->lv[r * 4 + c] = local[r * 4] * view[c] + local[r * 4 + 1] * view[4 + c] +
-                               local[r * 4 + 2] * view[8 + c] + local[r * 4 + 3] * view[12 + c];
-        }
-    }
-}
-
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
 {
     glUseProgram(nw_vu[program].prog);
@@ -239,8 +254,10 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].lightdir, 3, o->lightdir[0]);
     glUniform4fv(nw_vu[program].lightcol, 3, o->lightcol[0]);
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
+    glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     bool textured = m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
+    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0, m->state.mmag,
+                m->state.wms == 1,
                 m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].tcc, textured && m->tex->tcc);
@@ -258,7 +275,11 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     /* The GS keeps the larger z; the screen matrices give GL the smaller one for the nearer point. */
     static const GLenum ztst[4] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
     glDepthFunc(ztst[m->state.ztst & 3]);
-    if (textured) {
+    if (textured && m->tex->surface) {
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, m->tex->index);
+        glActiveTexture(GL_TEXTURE0);
+    } else if (textured) {
         glActiveTexture(GL_TEXTURE0 + 1);
         glBindTexture(GL_TEXTURE_2D, m->tex->clut);
         glActiveTexture(GL_TEXTURE0);
@@ -302,6 +323,7 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
     tex->index = names[0];
     tex->clut = names[1];
     tex->tcc = t->tcc;
+    tex->surface = false;
 }
 
 void nw_vu_texture_free(NwVuTexture *tex)
@@ -320,4 +342,15 @@ void nw_vu_attribs(void)
     glVertexAttribPointer(1, 4, GL_SHORT, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, tex));
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, col));
+}
+
+void nw_vu_sprite_attribs(void)
+{
+    const GLsizei stride = sizeof(NwVuSpriteVertex);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, tex));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, col));
 }

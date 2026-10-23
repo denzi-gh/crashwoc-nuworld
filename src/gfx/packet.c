@@ -1,0 +1,159 @@
+#include "gfx/packet.h"
+
+#include <string.h>
+
+#include <SDL3/SDL.h>
+
+/* Three packets: the game thread builds one, the newest published one waits, the render thread draws one. */
+static NwPacket nw_slots[3];
+static int nw_building = 0, nw_ready = 1, nw_drawing = 2;
+static bool nw_fresh;      /* the ready slot holds a packet the render thread has not taken */
+static uint64_t nw_seq;    /* of the last published packet */
+static NwGpuJob *nw_jobs;
+static uint32_t nw_njobs, nw_jobcap;
+static SDL_Mutex *nw_lock;
+static SDL_InitState nw_lock_init;
+
+static void nw_packet_lock(void)
+{
+    if (SDL_ShouldInit(&nw_lock_init)) {
+        nw_lock = SDL_CreateMutex();
+        SDL_SetInitialized(&nw_lock_init, nw_lock != NULL);
+    }
+    SDL_LockMutex(nw_lock);
+}
+
+static bool nw_packet_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
+{
+    if (n < *cap) {
+        return true;
+    }
+    uint32_t c = *cap ? *cap * 2 : 256;
+    while (c <= n) {
+        c *= 2;
+    }
+    void *grown = SDL_realloc(*items, c * size);
+    if (!grown) {
+        return false;
+    }
+    *items = grown;
+    *cap = c;
+    return true;
+}
+
+NwCmd *nw_packet_cmd(NwPacket *p)
+{
+    if (!nw_packet_grow((void **)&p->cmds, &p->cmdcap, p->ncmds, sizeof(*p->cmds))) {
+        return NULL;
+    }
+    NwCmd *c = &p->cmds[p->ncmds++];
+    memset(c, 0, sizeof(*c));
+    return c;
+}
+
+NwView *nw_packet_view(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->views, &p->viewcap, p->nviews, sizeof(*p->views))) {
+        return NULL;
+    }
+    *index = p->nviews;
+    return &p->views[p->nviews++];
+}
+
+NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->mtls, &p->mtlcap, p->nmtls, sizeof(*p->mtls))) {
+        return NULL;
+    }
+    *index = p->nmtls;
+    return &p->mtls[p->nmtls++];
+}
+
+NwLights *nw_packet_light(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->lights, &p->lightcap, p->nlights, sizeof(*p->lights))) {
+        return NULL;
+    }
+    *index = p->nlights;
+    return &p->lights[p->nlights++];
+}
+
+uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first)
+{
+    if (!nw_packet_grow((void **)&p->idx, &p->idxcap, p->nidx + n - 1, sizeof(*p->idx))) {
+        return NULL;
+    }
+    *first = p->nidx;
+    p->nidx += n;
+    return &p->idx[*first];
+}
+
+void nw_packet_reset(NwPacket *p)
+{
+    p->seq = 0;
+    p->vbcnt = 0;
+    p->ncmds = 0;
+    p->nviews = 0;
+    p->nmtls = 0;
+    p->nlights = 0;
+    p->nidx = 0;
+}
+
+NwPacket *nw_packet_building(void)
+{
+    return &nw_slots[nw_building];
+}
+
+void nw_packet_publish(int32_t vbcnt)
+{
+    nw_packet_lock();
+    NwPacket *p = &nw_slots[nw_building];
+    p->seq = ++nw_seq;
+    p->vbcnt = vbcnt;
+    int ready = nw_ready;
+    nw_ready = nw_building;
+    nw_building = ready;
+    nw_fresh = true;
+    SDL_UnlockMutex(nw_lock);
+    nw_packet_reset(&nw_slots[nw_building]);
+}
+
+const NwPacket *nw_packet_take(void)
+{
+    nw_packet_lock();
+    if (nw_fresh) {
+        int drawing = nw_drawing;
+        nw_drawing = nw_ready;
+        nw_ready = drawing;
+        nw_fresh = false;
+    }
+    const NwPacket *p = nw_slots[nw_drawing].seq ? &nw_slots[nw_drawing] : NULL;
+    SDL_UnlockMutex(nw_lock);
+    return p;
+}
+
+void nw_gpu_queue(NwGpuOp op, void *obj)
+{
+    nw_packet_lock();
+    if (nw_packet_grow((void **)&nw_jobs, &nw_jobcap, nw_njobs, sizeof(*nw_jobs))) {
+        nw_jobs[nw_njobs++] = (NwGpuJob){ op, obj, nw_seq + 1 };
+    }
+    SDL_UnlockMutex(nw_lock);
+}
+
+uint32_t nw_gpu_take(uint64_t seq, NwGpuJob **out, uint32_t *cap)
+{
+    uint32_t n = 0, kept = 0;
+    nw_packet_lock();
+    for (uint32_t i = 0; i < nw_njobs; i++) {
+        bool free = nw_jobs[i].op >= NW_GPU_FREE_MESH;
+        if ((!free || seq > nw_jobs[i].fence) && nw_packet_grow((void **)out, cap, n, sizeof(**out))) {
+            (*out)[n++] = nw_jobs[i];
+        } else {
+            nw_jobs[kept++] = nw_jobs[i];
+        }
+    }
+    nw_njobs = kept;
+    SDL_UnlockMutex(nw_lock);
+    return n;
+}

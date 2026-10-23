@@ -8,27 +8,49 @@
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 
-/* The triangle packages' per-vertex programs (tri runs the same code as tric). */
+/* The triangle packages' per-vertex programs (tri runs the same code as tric), and the sprite programs they jump to
+   for face-on geoms. */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
     NW_VU_TRICA,
     NW_VU_TRICDV,
+    NW_VU_FACEON,
+    NW_VU_FACEY,
     NW_VU_PROGRAMS
 } NwVuProgram;
 
-/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights). */
+/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights), and for
+   the sprite programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15. */
 typedef struct NwVuObject {
     float lv[16];
     float ambient[4];
     float lightdir[3][4];
     float lightcol[3][4];
+    float sprite[4];
 } NwVuObject;
 
-/* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT. */
+/* A corner of a face-on sprite: the point, s and t of the corner with the sprite's size, the colour. */
+typedef struct NwVuSpriteVertex {
+    float pos[4];
+    float tex[4];
+    uint8_t col[4];
+} NwVuSpriteVertex;
+
+/* The lights a lit stream uploads to VU 0x0C-0x12, as NuRndrSetDirectionalLights and NuRndrSetAmbientLight set
+   them: three directions and colours in world space, the ambient colour. */
+typedef struct NwLights {
+    float dir[3][3];
+    float col[3][3];
+    float ambient[3];
+} NwLights;
+
+/* A texture on the GPU: CLUT indices (R8UI) and the CLUT (256x1 RGBA8UI), or colours (RGBA8UI) and no CLUT, or a
+   surface the renderer draws into (RGBA8: colour / 255, alpha / 128, GS row y at row height - 1 - y). */
 typedef struct NwVuTexture {
     unsigned int index, clut;
     bool tcc; /* TEX0.TCC */
+    bool surface;
 } NwVuTexture;
 
 /* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state. */
@@ -43,8 +65,11 @@ bool nw_vu_init(void);
 void nw_vu_shutdown(void);
 /* The program of a microcode package name; xformuv (no scene material uses it) falls back to tric. */
 NwVuProgram nw_vu_program(const char *package);
-/* vu1init and clipinit alike, with no lights yet: the GPU clips, so clip and trivclip need no counterpart. */
+/* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
+/* Their lights for a lit stream (mode 1): each direction dotted with the normalised rows of the local matrix, the
+   colours with w 0, the ambient colour. */
+void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l);
 /* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */
@@ -54,5 +79,7 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);
 /* The NwVifVertex attributes of the bound VAO and VBO. */
 void nw_vu_attribs(void);
+/* The NwVuSpriteVertex attributes of the bound VAO and VBO. */
+void nw_vu_sprite_attribs(void);
 
 #endif

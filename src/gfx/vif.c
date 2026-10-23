@@ -5,7 +5,9 @@
 
 #include <SDL3/SDL.h>
 
-#define NW_VIF_MSCAL_TRI 0x300 /* the package's triangle program at VU 0x1800 */
+#define NW_VIF_MSCAL_TRI 0x300    /* the package's triangle program at VU 0x1800 */
+#define NW_VIF_MSCAL_FACEON 0x304 /* its jump to faceon */
+#define NW_VIF_MSCAL_FACEY 0x306  /* and to facey */
 #define NW_VIF_GIFTAG 0xD2     /* the batch's strip GIF tag; its NLOOP is the vertex count */
 
 /* The VIF unit as far as the geometry stream drives it, and the open batch. */
@@ -350,9 +352,146 @@ bool nw_vif_decode(NwVifMesh *mesh, const void *geom, size_t size)
     return ok;
 }
 
+/* A count, then a block per triangle: a REF tag and three vertices of three V4-32 quadwords, x, y, z and the normal's
+   x as floats, u, v and the normal's y, z x4096 as ints, r, g, b, a as ints. The normal saturates: only the lit
+   programs read it, and the unlit batches carry ones that are not unit length. */
+bool nw_vif_otbatch(NwVifMesh *mesh, const void *batch, size_t size)
+{
+    const uint8_t *p = batch;
+    uint32_t count = size >= 16 ? nw_rd32(p) : 0;
+    if (size < 16 || count > (size - 16) / 0xA0) {
+        return SDL_SetError("vif: %u triangles in an OT batch of %zu bytes", count, size);
+    }
+    uint64_t nverts = (uint64_t)mesh->nverts + count * 3u, ntris = (uint64_t)mesh->ntris + count;
+    if (!nw_vif_reserve((void **)&mesh->verts, &mesh->vcap, nverts, sizeof(*mesh->verts)) ||
+        !nw_vif_reserve((void **)&mesh->tris, &mesh->tcap, ntris * 3, sizeof(*mesh->tris))) {
+        return false;
+    }
+    for (uint32_t t = 0; t < count; t++) {
+        const uint8_t *v = p + 16 + (size_t)t * 0xA0 + 16;
+        for (int k = 0; k < 3; k++, v += 0x30) {
+            NwVifVertex *out = &mesh->verts[mesh->nverts + t * 3 + k];
+            memcpy(out->pos, v, 16);
+            for (int i = 0; i < 4; i++) {
+                int32_t tex = (int32_t)nw_rd32(v + 16 + i * 4), col = (int32_t)nw_rd32(v + 32 + i * 4);
+                if ((i < 2 && (tex < INT16_MIN || tex > INT16_MAX)) || col < 0 || col > 255) {
+                    return SDL_SetError("vif: OT triangle %u vertex %d out of range", t, k);
+                }
+                out->tex[i] = (int16_t)(tex < INT16_MIN ? INT16_MIN : tex > INT16_MAX ? INT16_MAX : tex);
+                out->col[i] = (uint8_t)col;
+            }
+            mesh->tris[(mesh->ntris + t) * 3 + k] = mesh->nverts + t * 3 + k;
+        }
+    }
+    mesh->nverts = (uint32_t)nverts;
+    mesh->ntris = (uint32_t)ntris;
+    mesh->nbatches++;
+    return true;
+}
+
 void nw_vif_free(NwVifMesh *mesh)
 {
     SDL_free(mesh->verts);
     SDL_free(mesh->tris);
     memset(mesh, 0, sizeof(*mesh));
+}
+
+/* A face-on batch as NuCvtDmaFaceOn and NuCvtDmaFaceY write it: the count x3 at VU 1, then under STCYCL 3,1 each
+   sprite's point (V3-32) at VU 4 + 3i, size (V2-32) at 5 + 3i and colour (V4-8) at 6 + 3i, kicked at MSCAL 0x304
+   or 0x306. The GIF tags they also upload are the programs' own. */
+static bool nw_vif_sprite_batch(NwVifSprites *s, const uint8_t *st, size_t n)
+{
+    uint32_t count = 0, filled = 0;
+    unsigned cl = 1, wl = 1;
+    bool kicked = false;
+    NwVifSprite *b = NULL;
+    for (size_t p = 0; p < n;) {
+        uint32_t w = nw_rd32(st + p);
+        unsigned cmd = (w >> 24) & 0x7F, imm = w & 0xFFFF, addr = w & 0x3FF;
+        size_t at = p;
+        p += 4;
+        if (cmd < 0x60) {
+            if (cmd == 0x01) {
+                cl = imm & 0xFF;
+                wl = imm >> 8;
+            } else if (cmd == 0x14) {
+                if (imm != NW_VIF_MSCAL_FACEON && imm != NW_VIF_MSCAL_FACEY) {
+                    return SDL_SetError("vif: face-on batch kicked at 0x%x", imm);
+                }
+                if (kicked && s->facey != (imm == NW_VIF_MSCAL_FACEY)) {
+                    return SDL_SetError("vif: faceon and facey batches in one geom");
+                }
+                if (!b || filled != 7) {
+                    return SDL_SetError("vif: face-on batch kicked before its points, sizes and colours");
+                }
+                s->facey = imm == NW_VIF_MSCAL_FACEY;
+                s->count += count;
+                kicked = true;
+                b = NULL;
+                filled = 0;
+            } else if (cmd != 0x00) {
+                return SDL_SetError("vif: VIF command 0x%02x at 0x%zx in a face-on geom", cmd, at);
+            }
+            continue;
+        }
+        unsigned vn = (cmd >> 2) & 3, vl = cmd & 3, num = (w >> 16) & 0xFF ? (w >> 16) & 0xFF : 256;
+        size_t bytes = ((size_t)num * (vn + 1) * (32u >> vl) / 8 + 3) & ~(size_t)3;
+        if (bytes > n - p) {
+            return SDL_SetError("vif: unpack at 0x%zx runs past the end", at);
+        }
+        const uint8_t *d = st + p;
+        p += bytes;
+        if (addr == 1 && vn == 3 && vl == 1) {
+            uint16_t x3;
+            memcpy(&x3, d, 2);
+            count = x3 / 3u;
+            if (!nw_vif_reserve((void **)&s->sprites, &s->cap, (uint64_t)s->count + count, sizeof(*s->sprites))) {
+                return false;
+            }
+            b = s->sprites + s->count;
+            filled = 0;
+            continue;
+        }
+        if (addr < 4 || addr > 6) {
+            continue; /* the GIF tags at VU 0 and 0x56 */
+        }
+        if (!b || cl != 3 || wl != 1 || num != count) {
+            return SDL_SetError("vif: face-on unpack at 0x%zx outside a batch of %u", at, count);
+        }
+        for (uint32_t i = 0; i < count; i++) {
+            if (addr == 4 && vn == 2 && vl == 0) {
+                memcpy(b[i].pos, d + i * 12, 12);
+            } else if (addr == 5 && vn == 1 && vl == 0) {
+                memcpy(b[i].size, d + i * 8, 8);
+            } else if (addr == 6 && vn == 3 && vl == 2) {
+                memcpy(b[i].col, d + i * 4, 4);
+            } else {
+                return SDL_SetError("vif: face-on unpack 0x%02x to VU %u", cmd, addr);
+            }
+        }
+        filled |= 1u << (addr - 4);
+    }
+    if (b) {
+        return SDL_SetError("vif: face-on batch not kicked");
+    }
+    return true;
+}
+
+bool nw_vif_sprites(NwVifSprites *s, const void *geom, size_t size)
+{
+    memset(s, 0, sizeof(*s));
+    size_t n = 0;
+    uint8_t *st = nw_vif_chain(geom, size, &n);
+    bool ok = st && nw_vif_sprite_batch(s, st, n);
+    SDL_free(st);
+    if (!ok) {
+        nw_vif_sprites_free(s);
+    }
+    return ok;
+}
+
+void nw_vif_sprites_free(NwVifSprites *s)
+{
+    SDL_free(s->sprites);
+    memset(s, 0, sizeof(*s));
 }

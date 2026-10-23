@@ -1,0 +1,37 @@
+#include "gfx/vu.h"
+
+#include <math.h>
+#include <string.h>
+
+void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
+{
+    memset(o, 0, sizeof(*o));
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            o->lv[r * 4 + c] = local[r * 4] * view[c] + local[r * 4 + 1] * view[4 + c] +
+                               local[r * 4 + 2] * view[8 + c] + local[r * 4 + 3] * view[12 + c];
+        }
+    }
+}
+
+void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l)
+{
+    float row[3][3];
+    for (int r = 0; r < 3; r++) {
+        const float *m = &local[r * 4];
+        float inv = 1.0f / sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        for (int k = 0; k < 3; k++) {
+            row[r][k] = m[k] * inv;
+        }
+    }
+    for (int i = 0; i < 3; i++) {
+        for (int r = 0; r < 3; r++) {
+            o->lightdir[i][r] = l->dir[i][0] * row[r][0] + l->dir[i][1] * row[r][1] + l->dir[i][2] * row[r][2];
+        }
+        o->lightdir[i][3] = 0.0f;
+        memcpy(o->lightcol[i], l->col[i], sizeof(l->col[i]));
+        o->lightcol[i][3] = 0.0f;
+    }
+    memcpy(o->ambient, l->ambient, sizeof(l->ambient));
+    o->ambient[3] = 0.0f;
+}

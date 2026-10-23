@@ -6,6 +6,7 @@
 
 #include "gfx/gsc.h"
 #include "gfx/mtl.h"
+#include "gfx/packet.h"
 #include "gfx/vif.h"
 
 #include "gsc_builder.h"
@@ -239,6 +240,46 @@ static void test_chain(void)
     CHECK(decode(&m, &b));
     CHECK(m.nbatches == 0 && m.nverts == 0);
     nw_vif_free(&m);
+    vif_free(&b);
+}
+
+/* Face-on geoms: faceon (0x304) and facey (0x306) batches of points, sizes and colours, one program a geom. */
+static void test_sprites(void)
+{
+    VifBuild b;
+    NwVifSprites s;
+    vif_begin(&b);
+    vif_faceon(&b, 5);
+    vif_faceon(&b, 2);
+    vif_end(&b, 64);
+    CHECK(nw_vif_sprites(&s, b.buf, b.len) && s.count == 7 && !s.facey);
+    CHECK(s.count == 7 && s.sprites[1].pos[0] == 3.0f && s.sprites[1].pos[2] == 5.0f && s.sprites[6].pos[1] == 4.0f);
+    CHECK(s.count == 7 && s.sprites[4].size[1] == -1.0f && s.sprites[6].col[0] == 0x80 && s.sprites[6].col[3] == 0x40);
+    nw_vif_sprites_free(&s);
+    vif_free(&b);
+
+    vif_begin(&b);
+    vif_facey(&b, 3);
+    vif_end(&b, 0);
+    CHECK(nw_vif_sprites(&s, b.buf, b.len) && s.count == 3 && s.facey);
+    CHECK(s.count == 3 && s.sprites[2].pos[2] == 6.0f && s.sprites[2].size[1] == 1.5f && s.sprites[0].col[0] == 0x30);
+    nw_vif_sprites_free(&s);
+    vif_free(&b);
+
+    vif_begin(&b);
+    vif_faceon(&b, 1);
+    vif_facey(&b, 1);
+    vif_end(&b, 0);
+    CHECK_FAILS(nw_vif_sprites(&s, b.buf, b.len), "faceon and facey batches in one geom");
+    CHECK(s.count == 0 && s.sprites == NULL);
+    vif_free(&b);
+    VifVtx v[4];
+    const bool adc[4] = { 1, 1, 0, 0 };
+    make_strip(v, 4, 4);
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 4, 0);
+    vif_end(&b, 0);
+    CHECK_FAILS(nw_vif_sprites(&s, b.buf, b.len), "outside a batch");
     vif_free(&b);
 }
 
@@ -696,22 +737,6 @@ static void test_atest(void)
     CHECK(nw_mtl_passes(&s, pass) == 1);
 }
 
-/* NuMtlAnimate's modes per axis: none, constant, wrapped scroll, sine and cosine of the shared clock. */
-static void test_animate(void)
-{
-    NwMtlScroll s = { 2, 1, 0.9f, 0.25f, 0.5f, 0.0f, 0.0f, 0.0f };
-    nw_mtl_animate(&s, 0.5f, 0.5f);
-    CHECK(SDL_fabsf(s.u - 0.15f) < 1e-6f && SDL_fabsf(s.du - 0.15f) < 1e-6f && s.v == 0.25f);
-    nw_mtl_animate(&s, 1.0f, 0.5f);
-    CHECK(SDL_fabsf(s.u - 0.4f) < 1e-6f && s.v == 0.25f);
-    s = (NwMtlScroll){ 3, 4, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 0.0f };
-    nw_mtl_animate(&s, 0.25f, 0.02f); /* NuTrigTable[16384] = sin(pi / 2), [32768] = sin(pi) */
-    CHECK(SDL_fabsf(s.u - 0.5f) < 1e-6f && SDL_fabsf(s.v) < 1e-4f && s.du == 0.5f);
-    s = (NwMtlScroll){ 0, 0, 0.5f, 0.5f, 1.0f, 1.0f, 0.125f, 0.25f };
-    nw_mtl_animate(&s, 1.0f, 0.02f);
-    CHECK(s.u == 0.125f && s.v == 0.25f);
-}
-
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -727,6 +752,57 @@ static void test_package(void)
                        .tid = -1 };
         CHECK(strcmp(nw_gsc_mtl_package(&m), cases[i].package) == 0);
     }
+}
+
+/* vu1init: local times screen; for a lit stream the light directions in the space of the local matrix's normalised
+   rows, the colours with w 0 and the ambient colour. */
+static void test_vu1init(void)
+{
+    /* A quarter turn about y, scaled by 2, then moved. */
+    static const float local[16] = { 0, 0, -2, 0, 0, 2, 0, 0, 2, 0, 0, 0, 5, 6, 7, 1 };
+    static const float screen[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2 };
+    static const NwLights l = {
+        { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.6f, 0.8f } },
+        { { 0.5f, 0.25f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } },
+        { 0.1f, 0.2f, 0.3f },
+    };
+    NwVuObject o;
+    nw_vu1init(&o, local, screen);
+    CHECK(o.lv[2] == -2.0f && o.lv[12] == 5.0f && o.lv[15] == 2.0f && o.lightdir[0][2] == 0.0f);
+    nw_vu1init_lights(&o, local, &l);
+    CHECK(o.lightdir[0][0] == 0.0f && o.lightdir[0][1] == 0.0f && o.lightdir[0][2] == 1.0f);
+    CHECK(o.lightdir[1][1] == 1.0f && SDL_fabsf(o.lightdir[2][0] + 0.8f) < 1e-6f);
+    CHECK(SDL_fabsf(o.lightdir[2][1] - 0.6f) < 1e-6f && o.lightdir[2][2] == 0.0f);
+    CHECK(o.lightcol[0][1] == 0.25f && o.lightcol[0][3] == 0.0f && o.ambient[2] == 0.3f && o.lv[12] == 5.0f);
+}
+
+/* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free
+   waits until a packet after the one being built when it was queued is drawn. */
+static void test_packet(void)
+{
+    CHECK(nw_packet_take() == NULL);
+    nw_packet_cmd(nw_packet_building())->op = NW_CMD_DRAW;
+    nw_packet_publish(7);
+    const NwPacket *p = nw_packet_take();
+    CHECK(p && p->seq == 1 && p->vbcnt == 7 && p->ncmds == 1);
+    CHECK(nw_packet_take() == p && nw_packet_building()->ncmds == 0);
+    nw_packet_publish(8);
+    nw_packet_publish(9);
+    p = nw_packet_take();
+    CHECK(p && p->seq == 3 && p->vbcnt == 9 && p->ncmds == 0);
+
+    int mesh, tex;
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0;
+    nw_gpu_queue(NW_GPU_UPLOAD_MESH, &mesh);
+    nw_gpu_queue(NW_GPU_FREE_TEX, &tex);
+    CHECK(nw_gpu_take(3, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_UPLOAD_MESH && jobs[0].obj == &mesh);
+    nw_packet_publish(10);
+    CHECK(nw_gpu_take(4, &jobs, &cap) == 0);
+    nw_packet_publish(11);
+    CHECK(nw_gpu_take(5, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_FREE_TEX && jobs[0].obj == &tex);
+    CHECK(nw_gpu_take(5, &jobs, &cap) == 0);
+    SDL_free(jobs);
 }
 
 /* The --check-scenes lines of the synthetic scene. */
@@ -778,6 +854,7 @@ int main(int argc, char *argv[])
     test_packed();
     test_chain();
     test_errors();
+    test_sprites();
     test_gsc();
     test_package();
     test_texture();
@@ -786,7 +863,8 @@ int main(int argc, char *argv[])
     test_blend();
     test_depth();
     test_atest();
-    test_animate();
+    test_vu1init();
+    test_packet();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

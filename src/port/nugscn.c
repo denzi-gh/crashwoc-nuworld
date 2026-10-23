@@ -5,7 +5,7 @@
 
 #include <SDL3/SDL.h>
 
-#include "gfx/vif.h"
+#include "gfx/packet.h"
 #include "nw_convert.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
@@ -48,8 +48,12 @@ static char *readfile_base;
 static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
 
-static NwVifMesh **nw_gscn_meshes;
-static uint32_t nw_gscn_nmeshes, nw_gscn_mcap;
+/* The GPU objects of the scenes loaded so far, and the job that frees each. */
+static struct {
+    void *obj;
+    NwGpuOp free;
+} *nw_gscn_gpu;
+static uint32_t nw_gscn_ngpu, nw_gscn_gpucap;
 
 /* File pointer fields hold indexes, offsets or -1: kept as integers for the fixups. */
 static void *nw_gscn_ptr_in(NwXCtx *ctx, uint32_t addr, const NwType *type, const char *site)
@@ -104,35 +108,52 @@ static char *nw_gscn_rel(char *field)
     return off ? field + off : 0;
 }
 
-/* A plain geom's DMA chain decoded once; the mesh becomes its dmastream. */
-static NwVifMesh *nw_gscn_mesh(void *stream, int size)
+/* A decoded geom queued for the GPU, or a fatal error. */
+static void *nw_gscn_gpu_add(void *obj, bool ok, NwGpuOp upload, NwGpuOp free)
 {
-    if (nw_gscn_nmeshes == nw_gscn_mcap) {
-        uint32_t n = nw_gscn_mcap ? nw_gscn_mcap * 2 : 1024;
-        NwVifMesh **meshes = SDL_realloc(nw_gscn_meshes, n * sizeof(*meshes));
-        if (!meshes) {
-            NuErrorProlog(nugscn_srcfile, 0xB95)("out of memory for the geom meshes");
-        }
-        nw_gscn_meshes = meshes;
-        nw_gscn_mcap = n;
-    }
-    NwVifMesh *mesh = SDL_calloc(1, sizeof(*mesh));
-    if (!mesh || !nw_vif_decode(mesh, stream, (size_t)size)) {
+    if (!ok) {
         NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": %s", gsc_load_context.filename, SDL_GetError());
     }
-    nw_gscn_meshes[nw_gscn_nmeshes++] = mesh;
-    return mesh;
+    if (nw_gscn_ngpu == nw_gscn_gpucap) {
+        uint32_t n = nw_gscn_gpucap ? nw_gscn_gpucap * 2 : 1024;
+        void *grown = SDL_realloc(nw_gscn_gpu, n * sizeof(*nw_gscn_gpu));
+        if (!grown) {
+            NuErrorProlog(nugscn_srcfile, 0xB95)("out of memory for the geom meshes");
+        }
+        nw_gscn_gpu = grown;
+        nw_gscn_gpucap = n;
+    }
+    nw_gscn_gpu[nw_gscn_ngpu].obj = obj;
+    nw_gscn_gpu[nw_gscn_ngpu++].free = free;
+    nw_gpu_queue(upload, obj);
+    return obj;
+}
+
+/* A geom's DMA chain, or an ordering-table geom's triangle batch, decoded once. */
+static NwGpuMesh *nw_gscn_mesh(void *stream, int size, bool ot)
+{
+    NwGpuMesh *mesh = SDL_calloc(1, sizeof(*mesh));
+    bool ok = mesh && (ot ? nw_vif_otbatch(&mesh->mesh, stream, (size_t)size)
+                          : nw_vif_decode(&mesh->mesh, stream, (size_t)size));
+    return nw_gscn_gpu_add(mesh, ok, NW_GPU_UPLOAD_MESH, NW_GPU_FREE_MESH);
+}
+
+/* A face-on geom's sprites. */
+static NwGpuSprites *nw_gscn_sprites(void *stream, int size)
+{
+    NwGpuSprites *sprites = SDL_calloc(1, sizeof(*sprites));
+    bool ok = sprites && nw_vif_sprites(&sprites->sprites, stream, (size_t)size);
+    return nw_gscn_gpu_add(sprites, ok, NW_GPU_UPLOAD_SPRITES, NW_GPU_FREE_SPRITES);
 }
 
 void nw_gscn_free_meshes(void)
 {
-    for (uint32_t i = 0; i < nw_gscn_nmeshes; i++) {
-        nw_vif_free(nw_gscn_meshes[i]);
-        SDL_free(nw_gscn_meshes[i]);
+    for (uint32_t i = 0; i < nw_gscn_ngpu; i++) {
+        nw_gpu_queue(nw_gscn_gpu[i].free, nw_gscn_gpu[i].obj);
     }
-    SDL_free(nw_gscn_meshes);
-    nw_gscn_meshes = NULL;
-    nw_gscn_nmeshes = nw_gscn_mcap = 0;
+    SDL_free(nw_gscn_gpu);
+    nw_gscn_gpu = NULL;
+    nw_gscn_ngpu = nw_gscn_gpucap = 0;
 }
 
 struct nugscn_s *NuGScnLoadFix(void);
@@ -336,12 +357,13 @@ void ReadObjSet(int fh)
                     if (size & 0xF) {
                         NuErrorProlog(nugscn_srcfile, 0xB95)("invalid qwc");
                     }
-                    /* No in-place block->data = block->qw: a host pointer does not fit the 32-bit field. */
+                    /* No in-place block->data = block->qw: a host pointer does not fit the 32-bit field. An OT
+                       geom keeps its batch, which XFormVuTriZ reads, and its triangles as a mesh in dmastream,
+                       which NuRndrGScnObj draws through the ordering table. */
                     if (geom->mtl->attrib.ot == 1) {
                         geom->otbatch = NuMemFileAddr(fh);
-                    } else {
-                        geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size);
                     }
+                    geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size, geom->otbatch != NULL);
                     NuMemFileSeek(fh, size, 1);
                 }
                 gobj->tricount = tricount;
@@ -363,7 +385,7 @@ void ReadObjSet(int fh)
                     fgeom->faceon_type = NuFileReadInt(fh);
                     fgeom->faceon_radius = NuFileReadFloat(fh);
                     size = NuFileReadInt(fh);
-                    fgeom->dmastream = NuMemFileAddr(fh);
+                    fgeom->dmastream = nw_gscn_sprites(NuMemFileAddr(fh), size);
                     NuMemFileSeek(fh, size, 1);
                 }
                 break;
