@@ -13,6 +13,9 @@ extern int cutmovie;
 extern int D_00633388;
 extern int cutmovie_hold;
 extern int cut_on;
+extern int SOUND_IOP_REQUEST_LOAD;
+extern int SOUND_CD_STATUS;
+extern int SOUND_STREAM_CD_ACCESS;
 
 static struct {
     bool on;
@@ -46,8 +49,8 @@ void nw_trace_sound_vblank(void)
         key[i] = (char)('0' + SOUND_SPUKeyStatus[i] % 10);
     }
     key[NW_TRACE_CHANNELS] = '\0';
-    snprintf(state, sizeof(state), "key %s movie %d world %d hold %d on %d", key, cutmovie, D_00633388, cutmovie_hold,
-             cut_on);
+    snprintf(state, sizeof(state), "key %s movie %d world %d hold %d on %d req %d busy %d cd %d", key, cutmovie,
+             D_00633388, cutmovie_hold, cut_on, SOUND_IOP_REQUEST_LOAD, SOUND_CD_STATUS, SOUND_STREAM_CD_ACCESS);
     if (strcmp(state, nw_trace.last) != 0) {
         printf("vblank %d: %s\n", vblank - nw_trace.base, state);
         fflush(stdout);
