@@ -1,5 +1,6 @@
 #include "gfx/backend.h"
 
+#include <math.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
@@ -43,6 +44,45 @@ void nw_backend_shutdown(void)
     memset(&nw_be, 0, sizeof(nw_be));
 }
 
+/* A face-on geom's sprites as quads of corners (two triangles each), their s and t from (0, 0) to (1, 1). */
+static void nw_be_sprites_upload(NwGpuSprites *s)
+{
+    uint32_t n = s->sprites.count;
+    NwVuSpriteVertex *v = SDL_malloc((size_t)n * 4 * sizeof(*v) + 1);
+    uint32_t *idx = SDL_malloc((size_t)n * 6 * sizeof(*idx) + 1);
+    if (!v || !idx) {
+        SDL_free(v);
+        SDL_free(idx);
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        static const uint32_t quad[6] = { 0, 1, 2, 1, 3, 2 };
+        const NwVifSprite *sp = &s->sprites.sprites[i];
+        for (int k = 0; k < 4; k++) {
+            NwVuSpriteVertex *c = &v[i * 4 + k];
+            const float pos[4] = { sp->pos[0], sp->pos[1], sp->pos[2], 0.0f };
+            const float tex[4] = { (float)(k & 1), (float)(k >> 1), sp->size[0], sp->size[1] };
+            memcpy(c->pos, pos, sizeof(pos));
+            memcpy(c->tex, tex, sizeof(tex));
+            memcpy(c->col, sp->col, 4);
+        }
+        for (int k = 0; k < 6; k++) {
+            idx[i * 6 + k] = i * 4 + quad[k];
+        }
+    }
+    glGenVertexArrays(1, &s->vao);
+    glBindVertexArray(s->vao);
+    glGenBuffers(1, &s->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, s->vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)n * 4 * (GLsizeiptr)sizeof(*v), v, GL_STATIC_DRAW);
+    glGenBuffers(1, &s->ibo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s->ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)n * 6 * (GLsizeiptr)sizeof(*idx), idx, GL_STATIC_DRAW);
+    nw_vu_sprite_attribs();
+    SDL_free(v);
+    SDL_free(idx);
+}
+
 static void nw_be_job(const NwGpuJob *job)
 {
     NwGpuMesh *m = job->obj;
@@ -74,6 +114,16 @@ static void nw_be_job(const NwGpuJob *job)
         nw_vu_texture_free(&t->gl);
         nw_tex_free(&t->tex);
         SDL_free(t);
+        break;
+    case NW_GPU_UPLOAD_SPRITES:
+        nw_be_sprites_upload(job->obj);
+        break;
+    case NW_GPU_FREE_SPRITES:
+        glDeleteVertexArrays(1, &((NwGpuSprites *)job->obj)->vao);
+        glDeleteBuffers(1, &((NwGpuSprites *)job->obj)->vbo);
+        glDeleteBuffers(1, &((NwGpuSprites *)job->obj)->ibo);
+        nw_vif_sprites_free(&((NwGpuSprites *)job->obj)->sprites);
+        SDL_free(job->obj);
         break;
     }
 }
@@ -268,6 +318,37 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     }
 }
 
+/* faceon's corners, sizes in GS units before the divide scaled by VU 0x16; facey's quads, along VF15, the camera's
+   right (cos yaw, 0, -sin yaw) dotted with the local matrix's rows and normalised (faceinit). */
+static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
+{
+    const NwGpuSprites *s = c->sprites;
+    if (!s || !s->vao) {
+        return;
+    }
+    const NwView *v = &p->views[c->view];
+    float screen[16];
+    nw_be_screen(v, nw_be.width, nw_be.height, screen);
+    NwVuObject o;
+    nw_vu1init(&o, c->local, screen);
+    if (s->sprites.facey) {
+        float len = 0.0f;
+        for (int r = 0; r < 3; r++) {
+            o.sprite[r] = c->local[r * 4] * v->faceon[0] + c->local[r * 4 + 2] * v->faceon[2];
+            len += o.sprite[r] * o.sprite[r];
+        }
+        for (int r = 0; r < 3; r++) {
+            o.sprite[r] /= sqrtf(len);
+        }
+    } else {
+        o.sprite[0] = v->faceon[1] / (8.0f * (float)nw_be.width);
+        o.sprite[1] = -v->faceon[3] / (8.0f * (float)nw_be.height);
+    }
+    NwVuMaterial m = nw_be_material(p, c, false);
+    glBindVertexArray(s->vao);
+    nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL);
+}
+
 /* A packet runs once into the GS framebuffer, which keeps what it drew as GS memory does. */
 static void nw_be_run(const NwPacket *p)
 {
@@ -296,6 +377,9 @@ static void nw_be_run(const NwPacket *p)
             break;
         case NW_CMD_RECT:
             nw_be_rect(p, c, rects++);
+            break;
+        case NW_CMD_SPRITES:
+            nw_be_sprites(p, c);
             break;
         }
     }

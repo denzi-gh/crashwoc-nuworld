@@ -243,6 +243,46 @@ static void test_chain(void)
     vif_free(&b);
 }
 
+/* Face-on geoms: faceon (0x304) and facey (0x306) batches of points, sizes and colours, one program a geom. */
+static void test_sprites(void)
+{
+    VifBuild b;
+    NwVifSprites s;
+    vif_begin(&b);
+    vif_faceon(&b, 5);
+    vif_faceon(&b, 2);
+    vif_end(&b, 64);
+    CHECK(nw_vif_sprites(&s, b.buf, b.len) && s.count == 7 && !s.facey);
+    CHECK(s.count == 7 && s.sprites[1].pos[0] == 3.0f && s.sprites[1].pos[2] == 5.0f && s.sprites[6].pos[1] == 4.0f);
+    CHECK(s.count == 7 && s.sprites[4].size[1] == -1.0f && s.sprites[6].col[0] == 0x80 && s.sprites[6].col[3] == 0x40);
+    nw_vif_sprites_free(&s);
+    vif_free(&b);
+
+    vif_begin(&b);
+    vif_facey(&b, 3);
+    vif_end(&b, 0);
+    CHECK(nw_vif_sprites(&s, b.buf, b.len) && s.count == 3 && s.facey);
+    CHECK(s.count == 3 && s.sprites[2].pos[2] == 6.0f && s.sprites[2].size[1] == 1.5f && s.sprites[0].col[0] == 0x30);
+    nw_vif_sprites_free(&s);
+    vif_free(&b);
+
+    vif_begin(&b);
+    vif_faceon(&b, 1);
+    vif_facey(&b, 1);
+    vif_end(&b, 0);
+    CHECK_FAILS(nw_vif_sprites(&s, b.buf, b.len), "faceon and facey batches in one geom");
+    CHECK(s.count == 0 && s.sprites == NULL);
+    vif_free(&b);
+    VifVtx v[4];
+    const bool adc[4] = { 1, 1, 0, 0 };
+    make_strip(v, 4, 4);
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 4, 0);
+    vif_end(&b, 0);
+    CHECK_FAILS(nw_vif_sprites(&s, b.buf, b.len), "outside a batch");
+    vif_free(&b);
+}
+
 static void test_errors(void)
 {
     VifVtx v[4];
@@ -814,6 +854,7 @@ int main(int argc, char *argv[])
     test_packed();
     test_chain();
     test_errors();
+    test_sprites();
     test_gsc();
     test_package();
     test_texture();

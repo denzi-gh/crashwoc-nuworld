@@ -20,10 +20,24 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_lightdir[3];\n"
     "uniform vec4 u_lightcol[3];\n"
     "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
+    "uniform vec4 u_sprite;\n"
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
     "void main()\n"
     "{\n"
+    /* faceon adds its corners in GS units before the divide; facey spans its quad along VF15 and the object's y. */
+    "#if PROGRAM >= 4\n"
+    "    vec2 corner = 1.0 - 2.0 * a_tex.xy;\n"
+    "#if PROGRAM == 4\n"
+    "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
+    "    gl_Position.xy += corner * a_tex.zw * u_sprite.xy;\n"
+    "#else\n"
+    "    vec3 p = a_pos.xyz - corner.x * a_tex.z * u_sprite.xyz + vec3(0.0, corner.y * a_tex.w, 0.0);\n"
+    "    gl_Position = u_lv * vec4(p, 1.0);\n"
+    "#endif\n"
+    "    v_uv = a_tex.xy;\n"
+    "    v_col = a_col;\n"
+    "#else\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
     "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
@@ -39,6 +53,7 @@ static const char nw_vu_vs[] =
     "#else\n" /* tricdv: the light modulates the vertex colour */
     "    v_col = vec4(min((u_ambient.rgb + lit.rgb) * a_col.rgb, 255.0), a_col.a);\n"
     "    v_uv += u_uvoff.xy;\n"
+    "#endif\n"
     "#endif\n"
     "}\n";
 
@@ -121,7 +136,7 @@ static const char nw_vu_fs[] =
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, texmode, texlod, tcc, ascolour, atest;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -171,6 +186,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].lightdir = glGetUniformLocation(p, "u_lightdir");
     nw_vu[program].lightcol = glGetUniformLocation(p, "u_lightcol");
     nw_vu[program].uvoff = glGetUniformLocation(p, "u_uvoff");
+    nw_vu[program].sprite = glGetUniformLocation(p, "u_sprite");
     nw_vu[program].texmode = glGetUniformLocation(p, "u_texmode");
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
@@ -228,6 +244,7 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].lightdir, 3, o->lightdir[0]);
     glUniform4fv(nw_vu[program].lightcol, 3, o->lightcol[0]);
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
+    glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     bool textured = m->tex && m->tex->index;
     glUniform4i(nw_vu[program].texmode, textured ? (m->tex->clut ? 1 : 2) : 0, m->state.mmag, m->state.wms == 1,
                 m->state.wmt == 1);
@@ -309,4 +326,15 @@ void nw_vu_attribs(void)
     glVertexAttribPointer(1, 4, GL_SHORT, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, tex));
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, col));
+}
+
+void nw_vu_sprite_attribs(void)
+{
+    const GLsizei stride = sizeof(NwVuSpriteVertex);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, tex));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVuSpriteVertex, col));
 }

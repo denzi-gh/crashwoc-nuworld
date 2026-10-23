@@ -8,22 +8,34 @@
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 
-/* The triangle packages' per-vertex programs (tri runs the same code as tric). */
+/* The triangle packages' per-vertex programs (tri runs the same code as tric), and the sprite programs they jump to
+   for face-on geoms. */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
     NW_VU_TRICA,
     NW_VU_TRICDV,
+    NW_VU_FACEON,
+    NW_VU_FACEY,
     NW_VU_PROGRAMS
 } NwVuProgram;
 
-/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights). */
+/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights), and for
+   the sprite programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15. */
 typedef struct NwVuObject {
     float lv[16];
     float ambient[4];
     float lightdir[3][4];
     float lightcol[3][4];
+    float sprite[4];
 } NwVuObject;
+
+/* A corner of a face-on sprite: the point, s and t of the corner with the sprite's size, the colour. */
+typedef struct NwVuSpriteVertex {
+    float pos[4];
+    float tex[4];
+    uint8_t col[4];
+} NwVuSpriteVertex;
 
 /* The lights a lit stream uploads to VU 0x0C-0x12, as NuRndrSetDirectionalLights and NuRndrSetAmbientLight set
    them: three directions and colours in world space, the ambient colour. */
@@ -65,5 +77,7 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);
 /* The NwVifVertex attributes of the bound VAO and VBO. */
 void nw_vu_attribs(void);
+/* The NwVuSpriteVertex attributes of the bound VAO and VBO. */
+void nw_vu_sprite_attribs(void);
 
 #endif

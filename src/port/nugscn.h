@@ -2,7 +2,7 @@
 #ifndef NUWORLD_PORT_NUGSCN_H
 #define NUWORLD_PORT_NUGSCN_H
 
-/* Frees the geom meshes (dmastream) of every scene loaded so far, on the render thread. */
+/* Frees the geom meshes and sprites (dmastream) of every scene loaded so far, on the render thread. */
 void nw_gscn_free_meshes(void);
 
 #endif

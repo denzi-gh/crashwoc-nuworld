@@ -13,6 +13,7 @@
 #include "nu3d/nurndr.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
+#include "nu3d/nuvport.h"
 #include "numath/nutrig.h"
 
 #include "gsc_builder.h"
@@ -28,6 +29,7 @@ int NuRndrBeginScene(int target);
 void NuRndrEndScene(void);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuMtlAnimate(float dt);
+void FaceYDirStream(int angle);
 void NuRndrClear(int flags, int colour, float depth);
 void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl_s *mtl);
 void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
@@ -449,10 +451,31 @@ static void test_ot_batch(void)
     const NwPacket *p = nw_rndr_packet();
     static const uint32_t order[12] = { 9, 10, 11, 0, 1, 2, 6, 7, 8, 3, 4, 5 };
     CHECK(p->ncmds == 2 && p->cmds[1].op == NW_CMD_DRAW_OT && p->cmds[1].count == 12 && p->nidx == 12);
-    CHECK(p->ncmds == 2 && p->cmds[1].mesh == &mesh && p->cmds[1].light != NW_LIGHT_NONE && p->cmds[1].mpg == m->rs.mpg);
+    CHECK(p->ncmds == 2 && p->cmds[1].mesh == &mesh && p->cmds[1].light != NW_LIGHT_NONE);
+    CHECK(p->ncmds == 2 && p->cmds[1].mpg == m->rs.mpg);
     CHECK(p->nidx == 12 && memcmp(p->idx + p->cmds[1].first, order, sizeof(order)) == 0);
     NuRndrSwapStreamBuffers();
     nw_vif_free(&mesh.mesh);
+}
+
+/* FaceYDirStream's VU 0x16 is part of the view a draw is made under: the yaw's cosine and negated sine, the
+   viewport's size scaled for faceon. */
+static void test_faceon_dir(void)
+{
+    NuVpInit();
+    FaceYDirStream(0x4000);
+    mark(rndrstream_3d_l, 80);
+    FaceYDirStream(0);
+    mark(rndrstream_3d_l, 81);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    CHECK(p->ncmds == 2 && p->nviews == 2);
+    if (p->ncmds == 2 && p->nviews == 2) {
+        const float *a = p->views[p->cmds[0].view].faceon, *b = p->views[p->cmds[1].view].faceon;
+        CHECK(SDL_fabsf(a[0]) < 1e-6f && a[2] == -1.0f && b[0] == 1.0f && b[2] == 0.0f);
+        CHECK(a[1] == 640 * 16 * 9.765625146e-05f && a[3] == 512 * 16 * 0.0002790178696f);
+    }
+    NuRndrSwapStreamBuffers();
 }
 
 int main(void)
@@ -476,6 +499,7 @@ int main(void)
     test_2d();
     test_lights();
     test_ot_batch();
+    test_faceon_dir();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

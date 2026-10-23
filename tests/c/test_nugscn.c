@@ -106,7 +106,9 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(ot && ot->mesh.verts[0].col[3] == 0x80 && ot->mesh.tris[2] == 2);
     struct nufaceongeom_s *f = g[1].faceon_geom;
     CHECK(f->mtl == sc->mtls[0] && f->faceon_type == 3 && f->faceon_radius == 1.5f);
-    CHECK(f->dmastream == (void *)(file + s->blob[3]) && f->next == NULL);
+    const NwGpuSprites *sprites = f->dmastream;
+    CHECK(sprites && sprites->sprites.count == 2 && !sprites->sprites.facey && f->next == NULL);
+    CHECK(sprites && sprites->sprites.sprites[1].pos[0] == 3.0f && sprites->sprites.sprites[0].size[0] == -1.0f);
 
     CHECK(sc->numinstance == 3);
     struct nuinstance_s *in = sc->instances;

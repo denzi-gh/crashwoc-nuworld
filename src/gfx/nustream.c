@@ -11,6 +11,7 @@
 #include "gfx/rndr.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
+#include "nu3d/nuvport.h"
 #include "nucore/nuerror.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
@@ -21,6 +22,7 @@ void *NuMemAllocFn(int size, char *file, int line);
 
 extern int gs_top;
 extern volatile int nuvideo_global_vbcnt;
+extern float NuTrigTable[];
 extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_3d_u;
 extern struct rndrstream_s *rndrstream_2d;
@@ -464,4 +466,15 @@ int NuRndrSetSpecularLight(struct nuvec_s *dir, struct nucolour4_s *col)
     (void)dir;
     (void)col;
     return 1;
+}
+
+/* VU 0x16, which faceinit and faceon read: the camera's yaw for facey, the viewport's size for faceon. */
+void FaceYDirStream(int angle)
+{
+    struct nuviewport_s *vp = NuVpGetCurrentViewport();
+    nw_view.faceon[0] = NuTrigTable[(u16)(angle + 0x4000)];
+    nw_view.faceon[1] = vp->width * 9.765625146e-05f;
+    nw_view.faceon[2] = -NuTrigTable[(u16)angle];
+    nw_view.faceon[3] = vp->height * 0.0002790178696f;
+    nw_view_snap = NULL;
 }

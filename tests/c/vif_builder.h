@@ -222,6 +222,45 @@ static void vif_faceon(VifBuild *b, uint32_t n)
     vif_word(b, 0x14000304);
 }
 
+/* A facey batch as NuCvtDmaFaceY writes it: the fan GIF tag at VU 0x56, then sprite i at (i, 2i, 3i), half size
+   (0.5, 1.5) and colour 0x40102030, kicked at 0x306. */
+static void vif_facey(VifBuild *b, uint32_t n)
+{
+    vif_word(b, 0x6C010056);
+    vif_word(b, 0x8000);
+    vif_word(b, 0x3002C000);
+    vif_word(b, 0x512);
+    vif_word(b, 0);
+    vif_word(b, 0x6C018000);
+    vif_word(b, n | 0x8000);
+    vif_word(b, 0xC0024000);
+    vif_word(b, 0x12512512);
+    vif_word(b, 0x5125);
+    vif_word(b, 0x6D018001);
+    vif_half(b, (uint16_t)(n * 3));
+    vif_half(b, 0);
+    vif_half(b, 0);
+    vif_half(b, 0);
+    vif_word(b, 0x01000103);
+    vif_word(b, n << 16 | 0x68008004);
+    for (uint32_t i = 0; i < n; i++) {
+        vif_word(b, vif_fbits((float)i));
+        vif_word(b, vif_fbits(2.0f * i));
+        vif_word(b, vif_fbits(3.0f * i));
+    }
+    vif_word(b, n << 16 | 0x64008005);
+    for (uint32_t i = 0; i < n; i++) {
+        vif_word(b, vif_fbits(0.5f));
+        vif_word(b, vif_fbits(1.5f));
+    }
+    vif_word(b, n << 16 | 0x6E00C006);
+    for (uint32_t i = 0; i < n; i++) {
+        vif_word(b, 0x40102030);
+    }
+    vif_word(b, 0x01000101);
+    vif_word(b, 0x14000306);
+}
+
 /* Closes the chain with RET, then `stale` bytes of the packet again (the converter's leftovers). */
 static void vif_end(VifBuild *b, size_t stale)
 {

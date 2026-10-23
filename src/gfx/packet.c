@@ -146,7 +146,7 @@ uint32_t nw_gpu_take(uint64_t seq, NwGpuJob **out, uint32_t *cap)
     uint32_t n = 0, kept = 0;
     nw_packet_lock();
     for (uint32_t i = 0; i < nw_njobs; i++) {
-        bool free = nw_jobs[i].op == NW_GPU_FREE_MESH || nw_jobs[i].op == NW_GPU_FREE_TEX;
+        bool free = nw_jobs[i].op >= NW_GPU_FREE_MESH;
         if ((!free || seq > nw_jobs[i].fence) && nw_packet_grow((void **)out, cap, n, sizeof(**out))) {
             (*out)[n++] = nw_jobs[i];
         } else {

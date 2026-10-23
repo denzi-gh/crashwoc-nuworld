@@ -256,8 +256,8 @@ int NuRndrSwapScreen(int target)
 }
 
 /* A scene object: each sub-object in view draws its geoms into their materials' streams (each material of the
-   multipass chain mtl->next once), under its instance's matrix. Returns retail's clip state: 0 out of view, 1 in
-   view, 2 partly. */
+   multipass chain mtl->next once) and its face-on geoms into theirs, under its instance's matrix. Returns retail's
+   clip state: 0 out of view, 1 in view, 2 partly. */
 int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
 {
     struct numtx_s mtx;
@@ -297,6 +297,13 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
                         NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW);
                         c->mesh = geom->dmastream;
                     }
+                }
+            }
+            for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next) {
+                rndrstream_3d = &fgeom->mtl->rs;
+                if (fgeom->dmastream) {
+                    NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_SPRITES);
+                    c->sprites = fgeom->dmastream;
                 }
             }
         }

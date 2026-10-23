@@ -24,11 +24,17 @@ typedef struct NwGpuTex {
     NwVuTexture gl;
 } NwGpuTex;
 
+typedef struct NwGpuSprites {
+    NwVifSprites sprites;
+    unsigned int vao, vbo, ibo;
+} NwGpuSprites;
+
 typedef enum NwCmdOp {
     NW_CMD_DRAW,    /* a geom's mesh under the local matrix */
     NW_CMD_DRAW_OT, /* an ordering-table batch: some of its mesh's triangles, in their order in NwPacket.idx */
     NW_CMD_CLEAR, /* NuRndrClear: the scissor rectangle's colour and Z */
-    NW_CMD_RECT,  /* a 2D sprite */
+    NW_CMD_RECT,    /* a 2D sprite */
+    NW_CMD_SPRITES, /* a face-on geom's sprites under the local matrix */
 } NwCmdOp;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
@@ -36,6 +42,7 @@ typedef struct NwView {
     float vs[16];        /* row-major, row vectors (vpsmtx) */
     int32_t xyoffset[2]; /* GS 12.4 */
     int32_t scissor[4];  /* x0, y0, x1, y1 */
+    float faceon[4];     /* VU 0x16 (FaceYDirStream): cos yaw, viewport width / 10240, -sin yaw, height / 3584 */
 } NwView;
 
 /* A material's state block as the frame's DMA reads it. */
@@ -59,7 +66,10 @@ typedef struct NwCmd {
     const struct numtl_s *material; /* game thread only */
     union {
         struct {
-            const NwGpuMesh *mesh;
+            union {
+                const NwGpuMesh *mesh;
+                const NwGpuSprites *sprites; /* SPRITES */
+            };
             float local[16];
             uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx */
         };
@@ -110,8 +120,10 @@ const NwPacket *nw_packet_take(void);
 typedef enum NwGpuOp {
     NW_GPU_UPLOAD_MESH,
     NW_GPU_UPLOAD_TEX,
+    NW_GPU_UPLOAD_SPRITES,
     NW_GPU_FREE_MESH,
     NW_GPU_FREE_TEX,
+    NW_GPU_FREE_SPRITES,
 } NwGpuOp;
 
 typedef struct NwGpuJob {
