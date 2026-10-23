@@ -61,8 +61,9 @@ static void nw_view_scenes(void *user)
     for (size_t i = 0; i < nw_disc_manifest.count; i++) {
         const NwManifestEntry *e = &nw_disc_manifest.entries[i];
         size_t len = SDL_strlen(e->path);
-        if (len < 4 || SDL_strcasecmp(e->path + len - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP) ||
-            !SDL_strcasestr(e->path, nw_view.filter)) {
+        bool scene = len >= 4 && (SDL_strcasecmp(e->path + len - 4, ".GSC") == 0 ||
+                                  SDL_strcasecmp(e->path + len - 4, ".GHG") == 0);
+        if (!scene || (e->flags & NW_MANIFEST_SKIP) || !SDL_strcasestr(e->path, nw_view.filter)) {
             continue;
         }
         if (nw_debug_selectable(e->path, e->path == nw_view.scene)) {

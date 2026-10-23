@@ -7,15 +7,18 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
+#include "gfx/packet.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nufont.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
+#include "nu3d/nuhgobj.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nutex.h"
 #include "nu3d/nuvport.h"
 #include "nucore/nuerror.h"
 #include "nucore/nufile.h"
+#include "numath/numtx.h"
 #include "numath/nutrig.h"
 #include "port/nugscn.h"
 #include "vfs/vfs.h"
@@ -44,6 +47,7 @@ void SetLights(struct nucolour3_s *col0, struct nuvec_s *dir0, struct nucolour3_
 int NuGScnLoad(char **buffer, char *bufend, char *filename);
 struct nugscn_s *NuGScnLoadFix(void);
 void NuRndrInitWorld(void);
+void NuHGobjRndr(void *hobj, struct numtx_s *mtx, int nlayers, short *layer);
 
 /* DrawWorld's lights (SetLevelLights' level branch), roots of the data image. */
 extern struct nucolour3_s lcol[3];
@@ -134,6 +138,55 @@ static float nw_scene_frame(const struct nugscn_s *sc, NwSceneInfo *info)
     return extent;
 }
 
+/* The skin points widen box (lo > hi: empty), which they show in the default pose. */
+static void nw_scene_count(const struct nugobj_s *gobj, NwSceneInfo *info, float lo[3], float hi[3])
+{
+    for (; gobj; gobj = gobj->next_gobj) {
+        info->objects++;
+        for (const struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+            const NwVifSkin *s = geom->skindma ? &((const NwGpuSkin *)geom->skindma)->skin : NULL;
+            info->tris += geom->dmastream ? ((const NwGpuMesh *)geom->dmastream)->mesh.ntris : 0;
+            info->tris += s ? s->ntris : 0;
+            for (uint32_t v = 0; s && v < s->nverts; v++) {
+                for (int k = 0; k < 3; k++) {
+                    lo[k] = fminf(lo[k], s->verts[v].pos[k]);
+                    hi[k] = fmaxf(hi[k], s->verts[v].pos[k]);
+                }
+            }
+        }
+    }
+}
+
+/* A character: the camera in front of its skin points, or of its box (rigid characters, and the box is loose for
+   some skinned ones); objects are its gobjs and skin objects. Returns its extent. */
+static float nw_scene_frame_ghg(const struct NUHGOBJ_s *h, NwSceneInfo *info)
+{
+    memset(info, 0, sizeof(*info));
+    float lo[3] = { INFINITY, INFINITY, INFINITY }, hi[3] = { -INFINITY, -INFINITY, -INFINITY };
+    for (int i = 0; i < h->num_layers; i++) {
+        const struct NUHLAYERDATA_s *l = &h->layers[i];
+        for (int j = 0; j < h->num_joints; j++) {
+            nw_scene_count(l->gobjs ? l->gobjs[j] : NULL, info, lo, hi);
+            nw_scene_count(l->blend_gobjs ? l->blend_gobjs[j] : NULL, info, lo, hi);
+        }
+        nw_scene_count(l->skin_object, info, lo, hi);
+        nw_scene_count(l->blend_skin_object, info, lo, hi);
+    }
+    if (lo[0] > hi[0]) {
+        memcpy(lo, &h->bbox_min, sizeof(lo));
+        memcpy(hi, &h->bbox_max, sizeof(hi));
+    }
+    float r = 1.0f;
+    for (int k = 0; k < 3; k++) {
+        r = fmaxf(r, (hi[k] - lo[k]) * 0.5f);
+    }
+    info->instances = 1;
+    const float centre[3] = { (lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f };
+    info->cam = (NwSceneCam){ { centre[0], centre[1] + r * 0.3f, centre[2] - r * 2.5f }, 0.0f, -0.1f };
+    info->speed = r;
+    return r * 2.0f;
+}
+
 /* The Nu camera matrix of a fly camera: rows right, up, forward (left-handed, +z forward) and the position. */
 static void nw_scene_camera(const NwSceneCam *c, struct numtx_s *m)
 {
@@ -177,37 +230,56 @@ void nw_scene_load(const char *path)
     SDL_UnlockMutex(nw_scene_mutex);
 }
 
-/* NULL when the scene has nothing to draw. */
-static struct nugscn_s *nw_scene_open(struct nugscn_s *sc, char *buf, char *end, char *path, struct nucamera_s *cam,
-                                      float farclip)
+/* What the viewer draws: a scene, or a character (.ghg) at the origin in its default pose. */
+typedef struct NwSceneOpen {
+    struct nugscn_s *sc;
+    struct NUHGOBJ_s *hobj;
+} NwSceneOpen;
+
+/* Both NULL when there is nothing to draw. */
+static void nw_scene_open(NwSceneOpen *o, char *buf, char *end, char *path, struct nucamera_s *cam, float farclip)
 {
-    if (sc) {
-        nw_gscn_remove(sc);
-        sc = NULL;
+    if (o->sc) {
+        nw_gscn_remove(o->sc);
     }
+    if (o->hobj) {
+        NuHGobjDestroy(o->hobj);
+    }
+    o->sc = NULL;
+    o->hobj = NULL;
     NuRndrInitWorld();
     cam->farclip = farclip;
-    static char *cursor; /* the loader keeps its address */
-    cursor = buf;
-    int size = NuGScnLoad(&cursor, end, path);
-    NwGsc g;
-    if (size > 0 && nw_gsc_open(&g, (const uint8_t *)cursor, (size_t)size)) {
-        bool drawn = !g.truncated && g.nobjects > 0;
-        nw_gsc_close(&g);
-        sc = drawn ? NuGScnLoadFix() : NULL;
-    }
+    size_t len = strlen(path);
     NwSceneInfo info;
     memset(&info, 0, sizeof(info));
-    if (sc) {
-        cam->farclip = fmaxf(farclip, nw_scene_frame(sc, &info) * 4.0f);
-        info.drawn = true;
+    if (len > 4 && SDL_strcasecmp(path + len - 4, ".GHG") == 0) {
+        union variptr_u cursor;
+        cursor.charptr = buf;
+        o->hobj = NuGHGRead(&cursor, path);
+        if (o->hobj) {
+            cam->farclip = fmaxf(farclip, nw_scene_frame_ghg(o->hobj, &info) * 4.0f);
+            info.drawn = true;
+        }
+    } else {
+        static char *cursor; /* the loader keeps its address */
+        cursor = buf;
+        int size = NuGScnLoad(&cursor, end, path);
+        NwGsc g;
+        if (size > 0 && nw_gsc_open(&g, (const uint8_t *)cursor, (size_t)size)) {
+            bool drawn = !g.truncated && g.nobjects > 0;
+            nw_gsc_close(&g);
+            o->sc = drawn ? NuGScnLoadFix() : NULL;
+        }
+        if (o->sc) {
+            cam->farclip = fmaxf(farclip, nw_scene_frame(o->sc, &info) * 4.0f);
+            info.drawn = true;
+        }
     }
     nw_scene_lock();
     info.seq = nw_scene.seq + 1;
     nw_scene = info;
     nw_scene_cam = info.cam;
     SDL_UnlockMutex(nw_scene_mutex);
-    return sc;
 }
 
 int nw_scene_main(int argc, char **argv)
@@ -236,7 +308,10 @@ int nw_scene_main(int argc, char **argv)
     /* The key lookup of the instance animations, which retail builds in the load screen's NuAnimDataLoadBuff before
        any scene. */
     buildBitCountTable();
-    struct nugscn_s *sc = NULL;
+    NwSceneOpen o = { NULL, NULL };
+    struct numtx_s origin;
+    NuMtxSetIdentity(&origin);
+    short layers[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
     for (unsigned frame = 0;; frame++) {
         char path[NW_VFS_PATH_MAX];
         NwSceneCam c;
@@ -245,7 +320,7 @@ int nw_scene_main(int argc, char **argv)
         nw_scene_path[0] = 0;
         SDL_UnlockMutex(nw_scene_mutex);
         if (path[0]) {
-            sc = nw_scene_open(sc, buf, end, path, cam, farclip);
+            nw_scene_open(&o, buf, end, path, cam, farclip);
         }
         nw_scene_lock();
         c = nw_scene_cam;
@@ -253,15 +328,18 @@ int nw_scene_main(int argc, char **argv)
         nw_scene_camera(&c, &cam->mtx);
         NuCameraSet(cam);
         NuMtlAnimate(0.02f);
-        if (sc) {
-            NuGScnUpdate(sc, 1.0f); /* in frames, as main's game loop */
+        if (o.sc) {
+            NuGScnUpdate(o.sc, 1.0f); /* in frames, as main's game loop */
         }
         RotateDirectionalLight(ldir, -0x2000, (int)(((frame % 400) << 16) / 400));
         SetLights(&lcol[0], &ldir[0], &lcol[1], &ldir[1], &lcol[2], &ldir[2], &acol);
         NuRndrBeginScene(-1);
         NuRndrClear(7, 0, 1.0f);
-        if (sc) {
-            NuGScnRndr3(sc);
+        if (o.sc) {
+            NuGScnRndr3(o.sc);
+        }
+        if (o.hobj) {
+            NuHGobjRndr(o.hobj, &origin, SDL_min(o.hobj->num_layers, 8), layers);
         }
         NuRndrEndScene();
         NuRndrSwapScreen(-1);

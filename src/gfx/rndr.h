@@ -35,32 +35,42 @@ NwSurf nw_ps2tx_surf(int tid);
 
 typedef struct NwViewSnap NwViewSnap;
 typedef struct NwLightSnap NwLightSnap;
+typedef struct NwJointSnap NwJointSnap;
 
 /* A command as a stream (or an OT bin) holds it until a flush copies it to the frame packet. */
 typedef struct NwRecord {
     NwCmd cmd;
     const NwViewSnap *view;
-    const NwLightSnap *lights; /* NULL unlit */
+    const NwLightSnap *lights; /* the stream's block at VU 0x0C (lights, specular or fx), NULL for none */
     const uint32_t *idx;       /* DRAW_OT: cmd.count vertex indices */
+    const NwJointSnap *joints; /* SKIN: the palette */
+    const uint32_t *blend;     /* SKIN: retail's deformer weights packet, the count at [5] and the weights after it */
+    uint8_t misc;              /* the stream's attr & 0x43 */
     struct NwRecord *next;
 } NwRecord;
 
 /* A record of op under the current view and local matrix, with the stream's material and microcode, appended to
-   stream; a stream with retail's RT lights (attr & 0x43 == 1) latches the current lights. */
+   stream; it latches the stream's block at VU 0x0C as retail's attr & 0x43 picks it: 1 the RT lights, 2 the
+   specular UV matrix, 0x40 the fx matrix. */
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 /* The same record in no stream yet. */
-NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, bool lit);
+NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, int misc);
 void nw_rndr_push(struct rndrstream_s *stream, NwRecord *r);
-/* The record's view and lights become the current ones, as a stream set up when it is flushed. */
+/* The record's view and VU 0x0C block become the current ones, as a stream set up when it is flushed. */
 void nw_rndr_latch(NwRecord *r);
 /* Memory that lives as long as this frame's records (and the next frame's, as retail's output buffers). */
 void *nw_rndr_alloc(size_t size);
+struct numtx_s;
+/* The joint palette of the SKIN records from now on, n matrices to fill in that memory; the records share it and a
+   flush copies it to the packet once. */
+struct numtx_s *nw_rndr_joints(uint32_t n);
+/* The deformer weights of the SKIN records from now on (NULL: none). */
+void nw_rndr_blend(const uint32_t *weights);
 /* Moves the records of src to the end of dst. */
 void nw_rndr_splice(struct rndrstream_s *dst, struct rndrstream_s *src);
 /* NuRndrOTInsertItem: the item into its depth's bin of the ordering table, which NuRndrOTFlush empties into the
    ot_sort stream. */
 void nw_rndr_ot_insert(NwRecord *item, float depth);
-struct numtx_s;
 struct nutribatch_s;
 /* NuRndrOTInsertTriBatch with the geom's mesh (src/gfx/nurndr.c). */
 void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutribatch_s *batch);

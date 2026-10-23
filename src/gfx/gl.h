@@ -48,6 +48,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
+#define GL_UNSIGNED_SHORT 0x1403
 #define GL_UNSIGNED_INT 0x1405
 #define GL_RGBA 0x1908
 #define GL_FLOAT 0x1406
@@ -88,6 +89,9 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
+#define GL_TEXTURE_BUFFER 0x8C2A
+#define GL_RGBA32F 0x8814
+#define GL_R32F 0x822E
 
 /* X(return type, name, parameter list) */
 #define NW_GL_FUNCTIONS(X) \
@@ -118,12 +122,14 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers)) \
     X(void, glBindBuffer, (GLenum target, GLuint buffer)) \
     X(void, glBufferData, (GLenum target, GLsizeiptr size, const void *data, GLenum usage)) \
+    X(void, glTexBuffer, (GLenum target, GLenum internalformat, GLuint buffer)) \
     X(void, glGenVertexArrays, (GLsizei n, GLuint *arrays)) \
     X(void, glDeleteVertexArrays, (GLsizei n, const GLuint *arrays)) \
     X(void, glBindVertexArray, (GLuint array)) \
     X(void, glEnableVertexAttribArray, (GLuint index)) \
     X(void, glVertexAttribPointer, \
         (GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer)) \
+    X(void, glVertexAttribIPointer, (GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer)) \
     X(GLuint, glCreateShader, (GLenum type)) \
     X(void, glShaderSource, (GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length)) \
     X(void, glCompileShader, (GLuint shader)) \
@@ -141,6 +147,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
     X(void, glUniform1i, (GLint location, GLint v0)) \
     X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
+    X(void, glUniform2i, (GLint location, GLint v0, GLint v1)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
     X(void, glGenFramebuffers, (GLsizei n, GLuint *framebuffers)) \
@@ -190,11 +197,13 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDeleteBuffers nw_glDeleteBuffers
 #define glBindBuffer nw_glBindBuffer
 #define glBufferData nw_glBufferData
+#define glTexBuffer nw_glTexBuffer
 #define glGenVertexArrays nw_glGenVertexArrays
 #define glDeleteVertexArrays nw_glDeleteVertexArrays
 #define glBindVertexArray nw_glBindVertexArray
 #define glEnableVertexAttribArray nw_glEnableVertexAttribArray
 #define glVertexAttribPointer nw_glVertexAttribPointer
+#define glVertexAttribIPointer nw_glVertexAttribIPointer
 #define glCreateShader nw_glCreateShader
 #define glShaderSource nw_glShaderSource
 #define glCompileShader nw_glCompileShader
@@ -212,6 +221,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniformMatrix4fv nw_glUniformMatrix4fv
 #define glUniform1i nw_glUniform1i
 #define glUniform4i nw_glUniform4i
+#define glUniform2i nw_glUniform2i
 #define glUniform4fv nw_glUniform4fv
 #define glDrawElements nw_glDrawElements
 #define glGenFramebuffers nw_glGenFramebuffers

@@ -11,9 +11,26 @@
 
 /* Row-major PS2 matrices uploaded as they are: GL reads them transposed, which makes u_lv * v the VU's v x LV. */
 static const char nw_vu_vs[] =
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    "layout(location = 0) in vec3 a_pos;\n"
+    "layout(location = 1) in vec3 a_nrm;\n"
+    "layout(location = 2) in vec2 a_uv;\n"
+    "layout(location = 3) in uvec4 a_weight0;\n" /* FTOI15 */
+    "layout(location = 4) in uvec4 a_weight1;\n"
+    "layout(location = 5) in uvec4 a_joint0;\n"
+    "layout(location = 6) in uvec4 a_joint1;\n"
+    "layout(location = 7) in uvec2 a_nrmjoint;\n" /* the normal's joint, the delta count */
+    "layout(location = 8) in uint a_delta;\n"     /* the first delta */
+    "uniform samplerBuffer u_pool;\n"             /* the packet's palettes, a matrix as its four rows */
+    "uniform samplerBuffer u_weights;\n"          /* the packet's blend-shape weights */
+    "uniform samplerBuffer u_deltas;\n"           /* the geom's deltas: x, y, z, shape */
+    "uniform int u_joints;\n"                     /* the draw's first row */
+    "uniform ivec2 u_blend;\n"                    /* the draw's first weight and their count */
+    "#else\n"
     "layout(location = 0) in vec4 a_pos;\n" /* VF06: x, y, z, the normal's x */
     "layout(location = 1) in vec4 a_tex;\n" /* VF08 before ITOF12: u, v, the normal's y, z */
     "layout(location = 2) in vec4 a_col;\n" /* VF31 before ITOF0 */
+    "#endif\n"
     "uniform mat4 u_lv;\n"
     "uniform vec4 u_diffuse;\n"
     "uniform vec4 u_ambient;\n"
@@ -21,14 +38,21 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_lightcol[3];\n"
     "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
     "uniform vec4 u_sprite;\n"
+    "uniform vec4 u_uv[4];\n" /* the xuv programs' VF24-27 */
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    "vec3 row(uint joint, int r)\n"
+    "{\n"
+    "    return texelFetch(u_pool, u_joints + int(joint) * 4 + r).xyz;\n"
+    "}\n"
+    "#endif\n"
     "void main()\n"
     "{\n"
     /* faceon adds its corners in GS units before the divide; facey spans its quad along VF15 and the object's y. */
-    "#if PROGRAM >= 4\n"
+    "#if PROGRAM == FACEON || PROGRAM == FACEY\n"
     "    vec2 corner = 1.0 - 2.0 * a_tex.xy;\n"
-    "#if PROGRAM == 4\n"
+    "#if PROGRAM == FACEON\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    gl_Position.xy += corner * a_tex.zw * u_sprite.xy;\n"
     "#else\n"
@@ -37,17 +61,52 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "    v_uv = a_tex.xy;\n"
     "    v_col = a_col;\n"
+    "#elif PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    /* skinmod.vsm first: each delta of a shape with a weight moves the point. Then skin.vsm: the weights (not
+       normalised) sum the point under each of its joints' palette matrices, the normal turns under the heaviest joint
+       alone. skin lights the material diffuse, with no vertex colour; skinxuv (as trixuv) takes the material colour
+       unlit and its texcoords from the normal. */
+    "    vec3 q = a_pos;\n"
+    "    for (uint k = 0u; k < a_nrmjoint.y && u_blend.y > 0; k++) {\n"
+    "        vec4 d = texelFetch(u_deltas, int(a_delta + k));\n"
+    "        if (int(d.w) < u_blend.y) {\n"
+    "            q += texelFetch(u_weights, u_blend.x + int(d.w)).x * d.xyz;\n"
+    "        }\n"
+    "    }\n"
+    "    vec3 p = vec3(0.0);\n"
+    "    for (int k = 0; k < 8; k++) {\n"
+    "        uint j = k < 4 ? a_joint0[k] : a_joint1[k - 4];\n"
+    "        float w = float(k < 4 ? a_weight0[k] : a_weight1[k - 4]) / 32768.0;\n"
+    "        p += w * (q.x * row(j, 0) + q.y * row(j, 1) + q.z * row(j, 2) + row(j, 3));\n"
+    "    }\n"
+    "    gl_Position = u_lv * vec4(p, 1.0);\n"
+    "    vec3 n = a_nrm.x * row(a_nrmjoint.x, 0) + a_nrm.y * row(a_nrmjoint.x, 1) + a_nrm.z * row(a_nrmjoint.x, 2);\n"
+    "#if PROGRAM == SKIN\n"
+    "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
+    "    vec4 lit = u_lightcol[0] * nl.x + u_lightcol[1] * nl.y + u_lightcol[2] * nl.z;\n"
+    "    v_col = vec4(min(u_diffuse.rgb * (u_ambient.rgb + lit.rgb), 255.0), u_diffuse.a);\n"
+    "    v_uv = a_uv + u_uvoff.xy;\n"
+    "#else\n"
+    "    v_col = u_diffuse;\n"
+    "    v_uv = vec2(dot(u_uv[0].xyz, n), dot(u_uv[1].xyz, n)) + u_uv[3].xy;\n"
+    "#endif\n"
+    "#elif PROGRAM == TRIXUV\n"
+    /* trixuv.vsm: the material colour unlit, the texcoords the normal in the UV matrix (specular, environment). */
+    "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
+    "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
+    "    v_col = u_diffuse;\n"
+    "    v_uv = vec2(dot(u_uv[0].xyz, n), dot(u_uv[1].xyz, n)) + u_uv[3].xy;\n"
     "#else\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
     "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
     "    vec4 lit = u_lightcol[0] * nl.x + u_lightcol[1] * nl.y + u_lightcol[2] * nl.z;\n"
     "    v_uv = (a_tex.xy + u_uvoff.zw) / 4096.0;\n"
-    "#if PROGRAM == 0\n" /* tri, tric: vertex colour plus the lit material diffuse */
+    "#if PROGRAM == TRIC\n" /* tri, tric: vertex colour plus the lit material diffuse */
     "    v_col = vec4(min(a_col.rgb + u_diffuse.rgb * (u_ambient.rgb + lit.rgb), 255.0), a_col.a);\n"
-    "#elif PROGRAM == 1\n" /* tricu: unlit */
+    "#elif PROGRAM == TRICU\n" /* tricu: unlit */
     "    v_col = a_col;\n"
-    "#elif PROGRAM == 2\n" /* trica: the lights' w scale the alpha */
+    "#elif PROGRAM == TRICA\n" /* trica: the lights' w scale the alpha */
     "    v_col = vec4(a_col.rgb, a_col.a * min(lit.a, 1.0));\n"
     "    v_uv += u_uvoff.xy;\n"
     "#else\n" /* tricdv: the light modulates the vertex colour */
@@ -145,13 +204,20 @@ static const char nw_vu_fs[] =
 
 static struct {
     GLuint prog;
-    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest;
+    GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
+        uv;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
-    char head[64];
-    SDL_snprintf(head, sizeof(head), "#version 330 core\n#define PROGRAM %d\n", (int)program);
+    static const char *const names[NW_VU_PROGRAMS] = { "TRIC", "TRICU", "TRICA", "TRICDV", "FACEON", "FACEY", "SKIN",
+                                                       "TRIXUV", "SKINXUV" };
+    char head[512];
+    int n = SDL_snprintf(head, sizeof(head), "#version 330 core\n");
+    for (int i = 0; i < NW_VU_PROGRAMS; i++) {
+        n += SDL_snprintf(head + n, sizeof(head) - (size_t)n, "#define %s %d\n", names[i], i);
+    }
+    SDL_snprintf(head + n, sizeof(head) - (size_t)n, "#define PROGRAM %d\n", (int)program);
     const GLchar *parts[2] = { head, src };
     GLuint s = glCreateShader(type);
     GLint ok = 0;
@@ -201,10 +267,16 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
     nw_vu[program].ascolour = glGetUniformLocation(p, "u_ascolour");
     nw_vu[program].atest = glGetUniformLocation(p, "u_atest");
+    nw_vu[program].joints = glGetUniformLocation(p, "u_joints");
+    nw_vu[program].blend = glGetUniformLocation(p, "u_blend");
+    nw_vu[program].uv = glGetUniformLocation(p, "u_uv");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
     glUniform1i(glGetUniformLocation(p, "u_surf"), 2);
+    glUniform1i(glGetUniformLocation(p, "u_pool"), 3);
+    glUniform1i(glGetUniformLocation(p, "u_weights"), 4);
+    glUniform1i(glGetUniformLocation(p, "u_deltas"), 5);
     return true;
 }
 
@@ -236,6 +308,7 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_tricu_mpg", NW_VU_TRICU },
         { "vu_load_trica_mpg", NW_VU_TRICA },
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
+        { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {
         if (strcmp(package, map[i].name) == 0) {
@@ -243,6 +316,20 @@ NwVuProgram nw_vu_program(const char *package)
         }
     }
     return NW_VU_TRIC;
+}
+
+NwVuProgram nw_vu_skin_program(const char *package)
+{
+    if (package && strcmp(package, "vu_load_tri_mpg") == 0) {
+        return NW_VU_SKIN;
+    }
+    return package && strcmp(package, "vu_load_xformuv_mpg") == 0 ? NW_VU_SKINXUV : NW_VU_PROGRAMS;
+}
+
+void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t nweights)
+{
+    glUniform1i(nw_vu[program].joints, (GLint)joints * 4);
+    glUniform2i(nw_vu[program].blend, (GLint)weights, (GLint)nweights);
 }
 
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
@@ -255,6 +342,7 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].lightcol, 3, o->lightcol[0]);
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
     glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
+    glUniform4fv(nw_vu[program].uv, 4, o->uv[0]);
     bool textured = m->tex && m->tex->index;
     glUniform4i(nw_vu[program].texmode, textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0, m->state.mmag,
                 m->state.wms == 1,
@@ -342,6 +430,30 @@ void nw_vu_attribs(void)
     glVertexAttribPointer(1, 4, GL_SHORT, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, tex));
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void *)offsetof(NwVifVertex, col));
+}
+
+/* The weights as FTOI15 integers, the joints and the delta range as integers. */
+void nw_vu_skin_attribs(void)
+{
+    const GLsizei stride = sizeof(NwVifSkinVertex);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, nrm));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (const void *)offsetof(NwVifSkinVertex, uv));
+    for (GLuint i = 0; i < 2; i++) {
+        glEnableVertexAttribArray(3 + i);
+        glVertexAttribIPointer(3 + i, 4, GL_UNSIGNED_SHORT, stride,
+                               (const void *)(offsetof(NwVifSkinVertex, weight) + i * 8));
+        glEnableVertexAttribArray(5 + i);
+        glVertexAttribIPointer(5 + i, 4, GL_UNSIGNED_BYTE, stride,
+                               (const void *)(offsetof(NwVifSkinVertex, joint) + i * 4));
+    }
+    glEnableVertexAttribArray(7);
+    glVertexAttribIPointer(7, 2, GL_UNSIGNED_BYTE, stride, (const void *)offsetof(NwVifSkinVertex, nrmjoint));
+    glEnableVertexAttribArray(8);
+    glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, stride, (const void *)offsetof(NwVifSkinVertex, delta));
 }
 
 void nw_vu_sprite_attribs(void)

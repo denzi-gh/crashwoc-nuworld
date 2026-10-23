@@ -58,10 +58,13 @@ schema = 1
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
     "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }
+# NuGHGFixupGobj (an int base) is done by the port's NuGHGRead; NuHGobjDestroy frees the port's meshes and records;
 # dead: the NuGHGWrite* writer, ReadNuIFFCollideData
-"nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuGHGWrite*", "ReadNuIFFCollideData"] }
+"nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
+    "ReadNuIFFCollideData"] }
 "nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"] }
-"nu3d/nucvtskn" = { treatment = "dead", override = ["NuCvtSknInstFix"] }
+# NuCvtSknInstFix: the port's NuGHGRead decodes the skin DMA, resolving its CALLs against the list as the fix does
+"nu3d/nucvtskn" = { treatment = "dead" }
 "nu3d/asmgobj" = { treatment = "hle" }
 "nu3d/nutexanm" = { treatment = "compile" }
 "nu3d/nufpatch" = { treatment = "dead" }

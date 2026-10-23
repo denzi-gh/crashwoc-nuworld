@@ -14,9 +14,8 @@ void nw_vu1init(NwVuObject *o, const float local[16], const float view[16])
     }
 }
 
-void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l)
+static void nw_vu1init_rows(const float local[16], float row[3][3])
 {
-    float row[3][3];
     for (int r = 0; r < 3; r++) {
         const float *m = &local[r * 4];
         float inv = 1.0f / sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
@@ -24,6 +23,12 @@ void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l)
             row[r][k] = m[k] * inv;
         }
     }
+}
+
+void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l)
+{
+    float row[3][3];
+    nw_vu1init_rows(local, row);
     for (int i = 0; i < 3; i++) {
         for (int r = 0; r < 3; r++) {
             o->lightdir[i][r] = l->dir[i][0] * row[r][0] + l->dir[i][1] * row[r][1] + l->dir[i][2] * row[r][2];
@@ -34,4 +39,17 @@ void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l)
     }
     memcpy(o->ambient, l->ambient, sizeof(l->ambient));
     o->ambient[3] = 0.0f;
+}
+
+void nw_vu1init_uv(NwVuObject *o, const float local[16], const NwLights *l)
+{
+    float row[3][3];
+    nw_vu1init_rows(local, row);
+    for (int i = 0; i < 3; i++) {
+        for (int r = 0; r < 3; r++) {
+            o->uv[i][r] = l->uv[0][i] * row[r][0] + l->uv[1][i] * row[r][1] + l->uv[2][i] * row[r][2];
+        }
+        o->uv[i][3] = 0.0f;
+    }
+    memcpy(o->uv[3], l->uv[3], sizeof(o->uv[3]));
 }

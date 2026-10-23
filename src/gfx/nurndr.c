@@ -8,6 +8,7 @@
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nugobj.h"
+#include "nu3d/nuhgobj.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
@@ -22,6 +23,10 @@ struct nugscn_s;
 struct nugspline_s;
 int NuSplineFindAllSub(struct nugscn_s *scene, char *name, struct nugspline_s **list, int max);
 float XFormVuTriZ(float *depth, void *tri, struct numtx_s *mtx, int count);
+void NuMtxMulVU0(struct numtx_s *dst, struct numtx_s *a, struct numtx_s *b);
+void NuMtxMulArrayVU0(struct numtx_s *dst, struct numtx_s *a, struct numtx_s *b, int count);
+struct NUJOINTANIM_s;
+void NuHGobjEval(struct NUHGOBJ_s *hobj, int njanims, struct NUJOINTANIM_s *janim, struct numtx_s *mtx_array);
 
 /* Roots of the data image. */
 extern int nurndr_tritot_this_frame;
@@ -133,7 +138,7 @@ void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh 
         first[z] = (uint16_t)t;
         highest = z > highest ? z : highest;
     }
-    NwRecord *item = nw_rndr_record(NW_CMD_DRAW_OT, mtl, mtl->rs.mpg, true);
+    NwRecord *item = nw_rndr_record(NW_CMD_DRAW_OT, mtl, mtl->rs.mpg, 1);
     uint32_t *idx = nw_rndr_alloc((size_t)count * 3 * sizeof(*idx));
     uint32_t n = 0;
     for (int z = highest; z >= 0; z--) {
@@ -149,7 +154,8 @@ void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh 
     nw_rndr_ot_insert(item, batchz);
 }
 
-/* Retail also builds the shadow and blend-deformer DMA data, which the shadow and skin work (#56, #46) brings. */
+/* Retail also builds the shadow DMA data (#56) and the default blend-deformer weights, which a NULL weights array
+   stands for here. */
 void NuRndrInitEx(int streamsize)
 {
     NuRndrStreamInit(streamsize);
@@ -356,4 +362,148 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
         gobj++;
     }
     return clip;
+}
+
+/* A gobj chain (an hgobj's joint), as NuRndrGScnObj but along next_gobj, never through the ordering table, and
+   with the forced material table left out under a forced material. */
+int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
+{
+    struct numtx_s mtx;
+    struct numtx_s offset;
+    int clip = -1;
+    int instanced = gobj->next_gobj != 0;
+    for (; gobj; gobj = gobj->next_gobj) {
+        struct numtx_s *m = wm;
+        if (instanced) {
+            NuMtxSetIdentity(&offset);
+            offset._30 = gobj->origin.x;
+            offset._31 = gobj->origin.y;
+            offset._32 = gobj->origin.z;
+            NuMtxMul(&mtx, &offset, wm);
+            m = &mtx;
+        }
+        int vis = NuCameraClipTestExtents(&gobj->min, &gobj->max, m);
+        if (clip == -1) {
+            clip = vis;
+        } else if ((clip == 1 && vis != 1) || (clip == 0 && vis != 0)) {
+            clip = 2;
+        }
+        if (!vis) {
+            continue;
+        }
+        NuRndrSetLocalMtx(m, vis);
+        for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+            struct numtl_s *mtl = geom->mtl;
+            if (mtl && nurndr_forced_mtl) {
+                mtl = nurndr_forced_mtl;
+            } else if (mtl && nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
+                mtl = nurndr_forced_mtl_table[mtl->special_id];
+            }
+            for (; mtl && geom->dmastream; mtl = mtl->next) {
+                rndrstream_3d = &mtl->rs;
+                nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW)->mesh = geom->dmastream;
+            }
+        }
+        for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next) {
+            rndrstream_3d = &fgeom->mtl->rs;
+            if (fgeom->dmastream) {
+                nw_rndr_cmd(rndrstream_3d, NW_CMD_SPRITES)->sprites = fgeom->dmastream;
+            }
+        }
+    }
+    return clip;
+}
+
+/* A skin object's geoms (not its next_gobj, as retail) under wm, each material pass a SKIN record with the palette
+   NuHGobjRndrMtxDwa made and the deformer weights (NULL: retail's default, none); retail ignores njoints and joints
+   too. skinskipix is -1 in retail and nothing sets it. */
+int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
+                   int vis)
+{
+    (void)njoints;
+    (void)joints;
+    if (!vis) {
+        return vis;
+    }
+    NuRndrSetLocalMtx(wm, vis);
+    nw_rndr_blend(weights);
+    for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+        struct numtl_s *mtl = nurndr_forced_mtl ? nurndr_forced_mtl : geom->mtl;
+        if (mtl && nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
+            mtl = nurndr_forced_mtl_table[mtl->special_id];
+        }
+        for (; mtl && geom->skindma; mtl = mtl->next) {
+            rndrstream_3d = &mtl->rs;
+            nw_rndr_cmd(rndrstream_3d, NW_CMD_SKIN)->skin = (const NwGpuSkin *)geom->skindma;
+        }
+    }
+    return vis;
+}
+
+/* Each layer's joint gobjs under their joint's matrix times wm, then its skin objects under wm with the palette
+   INV_WT x mtx_array, dwa[ix] the layer's blend-shape weights. hgobj_enabled is 1 in retail and nothing clears it;
+   the shadow store comes with the shadows (#56). */
+int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
+                      float **dwa)
+{
+    struct numtx_s mtx;
+    int rv = 0;
+    int vis = NuCameraClipTestExtents(&hobj->bbox_min, &hobj->bbox_max, wm);
+    if (vis == 0) {
+        return 0;
+    }
+    for (int i = 0; i < nlayers; i++) {
+        int ix = 0;
+        if (layer) {
+            ix = layer[i];
+        } else {
+            nlayers = 1;
+        }
+        if (ix < 0 || ix >= hobj->num_layers) {
+            continue;
+        }
+        float *weights = dwa ? dwa[ix] : 0;
+        struct NUHLAYERDATA_s *l = &hobj->layers[ix];
+        for (int set = 0; set < 2; set++) {
+            struct nugobj_s **gobjs = set ? l->blend_gobjs : l->gobjs;
+            for (int j = 0; gobjs && j < hobj->num_joints; j++) {
+                if (gobjs[j]) {
+                    NuMtxMulVU0(&mtx, &mtx_array[j], wm);
+                    rv |= NuRndrGobj(gobjs[j], &mtx);
+                }
+            }
+        }
+        if (l->skin_object || l->blend_skin_object) {
+            NuMtxMulArrayVU0(nw_rndr_joints(hobj->num_joints), hobj->INV_WT, mtx_array, hobj->num_joints);
+            if (l->skin_object) {
+                rv |= NuRndrGobjSkin(l->skin_object, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
+            }
+            if (l->blend_skin_object) {
+                rv |= NuRndrGobjSkin(l->blend_skin_object, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
+            }
+        }
+    }
+    return rv;
+}
+
+void NuHGobjRndr(void *hobj, struct numtx_s *mtx, int nlayers, short *layer)
+{
+    static struct numtx_s joints[256]; /* hgobj_joint_mtx */
+    NuHGobjEval(hobj, 0, 0, joints);
+    NuHGobjRndrMtxDwa(hobj, mtx, nlayers, layer, joints, 0);
+}
+
+int NuHGobjRndrMtx(void *hobj, struct numtx_s *mtx, int nlayers, short *layer, struct numtx_s *dwa)
+{
+    return NuHGobjRndrMtxDwa(hobj, mtx, nlayers, layer, dwa, 0);
+}
+
+/* Retail's packet: a RET tag, the S-32 unpack of the count and the weights to VU 0x63, the count at u32 [5]; the
+   NuHGobjEvalDwa* write the weights from [6] on. */
+u32 *NuRndrCreateBlendShapeDeformerWeightsArray(u32 count)
+{
+    u32 *base = NuRndrStreamAlloc((int)((count + 10) >> 2));
+    base[4] = ((count + 1) << 16) | 0x60000063;
+    base[5] = count;
+    return base;
 }

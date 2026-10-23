@@ -10,6 +10,7 @@
 #include "gfx/vif.h"
 
 #include "gsc_builder.h"
+#include "skin_builder.h"
 #include "vif_builder.h"
 
 static int failures;
@@ -360,6 +361,196 @@ static void test_errors(void)
 
     CHECK(m.nverts == 4 && m.nbatches == 1);
     nw_vif_free(&m);
+
+    /* A .ghg geom's chain carries no size: the image after it bounds it. */
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 4, 0);
+    vif_end(&b, 0);
+    uint8_t *image = malloc(b.len + 0x200);
+    memcpy(image, b.buf, b.len);
+    memset(image + b.len, 0xCD, 0x200);
+    CHECK(nw_vif_decode(&m, image, b.len + 0x200) && m.nverts == 4 && m.ntris == 2);
+    nw_vif_free(&m);
+    free(image);
+    vif_free(&b);
+}
+
+static VifSkinVtx skin_vtx(float x, uint8_t nw, const float *w, const uint8_t *slot, bool adc)
+{
+    VifSkinVtx v = { .pos = { x, x * 2.0f, -x }, .nrm = { 0.5f, 0.25f, -1.0f }, .uv = { x * 0.5f, 1.0f - x },
+                     .nw = nw, .adc = adc };
+    memcpy(v.w, w, nw * sizeof(float));
+    memcpy(v.slot, slot, nw);
+    return v;
+}
+
+static VifSkinVtx skin_dupe(uint8_t of, bool adc)
+{
+    VifSkinVtx v = { .dupe = (uint8_t)(of + 1), .adc = adc };
+    return v;
+}
+
+static bool skin_list(NwVifSkin *s, VifBuild *out)
+{
+    return nw_vif_skin(s, out->buf, out->len);
+}
+
+/* A point's fields as the VU reads them: the tags in the low bytes stay, weights round down to 1/32768. */
+static void test_skin(void)
+{
+    static const uint8_t joints[3] = { 5, 9, 2 }, s012[3] = { 0, 1, 2 }, s021[3] = { 0, 2, 1 };
+    static const float one[1] = { 1.0f }, two[2] = { 0.25f, 0.75f }, three[3] = { 0.5f, 0.25f, 0.25f };
+    static const float third[3] = { 0.3f, 0.3f, 0.4f };
+    VifSkinVtx v[5] = {
+        skin_vtx(1.0f, 1, one, s012, true),   skin_vtx(2.0f, 2, two, s012, true), skin_vtx(3.0f, 3, three, s021, false),
+        skin_dupe(0, false), skin_vtx(4.0f, 3, third, s012, false),
+    };
+    v[4].slot[0] = 2;
+    v[4].slot[2] = 0;
+    VifSkin sk;
+    VifBuild b;
+    NwVifSkin s;
+    vif_skin_begin(&sk);
+    vif_skin_group(&sk, joints, 3);
+    vif_skin_batch(&sk, v, 5, NULL, 0, 0);
+    vif_skin_end(&sk, &b);
+    CHECK(skin_list(&s, &b));
+    CHECK(s.nverts == 4 && s.ndupes == 1 && s.nbatches == 1 && s.ntris == 3 && s.ndeltas == 0 && s.maxjoint == 9);
+    if (s.nverts == 4 && s.ntris == 3) {
+        static const uint32_t tris[9] = { 0, 1, 2, 1, 0, 2, 2, 0, 3 };
+        CHECK(memcmp(s.tris, tris, sizeof(tris)) == 0);
+        const NwVifSkinVertex *a = &s.verts[0], *c = &s.verts[2], *d = &s.verts[3];
+        CHECK(a->pos[0] == 1.0f && a->pos[1] == 2.0f && a->pos[2] == -1.0f && fbits(a->uv[1]) == 1);
+        CHECK(fbits(a->nrm[0]) == (fbits(0.5f) & ~0xFFu) && fbits(a->nrm[2]) == (fbits(-1.0f) & ~0xFFu) + 1);
+        CHECK(fbits(a->uv[0]) == (fbits(0.5f) & ~0xFFu) && a->nrmjoint == 5);
+        CHECK(a->weight[0] == 32768 && a->joint[0] == 5 && a->weight[1] == 0);
+        CHECK(s.verts[1].weight[0] == 8192 && s.verts[1].weight[1] == 24576 && s.verts[1].joint[1] == 9);
+        CHECK(s.verts[1].nrmjoint == 9 && fbits(s.verts[1].uv[0]) == (fbits(1.0f) & ~0xFFu) + 1);
+        CHECK(c->joint[0] == 5 && c->joint[1] == 2 && c->joint[2] == 9 && c->weight[2] == 8192 && c->nrmjoint == 5);
+        CHECK(d->weight[0] == 9830 && d->joint[0] == 2 && d->joint[2] == 5 && d->weight[2] == 13107);
+        CHECK(d->nrmjoint == 5 && d->ndeltas == 0);
+    }
+    nw_vif_skin_free(&s);
+    vif_free(&b);
+
+    /* 5 to 8 weights: four in the third quadword, the rest in the fourth. */
+    static const float w8[8] = { 0.125f, 0.125f, 0.125f, 0.125f, 0.0625f, 0.1875f, 0.25f, 0.0f };
+    static const uint8_t s8[8] = { 0, 1, 2, 3, 4, 5, 6, 7 }, j8[8] = { 10, 11, 12, 13, 14, 15, 16, 17 };
+    VifSkinVtx w[4];
+    for (int i = 0; i < 4; i++) {
+        w[i] = skin_vtx((float)i, (uint8_t)(5 + i), w8, s8, true);
+    }
+    vif_skin_begin(&sk);
+    vif_skin_group(&sk, j8, 8);
+    vif_skin_batch(&sk, w, 4, NULL, 0, 0);
+    vif_skin_end(&sk, &b);
+    CHECK(skin_list(&s, &b));
+    CHECK(s.nverts == 4 && s.ntris == 0 && s.maxjoint == 17);
+    if (s.nverts == 4) {
+        CHECK(s.verts[0].weight[4] == 2048 && s.verts[0].joint[4] == 14 && s.verts[0].weight[5] == 0);
+        CHECK(s.verts[2].weight[6] == 8192 && s.verts[2].joint[6] == 16 && s.verts[2].nrmjoint == 16);
+        CHECK(s.verts[3].weight[7] == 0 && s.verts[3].joint[7] == 17 && s.verts[1].weight[5] == 6144);
+    }
+    nw_vif_skin_free(&s);
+    vif_free(&b);
+
+    /* Two groups name slot 0 for different joints; the second group's first batch continues at MSCNT. Blend shapes
+       go to their vertices in shape order, and a blended batch is kicked at 0x302. */
+    static const uint8_t ja[2] = { 1, 2 }, jb[2] = { 7, 3 };
+    const VifSkinDelta deltas[3] = {
+        { 2, 1, { 1.0f, 2.0f, 3.0f } }, { 2, 0, { 4.0f, 5.0f, 6.0f } }, { 5, 1, { -1.0f, 0.0f, 0.5f } },
+    };
+    VifSkinVtx g[3] = { skin_vtx(1.0f, 1, one, s012, true), skin_vtx(2.0f, 2, two, s012, true),
+                        skin_vtx(3.0f, 1, one, s012, false) };
+    vif_skin_begin(&sk);
+    vif_skin_group(&sk, ja, 2);
+    vif_skin_batch(&sk, g, 3, NULL, 0, 0);
+    vif_skin_group(&sk, jb, 2);
+    vif_skin_batch(&sk, g, 3, NULL, 0, 0);
+    vif_skin_batch(&sk, g, 3, deltas, 3, 0);
+    vif_skin_batch(&sk, g, 3, NULL, 0, 0);
+    vif_skin_end(&sk, &b);
+    CHECK(skin_list(&s, &b));
+    CHECK(s.nverts == 12 && s.ntris == 4 && s.nbatches == 4 && s.ndeltas == 3);
+    if (s.nverts == 12 && s.ndeltas == 3) {
+        CHECK(s.verts[0].joint[0] == 1 && s.verts[3].joint[0] == 7 && s.verts[4].joint[1] == 3);
+        const NwVifSkinVertex *v0 = &s.verts[6], *v1 = &s.verts[7];
+        CHECK(v0->ndeltas == 1 && v1->ndeltas == 2 && s.verts[8].ndeltas == 0 && s.verts[9].ndeltas == 0);
+        CHECK(s.deltas[v0->delta][0] == 4.0f && s.deltas[v0->delta][3] == 2.0f);
+        CHECK(s.deltas[v1->delta][2] == 3.0f && s.deltas[v1->delta][3] == 2.0f);
+        CHECK(s.deltas[v1->delta + 1][0] == -1.0f && s.deltas[v1->delta + 1][3] == 5.0f);
+    }
+    nw_vif_skin_free(&s);
+    vif_free(&b);
+}
+
+static void test_skin_errors(void)
+{
+    static const uint8_t joints[2] = { 4, 6 }, s01[2] = { 0, 1 }, s03[2] = { 0, 3 };
+    static const float two[2] = { 0.5f, 0.5f };
+    VifSkinVtx v[3] = { skin_vtx(1.0f, 2, two, s01, true), skin_vtx(2.0f, 2, two, s01, true),
+                        skin_vtx(3.0f, 2, two, s01, false) };
+    const VifSkinDelta delta = { 0, 1, { 1.0f, 1.0f, 1.0f } };
+    struct {
+        unsigned flags;
+        int bad; /* 1 forward dupe, 2 slot 3, 3 delta at a dupe, 4 delta past the batch, 5 blended MSCNT */
+        const char *text;
+    } cases[] = {
+        { VIF_BAD_NLOOP, 0, "NLOOP 4" },
+        { VIF_SKIN_MSCNT, 0, "first skin batch continued by MSCNT" },
+        { VIF_SKIN_COLOUR, 0, "skin STCYCL 5,3" },
+        { 0, 1, "vertex 1 a dupe of vertex 1" },
+        { 0, 2, "slot 3 of 2" },
+        { 0, 3, "skinmod delta for vertex 1" },
+        { 0, 4, "skinmod delta for vertex 7" },
+        { 0, 5, "blended skin batch continued by MSCNT" },
+    };
+    NwVifSkin s;
+    VifSkin sk;
+    VifBuild b;
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        VifSkinVtx bad[3] = { v[0], v[1], v[2] };
+        VifSkinDelta d = delta;
+        if (cases[i].bad == 1) {
+            bad[1] = skin_dupe(1, true);
+        } else if (cases[i].bad == 2) {
+            memcpy(bad[2].slot, s03, 2);
+        } else if (cases[i].bad == 3) {
+            bad[1] = skin_dupe(0, true);
+        } else if (cases[i].bad == 4) {
+            d.vertex = 7;
+        }
+        vif_skin_begin(&sk);
+        vif_skin_group(&sk, joints, 2);
+        if (cases[i].bad == 5) {
+            vif_skin_batch(&sk, v, 3, NULL, 0, 0);
+        }
+        vif_skin_batch(&sk, bad, 3, cases[i].bad >= 3 ? &d : NULL, cases[i].bad >= 3 ? 1 : 0,
+                       cases[i].bad == 5 ? VIF_SKIN_MSCNT : cases[i].flags);
+        vif_skin_end(&sk, &b);
+        CHECK_FAILS(skin_list(&s, &b), cases[i].text);
+        CHECK(s.nverts == 0 && s.verts == NULL);
+        vif_free(&b);
+    }
+
+    vif_skin_begin(&sk);
+    vif_skin_group(&sk, joints, 2);
+    vif_skin_batch(&sk, v, 3, NULL, 0, 0);
+    vif_skin_end(&sk, &b);
+    CHECK(skin_list(&s, &b));
+    nw_vif_skin_free(&s);
+    CHECK_FAILS(nw_vif_skin(&s, b.buf, 0x30), "outside the geom"); /* CNT and 2 REFs: the CALL is cut */
+    uint32_t addr;
+    memcpy(&addr, b.buf + 0x34, 4);
+    b.buf[addr + 3] = 0x10; /* the CALLed block's RET as CNT */
+    CHECK_FAILS(skin_list(&s, &b), "reaches no RET block");
+    b.buf[addr + 3] = 0x60;
+    b.buf[0x23] = 0x20; /* a REF as NEXT */
+    CHECK_FAILS(skin_list(&s, &b), "skin DMA tag id 2");
+    b.buf[0x23] = 0x30;
+    b.buf[0x2C] = 0x1A; /* the second REF to slot 2 */
+    CHECK_FAILS(skin_list(&s, &b), "skin matrix tag at 0x20");
+    vif_free(&b);
 }
 
 /* The synthetic scene: every block, the objects' blobs, the OT and face-on flags, the materials and instances. */
@@ -765,6 +956,7 @@ static void test_vu1init(void)
         { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.6f, 0.8f } },
         { { 0.5f, 0.25f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } },
         { 0.1f, 0.2f, 0.3f },
+        { { 0.0f } },
     };
     NwVuObject o;
     nw_vu1init(&o, local, screen);
@@ -774,6 +966,13 @@ static void test_vu1init(void)
     CHECK(o.lightdir[1][1] == 1.0f && SDL_fabsf(o.lightdir[2][0] + 0.8f) < 1e-6f);
     CHECK(SDL_fabsf(o.lightdir[2][1] - 0.6f) < 1e-6f && o.lightdir[2][2] == 0.0f);
     CHECK(o.lightcol[0][1] == 0.25f && o.lightcol[0][3] == 0.0f && o.ambient[2] == 0.3f && o.lv[12] == 5.0f);
+
+    /* A UV matrix taking world y to u and world x to v: the object's +z, world +x here, gives u 0 and v 1. */
+    static const NwLights uv = { .uv = { { 0, 1, 0, 0 }, { 1, 0, 0, 0 }, { 0, 0, 1, 0 }, { 0.5f, 0.25f, 0, 1 } } };
+    nw_vu1init_uv(&o, local, &uv);
+    CHECK(o.uv[0][0] == 0.0f && o.uv[0][1] == 1.0f && o.uv[0][2] == 0.0f);
+    CHECK(o.uv[1][0] == 0.0f && o.uv[1][1] == 0.0f && o.uv[1][2] == 1.0f);
+    CHECK(o.uv[3][0] == 0.5f && o.uv[3][1] == 0.25f && o.lightdir[2][2] == 0.0f);
 }
 
 /* The hand-off: the newest published packet with its vblank stamp, the last one again while none is newer; a free
@@ -854,6 +1053,8 @@ int main(int argc, char *argv[])
     test_packed();
     test_chain();
     test_errors();
+    test_skin();
+    test_skin_errors();
     test_sprites();
     test_gsc();
     test_package();

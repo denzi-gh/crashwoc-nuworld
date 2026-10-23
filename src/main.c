@@ -492,7 +492,7 @@ static int nw_boot(const char *data_dir)
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
-/* A .gsc of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
+/* A .gsc or .ghg of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
 static const NwManifestEntry *nw_scene_entry(const char *path)
 {
     char name[NW_VFS_PATH_MAX];
@@ -543,9 +543,9 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
     return nw_boot_exit(code, parked);
 }
 
-/* Every .gsc of the imported disc through --scene-check, one process each (the decomp loads one scene a run). Scenes
-   the NU20 reader finds truncated or without objects, which the game never draws (INTRO/FINAL, TITLES/TITLESPL),
-   are skipped. Exits 2 without the disc. */
+/* Every .gsc and .ghg of the imported disc through --scene-check, one process each (the decomp loads one scene a
+   run). Scenes the NU20 reader finds truncated or without objects, which the game never draws (INTRO/FINAL,
+   TITLES/TITLESPL), are skipped. Exits 2 without the disc. */
 static int nw_scene_check_all(const char *exe, const char *data_dir)
 {
     NwVfs vfs;
@@ -559,17 +559,21 @@ static int nw_scene_check_all(const char *exe, const char *data_dir)
     for (size_t i = 0; i < nw_disc_manifest.count; i++) {
         const NwManifestEntry *e = &nw_disc_manifest.entries[i];
         size_t len = strlen(e->path), size = 0;
-        if (len < 4 || SDL_strcasecmp(e->path + len - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP)) {
+        bool ghg = len >= 4 && SDL_strcasecmp(e->path + len - 4, ".GHG") == 0;
+        if (len < 4 || (!ghg && SDL_strcasecmp(e->path + len - 4, ".GSC") != 0) || (e->flags & NW_MANIFEST_SKIP)) {
             continue;
         }
-        uint8_t *data = nw_read_scene(&vfs, e, &size);
-        NwGsc g;
-        bool drawn = data && nw_gsc_open(&g, data, size);
-        if (drawn) {
-            drawn = !g.truncated && g.nobjects > 0;
-            nw_gsc_close(&g);
+        bool drawn = ghg;
+        if (!ghg) {
+            uint8_t *data = nw_read_scene(&vfs, e, &size);
+            NwGsc g;
+            drawn = data && nw_gsc_open(&g, data, size);
+            if (drawn) {
+                drawn = !g.truncated && g.nobjects > 0;
+                nw_gsc_close(&g);
+            }
+            SDL_free(data);
         }
-        SDL_free(data);
         scenes++;
         if (!drawn) {
             printf("scene-check: %s: skipped, nothing to draw\n", e->path);
@@ -619,7 +623,7 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
     const NwPacket *p = nw_packet_take();
     uint32_t draws = 0;
     for (uint32_t i = 0; p && i < p->ncmds; i++) {
-        draws += p->cmds[i].op == NW_CMD_DRAW;
+        draws += p->cmds[i].op == NW_CMD_DRAW || p->cmds[i].op == NW_CMD_SKIN;
     }
     fflush(stderr);
     printf("scene-check: %s: %llu frames, %u draws, %u materials, %u views\n", e->path,

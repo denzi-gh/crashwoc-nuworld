@@ -495,3 +495,364 @@ void nw_vif_sprites_free(NwVifSprites *s)
     SDL_free(s->sprites);
     memset(s, 0, sizeof(*s));
 }
+
+#define NW_VIF_MSCAL_SKIN 0x302   /* the package's jump to skin (tri) or skinxuv (xformuv) */
+#define NW_VIF_MSCAL_SKINMOD 0x0C /* the resident blend-shape pass */
+#define NW_VIF_SKIN_TOP 0xD3      /* a batch's input up to its strip GIF tag at TOP + 0xD2 */
+#define NW_VIF_SKIN_MOD 0x38      /* skinmod's header (shape, end), its deltas from 0x39 */
+#define NW_VIF_SKIN_MODEND 0x63
+
+typedef struct NwSkinDelta {
+    float d[3];
+    uint32_t shape, slot;
+} NwSkinDelta;
+
+/* VU1 as a skin list drives it: the open batch's TOP-relative input, skinmod's block, the group's matrix slots. */
+typedef struct NwSkinVu {
+    uint32_t top[NW_VIF_SKIN_TOP][4];
+    uint32_t mod[NW_VIF_SKIN_MODEND - NW_VIF_SKIN_MOD][4];
+    bool topset[NW_VIF_SKIN_TOP], modset[NW_VIF_SKIN_MODEND - NW_VIF_SKIN_MOD];
+    unsigned cl, wl;
+    uint8_t joints[8];
+    unsigned nslots;
+    bool kicked;   /* a batch of the list ran: MSCNT may continue the program */
+    bool skinmod;  /* MSCAL 0x0C ran: the MSCNT after it only ends skinmod */
+    bool blended;  /* the open batch went through skinmod, so it must be kicked at 0x302 */
+    NwSkinDelta *pending;
+    uint32_t npending, pendcap;
+} NwSkinVu;
+
+/* An unpack under STCYCL CL >= WL, FLG ones into the batch, absolute ones into skinmod's block. */
+static bool nw_skin_unpack(NwSkinVu *vu, uint32_t w, const uint8_t *d, size_t at)
+{
+    unsigned cmd = (w >> 24) & 0x7F, vn = (cmd >> 2) & 3, vl = cmd & 3, addr = w & 0x3FF;
+    unsigned n = (w >> 16) & 0xFF ? (w >> 16) & 0xFF : 256, bits = 32u >> vl;
+    bool usn = (w & 0x4000) != 0, top = (w & 0x8000) != 0;
+    if (vl == 3 || vu->wl == 0 || vu->wl > vu->cl) {
+        return SDL_SetError("vif: skin unpack 0x%02x under STCYCL %u,%u at 0x%zx", cmd, vu->cl, vu->wl, at);
+    }
+    for (unsigned i = 0; i < n; i++) {
+        unsigned q = addr + (i / vu->wl) * vu->cl + i % vu->wl;
+        uint32_t v[4] = { 0, 0, 0, 0 };
+        for (unsigned k = 0; k <= vn; k++) {
+            const uint8_t *e = d + ((size_t)i * (vn + 1) + k) * bits / 8;
+            if (bits == 32) {
+                v[k] = nw_rd32(e);
+            } else if (bits == 16) {
+                uint16_t h;
+                memcpy(&h, e, 2);
+                v[k] = usn ? h : (uint32_t)(int32_t)(int16_t)h;
+            } else {
+                v[k] = usn ? *e : (uint32_t)(int32_t)(int8_t)*e;
+            }
+        }
+        if (vn == 0) {
+            v[1] = v[2] = v[3] = v[0];
+        }
+        uint32_t *dst;
+        if (top && q < NW_VIF_SKIN_TOP) {
+            dst = vu->top[q];
+            vu->topset[q] = true;
+        } else if (!top && q >= NW_VIF_SKIN_MOD && q < NW_VIF_SKIN_MODEND) {
+            dst = vu->mod[q - NW_VIF_SKIN_MOD];
+            vu->modset[q - NW_VIF_SKIN_MOD] = true;
+        } else {
+            return SDL_SetError("vif: skin unpack to VU %s0x%x at 0x%zx", top ? "TOP + " : "", q, at);
+        }
+        memcpy(dst, v, (vn + 1) * 4);
+        if (vn == 0) {
+            memcpy(dst, v, 16);
+        }
+    }
+    return true;
+}
+
+/* skinmod's block: one shape's deltas, each aimed at a vertex's position (TOP + 3 + 4i), kept until the kick. */
+static bool nw_skin_mod(NwSkinVu *vu)
+{
+    int32_t shape = (int32_t)vu->mod[0][0], end = (int32_t)vu->mod[0][1], count = end - 0x3A;
+    if (!vu->modset[0] || shape < 0 || count < 1 || count > NW_VIF_SKIN_MODEND - 0x39) {
+        return SDL_SetError("vif: skinmod header (%d, %d)", shape, end);
+    }
+    if (!nw_vif_reserve((void **)&vu->pending, &vu->pendcap, (uint64_t)vu->npending + count, sizeof(NwSkinDelta))) {
+        return false;
+    }
+    for (int32_t e = 0; e < count; e++) {
+        const uint32_t *q = vu->mod[1 + e];
+        if (!vu->modset[1 + e] || q[3] < 3 || (q[3] - 3) % 4) {
+            return SDL_SetError("vif: skinmod delta %d aimed at TOP + 0x%x", e, q[3]);
+        }
+        NwSkinDelta *p = &vu->pending[vu->npending++];
+        p->d[0] = nw_f32(q[0]);
+        p->d[1] = nw_f32(q[1]);
+        p->d[2] = nw_f32(q[2]);
+        p->shape = (uint32_t)shape;
+        p->slot = (q[3] - 3) / 4;
+    }
+    memset(vu->modset, 0, sizeof(vu->modset));
+    return true;
+}
+
+/* The kick: skin.vsm's vertex loop. A dupe (its first word's low byte d) is output vertex d - 1 again; ADC (the low
+   bits of the second word's w) skips a strip triangle; each weight's low 3 bits name its matrix slot. */
+static bool nw_skin_batch(NwVifSkin *s, NwSkinVu *vu)
+{
+    int32_t hdr = (int32_t)vu->top[2][0];
+    uint32_t n = hdr > 0 && hdr % 4 == 0 ? (uint32_t)hdr / 4 : 0, nloop = vu->top[0xD2][0] & 0x7FFF;
+    if (!vu->topset[2] || n == 0 || n > 42) {
+        return SDL_SetError("vif: skin batch header %d", hdr);
+    }
+    if (!vu->topset[0xD2] || nloop != n) {
+        return SDL_SetError("vif: skin batch of %u vertices under a GIF tag of NLOOP %u", n, nloop);
+    }
+    if (!nw_vif_reserve((void **)&s->verts, &s->vcap, (uint64_t)s->nverts + n, sizeof(*s->verts)) ||
+        !nw_vif_reserve((void **)&s->tris, &s->tcap, (uint64_t)s->ntris + n, 3 * sizeof(uint32_t)) ||
+        !nw_vif_reserve((void **)&s->deltas, &s->dcap, (uint64_t)s->ndeltas + vu->npending, sizeof(*s->deltas))) {
+        return false;
+    }
+    uint32_t map[42];
+    bool adc[42], dupe[42];
+    uint32_t nverts = s->nverts;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t *q0 = vu->top[3 + 4 * i], *q1 = vu->top[4 + 4 * i];
+        uint32_t d = q0[3] & 0xFF, c0 = q1[1] & 7, c1 = q1[2] & 7;
+        if (!vu->topset[3 + 4 * i] || !vu->topset[4 + 4 * i]) {
+            return SDL_SetError("vif: skin vertex %u not uploaded", i);
+        }
+        adc[i] = (q1[3] & 7) != 0;
+        dupe[i] = d != 0;
+        if (d) {
+            if (d - 1 >= i) {
+                return SDL_SetError("vif: skin vertex %u a dupe of vertex %u", i, d - 1);
+            }
+            map[i] = map[d - 1];
+            s->ndupes++;
+            continue;
+        }
+        if (c0 == 0 || c0 > 4 || c1 > 4 || (c1 && c0 != 4)) {
+            return SDL_SetError("vif: skin vertex %u with %u + %u weights", i, c0, c1);
+        }
+        if (!vu->topset[5 + 4 * i] || (c1 && !vu->topset[6 + 4 * i]) || (q1[0] & 7) >= vu->nslots) {
+            return SDL_SetError("vif: skin vertex %u without its weights or normal matrix", i);
+        }
+        NwVifSkinVertex *out = &s->verts[nverts];
+        memset(out, 0, sizeof(*out));
+        for (int k = 0; k < 3; k++) {
+            out->pos[k] = nw_f32(q0[k]);
+        }
+        out->nrm[0] = nw_f32(q0[3]);
+        out->nrm[1] = nw_f32(q1[2]);
+        out->nrm[2] = nw_f32(q1[3]);
+        out->uv[0] = nw_f32(q1[0]);
+        out->uv[1] = nw_f32(q1[1]);
+        out->nrmjoint = vu->joints[q1[0] & 7];
+        for (uint32_t k = 0; k < c0 + c1; k++) {
+            uint32_t bits = vu->top[5 + 4 * i + k / 4][k % 4], slot = bits & 7;
+            double fixed = trunc((double)nw_f32(bits) * 32768.0);
+            if (slot >= vu->nslots || !(fixed >= 0.0 && fixed <= 65535.0)) {
+                return SDL_SetError("vif: skin vertex %u weight %u (slot %u of %u)", i, k, slot, vu->nslots);
+            }
+            out->weight[k] = (uint16_t)fixed;
+            out->joint[k] = vu->joints[slot];
+        }
+        map[i] = nverts++;
+    }
+    for (uint32_t k = 0; k < vu->npending; k++) {
+        if (vu->pending[k].slot >= n || dupe[vu->pending[k].slot]) {
+            return SDL_SetError("vif: skinmod delta for vertex %u of a batch of %u", vu->pending[k].slot, n);
+        }
+    }
+    /* Each vertex's deltas together, in shape order as skinmod adds them. */
+    for (uint32_t i = 0; i < n; i++) {
+        if (dupe[i]) {
+            continue;
+        }
+        NwVifSkinVertex *v = &s->verts[map[i]];
+        v->delta = s->ndeltas;
+        for (uint32_t k = 0; k < vu->npending; k++) {
+            const NwSkinDelta *p = &vu->pending[k];
+            if (p->slot == i) {
+                if (v->ndeltas == 0xFF) {
+                    return SDL_SetError("vif: skin vertex %u with too many deltas", i);
+                }
+                memcpy(s->deltas[s->ndeltas], p->d, sizeof(p->d));
+                s->deltas[s->ndeltas++][3] = (float)p->shape;
+                v->ndeltas++;
+            }
+        }
+    }
+    uint32_t *t = s->tris + 3 * (size_t)s->ntris;
+    for (uint32_t i = 2; i < n; i++) {
+        if (adc[i]) {
+            continue;
+        }
+        t[0] = map[i - 2];
+        t[1] = i & 1 ? map[i] : map[i - 1];
+        t[2] = i & 1 ? map[i - 1] : map[i];
+        t += 3;
+        s->ntris++;
+    }
+    for (uint32_t i = s->nverts; i < nverts; i++) {
+        for (int k = 0; k < 8; k++) {
+            s->maxjoint = s->verts[i].joint[k] > s->maxjoint ? s->verts[i].joint[k] : s->maxjoint;
+        }
+        s->maxjoint = s->verts[i].nrmjoint > s->maxjoint ? s->verts[i].nrmjoint : s->maxjoint;
+    }
+    s->nverts = nverts;
+    s->nbatches++;
+    vu->npending = 0;
+    vu->blended = false;
+    memset(vu->topset, 0, sizeof(vu->topset));
+    return true;
+}
+
+/* A group's batches: the VIF stream of the RET tag a CALL reaches. */
+static bool nw_skin_stream(NwVifSkin *s, NwSkinVu *vu, const uint8_t *st, size_t n)
+{
+    for (size_t p = 0; p < n;) {
+        uint32_t w = nw_rd32(st + p);
+        unsigned cmd = (w >> 24) & 0x7F, imm = w & 0xFFFF;
+        size_t at = p;
+        p += 4;
+        if (cmd >= 0x60) {
+            unsigned vn = (cmd >> 2) & 3, vl = cmd & 3, num = (w >> 16) & 0xFF ? (w >> 16) & 0xFF : 256;
+            size_t bytes = ((size_t)num * (vn + 1) * (32u >> (vl & 3)) / 8 + 3) & ~(size_t)3;
+            if (cmd & 0x10) {
+                return SDL_SetError("vif: masked unpack at 0x%zx", at);
+            }
+            if (bytes > n - p) {
+                return SDL_SetError("vif: unpack at 0x%zx runs past the end", at);
+            }
+            if (!nw_skin_unpack(vu, w, st + p, at)) {
+                return false;
+            }
+            p += bytes;
+            continue;
+        }
+        if (vu->skinmod && cmd != 0x17) {
+            return SDL_SetError("vif: skinmod not ended by MSCNT at 0x%zx", at);
+        }
+        switch (cmd) {
+        case 0x00: /* NOP */
+        case 0x10: /* FLUSHE */
+        case 0x11: /* FLUSH */
+        case 0x13: /* FLUSHA */
+            break;
+        case 0x01: /* STCYCL: 1,1 or 4,2; 5,3 (vertex colours) has no skin program */
+            vu->cl = imm & 0xFF;
+            vu->wl = imm >> 8;
+            if ((vu->cl != 1 || vu->wl != 1) && (vu->cl != 4 || vu->wl != 2)) {
+                return SDL_SetError("vif: skin STCYCL %u,%u at 0x%zx", vu->cl, vu->wl, at);
+            }
+            break;
+        case 0x14: /* MSCAL */
+            if (imm == NW_VIF_MSCAL_SKINMOD) {
+                if (!nw_skin_mod(vu)) {
+                    return false;
+                }
+                vu->skinmod = vu->blended = true;
+                break;
+            }
+            if (imm != NW_VIF_MSCAL_SKIN) {
+                return SDL_SetError("vif: skin batch kicked at 0x%x", imm);
+            }
+            if (!nw_skin_batch(s, vu)) {
+                return false;
+            }
+            vu->kicked = true;
+            break;
+        case 0x17: /* MSCNT */
+            if (vu->skinmod) {
+                vu->skinmod = false;
+                break;
+            }
+            if (!vu->kicked || vu->blended) {
+                return SDL_SetError("vif: %s skin batch continued by MSCNT", vu->blended ? "blended" : "first");
+            }
+            if (!nw_skin_batch(s, vu)) {
+                return false;
+            }
+            break;
+        default:
+            return SDL_SetError("vif: VIF command 0x%02x at 0x%zx in a skin stream", cmd, at);
+        }
+    }
+    if (vu->skinmod || vu->npending) {
+        return SDL_SetError("vif: skin batch not kicked");
+    }
+    return true;
+}
+
+/* The list: per group of at most 8 matrices a CNT (STCYCL 8,1), a REF per slot (joint << 6 into skin_mtx_buffer,
+   unpacked to VU 0x18 + slot) and a CALL of the group's batches; RET ends it. */
+static bool nw_skin_list(NwVifSkin *s, NwSkinVu *vu, const uint8_t *l, size_t size)
+{
+    for (size_t off = 0;; off += 16) {
+        if (size < 16 || off > size - 16) {
+            return SDL_SetError("vif: skin DMA tag at 0x%zx outside the geom", off);
+        }
+        uint32_t lo = nw_rd32(l + off), addr = nw_rd32(l + off + 4), vif0 = nw_rd32(l + off + 8);
+        uint32_t vif1 = nw_rd32(l + off + 12), qwc = lo & 0xFFFF, id = (lo >> 28) & 7;
+        if (id == 6) {
+            return true;
+        }
+        if (id == 1) {
+            if (qwc != 0 || vif0 != 0x01000108) {
+                return SDL_SetError("vif: skin group tag at 0x%zx", off);
+            }
+            vu->nslots = 0;
+        } else if (id == 3) {
+            unsigned slot = (vif1 & 0x3FF) - 0x18;
+            if (qwc != 4 || (vif1 & 0xFFFFFC00u) != 0x6C040000u || slot != vu->nslots || slot >= 8 || (addr & 63) ||
+                addr >> 6 > 0xFF) {
+                return SDL_SetError("vif: skin matrix tag at 0x%zx", off);
+            }
+            vu->joints[vu->nslots++] = (uint8_t)(addr >> 6);
+        } else if (id == 5) {
+            if (vu->nslots == 0 || (addr & 15) || size < 16 || addr > size - 16) {
+                return SDL_SetError("vif: skin CALL at 0x%zx to 0x%x", off, addr);
+            }
+            uint32_t rlo = nw_rd32(l + addr);
+            size_t rqwc = rlo & 0xFFFF;
+            if (((rlo >> 28) & 7) != 6 || rqwc * 16 > size - addr - 16) {
+                return SDL_SetError("vif: skin CALL at 0x%zx reaches no RET block", off);
+            }
+            uint8_t *st = SDL_malloc(8 + rqwc * 16);
+            if (!st) {
+                return false;
+            }
+            memcpy(st, l + addr + 8, 8);
+            memcpy(st + 8, l + addr + 16, rqwc * 16);
+            bool ok = nw_skin_stream(s, vu, st, 8 + rqwc * 16);
+            SDL_free(st);
+            if (!ok) {
+                return false;
+            }
+        } else {
+            return SDL_SetError("vif: skin DMA tag id %u at 0x%zx", id, off);
+        }
+    }
+}
+
+bool nw_vif_skin(NwVifSkin *skin, const void *list, size_t size)
+{
+    memset(skin, 0, sizeof(*skin));
+    NwSkinVu *vu = SDL_calloc(1, sizeof(*vu));
+    bool ok = vu && nw_skin_list(skin, vu, list, size);
+    if (vu) {
+        SDL_free(vu->pending);
+    }
+    SDL_free(vu);
+    if (!ok) {
+        nw_vif_skin_free(skin);
+    }
+    return ok;
+}
+
+void nw_vif_skin_free(NwVifSkin *skin)
+{
+    SDL_free(skin->verts);
+    SDL_free(skin->tris);
+    SDL_free(skin->deltas);
+    memset(skin, 0, sizeof(*skin));
+}
