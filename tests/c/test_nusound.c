@@ -20,6 +20,7 @@ void SOUND_GetStatus(int request);
 void SOUND_AddSamples(struct nusound_filename_info_s *sfx_info);
 void SOUND_SetMaxStreamLimit(int limit);
 void SOUND_SetSPUWriteAddress(unsigned int address);
+void SOUND_AllocateStreamBuffer(int stream, unsigned int address, unsigned int size);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -205,6 +206,26 @@ static void test_write_address(void)
     CHECK(nw_nusound_irx()->StreamMemoryEnd == 0x48310);
 }
 
+static void test_stream_buffers(void)
+{
+    const STREAMDATA *sb = nw_nusound_irx()->StreamBuffer;
+
+    nw_nusound_init();
+    for (int i = 0; i < 5; i++) { /* init_adpcm's */
+        SOUND_AllocateStreamBuffer(i, 0x5010 + i * 0xd700, 0xd700);
+    }
+    FlushIOPCommand(0);
+    for (int i = 0; i < 5; i++) {
+        CHECK(sb[i].IOPAddress && sb[i].AllocSize == 0xd700 && sb[i].AllocHalfSize == 0x6b80);
+        CHECK(sb[i].AllocSPUAddress == 0x5010u + i * 0xd700u);
+    }
+    CHECK(!sb[5].IOPAddress);
+    /* Kept while allocated, parameters too. */
+    SOUND_AllocateStreamBuffer(0, 0x1000, 0x800);
+    FlushIOPCommand(0);
+    CHECK(sb[0].AllocSize == 0xd700 && sb[0].AllocSPUAddress == 0x5010);
+}
+
 int main(void)
 {
     test_transport();
@@ -215,6 +236,7 @@ int main(void)
     test_sample_info();
     test_max_streams();
     test_write_address();
+    test_stream_buffers();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

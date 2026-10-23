@@ -1,6 +1,7 @@
 #include "audio/nusound.h"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio/irx.h"
@@ -24,6 +25,9 @@ static void nw_irx_string(char *dst, size_t size, const uint16_t *p, int length)
 
 void nw_nusound_init(void)
 {
+    for (int i = 0; i < NW_IRX_CHANNELS; i++) {
+        free(irx.StreamBuffer[i].IOPAddress);
+    }
     memset(&irx, 0, sizeof(irx));
     irx.IOPRequestLoad = -1;
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
@@ -87,6 +91,21 @@ static void AdpcmSetMasterVolume(int core, uint16_t vol)
 {
     nw_spu2_set_param((uint16_t)(core | NW_SD_P_MVOLL), vol);
     nw_spu2_set_param((uint16_t)(core | NW_SD_P_MVOLR), vol);
+}
+
+/* A stream's IOP buffer, kept (parameters included) while one is allocated. */
+static void ADPCM_AllocIOPMemory(unsigned i, uint32_t spuaddr, int size)
+{
+    if (i >= NW_IRX_CHANNELS) {
+        return;
+    }
+    STREAMDATA *s = &irx.StreamBuffer[i];
+    if (!s->IOPAddress) {
+        s->IOPAddress = malloc(size > 0 ? (size_t)size : 1);
+        s->AllocSize = (uint32_t)size;
+        s->AllocHalfSize = (uint32_t)(size / 2);
+        s->AllocSPUAddress = spuaddr;
+    }
 }
 
 /* The IRX also sprintf's each name over a .rodata string, dropped here. */
@@ -160,6 +179,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 0xe:
             irx.StreamMemoryEnd = (uint32_t)dt[0] << 16 | dt[1];
+            break;
+        case 0xd:
+            ADPCM_AllocIOPMemory(dt[0], (uint32_t)dt[1] << 16 | dt[2], (int)((uint32_t)dt[3] << 16 | dt[4]));
             break;
         default: /* 8, >= 0x22: no handler */
             break;
