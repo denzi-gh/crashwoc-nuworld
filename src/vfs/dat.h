@@ -48,6 +48,8 @@ int nw_dat_find(const NwDat *dat, const char *path);
 
 /* Stored bytes of an entry (still RNC-packed when flags & NW_DAT_PACKED). Free with SDL_free. */
 void *nw_dat_load(NwDat *dat, int index);
+/* size stored bytes from offset into an entry; false past its end. */
+bool nw_dat_read(NwDat *dat, int index, uint32_t offset, void *dst, size_t size);
 
 /* Calls fn for every file reachable from node 1 with its '\'-separated path. */
 bool nw_dat_list(const NwDat *dat, void (*fn)(void *user, int index, const char *path), void *user);

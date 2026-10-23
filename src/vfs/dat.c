@@ -222,14 +222,30 @@ void *nw_dat_load(NwDat *dat, int index)
         SDL_SetError("no .DAT entry %d", index);
         return NULL;
     }
-    const NwDatEntry *e = &dat->entries[index];
-    uint8_t *data = SDL_malloc(e->size ? e->size : 1);
-    if (data && (nw_vfs_seek(dat->file, e->offset, 0) < 0 || nw_vfs_read(dat->file, data, e->size) != e->size)) {
+    uint32_t size = dat->entries[index].size;
+    uint8_t *data = SDL_malloc(size ? size : 1);
+    if (data && !nw_dat_read(dat, index, 0, data, size)) {
         SDL_free(data);
-        SDL_SetError("read error in .DAT entry %d", index);
         return NULL;
     }
     return data;
+}
+
+bool nw_dat_read(NwDat *dat, int index, uint32_t offset, void *dst, size_t size)
+{
+    if (!dat->file || index < 0 || (uint32_t)index >= dat->count) {
+        return SDL_SetError("no .DAT entry %d", index);
+    }
+    const NwDatEntry *e = &dat->entries[index];
+    if (offset > e->size || size > e->size - offset) {
+        return SDL_SetError("read of %llu bytes at %u runs past .DAT entry %d (%u bytes)", (unsigned long long)size,
+                            offset, index, e->size);
+    }
+    if (nw_vfs_seek(dat->file, (int64_t)e->offset + offset, 0) < 0 ||
+        nw_vfs_read(dat->file, dst, size) != (int64_t)size) {
+        return SDL_SetError("read error in .DAT entry %d", index);
+    }
+    return true;
 }
 
 static bool nw_dat_walk(NwDatWalk *w, int32_t node, size_t len, int depth)
