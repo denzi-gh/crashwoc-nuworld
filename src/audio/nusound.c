@@ -1081,6 +1081,11 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
                 PlayResidentSFX(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
             }
             break;
+        case 5:
+            if (irx.AnyFiles == 1) {
+                StopStream(dt[0]);
+            }
+            break;
         case 1: /* stream, channel | bank << 8, volumes, pitch, LoopInfo, AR */
             if (irx.AnyFiles == 1) {
                 irx.SYSTEMWAIT2 = 1;

@@ -537,6 +537,43 @@ static void test_play_stream(void)
     nusound_irx_loaded = 0;
 }
 
+/* CutSceneNextFunction's way: stop the cut's stream, then wait for its key status to drop. */
+static void test_stop_stream(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    int frames = 0;
+
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
+    SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
+    while (frames++ < 50 && (NuSoundKeyStatus(4) != 1 || NuSoundKeyStatus(0) != 1)) {
+        frame();
+    }
+    NuSoundStopStream(4);
+    for (frames = 0; frames < 50 && NuSoundKeyStatus(4) == 1; frames++) {
+        NuSoundUpdate();
+    }
+    CHECK(frames == 2 && NuSoundKeyStatus(0) == 1);
+    CHECK(irx->StreamBuffer[4].Status == 0 && irx->StreamBuffer[4].iStatus == 3);
+    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) == 0);
+
+    /* By slot (0x40 | slot), and a stream that is gone before the EE answers its request. */
+    NuSoundStopStream(0x40);
+    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
+    FlushIOPCommand(0);
+    for (frames = 0; frames < 50 && irx->IOPRequestLoad != 4; frames++) {
+        test_us += 16666;
+        status(NULL);
+    }
+    NuSoundStopStream(4);
+    FlushIOPCommand(0);
+    test_us += 16666;
+    status(NULL);
+    CHECK(irx->StreamBuffer[0].Status == 0 && irx->IOPRequestLoad == -1 && irx->LoadFromEE == 0xffff);
+    nusound_irx_loaded = 0;
+}
+
 /* sfx\generic\a.vag: a one-shot of 3 blocks; sfx\music\bl.vag: a loop of 4; a text file; sfx\music\big.vag: a
    one-shot of BIG_BLOCKS, more than a stream buffer and a half, each block numbered in its nibbles. */
 static bool setup_disc(const char *scratch)
@@ -600,6 +637,7 @@ int main(int argc, char *argv[])
     test_channel_pitch();
     test_stop_sound();
     test_play_stream();
+    test_stop_stream();
     nw_nusound_init(NULL, NULL);
     nw_vfs_shutdown(&vfs);
     nw_paths_remove_tree(argv[1]);
