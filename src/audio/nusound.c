@@ -14,6 +14,7 @@
 #define NW_IRX_REPORTED 4 /* streams in the reply */
 #define NW_IRX_NO_REQUEST 0xffff
 #define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
+#define NW_IOP_HZ 36864000u
 #define NW_IRX_SECTOR 2048
 #define NW_IRX_PATH 600
 #define NW_IRX_SPOT 0x7f /* LoopInfo of a resident sample's transfer */
@@ -23,13 +24,15 @@
 
 static NwIrx irx;
 
-/* The port's side: the file system, the clock and how far the stream thread's ticks got. */
+/* The port's side: the file system, the clock, how far the stream thread's ticks got and the SPU's cycle when they
+   started. */
 static struct {
     const NwVfs *vfs;
     uint64_t (*now_us)(void);
     bool timer;
     uint64_t timer_us;
     uint64_t ticks;
+    uint64_t spu_base;
     NwDat global_dat;
     NwDat local_dat;
 } iop;
@@ -269,6 +272,7 @@ static void InitStreamData(void)
         iop.timer = true;
         iop.timer_us = iop.now_us ? iop.now_us() : 0;
         iop.ticks = 0;
+        iop.spu_base = nw_spu2_cycle();
     }
 }
 
@@ -442,13 +446,27 @@ static void SOUND_AllChannelEffects(int core, bool on)
     }
 }
 
-/* KOFF and the fastest release. The IRX takes the channel on trust; here one past 47 is left alone. */
-static void nw_irx_key_off(int ch)
+/* The IRX's `while (n-- != -1)` waits between SPU writes: n + 1 rounds of 10 instructions, about an IOP cycle each
+   in PCSX2, while the SPU runs on. */
+static void nw_irx_delay(int n)
+{
+    nw_spu2_run_to(nw_spu2_cycle() + (uint64_t)(n + 1) * 10);
+}
+
+/* KOFF and the fastest release, each followed by the IRX's wait where it has one (0: none). The IRX takes the
+   channel on trust; here one past 47 is left alone. */
+static void nw_irx_key_off(int ch, int wait)
 {
     if (ch < NW_IRX_CHANNELS) {
         int core = ch >= NW_SPU2_VOICES;
         nw_spu2_set_switch((uint16_t)(core | NW_SD_S_KOFF), 1u << (ch - NW_SPU2_VOICES * core));
+        if (wait) {
+            nw_irx_delay(wait);
+        }
         nw_spu2_set_param(nw_irx_voice(ch, NW_SD_VP_ADSR2), 0x1fc0);
+        if (wait) {
+            nw_irx_delay(wait);
+        }
     }
 }
 
@@ -459,8 +477,8 @@ static void nw_irx_stopped(int ch)
     }
 }
 
-/* Ch >= 0x40: stream slot Ch & 0x3f; otherwise the first active stream on channel Ch (keyed off twice). The IRX's
-   busy waits between the register writes are left out. */
+/* Ch >= 0x40: stream slot Ch & 0x3f, with the IRX's waits; otherwise the first active stream on channel Ch (keyed
+   off twice, no waits). */
 static void StopStream(int Ch)
 {
     if (Ch >= 0x40) {
@@ -472,7 +490,7 @@ static void StopStream(int Ch)
         s->Status = 0;
         s->iStatus = 3;
         SetChannelPitch(s->Channel, 0);
-        nw_irx_key_off(s->Channel);
+        nw_irx_key_off(s->Channel, 200);
         nw_irx_stopped(s->Channel);
         return;
     }
@@ -482,8 +500,8 @@ static void StopStream(int Ch)
             s->Status = 0;
             s->iStatus = 3;
             SetChannelPitch(Ch, 0);
-            nw_irx_key_off(Ch);
-            nw_irx_key_off(Ch);
+            nw_irx_key_off(Ch, 0);
+            nw_irx_key_off(Ch, 0);
             nw_irx_stopped(Ch);
             return;
         }
@@ -1007,7 +1025,8 @@ static int GetNAX(int core, int ch)
 }
 
 /* Kill all (0x21), on the tick after it: every voice off, every stream and request dropped, then StreamShutDown
-   back to 0, which the EE waits for. A CD read in flight is dropped too; IOP buffers and effects stay. */
+   back to 0, which the EE waits for. A CD read in flight is dropped too; IOP buffers and effects stay. Each voice
+   gets pitch 0, the fastest release, then KOFF, with the IRX's long wait after each. */
 static void SOUND_DoShutOff(void)
 {
     irx.CD_EVENT_OCCURED = 0;
@@ -1019,12 +1038,17 @@ static void SOUND_DoShutOff(void)
     irx.StreamBusy = 0;
     for (int i = 0; i < NW_IRX_CHANNELS; i++) {
         STREAMDATA *s = &irx.StreamBuffer[i];
+        int core = i >= NW_SPU2_VOICES;
         s->Status = 0;
         s->iStatus = 3;
         s->Error = 0;
         s->KeyStat = 0;
         SetChannelPitch(i, 0);
-        nw_irx_key_off(i);
+        nw_irx_delay(400);
+        nw_spu2_set_param(nw_irx_voice(i, NW_SD_VP_ADSR2), 0x1fc0);
+        nw_irx_delay(400);
+        nw_spu2_set_switch((uint16_t)(core | NW_SD_S_KOFF), 1u << (i - NW_SPU2_VOICES * core));
+        nw_irx_delay(400);
         irx.SPU_KeyStatus[i] = 0;
     }
     irx.ResStatus = 0;
@@ -1121,7 +1145,14 @@ static void StreamADPCM(void)
     irx.Direction ^= 1;
 }
 
-/* The ticks due since the timer started, all before the call they precede. */
+/* The SPU's cycle `us` after the timer started. */
+static uint64_t nw_iop_cycle(uint64_t us)
+{
+    return iop.spu_base + us * NW_IOP_HZ / 1000000;
+}
+
+/* The ticks due since the timer started, all before the call they precede, each at its own time on the SPU; then
+   the SPU runs to now (unless the IRX's waits took it further). */
 static void nw_iop_catch_up(void)
 {
     if (!iop.timer || !iop.now_us) {
@@ -1134,8 +1165,10 @@ static void nw_iop_catch_up(void)
     uint64_t due = (now - iop.timer_us) / NW_IRX_TICK_US;
     while (iop.ticks < due) {
         iop.ticks++;
+        nw_spu2_run_to(nw_iop_cycle(iop.ticks * NW_IRX_TICK_US));
         StreamADPCM();
     }
+    nw_spu2_run_to(nw_iop_cycle(now - iop.timer_us));
 }
 
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */
@@ -1254,7 +1287,7 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             SetChannelPitch(dt[0] + 1, dt[1]);
             break;
         case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
-            nw_irx_key_off(dt[0]);
+            nw_irx_key_off(dt[0], 200);
             break;
         case 0x13: /* core, mode, depth left, right, delay, feedback */
             SOUND_EnableEffects(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);

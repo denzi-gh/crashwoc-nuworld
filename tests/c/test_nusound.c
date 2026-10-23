@@ -133,6 +133,12 @@ static void test_batch(void)
     CHECK(reply[3] == 0);
 }
 
+/* The SPU on by n samples, outside the module's clock. */
+static void spu_samples(unsigned n)
+{
+    nw_spu2_run_to(nw_spu2_cycle() + 768u * n);
+}
+
 /* GetStatus as the EE sends it (-1: no load request). */
 static void status(int32_t ret[128])
 {
@@ -151,9 +157,13 @@ static void test_status(void)
         CHECK(i == 24 || ret[i] == 0);
     }
 
-    /* Key status: channel j of a word at bits 30 - 2j; 3 is core 0 voice 3, 24 and 47 core 1 voices 0 and 23. */
+    /* Key status: channel j of a word at bits 30 - 2j; 3 is core 0 voice 3, 24 and 47 core 1 voices 0 and 23. The
+       key-on takes the SPU's next sample. */
     nw_spu2_set_switch(NW_SD_S_KON, 1u << 3);
     nw_spu2_set_switch(NW_SD_S_KON | 1, 1u << 0 | 1u << 23);
+    status(ret);
+    CHECK(ret[29] == 0 && ret[30] == 0 && ret[31] == 0);
+    spu_samples(1);
     status(ret);
     CHECK(ret[29] == 1 << 24 && ret[30] == 1 << 14 && ret[31] == 1);
 
@@ -163,8 +173,9 @@ static void test_status(void)
     CHECK(NuSoundKeyStatus(3) == 1 && NuSoundKeyStatus(24) == 1 && NuSoundKeyStatus(47) == 1);
     CHECK(NuSoundKeyStatus(4) == 0);
 
-    /* The reply only changes on a GetStatus. */
+    /* The reply only changes on a GetStatus. The release (ADSR2 0) takes two samples. */
     nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 3);
+    spu_samples(2);
     SetIOPCommand(8, 0);
     FlushIOPCommand(0);
     SOUND_CopyIOPBuffer();
@@ -458,18 +469,35 @@ static void test_play_sfx(void)
     SOUND_PlaySFX(0x1002, 7, 0x3fff, 0x2000, 0x1000, 3, 0x14);
     SOUND_PlaySFX(0x1000, 30, 0x1000, 0x1000, 0x800, 0, 0); /* core 1 voice 6 */
     ee_status();
-    CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(30) == 1 && NuSoundKeyStatus(8) == 0);
+    /* The key-on waits for the SPU's next sample, after the reply of its own batch. */
+    CHECK(NuSoundKeyStatus(7) == 0 && NuSoundKeyStatus(30) == 0);
     CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_VOLL) == 0x3fff && nw_spu2_get_param(7 << 1 | NW_SD_VP_VOLR) == 0x2000);
     CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_PITCH) == 0x1000 && nw_nusound_irx()->SPU_PausePitch[7] == 0x1000);
     CHECK(nw_spu2_get_param(7 << 1 | NW_SD_VP_ADSR1) == 0x03ff && nw_spu2_get_param(7 << 1 | NW_SD_VP_ADSR2) == 0x1fd4);
     CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_SSA) == 0x48310 + a_size);
-    CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_NAX) == 0x48310 + a_size);
     CHECK(nw_spu2_get_addr(1 | 6 << 1 | NW_SD_VA_SSA) == 0x48310);
 
-    /* An ID without a sample still keys on, from -1. */
-    SOUND_PlaySFX(0x1100, 9, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    /* 24 samples on both play; at pitch 0x1000 NAX is 11 words in (7 data words, the next header, 3 more). */
+    test_us += 500;
     ee_status();
-    CHECK(NuSoundKeyStatus(9) == 1 && nw_spu2_get_addr(9 << 1 | NW_SD_VA_SSA) == 0xffffffffu);
+    CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(30) == 1 && NuSoundKeyStatus(8) == 0);
+    CHECK(nw_spu2_get_addr(7 << 1 | NW_SD_VA_NAX) == 0x48310 + a_size + 22);
+
+    /* The END block ends a.vag at sample 41 at pitch 0x1000, at 81 at 0x800. The key status drops, and with it the
+       channel is free for find_free_channel again. */
+    test_us += 500;
+    ee_status();
+    CHECK(NuSoundKeyStatus(7) == 0 && NuSoundKeyStatus(30) == 1);
+    test_us += 1000;
+    ee_status();
+    CHECK(NuSoundKeyStatus(30) == 0);
+
+    /* An ID without a sample still keys on, from -1: the last block of sound RAM, on into the empty start. */
+    SOUND_PlaySFX(0x1100, 9, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    FlushIOPCommand(0);
+    test_us += 500;
+    ee_status();
+    CHECK(NuSoundKeyStatus(9) == 1 && nw_spu2_get_addr(9 << 1 | NW_SD_VA_SSA) == 0x1ffff0);
 }
 
 static void test_channel_volume(void)
@@ -504,8 +532,11 @@ static void test_stop_sound(void)
     boot_bank();
     SOUND_PlaySFX(0x1000, 7, 0x3fff, 0x3fff, 0x1000, 0, 0);
     SOUND_PlaySFX(0x1000, 31, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    FlushIOPCommand(0);
+    test_us += 500;
     ee_status();
     CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(31) == 1);
+    /* The IRX waits after KOFF and after the release: the voice is silent by the reply of the same batch. */
     SOUND_StopSound(31);
     ee_status();
     CHECK(NuSoundKeyStatus(7) == 1 && NuSoundKeyStatus(31) == 0);
@@ -536,24 +567,23 @@ static void test_play_stream(void)
 
     nusound_irx_loaded = 1;
     boot_module(streams);
-    /* NuSoundPlayChan's stream on channel 4 (a cut's audio): bank 4, the file's rate (pitch 1), its LoopInfo (2). */
+    /* NuSoundPlayChan's stream on channel 4 (a cut's audio): bank 4, the file's rate (pitch 1), its LoopInfo (2).
+       It keys on after two handshakes and the CD's steps; its two blocks at 22050 Hz are over 89 samples later,
+       before the next reply, so the key status goes from 2 to 0. */
     SOUND_PlayStream(2, 4, 4, 0x3fff, 0x2000, 1, 2, 0, 0x10);
-    for (; frames < 50 && NuSoundKeyStatus(4) != 1; frames++) {
+    for (; frames < 50 && (!starting || NuSoundKeyStatus(4) == 2); frames++) {
         frame();
         starting |= NuSoundKeyStatus(4) == 2;
     }
-    CHECK(NuSoundKeyStatus(4) == 1 && starting && frames == 8); /* two handshakes, the CD's steps */
-    CHECK(s->Status == 1 && s->iStatus == 0 && s->PlayingHalf == 3 && s->LoopInfo == 2);
+    CHECK(NuSoundKeyStatus(4) == 0 && starting && frames == 8);
+    CHECK(s->iStatus == 0 && s->PlayingHalf == 3 && s->LoopInfo == 2);
     CHECK(s->ID == 2 && s->Channel == 4 && s->Pitch == 0x759 && s->SPUAddress == spu);
     CHECK(nw_spu2_get_addr(4 << 1 | NW_SD_VA_SSA) == spu && nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0x759);
-    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_VOLR) == 0x2000 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ADSR2) == 0x1fd0);
+    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_ADSR2) == 0x1fd0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_ENVX) == 0);
     CHECK(memcmp(nw_spu2_ram() + spu, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
-
-    /* Without time in the SPU it plays on. */
-    for (int i = 0; i < 20; i++) {
-        frame();
-    }
-    CHECK(NuSoundKeyStatus(4) == 1 && s->Status == 1);
+    /* A tick finds it played out: no volume, keyed off, the slot free. */
+    frame();
+    CHECK(s->Status == 0 && nw_spu2_get_param(4 << 1 | NW_SD_VP_VOLR) == 0);
 
     /* A stream longer than its buffer, on slot 0: the whole buffer as a ring in SPU RAM, then the rest (less than
        a half) read ahead with the end's flags set, waiting for the voice to leave the first half. */
@@ -573,6 +603,22 @@ static void test_play_stream(void)
     CHECK(ram[0xd700 - 0xf] == (NW_ADPCM_END | NW_ADPCM_REPEAT));
     CHECK(memcmp(ram + 0x20, big_blocks + 0x20, 0xd700 - 0x30) == 0);
     CHECK(memcmp(s0->IOPAddress, big_blocks + 0xd700, sizeof(big_blocks) - 0xd700) == 0);
+
+    /* The voice leaves the first half (1720 blocks at 0xeb3: 1.09 s, 55 frames), and two handshakes later the rest
+       is there, from the file's block 3440 on. It plays out at the file's END block, 4095 blocks (2.6 s, 130 frames)
+       after the key-on. */
+    uint32_t block;
+    for (; frames < 300 && s0->PlayingHalf == 0; frames++) {
+        frame();
+    }
+    memcpy(&block, ram + 2, sizeof(block));
+    CHECK(frames == 69 && s0->PlayingHalf == 1 && NuSoundKeyStatus(0) == 1 && block == 0xd700 / NW_ADPCM_BLOCK);
+    for (; frames < 300 && NuSoundKeyStatus(0) == 1; frames++) {
+        frame();
+    }
+    CHECK(frames == 142 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
+    frame();
+    CHECK(s0->Status == 0);
     nusound_irx_loaded = 0;
 }
 
@@ -649,8 +695,8 @@ static void test_kill_all(void)
 
     nusound_irx_loaded = 1;
     boot_module(streams);
-    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
-    SOUND_PlaySFX(0x1000, 7, 0x3fff, 0x3fff, 0x1000, 0, 0);
+    SOUND_PlayStream(3, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
+    SOUND_PlaySFX(0x1000, 7, 0x3fff, 0x3fff, 0x1000, 0, 0); /* no bank here: from -1, on into empty RAM */
     while (frames++ < 50 && NuSoundKeyStatus(4) != 1) {
         frame();
     }
@@ -688,7 +734,9 @@ static void test_pause(void)
     CHECK(nw_spu2_get_param(3 << 1 | NW_SD_VP_PITCH) == 0);
 }
 
-/* CutSceneNextFunction's way: stop the cut's stream, then wait for its key status to drop. */
+/* CutSceneNextFunction's way: stop the cut's stream, then wait a vblank at a time for its key status to drop. The
+   stop keys off without waiting, so the reply of its own batch still finds the voice up, and the EE reads each
+   reply at its next flush: two vblanks. */
 static void test_stop_stream(void)
 {
     const NwIrx *irx = nw_nusound_irx();
@@ -696,14 +744,18 @@ static void test_stop_stream(void)
 
     nusound_irx_loaded = 1;
     boot_module(streams);
-    SOUND_PlayStream(2, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
+    SOUND_PlayStream(3, 4, 4, 0x3fff, 0x3fff, 1, 2, 0, 0x10);
     SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     while (frames++ < 50 && (NuSoundKeyStatus(4) != 1 || NuSoundKeyStatus(0) != 1)) {
         frame();
     }
     NuSoundStopStream(4);
-    for (frames = 0; frames < 50 && NuSoundKeyStatus(4) == 1; frames++) {
+    for (frames = 0; frames < 50; frames++) {
         NuSoundUpdate();
+        if (NuSoundKeyStatus(4) != 1) {
+            break;
+        }
+        test_us += 20000;
     }
     CHECK(frames == 2 && NuSoundKeyStatus(0) == 1);
     CHECK(irx->StreamBuffer[4].Status == 0 && irx->StreamBuffer[4].iStatus == 3);

@@ -1,5 +1,6 @@
 /* Audio tests: the VAG header and the PS-ADPCM decoder on hand-built blocks, expected values worked out by hand
-   from PCSX2's XA_decode_block, and SFX.DAT access on a synthetic archive. Usage: test_audio <scratch dir>.
+   from PCSX2's XA_decode_block, the SPU2 voices in time, and SFX.DAT access on a synthetic archive. Usage:
+   test_audio <scratch dir>.
    Local only, with your own disc: `test_audio retail` finds every sample of SFX.DAT in the extracted disc dir
    NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census; exits 77 without it. */
 #include <stdio.h>
@@ -9,6 +10,7 @@
 #include <SDL3/SDL.h>
 
 #include "audio/sfx.h"
+#include "audio/spu2.h"
 #include "audio/vag.h"
 #include "platform/paths.h"
 #include "vfs/sha256.h"
@@ -142,6 +144,114 @@ static void test_pass(void)
     CHECK(p.samples == 112 && p.loop_start == 56);
     p = pass(self, 2);
     CHECK(p.samples == 56 && p.loop_start == 28);
+}
+
+static void spu_samples(unsigned n)
+{
+    nw_spu2_run_to(nw_spu2_cycle() + 768u * n);
+}
+
+/* Core 0 voice v from ssa: the attack in steps of 0x3800 (ADSR1 0x00ff), the fastest release. */
+static void spu_voice(unsigned v, uint32_t ssa, uint16_t pitch)
+{
+    nw_spu2_set_addr((uint16_t)(v << 1 | NW_SD_VA_SSA), ssa);
+    nw_spu2_set_param((uint16_t)(v << 1 | NW_SD_VP_ADSR1), 0x00ff);
+    nw_spu2_set_param((uint16_t)(v << 1 | NW_SD_VP_ADSR2), 0x1fc0);
+    nw_spu2_set_param((uint16_t)(v << 1 | NW_SD_VP_PITCH), pitch);
+}
+
+static uint16_t spu_envx(unsigned v)
+{
+    return nw_spu2_get_param((uint16_t)(v << 1 | NW_SD_VP_ENVX));
+}
+
+static uint32_t spu_nax(unsigned v)
+{
+    return nw_spu2_get_addr((uint16_t)(v << 1 | NW_SD_VA_NAX));
+}
+
+static bool spu_endx(unsigned v)
+{
+    return nw_spu2_get_switch(NW_SD_S_ENDX) >> v & 1;
+}
+
+/* SPU2 voices in time, expected values worked out by hand from PCSX2's Mixer.cpp and ADSR.cpp. At pitch 0x1000 the
+   decoder takes a word (4 samples) at each of the first 5 samples, then one every 4 (the n-th at sample 4n - 15),
+   so the 7 words of a block's data end at its 7th, 14th, 21st word. */
+static void test_spu_voice(void)
+{
+    const uint32_t one = 0x1000, loop = 0x2000;
+    uint8_t blocks[3 * NW_ADPCM_BLOCK];
+
+    vag_block_fill(blocks, 0, 0, 0, 1);
+    vag_block_fill(blocks + NW_ADPCM_BLOCK, 0, 0, NW_ADPCM_END, 1);
+    nw_spu2_voice_trans(one, blocks, 2 * NW_ADPCM_BLOCK);
+    vag_block_fill(blocks, 0, 0, NW_ADPCM_START, 1);
+    vag_block_fill(blocks + NW_ADPCM_BLOCK, 0, 0, 0, 1);
+    vag_block_fill(blocks + 2 * NW_ADPCM_BLOCK, 0, 0, NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loop, blocks, sizeof(blocks));
+    nw_spu2_init();
+
+    /* KON waits for the next sample, which starts at SSA past the header and decodes a word. */
+    spu_voice(0, one, 0x1000);
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 0);
+    CHECK(spu_envx(0) == 0);
+    spu_samples(1);
+    CHECK(spu_envx(0) == 0x3800 && spu_nax(0) == one + 4);
+    spu_samples(2);
+    CHECK(spu_envx(0) == 0x7fff);
+
+    /* A one-shot: the 14th word ends the END block at sample 41, which sets ENDX and silences the voice. */
+    spu_samples(37);
+    CHECK(spu_envx(0) == 0x7fff && !spu_endx(0));
+    spu_samples(1);
+    CHECK(spu_envx(0) == 0 && spu_endx(0));
+
+    /* KON clears ENDX with its sample. */
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 0);
+    CHECK(spu_endx(0));
+    spu_samples(1);
+    CHECK(!spu_endx(0));
+
+    /* A loop: START latches the loop address, the 21st word ends the END|REPEAT block at sample 69 and the voice
+       goes on at the loop's first data word. An LSAX written after the key-on's sample holds; one written before
+       it is dropped by the key-on, and START wins. */
+    spu_voice(1, loop, 0x1000);
+    spu_voice(2, loop, 0x1000);
+    spu_voice(3, loop, 0x1000);
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 1 | 1u << 2 | 1u << 3);
+    nw_spu2_set_addr(2 << 1 | NW_SD_VA_LSAX, loop + NW_ADPCM_BLOCK);
+    spu_samples(1);
+    nw_spu2_set_addr(3 << 1 | NW_SD_VA_LSAX, loop + NW_ADPCM_BLOCK);
+    spu_samples(67);
+    CHECK(!spu_endx(1));
+    spu_samples(1);
+    CHECK(spu_endx(1) && spu_envx(1) == 0x7fff && spu_nax(1) == loop + 2);
+    CHECK(spu_nax(2) == loop + 2 && spu_nax(3) == loop + NW_ADPCM_BLOCK + 2);
+
+    /* The pitch stops at 0x3fff. At pitch 0 the decoder fills up (4 words, NAX = SSA + 5 words) and waits, while the
+       envelope rises. */
+    spu_voice(4, loop, 0x3fff);
+    spu_voice(5, loop, 0x4000);
+    spu_voice(6, loop, 0);
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 4 | 1u << 5 | 1u << 6);
+    spu_samples(30);
+    CHECK(spu_nax(4) == spu_nax(5) && spu_nax(4) != loop + 10);
+    CHECK(spu_nax(6) == loop + 10 && spu_envx(6) == 0x7fff);
+
+    /* KOFF with the fastest release (ADSR2 0x1fc0) takes 0x4000 a sample, from its own sample on. */
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 1);
+    CHECK(spu_envx(1) == 0x7fff);
+    spu_samples(1);
+    CHECK(spu_envx(1) == 0x3fff);
+    spu_samples(1);
+    CHECK(spu_envx(1) == 0);
+
+    /* KOFF and KON for the same sample: the release comes first, then the voice starts again. */
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 3);
+    nw_spu2_set_switch(NW_SD_S_KON, 1u << 3);
+    spu_samples(1);
+    CHECK(spu_envx(3) == 0x3800);
 }
 
 static void test_sfx(const char *scratch)
@@ -352,6 +462,7 @@ int main(int argc, char *argv[])
     test_header();
     test_block();
     test_pass();
+    test_spu_voice();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);

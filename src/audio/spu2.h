@@ -1,6 +1,8 @@
 /* The SPU2 as NUSOUND.IRX drives it through libsd: two cores of 24 voices. Register ids are libsd's: the core in
-   bit 0, the voice in bits 1-5, the register in bits 8+. No time passes: a keyed-on voice stays at its start
-   address (NAX = SSA) with its envelope up until it is keyed off. */
+   bit 0, the voice in bits 1-5, the register in bits 8+. Voices run in time as PCSX2's SPU2 runs them (Mixer.cpp,
+   ADSR.cpp): a sample every 768 IOP cycles moves each voice's address through its ADPCM blocks at its pitch,
+   follows their loop flags and steps its envelope; KON and KOFF take effect at the next sample. Nothing is decoded
+   or mixed. */
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
@@ -47,8 +49,13 @@ typedef struct NwSpu2Effect {
     int feedback;
 } NwSpu2Effect;
 
-/* sceSdInit: the registers; sound RAM keeps what it holds. */
+/* sceSdInit: the registers and voices; sound RAM and the clock keep theirs. */
 void nw_spu2_init(void);
+
+/* Runs the SPU up to IOP cycle `cycle` (36.864 MHz); a cycle it has passed changes nothing. */
+void nw_spu2_run_to(uint64_t cycle);
+/* The IOP cycle the SPU has run to. */
+uint64_t nw_spu2_cycle(void);
 
 void nw_spu2_set_param(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_param(uint16_t entry);
