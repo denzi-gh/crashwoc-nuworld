@@ -99,6 +99,32 @@ static bool nw_gsc_blob(NwGsc *g, uint32_t *cap, NwGscCur *c, uint32_t mtl, uint
     return true;
 }
 
+/* ReadTextureSet's records: size, skip, then skip bytes (8 when 0) before the native record. */
+static bool nw_gsc_texset(NwGsc *g, const NwGscChunk *ch)
+{
+    NwGscCur c = { g->data, ch->offset, ch->offset + ch->size, true };
+    uint32_t n = nw_cur_u32(&c);
+    nw_cur_skip(&c, 4);
+    if (!c.ok || n > ch->size / 16) {
+        return SDL_SetError("gsc: %.4s of %u bytes has %u textures", (const char *)&ch->id, ch->size, n);
+    }
+    g->textures = SDL_calloc(n ? n : 1, sizeof(*g->textures));
+    if (!g->textures) {
+        return false;
+    }
+    for (uint32_t i = 0; i < n && c.ok; i++) {
+        uint32_t size = nw_cur_u32(&c), skip = nw_cur_u32(&c);
+        nw_cur_skip(&c, skip ? skip : 8);
+        g->textures[i] = (NwGscTexture){ c.pos, size };
+        nw_cur_skip(&c, size);
+    }
+    if (!c.ok) {
+        return SDL_SetError("gsc: %.4s runs past its block", (const char *)&ch->id);
+    }
+    g->ntextures = n;
+    return true;
+}
+
 /* ReadObjSet's descriptor stream, every NuFileReadInt and NuMemFileSeek in its order. */
 static bool nw_gsc_objset(NwGsc *g, const NwGscChunk *ch)
 {
@@ -198,7 +224,9 @@ static bool nw_gsc_read(NwGsc *g)
         off += size;
     }
     const NwGscChunk *objset = nw_gsc_last(g, NW_GSC_ID('O', 'B', 'J', '0'), 0);
-    return nw_gsc_table(g, nw_gsc_last(g, NW_GSC_ID('M', 'S', '0', '0'), NW_GSC_ID('M', 'S', '0', '2')),
+    const NwGscChunk *texset = nw_gsc_last(g, NW_GSC_ID('T', 'S', 'T', '0'), NW_GSC_ID('T', 'S', 'T', '2'));
+    return (!texset || nw_gsc_texset(g, texset)) &&
+           nw_gsc_table(g, nw_gsc_last(g, NW_GSC_ID('M', 'S', '0', '0'), NW_GSC_ID('M', 'S', '0', '2')),
                         NW_GSC_MTL_SIZE, &g->mtls, &g->nmtls) &&
            nw_gsc_table(g, nw_gsc_last(g, NW_GSC_ID('I', 'N', 'S', 'T'), 0), NW_GSC_INST_SIZE, &g->insts,
                         &g->ninsts) &&
@@ -225,6 +253,7 @@ void nw_gsc_close(NwGsc *g)
     SDL_free(g->chunks);
     SDL_free(g->objects);
     SDL_free(g->blobs);
+    SDL_free(g->textures);
     memset(g, 0, sizeof(*g));
 }
 
@@ -236,6 +265,14 @@ NwGscMtl nw_gsc_mtl(const NwGsc *g, uint32_t index)
     memcpy(m.diffuse, p + 0x180, 12);
     memcpy(&m.alpha, p + 0x1A0, 4);
     memcpy(&m.tid, p + 0x1A4, 4);
+    memcpy(&m.k, p + 0x1AC, 2);
+    m.l = p[0x1AE];
+    m.umode = p[0x1AF] & 15;
+    m.vmode = p[0x1AF] >> 4;
+    memcpy(&m.du, p + 0x1B0, 4);
+    memcpy(&m.dv, p + 0x1B4, 4);
+    memcpy(&m.su, p + 0x1B8, 4);
+    memcpy(&m.sv, p + 0x1BC, 4);
     return m;
 }
 
@@ -247,6 +284,15 @@ NwGscInst nw_gsc_inst(const NwGsc *g, uint32_t index)
     memcpy(&inst.objid, p + 0x40, 4);
     memcpy(&inst.flags, p + 0x44, 4);
     return inst;
+}
+
+bool nw_gsc_texture(const NwGsc *g, uint32_t index, NwTex *t)
+{
+    if (index >= g->ntextures) {
+        memset(t, 0, sizeof(*t));
+        return SDL_SetError("gsc: texture %u of %u", index, g->ntextures);
+    }
+    return nw_tex_decode(t, g->data + g->textures[index].offset, g->textures[index].size);
 }
 
 const char *nw_gsc_mtl_package(const NwGscMtl *m)
@@ -286,6 +332,23 @@ void nw_gsc_obj_line(uint32_t id, const NwVifMesh *m, char *line, size_t size)
                  vhex, ihex);
 }
 
+void nw_gsc_tex_line(uint32_t id, const NwTex *t, char *line, size_t size)
+{
+    const NwTexLevel *l = &t->levels[0];
+    uint8_t row[1024 * 4], sum[NW_SHA256_SIZE];
+    char hex[NW_SHA256_HEX];
+    NwSha256 sha;
+    nw_sha256_init(&sha);
+    for (uint32_t y = 0; y < l->height; y++) {
+        nw_tex_rgba(t, y, row);
+        nw_sha256_update(&sha, row, (size_t)l->width * 4);
+    }
+    nw_sha256_final(&sha, sum);
+    nw_sha256_hex(sum, hex);
+    SDL_snprintf(line, size, "TEX %u %ux%u type=%u version=%u levels=%u rgba=%s", id, l->width, l->height, t->type,
+                 t->version, t->nlevels, hex);
+}
+
 bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *total)
 {
     NwVifMesh mesh = { 0 };
@@ -309,6 +372,19 @@ bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *tota
         verts += mesh.nverts;
         tris += mesh.ntris;
     }
+    for (uint32_t i = 0; i < g->ntextures && ok; i++) {
+        NwTex t;
+        if (!nw_gsc_texture(g, i, &t)) {
+            char why[256];
+            SDL_strlcpy(why, SDL_GetError(), sizeof(why));
+            ok = SDL_SetError("texture %u at 0x%x: %s", i, g->textures[i].offset, why);
+            break;
+        }
+        char line[256];
+        nw_gsc_tex_line(i, &t, line, sizeof(line));
+        fprintf(out, "%s\n", line);
+        nw_tex_free(&t);
+    }
     total->files++;
     total->failed += !ok;
     total->unknown += g->unknown;
@@ -317,15 +393,19 @@ bool nw_gsc_report(const NwGsc *g, const char *name, FILE *out, NwGscTotal *tota
     total->batches += batches;
     total->verts += verts;
     total->tris += tris;
-    fprintf(out, "GSC %s chunks=%u unknown=%u truncated=%d objects=%u batches=%u verts=%u tris=%u\n", name,
-            g->nchunks, g->unknown, g->truncated, g->nobjects, batches, verts, tris);
+    total->textures += g->ntextures;
+    fprintf(out, "GSC %s chunks=%u unknown=%u truncated=%d objects=%u batches=%u verts=%u tris=%u textures=%u\n",
+            name, g->nchunks, g->unknown, g->truncated, g->nobjects, batches, verts, tris, g->ntextures);
     nw_vif_free(&mesh);
     return ok;
 }
 
 void nw_gsc_report_total(const NwGscTotal *t, FILE *out)
 {
-    fprintf(out, "TOTAL files=%u failed=%u unknown=%u truncated=%u objects=%llu batches=%llu verts=%llu tris=%llu\n",
+    fprintf(out,
+            "TOTAL files=%u failed=%u unknown=%u truncated=%u objects=%llu batches=%llu verts=%llu tris=%llu "
+            "textures=%llu\n",
             t->files, t->failed, t->unknown, t->truncated, (unsigned long long)t->objects,
-            (unsigned long long)t->batches, (unsigned long long)t->verts, (unsigned long long)t->tris);
+            (unsigned long long)t->batches, (unsigned long long)t->verts, (unsigned long long)t->tris,
+            (unsigned long long)t->textures);
 }

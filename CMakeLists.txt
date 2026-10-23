@@ -107,9 +107,11 @@ target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
 
-# Scene geometry without the decomp: the NU20 reader and the VIF decoder.
+# Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state.
 add_library(nuworld_gfx STATIC
   src/gfx/gsc.c
+  src/gfx/mtl.c
+  src/gfx/tex.c
   src/gfx/vif.c)
 target_include_directories(nuworld_gfx PUBLIC src)
 target_compile_options(nuworld_gfx PRIVATE -Wall -Wextra)

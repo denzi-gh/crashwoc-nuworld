@@ -10,11 +10,13 @@
 #include "gfx/vif.h"
 #include "gfx/vu.h"
 
-/* One geom's triangles in the scene's index buffer, with its material's program and diffuse (x128). */
+/* One geom's triangles in the scene's index buffer, with its material's program and what the programs read of it. */
 typedef struct NwViewDraw {
     uint32_t first, count;
     NwVuProgram program;
-    float diffuse[4];
+    NwVuMaterial mtl;
+    uint32_t mtlid;
+    bool uvrow; /* the geom's texcoords add the material's STROW row */
 } NwViewDraw;
 
 /* An object's draws and the bounds of its vertices. */
@@ -27,16 +29,45 @@ typedef struct NwView {
     NwVifMesh mesh;
     NwViewDraw *draws;
     NwViewObject *objects;
+    NwTex *decoded;        /* by tid until the upload; no levels where a texture did not decode */
+    NwVuTexture *textures; /* by tid; zero where a texture did not decode */
+    NwMtlScroll *scroll;   /* by material */
+    float sinetime, tick;  /* NuMtlAnimate's clock, and the time to the next 50 Hz step */
     GLuint vao, vbo, ibo;
     float pos[3], yaw, pitch, speed, near, far;
 } NwView;
 
-static bool nw_view_load(NwView *v, const NwGsc *g)
+static void nw_view_free(NwView *v, const NwGsc *g)
+{
+    for (uint32_t i = 0; v->decoded && i < g->ntextures; i++) {
+        nw_tex_free(&v->decoded[i]);
+    }
+    nw_vif_free(&v->mesh);
+    SDL_free(v->draws);
+    SDL_free(v->objects);
+    SDL_free(v->decoded);
+    SDL_free(v->textures);
+    SDL_free(v->scroll);
+}
+
+static bool nw_view_load(NwView *v, const NwGsc *g, const char *name)
 {
     v->draws = SDL_calloc(g->nblobs + 1, sizeof(*v->draws));
     v->objects = SDL_calloc(g->nobjects + 1, sizeof(*v->objects));
-    if (!v->draws || !v->objects) {
+    v->decoded = SDL_calloc(g->ntextures + 1, sizeof(*v->decoded));
+    v->textures = SDL_calloc(g->ntextures + 1, sizeof(*v->textures));
+    v->scroll = SDL_calloc(g->nmtls + 1, sizeof(*v->scroll));
+    if (!v->draws || !v->objects || !v->decoded || !v->textures || !v->scroll) {
         return false;
+    }
+    for (uint32_t i = 0; i < g->nmtls; i++) {
+        NwGscMtl m = nw_gsc_mtl(g, i);
+        v->scroll[i] = (NwMtlScroll){ m.umode, m.vmode, m.du, m.dv, m.su, m.sv, 0.0f, 0.0f };
+    }
+    for (uint32_t i = 0; i < g->ntextures; i++) {
+        if (!nw_gsc_texture(g, i, &v->decoded[i])) {
+            fprintf(stderr, "%s: texture %u: %s\n", name, i, SDL_GetError());
+        }
     }
     uint32_t ndraws = 0;
     for (uint32_t o = 0; o < g->nobjects; o++) {
@@ -56,9 +87,16 @@ static bool nw_view_load(NwView *v, const NwGsc *g)
                 return false;
             }
             NwGscMtl m = nw_gsc_mtl(g, b->mtl);
-            v->draws[ndraws++] = (NwViewDraw){ tris, v->mesh.ntris - tris, nw_vu_program(nw_gsc_mtl_package(&m)),
-                                               { m.diffuse[0] * 128.0f, m.diffuse[1] * 128.0f, m.diffuse[2] * 128.0f,
-                                                 m.alpha * 128.0f } };
+            bool textured = m.tid >= 0 && (uint32_t)m.tid < g->ntextures;
+            NwViewDraw *d = &v->draws[ndraws++];
+            *d = (NwViewDraw){ tris, v->mesh.ntris - tris, nw_vu_program(nw_gsc_mtl_package(&m)),
+                               { { m.diffuse[0] * 128.0f, m.diffuse[1] * 128.0f, m.diffuse[2] * 128.0f,
+                                   m.alpha * 128.0f },
+                                 { 0.0f, 0.0f, 0.0f, 0.0f },
+                                 textured ? &v->textures[m.tid] : NULL,
+                                 nw_mtl_state(m.attrib, m.k, m.l, textured ? v->decoded[m.tid].nlevels : 0) },
+                               b->mtl,
+                               v->mesh.uvrow };
             for (uint32_t n = verts; n < v->mesh.nverts; n++) {
                 const float *p = v->mesh.verts[n].pos;
                 for (int k = 0; k < 3 && isfinite(p[0]) && isfinite(p[1]) && isfinite(p[2]); k++) {
@@ -72,8 +110,14 @@ static bool nw_view_load(NwView *v, const NwGsc *g)
     return true;
 }
 
-static void nw_view_upload(NwView *v)
+static void nw_view_upload(NwView *v, const NwGsc *g)
 {
+    for (uint32_t i = 0; i < g->ntextures; i++) {
+        if (v->decoded[i].nlevels) {
+            nw_vu_texture(&v->textures[i], &v->decoded[i]);
+        }
+        nw_tex_free(&v->decoded[i]);
+    }
     glGenVertexArrays(1, &v->vao);
     glBindVertexArray(v->vao);
     glGenBuffers(1, &v->vbo);
@@ -186,6 +230,27 @@ static void nw_view_matrix(const NwView *v, float aspect, float out[16])
     memcpy(out, m.lv, sizeof(m.lv));
 }
 
+/* NuMtlAnimate as the game calls it, once a 50 Hz frame with dt 0.02 (a stall runs at most 0.25 s of them). */
+static void nw_view_animate(NwView *v, const NwGsc *g, float dt)
+{
+    for (v->tick += fminf(dt, 0.25f); v->tick >= 0.02f; v->tick -= 0.02f) {
+        v->sinetime += 0.02f;
+        for (uint32_t i = 0; i < g->nmtls; i++) {
+            nw_mtl_animate(&v->scroll[i], v->sinetime, 0.02f);
+        }
+    }
+}
+
+/* VU 0x14 and, for a geom whose texcoords take it, the STROW row (offset x4096, truncated as NuMtlAnimate does). */
+static void nw_view_uvoff(const NwView *v, NwViewDraw *d)
+{
+    const NwMtlScroll *s = &v->scroll[d->mtlid];
+    d->mtl.uvoff[0] = s->u;
+    d->mtl.uvoff[1] = s->v;
+    d->mtl.uvoff[2] = d->uvrow ? (float)(int32_t)(s->u * 4096.0f) : 0.0f;
+    d->mtl.uvoff[3] = d->uvrow ? (float)(int32_t)(s->v * 4096.0f) : 0.0f;
+}
+
 static void nw_view_move(NwView *v, float dt)
 {
     const bool *keys = SDL_GetKeyboardState(NULL);
@@ -202,14 +267,12 @@ static void nw_view_move(NwView *v, float dt)
 int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frames)
 {
     NwView v = { 0 };
-    if (!nw_view_load(&v, g) || !nw_vu_init()) {
+    if (!nw_view_load(&v, g, name) || !nw_vu_init()) {
         fprintf(stderr, "%s: %s\n", name, SDL_GetError());
-        nw_vif_free(&v.mesh);
-        SDL_free(v.draws);
-        SDL_free(v.objects);
+        nw_view_free(&v, g);
         return 1;
     }
-    nw_view_upload(&v);
+    nw_view_upload(&v, g);
     uint32_t instances;
     uint64_t tris;
     nw_view_frame(&v, g, &instances, &tris);
@@ -235,15 +298,17 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
         }
         uint64_t now = SDL_GetTicksNS();
         nw_view_move(&v, (float)(now - last) * 1e-9f);
+        nw_view_animate(&v, g, (float)(now - last) * 1e-9f);
         last = now;
 
         int width, height;
         SDL_GetWindowSizeInPixels(p->window, &width, &height);
         glViewport(0, 0, width, height);
         glClearColor(0.1f, 0.12f, 0.16f, 1.0f);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
+        glDepthMask(GL_TRUE);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
-        glDepthFunc(GL_LEQUAL);
         float view[16];
         nw_view_matrix(&v, height > 0 ? (float)width / (float)height : 1.0f, view);
         glBindVertexArray(v.vao);
@@ -256,10 +321,14 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
             NwVuObject o;
             nw_vu1init(&o, in.mtx, view);
             for (uint32_t d = obj->first; d < obj->first + obj->count; d++) {
-                const float uvoff[2] = { 0.0f, 0.0f };
-                nw_vu_use(v.draws[d].program, &o, v.draws[d].diffuse, uvoff);
-                glDrawElements(GL_TRIANGLES, (GLsizei)(v.draws[d].count * 3), GL_UNSIGNED_INT,
-                               (const void *)(uintptr_t)(v.draws[d].first * 12u));
+                NwMtlPass pass[2];
+                nw_view_uvoff(&v, &v.draws[d]);
+                uint32_t n = nw_vu_use(v.draws[d].program, &o, &v.draws[d].mtl, pass);
+                for (uint32_t k = 0; k < n; k++) {
+                    nw_vu_pass(v.draws[d].program, &v.draws[d].mtl, &pass[k]);
+                    glDrawElements(GL_TRIANGLES, (GLsizei)(v.draws[d].count * 3), GL_UNSIGNED_INT,
+                                   (const void *)(uintptr_t)(v.draws[d].first * 12u));
+                }
             }
         }
         SDL_GL_SwapWindow(p->window);
@@ -271,9 +340,10 @@ int nw_view_scene(NwPlatform *p, const NwGsc *g, const char *name, int max_frame
     glDeleteBuffers(1, &v.ibo);
     glDeleteBuffers(1, &v.vbo);
     glDeleteVertexArrays(1, &v.vao);
+    for (uint32_t i = 0; i < g->ntextures; i++) {
+        nw_vu_texture_free(&v.textures[i]);
+    }
     nw_vu_shutdown();
-    nw_vif_free(&v.mesh);
-    SDL_free(v.draws);
-    SDL_free(v.objects);
+    nw_view_free(&v, g);
     return 0;
 }

@@ -19,6 +19,7 @@ typedef struct NwVifMesh {
     uint32_t *tris; /* 3 per triangle */
     uint32_t nverts, ntris, nbatches;
     uint32_t vcap, tcap;
+    bool uvrow; /* the last geom unpacked its texcoords under STMOD 1: they add the material's STROW row */
 } NwVifMesh;
 
 /* Appends one geom's batches; false (mesh unchanged) on a malformed chain or stream. */

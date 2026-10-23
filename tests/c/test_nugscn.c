@@ -58,6 +58,19 @@ static void test_attrib(void)
     memcpy(w, &a, sizeof(w));
     CHECK(NW_GSC_ATTRIB_FX(w) == 1 && NW_GSC_ATTRIB_LIGHTING(w) == 3 && NW_GSC_ATTRIB_COLOUR(w) == 1);
     CHECK(NW_GSC_ATTRIB_OT(w) == 1);
+    memset(&a, 0, sizeof(a));
+    a.alpha = 6;
+    a.filter = 2;
+    a.utc = 1;
+    a.vtc = 2;
+    a.zmode = 3;
+    a.atst = 5;
+    a.aref = 0x7E;
+    a.afail = 3;
+    memcpy(w, &a, sizeof(w));
+    CHECK(NW_GSC_ATTRIB_ALPHA(w) == 6 && NW_GSC_ATTRIB_FILTER(w) == 2 && NW_GSC_ATTRIB_UTC(w) == 1);
+    CHECK(NW_GSC_ATTRIB_VTC(w) == 2 && NW_GSC_ATTRIB_ZMODE(w) == 3 && NW_GSC_ATTRIB_ATST(w) == 5);
+    CHECK(NW_GSC_ATTRIB_AREF(w) == 0x7E && NW_GSC_ATTRIB_AFAIL(w) == 3 && NW_GSC_ATTRIB_OT(w) == 0);
 }
 
 static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s)

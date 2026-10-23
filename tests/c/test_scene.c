@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "gfx/gsc.h"
+#include "gfx/mtl.h"
 #include "gfx/vif.h"
 
 #include "gsc_builder.h"
@@ -178,7 +179,7 @@ static void test_long_strip(void)
     vif_free(&b);
 }
 
-/* Compressed V4-16 positions against the STROW span and VU 2 header; a UV row under STMOD 1 is ignored. */
+/* Compressed V4-16 positions against the STROW span and VU 2 header; texcoords under STMOD 1 flag the geom. */
 static void test_packed(void)
 {
     const float span[3] = { 4096.0f, 4096.0f, 4096.0f }, mid[3] = { 1.0f, 2.0f, 3.0f };
@@ -194,12 +195,21 @@ static void test_packed(void)
         vif_end(&b, 0);
         NwVifMesh m = { 0 };
         CHECK(decode(&m, &b));
-        CHECK(m.nbatches == 2 && m.nverts == 10 && m.ntris == 6);
+        CHECK(m.nbatches == 2 && m.nverts == 10 && m.ntris == 6 && m.uvrow == (flags != 0));
         CHECK(same_vertices(&m, 0, v, adc, 5, true, true));
         CHECK(same_vertices(&m, 5, v, adc, 5, true, false));
         nw_vif_free(&m);
         vif_free(&b);
     }
+    /* Both STMODs in one geom would need two rows. */
+    VifBuild b;
+    vif_begin(&b);
+    vif_batch(&b, v, adc, 5, VIF_UV_ROW);
+    vif_batch(&b, v, adc, 5, 0);
+    vif_end(&b, 0);
+    NwVifMesh m = { 0 };
+    CHECK_FAILS(decode(&m, &b), "texcoords under STMOD 0 and 1 in one geom");
+    vif_free(&b);
 }
 
 /* The chain: a batch split by a NEXT tag over a gap, and the converter's stale bytes after the RET. */
@@ -336,8 +346,16 @@ static void test_gsc(void)
             nw_vif_free(&m);
         }
     }
+    const int16_t k = -90;
+    const float scroll[4] = { 0.5f, 0.25f, 2.0f, -1.0f };
+    memcpy(b.buf + g.mtls + 0x1AC, &k, 2);
+    b.buf[g.mtls + 0x1AE] = 1;
+    b.buf[g.mtls + 0x1AF] = 0x12;
+    memcpy(b.buf + g.mtls + 0x1B0, scroll, sizeof(scroll));
     NwGscMtl m = nw_gsc_mtl(&g, 0);
     CHECK(NW_GSC_ATTRIB_LIGHTING(m.attrib) == 2 && !NW_GSC_ATTRIB_OT(m.attrib) && m.tid == -1);
+    CHECK(m.k == -90 && m.l == 1 && m.umode == 2 && m.vmode == 1);
+    CHECK(m.du == 0.5f && m.dv == 0.25f && m.su == 2.0f && m.sv == -1.0f);
     CHECK(m.diffuse[1] == 0.5f && m.alpha == 1.0f);
     m = nw_gsc_mtl(&g, 1);
     CHECK(NW_GSC_ATTRIB_COLOUR(m.attrib) == 1 && NW_GSC_ATTRIB_OT(m.attrib));
@@ -372,6 +390,328 @@ static void test_gsc(void)
     gsc_free(&b);
 }
 
+/* The PSMT4 texture tests/test_gsc_hash.py pins: index (x + 2y) & 15, CLUT entry c = 16c, 255 - 16c, 3c, 8c. */
+static void make_psmt4(uint8_t clut[16][4], uint8_t packed[32])
+{
+    for (int c = 0; c < 16; c++) {
+        const uint8_t rgba[4] = { (uint8_t)(c * 16), (uint8_t)(255 - c * 16), (uint8_t)(c * 3), (uint8_t)(c * 8) };
+        memcpy(clut[c], rgba, 4);
+    }
+    memset(packed, 0, 32);
+    for (int i = 0; i < 64; i++) {
+        packed[i >> 1] |= (uint8_t)((((i & 7) + 2 * (i >> 3)) & 15) << (i & 1) * 4);
+    }
+}
+
+/* ps2_texture.py's _unswizzle8: where PSMT8 pixel (x, y) of a w-wide texture sits in its PSMCT32 upload. */
+static size_t swizzle8(uint32_t x, uint32_t y, uint32_t w)
+{
+    size_t block = (size_t)(y & ~15u) * w + (x & ~15u) * 2;
+    uint32_t swap = (((y + 2) >> 2) & 1) * 4, py = (((y & ~3u) >> 1) + (y & 1)) & 7;
+    return block + (size_t)py * w * 2 + ((x + swap) & 7) * 4 + ((y >> 1) & 1) + ((x >> 2) & 2);
+}
+
+/* Native records: PSMT4, PSMT8 linear and as PSMCT32 with the CSM1 CLUT, the old header, and bad records. */
+static void test_texture(void)
+{
+    GscBuild b = { 0 };
+    uint8_t clut16[16][4], packed[32];
+    make_psmt4(clut16, packed);
+    size_t up = gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2, 1);
+    NwTex t;
+    bool ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.version == 1 && t.type == 4 && t.tcc && t.ncolours == 16 && t.nlevels == 1);
+    if (ok) {
+        bool same = t.levels[0].width == 8 && t.levels[0].height == 8;
+        for (int i = 0; i < 64 && same; i++) {
+            same = t.levels[0].texels[i] == (((i & 7) + 2 * (i >> 3)) & 15);
+        }
+        CHECK(same && memcmp(t.clut, clut16, sizeof(clut16)) == 0);
+        char line[256];
+        nw_gsc_tex_line(0, &t, line, sizeof(line));
+        CHECK(strcmp(line, "TEX 0 8x8 type=4 version=1 levels=1 "
+                           "rgba=8d5cce5284f06b924fa01c1b8a0b335b49fe6182c3533c2dfb9f08d921632092") == 0);
+        nw_tex_free(&t);
+    }
+    uint8_t *bad = malloc(b.len);
+    struct {
+        size_t at;
+        uint32_t value, bytes;
+        const char *error;
+    } cases[] = {
+        { 2, 2, 2, "header version 2" },
+        { 12, 1, 1, "type 1" },
+        { 12, 2, 1, "type 2 with psm 0x14" },
+        { 13, 0x13, 1, "type 4 with psm 0x13" },
+        { 15, 0x80, 1, "8x8 with 0 levels" },
+        { 28, 1, 4, "CLUT psm 0x1" },
+        { up, 0x30000006, 4, "DMA tag id 3" },
+        { up, 0x60000006, 4, "has 16 of 32 bytes" },
+        { up + 48, 16, 4, "TRXREG 16x8 for an upload of 8x8" },
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        memcpy(bad, b.buf, b.len);
+        memcpy(bad + cases[i].at, &cases[i].value, cases[i].bytes);
+        CHECK_FAILS(nw_tex_decode(&t, bad, b.len), cases[i].error);
+    }
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, 10), "record of 10 bytes");
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len - 16), "level 0 of");
+    free(bad);
+    gsc_free(&b);
+
+    /* PSMT8: CLUT entry i stored at CSM1 position i ^ (bits 3 and 4), the texels linear (5) or as PSMCT32 (7). */
+    static uint8_t clut[256][4], idx[32 * 32], swz[32 * 32];
+    for (int i = 0; i < 256; i++) {
+        int csm1 = (i & 0xE7) | ((i & 0x10) >> 1) | ((i & 0x08) << 1);
+        const uint8_t rgba[4] = { (uint8_t)i, (uint8_t)(255 - i), (uint8_t)(i ^ 0x55), (uint8_t)(i >> 1) };
+        memcpy(clut[csm1], rgba, 4);
+    }
+    for (uint32_t y = 0; y < 32; y++) {
+        for (uint32_t x = 0; x < 32; x++) {
+            idx[y * 32 + x] = (uint8_t)(x * 7 + y * 13);
+            swz[swizzle8(x, y, 32)] = idx[y * 32 + x];
+        }
+    }
+    for (uint32_t type = 5; type <= 7; type += 2) {
+        gsc_texture(&b, type, 32, 32, clut, type == 5 ? idx : swz, type == 5 ? 32 : 16, type == 5 ? 32 : 16,
+                    sizeof(idx), 2, 1, type == 5 ? 2 : 1);
+        ok = nw_tex_decode(&t, b.buf, b.len);
+        CHECK(ok && t.type == type && t.ncolours == 256 && t.nlevels == (type == 5 ? 2 : 1));
+        if (ok) {
+            bool same = memcmp(t.levels[0].texels, idx, sizeof(idx)) == 0;
+            if (type == 5) {
+                same = same && t.levels[1].width == 16 && t.levels[1].height == 16 &&
+                       memcmp(t.levels[1].texels, idx, 256) == 0;
+            }
+            for (int i = 0; i < 256 && same; i++) {
+                same = t.clut[i][0] == i && t.clut[i][1] == 255 - i && t.clut[i][2] == (i ^ 0x55);
+            }
+            CHECK(same);
+            nw_tex_free(&t);
+        }
+        gsc_free(&b);
+    }
+    /* Type 6 (PSMT4 as PSMCT32 at a quarter of the height) only needs its buffer widths. */
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 2, 1, 1);
+    ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.levels[0].width == 32 && t.levels[0].height == 32);
+    nw_tex_free(&t);
+    gsc_free(&b);
+    gsc_texture(&b, 6, 32, 32, clut16, idx, 16, 8, 16 * 8 * 4, 1, 1, 1);
+    CHECK_FAILS(nw_tex_decode(&t, b.buf, b.len), "buffer widths 1/1");
+    gsc_free(&b);
+
+    /* Direct colours: PSMCT24 gets the alpha 0x80 (TCC is off), PSMCT32 keeps its own. */
+    for (uint32_t type = 2; type <= 3; type++) {
+        gsc_texture(&b, type, 16, 16, NULL, idx, 16, 16, 16 * 16 * (type == 2 ? 3 : 4), 1, 1, 1);
+        ok = nw_tex_decode(&t, b.buf, b.len);
+        CHECK(ok && t.type == type && t.ncolours == 0 && t.tcc == (type == 3));
+        if (ok) {
+            const uint8_t *px = t.levels[0].texels + 5 * 4, *src = idx + 5 * (type == 2 ? 3 : 4);
+            uint8_t rgba[16 * 4];
+            nw_tex_rgba(&t, 0, rgba);
+            CHECK(memcmp(px, src, 3) == 0 && px[3] == (type == 2 ? 0x80 : src[3]));
+            CHECK(rgba[5 * 4 + 3] == (type == 2 ? 255 : SDL_min(255, src[3] * 2)));
+            nw_tex_free(&t);
+        }
+        gsc_free(&b);
+    }
+
+    /* The old header, its level a CNT tag with the A+D setup and a RET tag with the IMAGE. */
+    const uint32_t head[3] = { 16, 16, 0 };
+    const uint8_t formats[4] = { 5, 0x13, 1, 1 };
+    gsc_bytes(&b, head, sizeof(head));
+    gsc_bytes(&b, formats, 4);
+    size_t pal = b.len;
+    const uint32_t palhead[4] = { 0, 0x2000, 1, 0 };
+    gsc_bytes(&b, palhead, sizeof(palhead));
+    gsc_upload(&b, 16, 16, clut, sizeof(clut));
+    gsc_put32(&b, pal, (uint32_t)(b.len - pal));
+    size_t mip = b.len;
+    const uint32_t level[24] = {
+        0, 256, 2, 0, 0x10000004, 0, 0, 0x50000004, 0x8003, 0x10000000, 0xE, 0,
+        0, 0, 0x51, 0, 16, 16, 0x52, 0, 0, 0, 0x53, 0,
+    };
+    const uint32_t image[8] = { 0x60000011, 0, 0, 0x50000011, 0x8010, 0x08000000, 0, 0 };
+    gsc_bytes(&b, level, sizeof(level));
+    gsc_bytes(&b, image, sizeof(image));
+    gsc_bytes(&b, idx, 256);
+    gsc_put32(&b, mip, (uint32_t)(b.len - mip));
+    ok = nw_tex_decode(&t, b.buf, b.len);
+    CHECK(ok && t.version == 0 && t.type == 5 && t.levels[0].width == 16 && t.tcc);
+    if (ok) {
+        CHECK(memcmp(t.levels[0].texels, idx, 256) == 0 && t.clut[255][0] == 255);
+        nw_tex_free(&t);
+    }
+    gsc_free(&b);
+}
+
+/* ReadTextureSet's walk (a skip of 0 reads two more ints), texture lookups and the TEX lines of the report. */
+static void test_texset(const char *scratch)
+{
+    GscBuild b = { 0 };
+    uint8_t clut16[16][4], packed[32];
+    make_psmt4(clut16, packed);
+    gsc_bytes(&b, "NU20", 4);
+    gsc_u32(&b, 0);
+    gsc_u32(&b, 6);
+    gsc_u32(&b, 0);
+    gsc_open(&b, "TST0");
+    gsc_u32(&b, 2);
+    gsc_u32(&b, 0);
+    size_t at[2], size[2], count = b.blk + 8;
+    for (int i = 0; i < 2; i++) {
+        size[i] = b.len;
+        gsc_u32(&b, 0);
+        gsc_u32(&b, i ? 24 : 0);
+        gsc_zero(&b, i ? 24 : 8);
+        at[i] = b.len;
+        gsc_texture(&b, 4, 8, 8, clut16, packed, 8, 8, sizeof(packed), 2, 2, 1);
+        gsc_put32(&b, size[i], (uint32_t)(b.len - at[i]));
+    }
+    gsc_close(&b);
+    gsc_put32(&b, 4, (uint32_t)-(int32_t)b.len);
+
+    NwGsc g;
+    NwTex t;
+    CHECK(nw_gsc_open(&g, b.buf, b.len));
+    CHECK(g.ntextures == 2 && g.textures[0].offset == at[0] && g.textures[1].offset == at[1]);
+    CHECK(nw_gsc_texture(&g, 1, &t) && t.levels[0].width == 8);
+    nw_tex_free(&t);
+    CHECK_FAILS(nw_gsc_texture(&g, 2, &t), "texture 2 of 2");
+    char *path = NULL;
+    SDL_asprintf(&path, "%s/texset.txt", scratch);
+    FILE *out = fopen(path, "w+");
+    NwGscTotal total = { 0 };
+    CHECK(out && nw_gsc_report(&g, "TEX.GSC", out, &total));
+    if (out) {
+        nw_gsc_report_total(&total, out);
+        char text[1024];
+        rewind(out);
+        text[fread(text, 1, sizeof(text) - 1, out)] = 0;
+        CHECK(strstr(text, "TEX 1 8x8 type=4 version=1 levels=1 rgba=8d5cce5284f06b92") &&
+              strstr(text, "\nGSC TEX.GSC chunks=1 unknown=0 truncated=0 objects=0 batches=0 verts=0 tris=0 "
+                           "textures=2\n"
+                           "TOTAL files=1 failed=0 unknown=0 truncated=0 objects=0 batches=0 verts=0 tris=0 "
+                           "textures=2\n"));
+        fclose(out);
+    }
+    SDL_RemovePath(path);
+    SDL_free(path);
+    nw_gsc_close(&g);
+
+    gsc_put32(&b, count, 99);
+    CHECK_FAILS(nw_gsc_open(&g, b.buf, b.len), "TST0 of");
+    gsc_put32(&b, count, 2);
+    gsc_put32(&b, size[1], 0x10000);
+    CHECK_FAILS(nw_gsc_open(&g, b.buf, b.len), "TST0 runs past its block");
+    gsc_free(&b);
+}
+
+/* NuTexWriteMaterialSettings' TEX1 and CLAMP: filter tables, MXL only for filter 2 on a textured material. */
+static void test_mtl(void)
+{
+    static const struct {
+        uint8_t mmag, mmin;
+    } filters[4] = { { 0, 0 }, { 1, 1 }, { 1, 5 }, { 0, 0 } };
+    for (uint32_t filter = 0; filter < 4; filter++) {
+        const uint32_t attrib[2] = { filter << 4 | 1u << 8 | 2u << 10, 0 };
+        NwMtlState s = nw_mtl_state(attrib, -90, 1, 4);
+        CHECK(s.mmag == filters[filter].mmag && s.mmin == filters[filter].mmin);
+        CHECK(s.mxl == (filter == 2 ? 3 : 0) && s.k == -90 && s.l == 1 && s.wms == 1 && s.wmt == 0);
+        CHECK(nw_mtl_state(attrib, 0, 0, 0).mxl == 0);
+    }
+}
+
+/* CreateStateBlock's ALPHA_1 by attrib.alpha, and the GL blends of the ALPHA registers. */
+static void test_blend(void)
+{
+    static const uint8_t alpha[8] = { 0x44, 0x44, 0x48, 0x42, 0x49, 0x46, 0x89, 0x44 };
+    for (uint32_t i = 0; i < 8; i++) {
+        const uint32_t attrib[2] = { i, 0 };
+        NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+        CHECK(s.abe == (i != 0) && s.alpha == alpha[i]);
+    }
+    static const struct {
+        uint8_t alpha;
+        NwMtlBlend blend;
+    } cases[] = {
+        { 0x44, { NW_BLEND_ADD, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE_MINUS_SRC_ALPHA, false } },
+        { 0x48, { NW_BLEND_ADD, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE, false } },
+        { 0x42, { NW_BLEND_REVERSE_SUBTRACT, NW_BLEND_SRC_ALPHA, NW_BLEND_ONE, false } },
+        { 0x49, { NW_BLEND_ADD, NW_BLEND_DST_COLOUR, NW_BLEND_ONE, true } },
+        { 0x46, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_ONE_MINUS_SRC_ALPHA, false } },
+        { 0x89, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_SRC_ALPHA, false } },
+        { 0x84, { NW_BLEND_SUBTRACT, NW_BLEND_SRC_ALPHA, NW_BLEND_SRC_ALPHA, false } }, /* (Cs - Cd) * As */
+    };
+    for (size_t i = 0; i < SDL_arraysize(cases); i++) {
+        NwMtlBlend b;
+        CHECK(nw_mtl_blend(cases[i].alpha, &b) && b.op == cases[i].blend.op && b.src == cases[i].blend.src &&
+              b.dst == cases[i].blend.dst && b.as_colour == cases[i].blend.as_colour);
+    }
+    NwMtlBlend b;
+    CHECK_FAILS(nw_mtl_blend(0x64, &b), "ALPHA 0x64");
+    CHECK_FAILS(nw_mtl_blend(0x08, &b), "ALPHA 0x08 has no GL blend"); /* Cs * (1 + As) */
+}
+
+/* CreateStateBlock's ZTST and ZMSK by attrib.zmode. */
+static void test_depth(void)
+{
+    static const struct {
+        uint8_t ztst;
+        bool zmsk;
+    } modes[4] = { { 2, false }, { 2, true }, { 1, false }, { 1, true } };
+    for (uint32_t zmode = 0; zmode < 4; zmode++) {
+        const uint32_t attrib[2] = { zmode << 14, 0 };
+        NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+        CHECK(s.ztst == modes[zmode].ztst && s.zmsk == modes[zmode].zmsk);
+    }
+}
+
+/* TEST_1 (ATE with ABE) and the passes by AFAIL: the passing pixels, then what AFAIL writes of the failing. */
+static void test_atest(void)
+{
+    uint32_t attrib[2] = { 1u | 5u << 20 | 0x7Eu << 23, 3 };
+    NwMtlState s = nw_mtl_state(attrib, 0, 0, 0);
+    CHECK(s.ate && s.atst == 5 && s.aref == 0x7E && s.afail == 3);
+    attrib[0] &= ~15u;
+    CHECK(!nw_mtl_state(attrib, 0, 0, 0).ate);
+    static const NwMtlPass second[4] = {
+        { 0 }, { true, true, true, false }, { true, false, false, true }, { true, true, false, false },
+    };
+    NwMtlPass pass[2];
+    for (uint8_t afail = 0; afail < 4; afail++) {
+        s.afail = afail;
+        s.zmsk = false;
+        uint32_t n = nw_mtl_passes(&s, pass);
+        CHECK(n == (afail ? 2u : 1u) && !pass[0].failed && pass[0].rgb && pass[0].alpha && pass[0].z);
+        CHECK(n == 1 || memcmp(&pass[1], &second[afail], sizeof(pass[1])) == 0);
+        s.zmsk = true;
+        CHECK(nw_mtl_passes(&s, pass) == n && !pass[0].z && (n == 1 || !pass[1].z));
+    }
+    s.atst = 1; /* ALWAYS */
+    CHECK(nw_mtl_passes(&s, pass) == 1);
+    s.atst = 5;
+    s.ate = false;
+    CHECK(nw_mtl_passes(&s, pass) == 1);
+}
+
+/* NuMtlAnimate's modes per axis: none, constant, wrapped scroll, sine and cosine of the shared clock. */
+static void test_animate(void)
+{
+    NwMtlScroll s = { 2, 1, 0.9f, 0.25f, 0.5f, 0.0f, 0.0f, 0.0f };
+    nw_mtl_animate(&s, 0.5f, 0.5f);
+    CHECK(SDL_fabsf(s.u - 0.15f) < 1e-6f && SDL_fabsf(s.du - 0.15f) < 1e-6f && s.v == 0.25f);
+    nw_mtl_animate(&s, 1.0f, 0.5f);
+    CHECK(SDL_fabsf(s.u - 0.4f) < 1e-6f && s.v == 0.25f);
+    s = (NwMtlScroll){ 3, 4, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 0.0f };
+    nw_mtl_animate(&s, 0.25f, 0.02f); /* NuTrigTable[16384] = sin(pi / 2), [32768] = sin(pi) */
+    CHECK(SDL_fabsf(s.u - 0.5f) < 1e-6f && SDL_fabsf(s.v) < 1e-4f && s.du == 0.5f);
+    s = (NwMtlScroll){ 0, 0, 0.5f, 0.5f, 1.0f, 1.0f, 0.125f, 0.25f };
+    nw_mtl_animate(&s, 1.0f, 0.02f);
+    CHECK(s.u == 0.125f && s.v == 0.25f);
+}
+
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -383,7 +723,8 @@ static void test_package(void)
         { 0, 2, 0, "vu_load_tricu_mpg" }, { 0, 3, 1, "vu_load_trica_mpg" }, { 1, 2, 0, "vu_load_xformuv_mpg" },
     };
     for (size_t i = 0; i < SDL_arraysize(cases); i++) {
-        NwGscMtl m = { { cases[i].fx << 6 | cases[i].lighting << 16 | cases[i].colour << 18, 1u << 3 }, -1, { 0 }, 0 };
+        NwGscMtl m = { .attrib = { cases[i].fx << 6 | cases[i].lighting << 16 | cases[i].colour << 18, 1u << 3 },
+                       .tid = -1 };
         CHECK(strcmp(nw_gsc_mtl_package(&m), cases[i].package) == 0);
     }
 }
@@ -411,8 +752,10 @@ static void test_report(const char *scratch)
         char obj1[200];
         SDL_snprintf(obj1, sizeof(obj1), "\nOBJ 1 batches=0 verts=0 tris=0 vtx=%s idx=%s\n", empty, empty);
         CHECK(strncmp(text, "OBJ 0 batches=3 verts=15 tris=9 vtx=", 36) == 0 && strstr(text, obj1));
-        CHECK(strstr(text, "\nGSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"
-                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9\n"));
+        CHECK(strstr(text, "\nGSC TEST.GSC chunks=12 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9 "
+                           "textures=0\n"
+                           "TOTAL files=1 failed=0 unknown=1 truncated=0 objects=2 batches=3 verts=15 tris=9 "
+                           "textures=0\n"));
     }
     if (out) {
         fclose(out);
@@ -437,6 +780,13 @@ int main(int argc, char *argv[])
     test_errors();
     test_gsc();
     test_package();
+    test_texture();
+    test_texset(argv[1]);
+    test_mtl();
+    test_blend();
+    test_depth();
+    test_atest();
+    test_animate();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
     return failures ? 1 : 0;

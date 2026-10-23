@@ -14,6 +14,7 @@ typedef struct NwVif {
     uint32_t row[4];
     uint32_t hdr[4]; /* the last V4-32 to VU 2: the compressed positions' offset in hdr[1..3] */
     unsigned cl, wl, mode, nloop;
+    int uvmode; /* the STMOD of the geom's texcoord unpacks, -1 before the first */
     bool has_hdr, has_nloop, open, has_tex, has_col;
     uint32_t count; /* vertices of the open batch, from mesh->nverts */
     bool adc[256];
@@ -108,6 +109,11 @@ static bool nw_vif_texcoords(NwVif *v, unsigned vn, unsigned vl, bool usn, unsig
     if ((vn != 1 && vn != 3) || vl != 1 || usn) {
         return SDL_SetError("vif: texcoord unpack V%u-%u%s", vn + 1, 32 >> vl, usn ? " unsigned" : "");
     }
+    /* Under STMOD 1 the texcoords add the material's STROW row (its UV scroll), which the decode leaves out. */
+    if (v->uvmode >= 0 && (unsigned)v->uvmode != v->mode) {
+        return SDL_SetError("vif: texcoords under STMOD 0 and 1 in one geom");
+    }
+    v->uvmode = (int)v->mode;
     NwVifVertex *out = v->mesh->verts + v->mesh->nverts;
     for (unsigned i = 0; i < n; i++) {
         memcpy(out[i].tex, d + i * (vn + 1) * 2, (vn + 1) * 2);
@@ -330,7 +336,7 @@ bool nw_vif_decode(NwVifMesh *mesh, const void *geom, size_t size)
     if (!s) {
         return false;
     }
-    NwVif v = { .mesh = mesh };
+    NwVif v = { .mesh = mesh, .uvmode = -1 };
     uint32_t nverts = mesh->nverts, ntris = mesh->ntris, nbatches = mesh->nbatches;
     bool ok = nw_vif_stream(&v, s, n);
     SDL_free(s);
@@ -338,6 +344,8 @@ bool nw_vif_decode(NwVifMesh *mesh, const void *geom, size_t size)
         mesh->nverts = nverts;
         mesh->ntris = ntris;
         mesh->nbatches = nbatches;
+    } else {
+        mesh->uvrow = v.uvmode == 1;
     }
     return ok;
 }
