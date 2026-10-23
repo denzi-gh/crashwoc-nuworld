@@ -83,6 +83,7 @@ typedef struct NwIrx {
     char new_local_dat_name[256];
     NwIrxFilename ADPCM_FileNames[NW_IRX_FILES];
     int fileinfo_cnt;
+    unsigned UserMaxStreams;
     int32_t ret[NW_NUSOUND_REPLY / 4];
 } NwIrx;
 

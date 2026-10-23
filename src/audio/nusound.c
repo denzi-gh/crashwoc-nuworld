@@ -153,6 +153,11 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             GetChannelStatus();
             AdpcmGetStatus();
             break;
+        case 0x10:
+            if (dt[0] < NW_IRX_CHANNELS) {
+                irx.UserMaxStreams = dt[0];
+            }
+            break;
         default: /* 8, >= 0x22: no handler */
             break;
         }

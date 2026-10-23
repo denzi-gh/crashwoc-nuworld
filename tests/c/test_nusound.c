@@ -18,6 +18,7 @@ int FlushIOPCommand(int mode);
 void SOUND_CopyIOPBuffer(void);
 void SOUND_GetStatus(int request);
 void SOUND_AddSamples(struct nusound_filename_info_s *sfx_info);
+void SOUND_SetMaxStreamLimit(int limit);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -184,6 +185,17 @@ static void test_sample_info(void)
     CHECK(irx->fileinfo_cnt == 300 && irx->ADPCM_FileNames[299].ID == 0x1000);
 }
 
+static void test_max_streams(void)
+{
+    nw_nusound_init();
+    SOUND_SetMaxStreamLimit(5);
+    FlushIOPCommand(0);
+    CHECK(nw_nusound_irx()->UserMaxStreams == 5);
+    SOUND_SetMaxStreamLimit(48);
+    FlushIOPCommand(0);
+    CHECK(nw_nusound_irx()->UserMaxStreams == 5);
+}
+
 int main(void)
 {
     test_transport();
@@ -192,6 +204,7 @@ int main(void)
     test_init_spu();
     test_dat_path();
     test_sample_info();
+    test_max_streams();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
