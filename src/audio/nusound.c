@@ -3,75 +3,14 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "audio/irx.h"
 #include "audio/spu2.h"
 
-#define NW_IRX_DT 256      /* AdpcmSetParam's dt[] */
-#define NW_IRX_CHANNELS 48 /* core * 24 + voice */
-#define NW_IRX_REPORTED 4  /* streams in the reply */
+#define NW_IRX_DT 256     /* AdpcmSetParam's dt[] */
+#define NW_IRX_REPORTED 4 /* streams in the reply */
 #define NW_IRX_NO_REQUEST 0xffff
 
-/* The IRX's stream slot, one per channel. */
-typedef struct STREAMDATA {
-    uint32_t SPUAddress;
-    uint8_t *IOPAddress;
-    uint32_t IOPBufferSize;
-    uint32_t IOPBufferHalfSize;
-    uint8_t *IOPCurrentAddress;
-    uint32_t IOPCurrentRemainder;
-    uint8_t *IOPLoadAddress;
-    uint32_t FileSize;
-    uint32_t FileRemainder;
-    uint32_t FileSeek;
-    uint32_t FileHandle;
-    uint8_t Status;
-    uint8_t iStatus;
-    uint8_t PlayingHalf;
-    uint8_t Channel;
-    uint8_t LoopInfo;
-    uint8_t StreamID;
-    int16_t VolL;
-    int16_t VolR;
-    int16_t Pitch;
-    int ID;
-    int SectorStart;
-    int SPUCurrent;
-    int KeyStat;
-    int AR;
-    int USR_Channel;
-    int USR_VolL;
-    int USR_VolR;
-    int USR_StrID;
-    int USR_Pitch;
-    int USR_LInfo;
-    int USR_AR;
-    uint32_t AllocSize;
-    uint32_t AllocHalfSize;
-    uint32_t AllocSPUAddress;
-    int Error;
-    int Source;
-    struct NwDat *datfile;
-    int fileoffset;
-} STREAMDATA;
-
-/* The module's globals, under their IRX names. */
-static struct NwIrx {
-    STREAMDATA StreamBuffer[NW_IRX_CHANNELS];
-    uint8_t SPU_KeyStatus[NW_IRX_CHANNELS];
-    int ResStatus;
-    int StreamBusy;
-    int IOPRequestLoad;
-    int LoadEECounter;
-    int8_t CD_SPOT_TRANS;
-    int StreamShutDown;
-    int StereoStarted;
-    unsigned LoadFromEE;
-    int cd_stream;
-    int cd_stage;
-    uint32_t g_ReverbChans[2];
-    char nu_filepath[256];
-    char nu_fileterm[4];
-    int32_t ret[NW_NUSOUND_REPLY / 4];
-} irx;
+static NwIrx irx;
 
 /* A string command's data, NUL-terminated within its words (the IRX strcpys it whole). */
 static void nw_irx_string(char *dst, size_t size, const uint16_t *p, int length)
@@ -89,6 +28,11 @@ void nw_nusound_init(void)
     irx.IOPRequestLoad = -1;
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
     nw_spu2_init();
+}
+
+const NwIrx *nw_nusound_irx(void)
+{
+    return &irx;
 }
 
 /* 2 (a stream started, not keyed on yet) stays; otherwise whether the envelope is up. The IRX reads ENDX too, but
@@ -177,6 +121,12 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         switch (f) {
         case 7:
             AdpcmSdInit(p, length);
+            break;
+        case 0x1e: /* opened when the files are looked up */
+            nw_irx_string(irx.new_global_dat_name, sizeof(irx.new_global_dat_name), p, length);
+            break;
+        case 0x1f:
+            nw_irx_string(irx.new_local_dat_name, sizeof(irx.new_local_dat_name), p, length);
             break;
         default:
             memcpy(dt, p, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));

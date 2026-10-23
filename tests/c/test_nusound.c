@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "audio/irx.h"
 #include "audio/nusound.h"
 #include "audio/spu2.h"
 #include "nusound/nusound.h"
@@ -132,6 +133,21 @@ static void test_init_spu(void)
         CHECK(nw_spu2_get_param((uint16_t)(core | NW_SD_P_MVOLR)) == 0x3fff);
     }
     CHECK(nw_spu2_get_core_attr(NW_SD_C_SPDIF_MODE) == 0x800);
+    CHECK(strcmp(nw_nusound_irx()->nu_filepath, "cdrom0:\\") == 0 && strcmp(nw_nusound_irx()->nu_fileterm, ";1") == 0);
+    send_string(7, "host0:");
+    CHECK(nw_nusound_irx()->nu_fileterm[0] == '\0');
+}
+
+static void test_dat_path(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+
+    nw_nusound_init();
+    send_string(0x1e, "SFX.DAT");
+    send_string(0x1f, "LOCAL.DAT");
+    CHECK(strcmp(irx->new_global_dat_name, "SFX.DAT") == 0 && strcmp(irx->new_local_dat_name, "LOCAL.DAT") == 0);
+    send_string(0x1f, "");
+    CHECK(irx->new_local_dat_name[0] == '\0');
 }
 
 int main(void)
@@ -140,6 +156,7 @@ int main(void)
     test_batch();
     test_status();
     test_init_spu();
+    test_dat_path();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
