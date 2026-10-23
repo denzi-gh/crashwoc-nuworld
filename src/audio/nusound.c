@@ -1156,6 +1156,10 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
         case 3:
             SetChannelPitch(dt[0], dt[1]);
             break;
+        case 0x20: /* a stereo pair's channels */
+            SetChannelPitch(dt[0], dt[1]);
+            SetChannelPitch(dt[0] + 1, dt[1]);
+            break;
         case 4: /* StopSound: the key status follows the envelope, the stream slots stay */
             nw_irx_key_off(dt[0]);
             break;

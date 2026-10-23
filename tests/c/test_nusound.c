@@ -41,6 +41,7 @@ void SOUND_Pause(void);
 void SOUND_Resume(void);
 void SOUND_CheckAndStartStereo(int stream, int left_channel, int right_channel);
 void SOUND_CancelCheckStereo(void);
+int NuSoundSetChannelPitch(unsigned int channel, int pitch, int stereo);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -471,6 +472,12 @@ static void test_channel_pitch(void)
     FlushIOPCommand(0);
     CHECK(nw_spu2_get_param(5 << 1 | NW_SD_VP_PITCH) == 0x0759 && nw_nusound_irx()->SPU_PausePitch[5] == 0x0759);
     CHECK(nw_spu2_get_param(1 | 23 << 1 | NW_SD_VP_PITCH) == 0x3fff && nw_nusound_irx()->SPU_PausePitch[47] == 0x3fff);
+
+    /* A stereo pair: the channel and the next. */
+    NuSoundSetChannelPitch(2, 0x0eb3, 1);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(2 << 1 | NW_SD_VP_PITCH) == 0x0eb3 && nw_spu2_get_param(3 << 1 | NW_SD_VP_PITCH) == 0x0eb3);
+    CHECK(nw_spu2_get_param(4 << 1 | NW_SD_VP_PITCH) == 0);
 }
 
 static void test_stop_sound(void)
