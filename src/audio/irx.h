@@ -8,8 +8,17 @@
 #include "audio/nusound.h"
 
 #define NW_IRX_CHANNELS 48 /* core * 24 + voice */
+#define NW_IRX_FILES 300
 
 struct NwDat;
+
+/* nusound_filename_info_s, the 0x1A record */
+typedef struct NwIrxFilename {
+    char Filename[32];
+    int Pitch; /* the sample rate; 0: unused */
+    int LoopInfo;
+    int ID; /* >= 0x1000 resident, else streamed */
+} NwIrxFilename;
 
 /* A stream slot, one per channel. */
 typedef struct STREAMDATA {
@@ -72,6 +81,8 @@ typedef struct NwIrx {
     char nu_fileterm[4];
     char new_global_dat_name[256];
     char new_local_dat_name[256];
+    NwIrxFilename ADPCM_FileNames[NW_IRX_FILES];
+    int fileinfo_cnt;
     int32_t ret[NW_NUSOUND_REPLY / 4];
 } NwIrx;
 

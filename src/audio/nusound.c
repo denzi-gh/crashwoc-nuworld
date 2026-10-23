@@ -89,6 +89,17 @@ static void AdpcmSetMasterVolume(int core, uint16_t vol)
     nw_spu2_set_param((uint16_t)(core | NW_SD_P_MVOLR), vol);
 }
 
+/* The IRX also sprintf's each name over a .rodata string, dropped here. */
+static void SoundAddSample(const uint16_t *p, int length)
+{
+    if (irx.fileinfo_cnt < NW_IRX_FILES) {
+        NwIrxFilename *fni = &irx.ADPCM_FileNames[irx.fileinfo_cnt++];
+        size_t n = (size_t)length * sizeof(*p);
+        memset(fni, 0, sizeof(*fni));
+        memcpy(fni, p, n < sizeof(*fni) ? n : sizeof(*fni));
+    }
+}
+
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */
 static void AdpcmSdInit(const uint16_t *p, int length)
 {
@@ -127,6 +138,9 @@ static void AdpcmSetParam(const uint16_t *jdata, size_t words)
             break;
         case 0x1f:
             nw_irx_string(irx.new_local_dat_name, sizeof(irx.new_local_dat_name), p, length);
+            break;
+        case 0x1a:
+            SoundAddSample(p, length);
             break;
         default:
             memcpy(dt, p, (size_t)(length < NW_IRX_DT ? length : NW_IRX_DT) * sizeof(*dt));

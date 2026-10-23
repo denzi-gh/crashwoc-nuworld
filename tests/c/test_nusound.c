@@ -17,6 +17,7 @@ void SetIOPCommandEx(short command, short size, void *data);
 int FlushIOPCommand(int mode);
 void SOUND_CopyIOPBuffer(void);
 void SOUND_GetStatus(int request);
+void SOUND_AddSamples(struct nusound_filename_info_s *sfx_info);
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -150,6 +151,39 @@ static void test_dat_path(void)
     CHECK(irx->new_local_dat_name[0] == '\0');
 }
 
+static void test_sample_info(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    struct nusound_filename_info_s info[14];
+
+    memset(info, 0, sizeof(info));
+    for (int i = 0; i < 13; i++) {
+        snprintf(info[i].Filename, sizeof(info[i].Filename), "SFX\\GENERIC\\S%02d.VAG", i);
+        info[i].Pitch = 22050;
+        info[i].LoopInfo = i & 1;
+        info[i].ID = 0x1000 + i;
+    }
+    nw_nusound_init();
+    SOUND_AddSamples(info); /* 12 per batch */
+    CHECK(irx->fileinfo_cnt == 13);
+    CHECK(strcmp(irx->ADPCM_FileNames[12].Filename, "SFX\\GENERIC\\S12.VAG") == 0);
+    CHECK(irx->ADPCM_FileNames[12].Pitch == 22050 && irx->ADPCM_FileNames[12].LoopInfo == 0);
+    CHECK(irx->ADPCM_FileNames[12].ID == 0x100c && irx->ADPCM_FileNames[13].Filename[0] == '\0');
+
+    /* At most 300; the rest are dropped. */
+    uint16_t batch[1 + 30 * 24];
+    batch[0] = 30;
+    for (int i = 0; i < 30; i++) {
+        batch[1 + 24 * i] = 0x1a;
+        batch[2 + 24 * i] = 22;
+        memcpy(&batch[3 + 24 * i], &info[0], sizeof(info[0]));
+    }
+    for (int i = 0; i < 10; i++) {
+        nw_nusound_rpc(0, batch, sizeof(batch), NULL, 0);
+    }
+    CHECK(irx->fileinfo_cnt == 300 && irx->ADPCM_FileNames[299].ID == 0x1000);
+}
+
 int main(void)
 {
     test_transport();
@@ -157,6 +191,7 @@ int main(void)
     test_status();
     test_init_spu();
     test_dat_path();
+    test_sample_info();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
