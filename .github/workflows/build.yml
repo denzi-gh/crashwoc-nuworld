@@ -185,3 +185,36 @@ jobs:
         with:
           name: crashwoc-nuworld-windows-x64
           path: build/release/crashwoc-nuworld.exe
+
+
+  archive:
+    needs: [linux, windows]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.NUWORLD_BUILDS_TOKEN }}
+      ARCHIVE_REPO: denzi-gh/denzi-gh-crashwoc-nuworld-builds
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: crashwoc-nuworld-*
+          path: dist
+      - name: Package
+        run: |
+          tag="build-$(jq -r '.head_commit.timestamp[0:10]' "$GITHUB_EVENT_PATH" | tr -d -)-${GITHUB_SHA::7}"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+          chmod +x dist/crashwoc-nuworld-linux-x86_64/crashwoc-nuworld
+          tar -C dist/crashwoc-nuworld-linux-x86_64 -czf "$tag-linux-x86_64.tar.gz" crashwoc-nuworld
+          (cd dist/crashwoc-nuworld-windows-x64 && zip -q "../../$tag-windows-x64.zip" crashwoc-nuworld.exe)
+          {
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            echo
+            jq -r '.commits[] | "- \(.id[0:7]) \(.message | split("\n")[0])"' "$GITHUB_EVENT_PATH"
+          } > notes.md
+      - name: Publish to the archive repo
+        run: |
+          if gh release view "$TAG" --repo "$ARCHIVE_REPO" > /dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$ARCHIVE_REPO" --clobber "$TAG"-*
+          else
+            gh release create "$TAG" --repo "$ARCHIVE_REPO" --title "$TAG" --notes-file notes.md "$TAG"-*
+          fi
