@@ -1,8 +1,12 @@
 /* The NUSOUND.IRX port (src/audio/nusound.c) behind the SIF shim, driven by the decomp's own nusound.c, on a
-   synthetic SFX.DAT and a clock the test sets. Usage: test_nusound <scratch dir>. */
+   synthetic SFX.DAT and a clock the test sets. Usage: test_nusound <scratch dir>.
+   Local only, with your own disc: `test_nusound retail` runs InitGlobalSfx on the data image and SFX.DAT of the
+   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and starts the logos' audio stream;
+   exits 77 without it. */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
@@ -10,9 +14,11 @@
 #include "audio/irx.h"
 #include "audio/nusound.h"
 #include "audio/spu2.h"
+#include "data/image.h"
 #include "nusound/nusound.h"
 #include "platform/paths.h"
 #include "port/game.h"
+#include "shim/shim.h"
 #include "vfs/vfs.h"
 
 #include "vag_builder.h"
@@ -51,6 +57,10 @@ void SOUND_SetChannelEffectOff(int channel);
 void SOUND_AllChannelEffectsOn(int core);
 void SOUND_AllChannelEffectsOff(int core);
 void NuSoundKillAllAudio(void);
+void NuSoundPlayChan(int sfx, int left, int right, int pitch, int channel);
+void InitGlobalSfx(void);
+void NuFileInitEx(int deviceid, int rebootiop);
+void NuPs2InitIOP(void);
 int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int right, int pitch, int start, int flags,
                      int priority);
 void NuSoundUpdate(void);
@@ -751,10 +761,83 @@ static bool setup_disc(const char *scratch)
     return ok;
 }
 
+/* ---- Retail (local only) ------------------------------------------------------------------------------- */
+
+static int test_retail(void)
+{
+    const char *dir = getenv("NUWORLD_TEST_DATA");
+    char path[1024], err[512];
+    NwImageStats stats;
+    size_t size = 0;
+
+    if (!dir || !*dir) {
+        printf("NUWORLD_TEST_DATA is not set: skipped\n");
+        return 77;
+    }
+    SDL_snprintf(path, sizeof(path), "%s/SLES_503.86", dir);
+    void *elf = SDL_LoadFile(path, &size);
+    if (!elf || !nw_vfs_mount(&vfs, NW_VFS_DISC, dir)) {
+        fprintf(stderr, "NUWORLD_TEST_DATA: %s\n", SDL_GetError());
+        return 1;
+    }
+    nw_shim_file_init(&vfs);
+    nw_newlib_init();
+    bool loaded = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    SDL_free(elf);
+    if (!loaded) {
+        fprintf(stderr, "data image: %s\n", err);
+        return 1;
+    }
+
+    /* The game's first load: the global table, its DAT, every resident sample into SPU RAM. */
+    const NwIrx *irx = nw_nusound_irx();
+    nw_nusound_init(&vfs, test_clock);
+    NuFileInitEx(1, 0);
+    NuPs2InitIOP();
+    test_auto = true;
+    InitGlobalSfx();
+    test_auto = false;
+    CHECK(irx->global_dat && irx->fileinfo_cnt == 0xc5 && irx->GlobalSfxfileinfo_cnt == 0xc5 && irx->ResStatus == 1);
+    uint32_t addr = 0x48310;
+    int slot = 0;
+    for (; slot < NW_IRX_FILES && irx->ADPCM_SpotFX[slot].ID == 0x1000 + slot; slot++) {
+        int ix = 0;
+        while (ix < irx->fileinfo_cnt && irx->ADPCM_FileNames[ix].ID != 0x1000 + slot) {
+            ix++;
+        }
+        int entry = nw_dat_find(irx->global_dat, irx->ADPCM_FileNames[ix].Filename);
+        uint32_t len = entry >= 0 ? irx->global_dat->entries[entry].size : 0;
+        uint8_t *data = SDL_malloc(len ? len : 1);
+        CHECK(entry >= 0 && irx->ADPCM_SpotFX[slot].SPUAddress == addr && data &&
+              nw_dat_read(irx->global_dat, entry, 0, data, len) &&
+              memcmp(nw_spu2_ram() + addr, data + NW_VAG_HEADER, len - NW_VAG_HEADER) == 0);
+        SDL_free(data);
+        addr += len;
+    }
+    printf("SFX.DAT: %d of %d samples resident, SPU RAM 0x48310-%#x\n", slot, irx->fileinfo_cnt, addr);
+    CHECK(slot == 158 && irx->StreamMemoryEnd == addr && irx->GlobalSfxMemoryEnd == addr);
+    CHECK(addr == 0x187b40);
+
+    /* StartCutMovie's logos audio: sfx 172, a stream, on channel 4, until its key status is 1. */
+    int frames = 0;
+    bool starting = false;
+    NuSoundPlayChan(172, 0x3fff, 0x3fff, 1, 4);
+    for (; frames < 100 && NuSoundKeyStatus(4) != 1; frames++) {
+        frame();
+        starting |= NuSoundKeyStatus(4) == 2;
+    }
+    printf("logos stream: id %#x, keyed on after %d frames\n", irx->StreamBuffer[4].ID, frames);
+    CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == 13);
+    return failures ? 1 : 0;
+}
+
 int main(int argc, char *argv[])
 {
+    if (argc == 2 && strcmp(argv[1], "retail") == 0) {
+        return test_retail();
+    }
     if (argc != 2) {
-        fprintf(stderr, "usage: test_nusound <scratch dir>\n");
+        fprintf(stderr, "usage: test_nusound <scratch dir> | retail\n");
         return 2;
     }
     if (!nw_paths_remove_tree(argv[1]) || !SDL_CreateDirectory(argv[1]) || !setup_disc(argv[1])) {

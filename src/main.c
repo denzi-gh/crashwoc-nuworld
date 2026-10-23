@@ -268,7 +268,7 @@ static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
 static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
 #define NW_VBLANK_HZ 50                /* PAL */
-#define NW_BOOT_CHECK_MS 10000         /* the watchdog of --boot-check */
+#define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; BGLoadSfx alone takes 13 s */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 
