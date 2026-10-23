@@ -121,6 +121,10 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     if (c->mtl != NW_MTL_NONE) {
         const NwMtlSnap *s = &p->mtls[c->mtl];
         memcpy(m.diffuse, s->diffuse, sizeof(m.diffuse));
+        m.uvoff[0] = s->uvoff[0];
+        m.uvoff[1] = s->uvoff[1];
+        m.uvoff[2] = mesh->mesh.uvrow ? (float)s->row[0] : 0.0f;
+        m.uvoff[3] = mesh->mesh.uvrow ? (float)s->row[1] : 0.0f;
         m.tex = s->tex ? &s->tex->gl : NULL;
         m.state = s->gs;
     }

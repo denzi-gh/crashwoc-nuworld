@@ -39,8 +39,8 @@ typedef struct NwView {
 typedef struct NwMtlSnap {
     NwMtlState gs;
     float diffuse[4];
-    float uvoff[2]; /* VU 0x14 */
-    int32_t row[2]; /* the STROW row */
+    float uvoff[2]; /* VU 0x14: NuMtlAnimate's UV offset */
+    int32_t row[2]; /* the STROW row: the offset x4096, for geoms that unpack their texcoords under STMOD 1 */
     const NwGpuTex *tex;
 } NwMtlSnap;
 

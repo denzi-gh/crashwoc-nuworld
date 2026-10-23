@@ -12,6 +12,7 @@
 #include "nu3d/nurndr.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
+#include "numath/nutrig.h"
 
 #include "gsc_builder.h"
 
@@ -23,6 +24,7 @@ extern int no_default_font, PS2_REZ_W, PS2_REZ_H;
 int NuRndrBeginScene(int target);
 void NuRndrEndScene(void);
 void NuRndrStreamLink(struct rndrstream_s *stream);
+void NuMtlAnimate(float dt);
 extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
@@ -286,6 +288,49 @@ static void test_raw(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The decomp's NuMtlAnimate writes the UV offset into the state block (VU 0x14, the STROW row x4096), whose snapshot
+   the published packet holds: per axis none, constant, wrapped scroll, sine and cosine of the shared clock. */
+static void test_animate(void)
+{
+    struct numtl_s *m[3];
+    static const int umode[3] = { 2, 3, 0 }, vmode[3] = { 1, 4, 0 };
+    for (int i = 0; i < 3; i++) {
+        m[i] = NuMtlCreate(1);
+        NuMtlUpdate(m[i]);
+        m[i]->uanmmode = umode[i];
+        m[i]->vanmmode = vmode[i];
+        m[i]->du = 0.9f;
+        m[i]->dv = 0.5f;
+        m[i]->su = 1.0f;
+        m[i]->sv = 1.0f;
+    }
+    m[2]->vuattr.f32[0] = 0.125f;
+    NuMtlAnimate(0.25f); /* NuTrigTable[16384] = sin(pi / 2), [32768] = sin(pi) */
+    CHECK(SDL_fabsf(m[0]->vuattr.f32[0] - 0.15f) < 1e-6f && m[0]->vuattr.s32[9] == (int32_t)(m[0]->du * 4096.0f));
+    CHECK(m[0]->vuattr.f32[1] == 0.5f && m[0]->vuattr.s32[10] == 2048);
+    CHECK(SDL_fabsf(m[1]->vuattr.f32[0] - 0.9f) < 1e-6f && SDL_fabsf(m[1]->vuattr.f32[1]) < 1e-4f);
+    CHECK(m[2]->vuattr.f32[0] == 0.125f && m[2]->vuattr.s32[9] == 0);
+
+    for (int i = 0; i < 3; i++) {
+        mark(&m[i]->rs, 30 + i);
+    }
+    NuRndrEndScene();
+    NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take();
+    CHECK(p && p->ncmds == 3);
+    for (uint32_t i = 0; p && i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        int k = (int)(uintptr_t)c->mesh - 30;
+        CHECK(k >= 0 && k < 3 && c->mtl < p->nmtls);
+        if (k >= 0 && k < 3 && c->mtl < p->nmtls) {
+            const NwMtlSnap *s = &p->mtls[c->mtl];
+            CHECK(s->uvoff[0] == m[k]->vuattr.f32[0] && s->uvoff[1] == m[k]->vuattr.f32[1]);
+            CHECK(s->row[0] == m[k]->vuattr.s32[9] && s->row[1] == m[k]->vuattr.s32[10]);
+        }
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -293,6 +338,7 @@ int main(void)
     no_default_font = 1;
     NuTexInit();
     NuMtlInit();
+    NuTrigInit();
     NuRndrInitEx(0x10000);
     test_native();
     test_bitmap();
@@ -300,6 +346,7 @@ int main(void)
     test_order();
     test_state_capture();
     test_raw();
+    test_animate();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

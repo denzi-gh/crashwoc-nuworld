@@ -697,22 +697,6 @@ static void test_atest(void)
     CHECK(nw_mtl_passes(&s, pass) == 1);
 }
 
-/* NuMtlAnimate's modes per axis: none, constant, wrapped scroll, sine and cosine of the shared clock. */
-static void test_animate(void)
-{
-    NwMtlScroll s = { 2, 1, 0.9f, 0.25f, 0.5f, 0.0f, 0.0f, 0.0f };
-    nw_mtl_animate(&s, 0.5f, 0.5f);
-    CHECK(SDL_fabsf(s.u - 0.15f) < 1e-6f && SDL_fabsf(s.du - 0.15f) < 1e-6f && s.v == 0.25f);
-    nw_mtl_animate(&s, 1.0f, 0.5f);
-    CHECK(SDL_fabsf(s.u - 0.4f) < 1e-6f && s.v == 0.25f);
-    s = (NwMtlScroll){ 3, 4, 0.5f, 0.5f, 1.0f, 1.0f, 0.0f, 0.0f };
-    nw_mtl_animate(&s, 0.25f, 0.02f); /* NuTrigTable[16384] = sin(pi / 2), [32768] = sin(pi) */
-    CHECK(SDL_fabsf(s.u - 0.5f) < 1e-6f && SDL_fabsf(s.v) < 1e-4f && s.du == 0.5f);
-    s = (NwMtlScroll){ 0, 0, 0.5f, 0.5f, 1.0f, 1.0f, 0.125f, 0.25f };
-    nw_mtl_animate(&s, 1.0f, 0.02f);
-    CHECK(s.u == 0.125f && s.v == 0.25f);
-}
-
 /* NuMtlUpdateEx's choice of microcode package. */
 static void test_package(void)
 {
@@ -816,7 +800,6 @@ int main(int argc, char *argv[])
     test_blend();
     test_depth();
     test_atest();
-    test_animate();
     test_packet();
     test_report(argv[1]);
     printf("%s\n", failures ? "FAILED" : "scene: all checks passed");
