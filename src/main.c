@@ -270,15 +270,16 @@ static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
 static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
 #define NW_VBLANK_HZ 50                /* PAL */
-#define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; BGLoadSfx alone takes 13 s */
+#define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; at the hardware speed BGLoadSfx alone takes 13 s */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 
 /* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
-   too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both. The file
-   system stays open for the game. Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
-static int nw_boot_prepare(const char *data_dir, NwClockMode mode)
+   too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both (at the
+   hardware speed or with instant loads). The file system stays open for the game. Returns 0, else the exit code: 2
+   without usable data, 1 when the image or the clock fails. */
+static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware_speed)
 {
     static NwVfs vfs;
     size_t size = 0;
@@ -308,6 +309,7 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode)
         return 1;
     }
     nw_nusound_init(&vfs, nw_game_us);
+    nw_nusound_set_hardware_speed(hardware_speed);
     return 0;
 }
 
@@ -365,9 +367,9 @@ static void nw_print_stub_hits(const char *mode, NwGameState state)
    swap, or with `loads`, until the game parks itself after that many background loads; then prints the stub hits
    in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
    the watchdog, 2 without usable data. */
-static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMode mode)
+static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMode mode, bool hardware_speed)
 {
-    int code = nw_boot_prepare(data_dir, mode);
+    int code = nw_boot_prepare(data_dir, mode, hardware_speed);
     if (code) {
         return code;
     }
@@ -446,9 +448,9 @@ static void nw_window_close(NwPlatform *p)
 
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
-static int nw_boot(const char *data_dir)
+static int nw_boot(const char *data_dir, bool hardware_speed)
 {
-    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME);
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, hardware_speed);
     if (code) {
         return code;
     }
@@ -500,7 +502,7 @@ static int nw_boot(const char *data_dir)
 /* --capture: the game on the stepped clock in a hidden window; the frames around the requested vblanks of the title
    cut go to dir as <vblank>.png, their label lines and then the stub hits to stdout. Returns 0 once every one is
    past, 1 on a failed save, a stopped game or the watchdog, 2 without usable data or vblanks. */
-static int nw_capture(const char *data_dir, const char *list, const char *dir)
+static int nw_capture(const char *data_dir, const char *list, const char *dir, bool hardware_speed)
 {
     char *root = nw_data_root(data_dir);
     char *out = dir ? nw_paths_dir(dir, NULL, true) : root ? nw_paths_dir(root, NW_PATHS_CAPTURES, true) : NULL;
@@ -510,7 +512,7 @@ static int nw_capture(const char *data_dir, const char *list, const char *dir)
         SDL_free(out);
         return 2;
     }
-    int code = nw_boot_prepare(data_dir, NW_CLOCK_STEPPED);
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_STEPPED, hardware_speed);
     NwPlatform platform;
     if (code || !nw_window_open(&platform, data_dir)) {
         SDL_free(out);
@@ -585,7 +587,7 @@ static const NwManifestEntry *nw_scene_entry(const char *path)
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
     const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
-    int code = e || !*path ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME) : 2;
+    int code = e || !*path ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false) : 2;
     if (code) {
         return code;
     }
@@ -674,7 +676,7 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
         return nw_scene_check_all(exe, data_dir);
     }
     const NwManifestEntry *e = nw_scene_entry(path);
-    int code = e ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME) : 2;
+    int code = e ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false) : 2;
     if (code) {
         return code;
     }
@@ -791,13 +793,15 @@ int main(int argc, char *argv[])
         if (trace_sound) {
             nw_trace_sound_start();
         }
+        /* The runs compared with PCSX2's keep its load times; every other one loads at once. */
+        bool hardware_speed = trace_sound || capture;
         if (capture) {
-            return nw_capture(data_dir, capture, capture_dir);
+            return nw_capture(data_dir, capture, capture_dir, hardware_speed);
         }
         return check_data   ? nw_check_data(data_dir)
                : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
-                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME)
-                            : nw_boot(data_dir);
+                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, hardware_speed)
+                            : nw_boot(data_dir, hardware_speed);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
         return 2;
