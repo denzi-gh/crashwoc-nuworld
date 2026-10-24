@@ -143,9 +143,10 @@ float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 
-/* Game thread: the packet being built; publishing it stamps it and makes it the newest for the renderer. */
+/* Game thread: the packet being built; publishing it stamps it and makes it the newest for the renderer (returns
+   its seq). */
 NwPacket *nw_packet_building(void);
-void nw_packet_publish(int32_t vbcnt);
+uint64_t nw_packet_publish(int32_t vbcnt);
 /* Render thread: the newest published packet, the one it took last if none is newer; NULL before the first. */
 const NwPacket *nw_packet_take(void);
 

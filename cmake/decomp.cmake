@@ -134,7 +134,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
-  src/port/ps2video.c src/port/scene.c src/port/trace.c
+  src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
@@ -187,6 +187,13 @@ if(NUWORLD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/cut_trace.py $<TARGET_FILE:crashwoc-nuworld> {root}
       --pcsx2 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_cut.txt)
   set_tests_properties(boot-cut-pcsx2 PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: the title cut's frames (--capture) labelled as PCSX2's savestates (tools/pcsx2_capture.py); with
+  # PCSX2's screens in {root}/captures/pcsx2 also side by side in title-frames/pairs.
+  add_test(NAME title-frames-pcsx2
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/title_capture.py $<TARGET_FILE:crashwoc-nuworld> {root}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_frames.txt ${CMAKE_CURRENT_BINARY_DIR}/title-frames)
+  set_tests_properties(title-frames-pcsx2 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
   # Local only: every .gsc of the imported disc loads with no unknown block and its geometry decodes.
   add_test(NAME check-scenes-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py $<TARGET_FILE:crashwoc-nuworld>
@@ -277,6 +284,27 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_rndr PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_rndr PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME rndr COMMAND nuworld_test_rndr)
+
+  # A texanim script stepping a material's texture into the frame packet; texanim-retail runs the title logo's
+  # flipbook from NUWORLD_TEST_DATA.
+  add_executable(nuworld_test_texanim tests/c/test_texanim.c)
+  add_dependencies(nuworld_test_texanim nuworld_types)
+  target_include_directories(nuworld_test_texanim PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_texanim PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_texanim PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME texanim COMMAND nuworld_test_texanim ${CMAKE_CURRENT_BINARY_DIR}/test-texanim)
+  add_test(NAME texanim-retail COMMAND nuworld_test_texanim retail)
+  set_tests_properties(texanim-retail PROPERTIES SKIP_RETURN_CODE 77)
+
+  # Text3D's glyphs on a synthetic scene; font3d-retail loads STUFF\FONT.GSC of NUWORLD_TEST_DATA with the data image.
+  add_executable(nuworld_test_font3d tests/c/test_font3d.c)
+  add_dependencies(nuworld_test_font3d nuworld_types)
+  target_include_directories(nuworld_test_font3d PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_font3d PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_font3d PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME font3d COMMAND nuworld_test_font3d ${CMAKE_CURRENT_BINARY_DIR}/test-font3d)
+  add_test(NAME font3d-retail COMMAND nuworld_test_font3d retail)
+  set_tests_properties(font3d-retail PROPERTIES SKIP_RETURN_CODE 77)
 
   # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
   add_executable(nuworld_test_clock tests/c/test_clock.c)

@@ -16,6 +16,7 @@
 #include "nucore/nuerror.h"
 #include "numath/numtx.h"
 #include "numath/nuvec.h"
+#include "port/capture.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
 #define NW_STREAMS 32
@@ -445,7 +446,7 @@ static void nw_rndr_snap(NwPacket *p)
 void NuRndrVu1Draw(void)
 {
     nw_rndr_snap(nw_packet_building());
-    nw_packet_publish(nuvideo_global_vbcnt);
+    nw_capture_published(nw_packet_publish(nuvideo_global_vbcnt), nuvideo_global_vbcnt);
 }
 
 /* Retail carves qwords from the stream buffer; the room is doubled for the pointer arrays NuHGobjEvalDwa keeps in

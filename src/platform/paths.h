@@ -10,6 +10,7 @@
 #define NW_PATHS_IMPORT "import" /* disc images to import, e.g. copied there on a Steam Deck */
 #define NW_PATHS_SAVES "saves"
 #define NW_PATHS_SCREENSHOTS "screenshots"
+#define NW_PATHS_CAPTURES "captures/port" /* --capture's frames; tools/pcsx2_capture.py writes captures/pcsx2 */
 
 /* <base_dir>user/ when <base_dir>portable.txt exists (portable mode), else pref_dir
    (NULL: SDL_GetPrefPath(NULL, NW_PATHS_APP)). */
