@@ -4,6 +4,8 @@
 # override/keep: globs the port implements instead of the decomp C (the decomp definition is
 #   dropped; without a port definition the function is a stub); rename: decomp -> host name, for
 #   the function's declarations, definition and calls in its unit
+# runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
+#   build; the rest of the unit stays editor-only
 # Overrides marked "dead" are functions retail never reaches, or reaches only through overridden
 # code, whose C does not build for the host: stubs instead of upstream fixes in dead code.
 
@@ -94,7 +96,10 @@ schema = 1
 "gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
 "gamelib/debris" = { treatment = "compile" }
 "gamelib/edptl" = { treatment = "editor" }
-"gamelib/edobj" = { treatment = "editor" }
+"gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
+    "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
+    "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
+    "edobjPlayerObjectDistance"] }
 "gamelib/glutils" = { treatment = "compile" }
 "gamelib/edanim" = { treatment = "editor" }
 "gamelib/edbits" = { treatment = "compile" }
@@ -110,7 +115,7 @@ schema = 1
 "gamelib/edgra" = { treatment = "editor" }
 
 # edtools
-"edtools/edmain" = { treatment = "editor" }
+"edtools/edmain" = { treatment = "editor", runtime = ["edmainRegisterLocVec", "edmainQueryLocVec"] }
 "edtools/edui" = { treatment = "editor" }
 "edtools/edcam" = { treatment = "editor" }
 

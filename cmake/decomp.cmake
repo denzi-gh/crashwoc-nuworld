@@ -306,6 +306,17 @@ if(NUWORLD_TESTS)
   add_test(NAME font3d-retail COMMAND nuworld_test_font3d retail)
   set_tests_properties(font3d-retail PROPERTIES SKIP_RETURN_CODE 77)
 
+  # The editor units' runtime half on every level file of NUWORLD_TEST_DATA, loaded over the level scene.
+  add_executable(nuworld_test_edunits tests/c/test_edunits.c)
+  add_dependencies(nuworld_test_edunits nuworld_types)
+  target_include_directories(nuworld_test_edunits PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_edunits PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_edunits PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  foreach(unit edobj)
+    add_test(NAME ${unit}-retail COMMAND nuworld_test_edunits ${unit})
+    set_tests_properties(${unit}-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  endforeach()
+
   # The clock, the game thread's yield points, the vblank interrupts and the EE semaphores, on a stepped clock.
   add_executable(nuworld_test_clock tests/c/test_clock.c)
   target_include_directories(nuworld_test_clock PRIVATE ${nw_decomp_includes})

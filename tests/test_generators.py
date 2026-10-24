@@ -159,11 +159,27 @@ class Model(unittest.TestCase):
         self.assertEqual(off["game/fixdead"], "standalone")
         self.assertEqual(on["game/fixdead"], "wrapper")
 
+    def test_editor_runtime(self):
+        text = UNITS.read_text().replace('"nucore/fixcore" = { treatment = "compile",',
+                                         '"nucore/fixcore" = { treatment = "editor", runtime = ["FixAdd"],')
+        with tempfile.TemporaryDirectory() as tmp:
+            units = Path(tmp) / "units.toml"
+            units.write_text(text)
+            off, on = load(units), load(units, editor=True)
+        self.assertEqual(off.errors, [])
+        fn = {f.name: f for f in off.functions()}
+        self.assertEqual(fn["FixAdd"].unit.kind, "wrapper")
+        self.assertEqual(fn["FixAdd"].provider, "decomp")
+        self.assertEqual((fn["FixNear"].provider, gen_stubs.why(fn["FixNear"])), ("stub", "editor unit"))
+        self.assertEqual(fn["FixLoad"].provider, "port")
+        self.assertEqual({f.name: f.provider for f in on.functions()}["FixNear"], "decomp")
+
     def test_units_toml_errors(self):
         bad = {
             '"game/fixdead" = { treatment = "dead" }': '"game/fixdead" = { treatment = "gone" }',
             'override = ["FixLoad", "FixLocal"]': 'override = ["FixLoad", "NoSuchFn*"], keep = ["Fix*"]',
             'rename = { main = "nw_game_main" }': 'rename = { mian = "nw_game_main" }',
+            '"game/fixdata" = { treatment = "compile",': '"game/fixdata" = { treatment = "compile", runtime = ["FixDataUse"],',
         }
         text = UNITS.read_text()
         for old, new in bad.items():
@@ -175,7 +191,7 @@ class Model(unittest.TestCase):
             errors = "\n".join(load(units).errors)
         for needle in ("treatment must be one of", "'NoSuchFn*' matches no function",
                        "rename of unknown function 'mian'", "units.game/nosuchunit: matches no decomp unit",
-                       "a glob key takes only a treatment"):
+                       "a glob key takes only a treatment", "unit game/fixdata: runtime on a compile unit"):
             self.assertIn(needle, errors)
 
     def test_duplicate_global(self):

@@ -21,7 +21,7 @@ DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
 
 TREATMENTS = ("compile", "editor", "hle", "replace", "dead", "shim")
-UNIT_KEYS = {"treatment", "override", "keep", "rename"}
+UNIT_KEYS = {"treatment", "override", "keep", "rename", "runtime"}
 HOST_DEFINES = frozenset({"NW_HOST"})
 
 STATE_PROVENANCE = {"matching": "matching", "equivalent": "equivalent", "asm": "near"}
@@ -72,6 +72,8 @@ class Unit:
     override: tuple[str, ...] = ()
     keep: tuple[str, ...] = ()
     rename: dict[str, str] = field(default_factory=dict)
+    runtime: tuple[str, ...] = ()   # editor unit: compiled in every build, the rest only with the editor
+    editor_dropped: bool = False    # the functions outside runtime are dropped (no editor build)
     functions: list[Function] = field(default_factory=list)
     source: str | None = None
     kind: str = ""                  # wrapper | standalone | none
@@ -81,6 +83,8 @@ class Unit:
         return "nw_funcmap_unit_" + re.sub(r"[^A-Za-z0-9_]", "_", self.name)
 
     def is_overridden(self, name: str) -> bool:
+        if self.editor_dropped and not any(fnmatch.fnmatchcase(name, p) for p in self.runtime):
+            return True
         hit = any(fnmatch.fnmatchcase(name, p) for p in self.override)
         return hit and not any(fnmatch.fnmatchcase(name, p) for p in self.keep)
 
@@ -447,10 +451,13 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         unit.override = tuple(entry.get("override", ()))
         unit.keep = tuple(entry.get("keep", ()))
         unit.rename = dict(entry.get("rename", {}))
+        unit.runtime = tuple(entry.get("runtime", ()))
+        if unit.runtime and unit.treatment != "editor":
+            errors.append(f"unit {unit.name}: runtime on a {unit.treatment} unit (editor only)")
         if unit.keep and not unit.override:
             errors.append(f"unit {unit.name}: keep without override")
         fnames = [f.name for f in unit.functions]
-        for kind, patterns in (("override", unit.override), ("keep", unit.keep)):
+        for kind, patterns in (("override", unit.override), ("keep", unit.keep), ("runtime", unit.runtime)):
             for p in patterns:
                 if not any(fnmatch.fnmatchcase(n, p) for n in fnames):
                     errors.append(f"unit {unit.name}: {kind} {p!r} matches no function")
@@ -511,8 +518,9 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
     for unit in units:
         if unit.treatment == "shim":
             unit.kind = "none"
-        elif unit.treatment == "compile" or (unit.treatment == "editor" and editor):
+        elif unit.treatment == "compile" or (unit.treatment == "editor" and (editor or unit.runtime)):
             unit.kind = "wrapper"
+            unit.editor_dropped = unit.treatment == "editor" and not editor
         else:
             unit.kind = "standalone"
         src = f"src/{unit.name}.c"
