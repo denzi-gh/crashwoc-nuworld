@@ -10,6 +10,7 @@
 #include "nu3d/nugobj.h"
 #include "nu3d/nuhgobj.h"
 #include "nu3d/numtl.h"
+#include "nu3d/nurndr.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
 #include "numath/numtx.h"
@@ -19,9 +20,6 @@ void NuPs2DisableAutoScreenSwap(void);
 void NuFntInit(void);
 int Ps2TxValToPowerOfTwo(int value);
 
-struct nugscn_s;
-struct nugspline_s;
-int NuSplineFindAllSub(struct nugscn_s *scene, char *name, struct nugspline_s **list, int max);
 float XFormVuTriZ(float *depth, void *tri, struct numtx_s *mtx, int count);
 void NuMtxMulVU0(struct numtx_s *dst, struct numtx_s *a, struct numtx_s *b);
 void NuMtxMulArrayVU0(struct numtx_s *dst, struct numtx_s *a, struct numtx_s *b, int count);
@@ -57,23 +55,6 @@ extern struct rndrstream_s *rndrstream_ot_sort;
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
 static int ot_batch_free;
-
-/* Shadow masks: scene splines named like "stencil" (D_0062ECA8); only nurndr reads them. */
-int NuRndrShadMaskCount;
-struct nugspline_s *NuRndrShadMasks[32];
-static char nw_stencil[] = "stencil";
-
-void NuRndrSplineSearch(void *spline)
-{
-    int n = NuRndrShadMaskCount;
-    NuRndrShadMaskCount += NuSplineFindAllSub(spline, nw_stencil, &NuRndrShadMasks[n], 32 - n);
-}
-
-/* Retail also resets the footprint timers (not drawn yet). */
-void NuRndrInitWorld(void)
-{
-    NuRndrShadMaskCount = 0;
-}
 
 void NuRndrOTInit(void)
 {
@@ -222,24 +203,6 @@ int NuRndrBeginSceneEx(int target, int zbuffer, int halfoffset)
 int NuRndrBeginScene(int target)
 {
     return NuRndrBeginSceneEx(target, -2, target == -1);
-}
-
-void NuRndrEndScene(void)
-{
-    NuMtlBuildRenderList();
-    NuRndrOTFlush();
-    NuRndrStreamFlush();
-}
-
-void NuRndrEndSceneEx(int flags)
-{
-    if (flags & 1) {
-        NuMtlBuildRenderList();
-    }
-    if (flags & 2) {
-        NuRndrOTFlush();
-    }
-    NuRndrStreamFlush();
 }
 
 void NuRndrFlush(int flags)
@@ -491,11 +454,6 @@ void NuHGobjRndr(void *hobj, struct numtx_s *mtx, int nlayers, short *layer)
     static struct numtx_s joints[256]; /* hgobj_joint_mtx */
     NuHGobjEval(hobj, 0, 0, joints);
     NuHGobjRndrMtxDwa(hobj, mtx, nlayers, layer, joints, 0);
-}
-
-int NuHGobjRndrMtx(void *hobj, struct numtx_s *mtx, int nlayers, short *layer, struct numtx_s *dwa)
-{
-    return NuHGobjRndrMtxDwa(hobj, mtx, nlayers, layer, dwa, 0);
 }
 
 /* Retail's packet: a RET tag, the S-32 unpack of the count and the weights to VU 0x63, the count at u32 [5]; the

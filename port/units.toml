@@ -4,6 +4,10 @@
 # override/keep: globs the port implements instead of the decomp C (the decomp definition is
 #   dropped; without a port definition the function is a stub); rename: decomp -> host name, for
 #   the function's declarations, definition and calls in its unit
+# runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
+#   build; the rest of the unit stays editor-only
+# called: stubs of an editor or dead unit that compiled code calls behind a guard retail never passes (or until
+#   their issue); any other call into an editor or dead unit is an error
 # Overrides marked "dead" are functions retail never reaches, or reaches only through overridden
 # code, whose C does not build for the host: stubs instead of upstream fixes in dead code.
 
@@ -11,7 +15,7 @@ schema = 1
 
 [units]
 # nucore
-"nucore/nufile" = { treatment = "compile", override = ["NuDat*"] }
+"nucore/nufile" = { treatment = "compile", override = ["NuDat*"], keep = ["NuDatOpen", "NuDatSet"] }
 "nucore/nufpar" = { treatment = "compile" }
 # NuErrorProlog: the file and line NuErrorFunction prints are nuerror.c statics
 "nucore/nuerror" = { treatment = "compile", override = ["NuErrorProlog", "NuErrorFunction"] }
@@ -39,7 +43,8 @@ schema = 1
 "numath/numath" = { treatment = "hle" }
 
 # nu3d
-"nu3d/nustream" = { treatment = "compile", override = ["*"] }
+"nu3d/nustream" = { treatment = "compile", override = ["*"], keep = ["NuRndrStreamResetStream", "NuRndrSwapStreamBuffers",
+    "NuRndrSetGlobalAlpha", "NuRndrStreamSetDirectionalLights", "NuRndrStreamSetAmbientLight"] }
 "nu3d/nucamera" = { treatment = "compile" }
 "nu3d/nucamvu0" = { treatment = "hle" }
 "nu3d/nuvport" = { treatment = "compile" }
@@ -49,13 +54,19 @@ schema = 1
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
-"nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint"] }
+# kept: the shadow, footprint and water-ripple bookkeeping and the bodies retail leaves empty; NuRndrFx calls the
+# overridden shadow, water and light packet writers
+"nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
+    "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld", "NuRndrShadowInit",
+    "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
+    "NuRndrWaterRippleUpdate", "NuRndrWaterLevelTint", "NuRndrFx", "NuRndrClose", "NuRndrFog*", "NuRndrLine3dDbg*",
+    "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
-"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
+"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
     "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }
@@ -63,9 +74,12 @@ schema = 1
 # dead: the NuGHGWrite* writer, ReadNuIFFCollideData
 "nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
     "ReadNuIFFCollideData"] }
-"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"] }
+# called: ReadNuIFFGeom and NuGobjDestroy, reached only from the .nus/.hgo readers and NuSceneDestroy, which
+# nothing calls on the PS2 (InstSceneLoad, NuHGobjLoad, NuHGobjReadForCutScene; the port's NuHGobjDestroy)
+"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"], called = [
+    "NuPs2CreateRenderStream", "NuPs2CreateFaceOn", "NuPs2DestroyRenderStream"] }
 # NuCvtSknInstFix: the port's NuGHGRead decodes the skin DMA, resolving its CALLs against the list as the fix does
-"nu3d/nucvtskn" = { treatment = "dead" }
+"nu3d/nucvtskn" = { treatment = "dead", called = ["NuPs2CreateSkin"] }
 "nu3d/asmgobj" = { treatment = "hle" }
 "nu3d/nutexanm" = { treatment = "compile" }
 "nu3d/nufpatch" = { treatment = "dead" }
@@ -86,24 +100,36 @@ schema = 1
 # gamelib
 "gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
 "gamelib/debris" = { treatment = "compile" }
-"gamelib/edptl" = { treatment = "editor" }
-"gamelib/edobj" = { treatment = "editor" }
+# The effect loaders wait for the particle sets (nups2/ptl, #56): with effects loaded the cuts emit particles.
+"gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
+    "edppRegisterPointerToGameCharLocation"], called = ["edppLoadEffects", "edppMergeEffects",
+    "edppRestartAllEffectsInLevel"] }
+"gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
+    "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
+    "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
+    "edobjPlayerObjectDistance"] }
 "gamelib/glutils" = { treatment = "compile" }
-"gamelib/edanim" = { treatment = "editor" }
-"gamelib/edbits" = { treatment = "editor" }
-"gamelib/edfile" = { treatment = "editor" }
+"gamelib/edanim" = { treatment = "editor", runtime = ["edanimUpdateObjects", "edanimDetermineNearestAnim",
+    "edanimSoundDestroy", "edanimParticleDestroy", "edanimFileLoad", "edanimLookupInstanceIndex",
+    "edanimRegisterBaseScene", "edanimLookupSpecial", "edanimParamReset"] }
+"gamelib/edbits" = { treatment = "compile" }
+"gamelib/edfile" = { treatment = "compile" }
 "gamelib/specterr" = { treatment = "compile" }
 "gamelib/saveload" = { treatment = "replace" }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
 "gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
-"gamelib/sceneman" = { treatment = "dead" }
+# called: from the trigger systems, which only sceneman creates
+"gamelib/sceneman" = { treatment = "dead", called = ["NuSceneInstanceRunScript"] }
 "gamelib/nubridge" = { treatment = "compile", override = ["NuBridgeStreamRope"] }
 "gamelib/nuwind" = { treatment = "compile" }
-"gamelib/edgra" = { treatment = "editor" }
+"gamelib/edgra" = { treatment = "editor", runtime = ["edgraInitAllClumps", "edgraDetermineNearestClump", "edgraFileLoad",
+    "edgraClumpsReset"] }
 
 # edtools
-"edtools/edmain" = { treatment = "editor" }
+# called: behind editor_active
+"edtools/edmain" = { treatment = "editor", runtime = ["edmainRegisterLocVec", "edmainQueryLocVec"], called = [
+    "edmainProcess", "edmainRender"] }
 "edtools/edui" = { treatment = "editor" }
 "edtools/edcam" = { treatment = "editor" }
 
@@ -138,7 +164,7 @@ schema = 1
 "game/deb3" = { treatment = "compile" }
 "game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"] }
 "game/visidat" = { treatment = "compile" }
-"game/cloudfx" = { treatment = "compile", override = ["cloudInit", "cloudRender", "TimeTunnelInit"] }
+"game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
 "game/move" = { treatment = "compile" }
 "game/chase" = { treatment = "compile" }

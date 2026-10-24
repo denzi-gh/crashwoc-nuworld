@@ -24,7 +24,6 @@
 
 void *NuMemAllocFn(int size, char *file, int line);
 
-extern int gs_top;
 extern volatile int nuvideo_global_vbcnt;
 extern float NuTrigTable[];
 extern u8 *rndrstream_free;
@@ -47,7 +46,8 @@ static struct rndrstream_s *rndrstream_sorted[NW_STREAMS];
 static int rndrstream_count;
 static u8 *stream_outbuf[2];
 static int stream_outbuf_size;
-static int rndrstream_buffer_index;
+extern int D_0062EA74; /* retail's rndrstream_buffer_index, flipped by NuRndrSwapStreamBuffers */
+#define rndrstream_buffer_index D_0062EA74
 
 /* The records and view copies of a frame, in blocks that never move; one arena per output buffer, so a material
    stream left unflushed at a swap keeps its records for the next frame as retail keeps its packets. */
@@ -288,23 +288,6 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
     }
 }
 
-void NuRndrStreamResetStream(struct rndrstream_s *stream, int flag)
-{
-    stream->base.u8 = 0;
-    stream->ptr.u8 = 0;
-    stream->t_base.u32 = 0;
-    stream->t_ptr.u32 = 0;
-    if (flag) {
-        stream->gs_ptr = gs_top;
-        stream->local_mtx_id = -2;
-        stream->view_mtx_id = -2;
-        stream->scissor_id = -2;
-        stream->misc_addr.voidptr = 0;
-        stream->tid = 0;
-        stream->xyoffset_id = -2;
-    }
-}
-
 void NuRndrStreamResetStreams(int flag)
 {
     for (int i = 0; i < rndrstream_count; i++) {
@@ -384,12 +367,6 @@ void NuRndrStreamFlush(void)
         nw_rndr_emit(rndrstream_sorted[i]);
     }
     NuRndrStreamResetStreams(1);
-}
-
-void NuRndrSwapStreamBuffers(void)
-{
-    rndrstream_buffer_index = (rndrstream_buffer_index + 1) % 2;
-    NuRndrInitStreams();
 }
 
 /* The packet's materials as their state blocks read now, as the frame's DMA reads them after the frame is built;

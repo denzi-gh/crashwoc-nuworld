@@ -10,6 +10,7 @@
 typedef struct NwStubSite {
     const char *unit;
     const char *name;
+    const char *why; /* why there is no body: an override without a port body, no decomp C, ... */
     uint32_t address;
     bool probe;     /* a near-match probe, not a stub */
     unsigned hits;
@@ -26,15 +27,15 @@ void nw_stub_set_continue(bool on);
    tools/stub_hits.py; returns the number of stubs and stores the number of near-match probes in *probes (if set). */
 unsigned nw_stub_report(FILE *out, unsigned *probes);
 
-#define NW_STUB(unit, name, address) \
+#define NW_STUB(unit, name, address, why) \
     do { \
-        static NwStubSite nw_stub_site_ = { unit, name, address, false, 0, 0, 0 }; \
+        static NwStubSite nw_stub_site_ = { unit, name, why, address, false, 0, 0, 0 }; \
         nw_stub_hit(&nw_stub_site_); \
     } while (0)
 
 #define NW_NEAR(unit, name, address) \
     do { \
-        static NwStubSite nw_near_site_ = { unit, name, address, true, 0, 0, 0 }; \
+        static NwStubSite nw_near_site_ = { unit, name, NULL, address, true, 0, 0, 0 }; \
         nw_near_hit(&nw_near_site_); \
     } while (0)
 

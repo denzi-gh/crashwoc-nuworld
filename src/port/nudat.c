@@ -146,16 +146,6 @@ struct nudathdr_s *NuDatOpenEx(char *fname, char **mem, int *used, short mode)
     return ndh;
 }
 
-struct nudathdr_s *NuDatOpen(char *fname, char **mem, int *used)
-{
-    return NuDatOpenEx(fname, mem, used, 0);
-}
-
-void NuDatSet(struct nudathdr_s *ndh)
-{
-    curr_dat = ndh;
-}
-
 void NuDatClose(struct nudathdr_s *ndh)
 {
     NwNuDat *slot = nw_nudat_find(ndh);

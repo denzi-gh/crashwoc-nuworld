@@ -28,6 +28,18 @@ def _origin(f: nwunits.Function) -> str:
     return f"prototype from {f.origin}"
 
 
+def why(f: nwunits.Function) -> str:
+    """The reason a stub hit prints."""
+    treatment = f.unit.treatment
+    if treatment in ("editor", "dead"):
+        return f"{treatment} unit"
+    if f.overridden:
+        return "override without a port body"
+    if treatment == "compile":
+        return "no C in the decomp yet"
+    return f"{treatment} unit without a port body"
+
+
 def stub_text(f: nwunits.Function) -> str:
     p = f.proto
     params = nwunits.definition_params(p.params) if p.prototyped else "void"
@@ -35,7 +47,7 @@ def stub_text(f: nwunits.Function) -> str:
     lines = [f"/* 0x{f.address:08x} {f.name}: {_origin(f)} */",
              storage + nwunits.head(p.ret, f.host, params),
              "{",
-             f'    NW_STUB("{f.unit.name}", "{f.name}", 0x{f.address:08x}u);']
+             f'    NW_STUB("{f.unit.name}", "{f.name}", 0x{f.address:08x}u, "{why(f)}");']
     if p.ret != "void":
         lines.append(f"    return ({p.ret}){{0}};")
     lines.append("}")

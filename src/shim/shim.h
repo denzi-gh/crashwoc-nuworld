@@ -7,7 +7,7 @@
 
 #include "port/stub.h"
 
-#define NW_SHIM_STUB(name, address) NW_STUB("sdk", name, address)
+#define NW_SHIM_STUB(name, address) NW_STUB("sdk", name, address, "not in the sdk shim yet")
 
 struct NwVfs;
 

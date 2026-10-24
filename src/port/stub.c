@@ -43,8 +43,8 @@ static bool nw_stub_record(NwStubSite *site)
 void nw_stub_hit(NwStubSite *site)
 {
     if (nw_stub_record(site)) {
-        fprintf(stderr, NW_APP_NAME ": stub hit: %s (%s, 0x%08x) has no C yet\n",
-                site->name, site->unit, (unsigned)site->address);
+        fprintf(stderr, NW_APP_NAME ": stub hit: %s (%s, 0x%08x): %s\n",
+                site->name, site->unit, (unsigned)site->address, site->why);
     }
     if (!nw_stub_continue()) {
         fprintf(stderr, NW_APP_NAME ": aborting; set NUWORLD_STUBS=continue to log stub hits and go on\n");
