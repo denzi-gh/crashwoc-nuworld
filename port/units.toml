@@ -39,7 +39,8 @@ schema = 1
 "numath/numath" = { treatment = "hle" }
 
 # nu3d
-"nu3d/nustream" = { treatment = "compile", override = ["*"], keep = ["NuRndrStreamResetStream", "NuRndrSwapStreamBuffers"] }
+"nu3d/nustream" = { treatment = "compile", override = ["*"], keep = ["NuRndrStreamResetStream", "NuRndrSwapStreamBuffers",
+    "NuRndrSetGlobalAlpha", "NuRndrStreamSetDirectionalLights", "NuRndrStreamSetAmbientLight"] }
 "nu3d/nucamera" = { treatment = "compile" }
 "nu3d/nucamvu0" = { treatment = "hle" }
 "nu3d/nuvport" = { treatment = "compile" }
@@ -49,8 +50,13 @@ schema = 1
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
+# kept: the shadow, footprint and water-ripple bookkeeping and the bodies retail leaves empty; NuRndrFx calls the
+# overridden shadow, water and light packet writers
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
-    "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld"] }
+    "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld", "NuRndrShadowInit",
+    "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
+    "NuRndrWaterRippleUpdate", "NuRndrWaterLevelTint", "NuRndrFx", "NuRndrClose", "NuRndrFog*", "NuRndrLine3dDbg*",
+    "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
