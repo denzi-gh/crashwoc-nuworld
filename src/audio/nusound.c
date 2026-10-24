@@ -16,6 +16,7 @@
 #define NW_IRX_REPORTED 4 /* streams in the reply */
 #define NW_IRX_NO_REQUEST 0xffff
 #define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
+#define NW_IRX_UPLOAD_PASSES 16 /* an instant upload's passes per call; it takes up to 5, a stuck one ends there */
 #define NW_IOP_HZ 36864000u
 
 /* The drive and the SPU DMA in IOP cycles, as PCSX2 times them (CDVD.cpp, SPU2/Dma.cpp). The IRX reads at nominal
@@ -1242,7 +1243,8 @@ static void nw_iop_interrupts(uint64_t cycle)
 }
 
 /* The ticks due since the timer started, all before the call they precede, each at its own time on the SPU after
-   the interrupts due by then; then the SPU runs to now (unless the IRX's waits took it further). */
+   the interrupts due by then; then the SPU runs to now (unless the IRX's waits took it further). Off the hardware
+   speed a resident sample's upload then runs to its end: the thread goes on without its timer, the SPU stays. */
 static void nw_iop_catch_up(void)
 {
     if (!iop.timer || !iop.now_us) {
@@ -1262,6 +1264,11 @@ static void nw_iop_catch_up(void)
     }
     nw_spu2_run_to(nw_iop_cycle(now - iop.timer_us));
     nw_iop_interrupts(nw_spu2_cycle());
+    bool instant = SDL_GetAtomicInt(&nw_irx_instant);
+    for (int pass = 0; instant && irx.CD_SPOT_TRANS && pass < NW_IRX_UPLOAD_PASSES; pass++) {
+        StreamADPCM();
+        nw_iop_interrupts(nw_spu2_cycle());
+    }
 }
 
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */

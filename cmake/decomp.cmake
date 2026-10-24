@@ -275,7 +275,8 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_nusound PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME nusound COMMAND nuworld_test_nusound ${CMAKE_CURRENT_BINARY_DIR}/test-nusound)
   add_test(NAME nusound-retail COMMAND nuworld_test_nusound retail)
-  set_tests_properties(nusound-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+  add_test(NAME nusound-retail-instant COMMAND nuworld_test_nusound retail instant)
+  set_tests_properties(nusound-retail nusound-retail-instant PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 
   # The port's Nu render layer under the decomp code that drives it.
   add_executable(nuworld_test_rndr tests/c/test_rndr.c)
