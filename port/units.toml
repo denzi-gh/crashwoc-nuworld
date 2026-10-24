@@ -114,7 +114,8 @@ schema = 1
 "gamelib/sceneman" = { treatment = "dead" }
 "gamelib/nubridge" = { treatment = "compile", override = ["NuBridgeStreamRope"] }
 "gamelib/nuwind" = { treatment = "compile" }
-"gamelib/edgra" = { treatment = "editor" }
+"gamelib/edgra" = { treatment = "editor", runtime = ["edgraInitAllClumps", "edgraDetermineNearestClump", "edgraFileLoad",
+    "edgraClumpsReset"] }
 
 # edtools
 "edtools/edmain" = { treatment = "editor", runtime = ["edmainRegisterLocVec", "edmainQueryLocVec"] }

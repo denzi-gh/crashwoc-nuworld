@@ -1,6 +1,6 @@
 /* The runtime half of the editor units (port/units.toml `runtime`) on the imported disc: every level's file loads
    into the tables the game reads, as InitWorld loads it over the level scene, and the update InitWorld then runs
-   leaves them finite. Usage: test_edunits edobj|edanim. Local only: exits 77 without NUWORLD_TEST_DATA. */
+   leaves them finite. Usage: test_edunits edobj|edanim|edgra. Local only: exits 77 without NUWORLD_TEST_DATA. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -100,6 +100,18 @@ struct edanimparam_s {
 };
 _Static_assert(sizeof(struct edanimparam_s) * 64 == 0xB400, "retail AnimParams");
 
+/* As in decomp/src/gamelib/edgra.c. */
+struct grassclump_s {
+    int type;
+    int size;
+    struct nuvec_s pos;
+    float radius;
+    float wind;
+    int reactive;
+    float height;
+};
+_Static_assert(sizeof(struct grassclump_s) * 64 == 0x900, "retail GrassClumps");
+
 extern struct edobject_s ObjectPath[64];
 extern struct edobjinstance_s ObjectInstance[64];
 void NuRndrInitWorld(void);
@@ -113,6 +125,13 @@ void edanimRegisterBaseScene(struct nugscn_s *scene);
 void edanimParamReset(void);
 int edanimFileLoad(char *filename);
 void edanimUpdateObjects(float dt);
+extern struct grassclump_s GrassClumps[64];
+extern int edgra_units_used, NuWindGCount, NuWindMtxIndex;
+extern struct numtx_s NuWindMtxs[1024];
+void edbitsRegisterBaseScene(struct nugscn_s *scene);
+void edgraClumpsReset(void);
+int edgraFileLoad(char *filename);
+void NuWindUpdate(struct nuvec_s *pos);
 
 static int failures;
 
@@ -232,9 +251,33 @@ static bool edanim_level(char *file, struct nugscn_s *sc, int count, unsigned n[
     return true;
 }
 
+/* edgraInitAllClumps scatters a clump's points into a local array of 256. */
+static bool edgra_level(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite)
+{
+    struct nuvec_s player = { 0.0f, 0.0f, 0.0f };
+    edbitsRegisterBaseScene(sc);
+    edgraClumpsReset();
+    if (!edgraFileLoad(file)) {
+        return false;
+    }
+    for (int i = 0; i < count && i < 64; i++) {
+        n[0] += GrassClumps[i].type != -1;
+        *nonfinite += GrassClumps[i].size > 256;
+    }
+    n[1] = (unsigned)edgra_units_used;
+    n[2] = (unsigned)NuWindGCount;
+    n[3] = (unsigned)NuWindMtxIndex;
+    NuWindUpdate(&player);
+    for (int i = 0; i < NuWindMtxIndex; i++) {
+        *nonfinite += !finite_mtx(&NuWindMtxs[i]);
+    }
+    return true;
+}
+
 static const Mode modes[] = {
     { "edobj", ".OBJ", "objects", { "resolved", "waypoints", "particles", "sounds" }, edobj_level },
     { "edanim", ".ANM", "params", { "resolved", "switched", "particles", "sounds" }, edanim_level },
+    { "edgra", ".GRA", "clumps", { "resolved", "points", "groups", "matrices" }, edgra_level },
 };
 static const Mode *mode;
 
@@ -302,7 +345,7 @@ int main(int argc, char *argv[])
         mode = strcmp(argv[1], modes[i].name) == 0 ? &modes[i] : mode;
     }
     if (!mode) {
-        fprintf(stderr, "usage: test_edunits edobj|edanim\n");
+        fprintf(stderr, "usage: test_edunits edobj|edanim|edgra\n");
         return 2;
     }
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -355,6 +398,9 @@ int main(int argc, char *argv[])
     } else if (mode->level == edanim_level) {
         CHECK(census.files == 10 && census.entries == 35 && c[0] == 35 && c[1] == 0 && c[2] == 43 && c[3] == 0);
         CHECK(v[3] == 8 && v[4] == 2);
+    } else if (mode->level == edgra_level) {
+        CHECK(census.files == 8 && census.entries == 263 && c[0] == 263 && c[1] == 5178 && c[2] == 263);
+        CHECK(c[3] == 5178 && v[1] == 1 && v[3] == 7);
     }
     return failures ? 1 : 0;
 }
