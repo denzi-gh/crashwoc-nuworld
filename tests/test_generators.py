@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tests"))
 import fixture_build  # noqa: E402
+import gen_stubs  # noqa: E402
 import nwunits  # noqa: E402
 import stub_hits  # noqa: E402
 import tu_filter  # noqa: E402
@@ -139,6 +140,13 @@ class Model(unittest.TestCase):
         self.assertEqual(fn["main"].host, "nw_game_main")
         self.assertFalse(fn["main"].static)
         self.assertTrue(fn["FixLoad"].overridden)
+
+    def test_stub_reasons(self):
+        why = {n: gen_stubs.why(f) for n, f in self.fn.items() if f.provider == "stub"}
+        self.assertEqual(why["FixMissing"], "no C in the decomp yet")
+        self.assertEqual(why["FixDataHidden"], "override without a port body")
+        self.assertEqual(why["FixAsmA"], "hle unit without a port body")
+        self.assertEqual(why["FixDeadA"], "dead unit")
 
     def test_editor_gate(self):
         text = UNITS.read_text().replace('"game/fixdead" = { treatment = "dead" }',
@@ -437,7 +445,8 @@ class EndToEnd(unittest.TestCase):
             env = dict(os.environ, NUWORLD_STUBS="continue")
             run = subprocess.run([str(exe)], capture_output=True, text=True, env=env)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            self.assertIn("stub hit: FixMissing (nucore/fixcore, 0x00100140)", run.stderr)
+            self.assertIn("stub hit: FixMissing (nucore/fixcore, 0x00100140): no C in the decomp yet", run.stderr)
+            self.assertIn("stub hit: FixDeadA (game/fixdead, 0x00100400): dead unit", run.stderr)
             self.assertNotIn("FixNear", run.stderr)
             # The near-match FixNear first, then the stub it calls, then FixDeadA: tools/stub_hits.py reads it.
             runs = stub_hits.parse_runs(run.stdout)
