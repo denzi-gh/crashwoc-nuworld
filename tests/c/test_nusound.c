@@ -395,6 +395,16 @@ static void test_cd_time(void)
     CHECK(transfer_ticks(0x1000, 1) == 3);
     nw_nusound_cd_moved();
     CHECK(transfer_ticks(0x1000, 2) == 9);
+
+    /* Off the hardware speed a seek or read is done for the next tick wherever the head is: tick 1 starts the
+       transfer, tick 2 reads, tick 3 ends it. */
+    nw_nusound_set_hardware_speed(false);
+    boot_module(bank);
+    CHECK(transfer_ticks(0x1000, 0) == 3);
+    CHECK(transfer_ticks(0x1000, 1) == 3);
+    nw_nusound_cd_moved();
+    CHECK(transfer_ticks(0x1000, 2) == 3);
+    nw_nusound_set_hardware_speed(true);
 }
 
 static void test_transfer_sfx(void)
@@ -632,6 +642,33 @@ static void test_play_stream(void)
     CHECK(frames == 144 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
+    nusound_irx_loaded = 0;
+}
+
+/* test_play_stream's long stream off the hardware speed: no seek, read or DMA time, so it keys on 3 frames sooner
+   and SYSTEMWAIT never holds it. */
+static void test_play_stream_instant(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const STREAMDATA *s0 = &irx->StreamBuffer[0];
+    int frames = 0;
+    bool held = false;
+
+    nusound_irx_loaded = 1;
+    nw_nusound_set_hardware_speed(false);
+    boot_module(streams);
+    SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
+    for (; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
+        frame();
+        held |= s0->iStatus == 1 && irx->SYSTEMWAIT && irx->IOPRequestLoad == -1;
+    }
+    CHECK(frames == 11 && s0->iStatus == 1 && !held);
+    for (; frames < 50 && s0->iStatus != 0; frames++) {
+        frame();
+    }
+    CHECK(frames == 13 && NuSoundKeyStatus(0) == 1 && s0->PlayingHalf == 0);
+    CHECK(memcmp(s0->IOPAddress, big_blocks + 0xd700, sizeof(big_blocks) - 0xd700) == 0);
+    nw_nusound_set_hardware_speed(true);
     nusound_irx_loaded = 0;
 }
 
@@ -963,6 +1000,7 @@ int main(int argc, char *argv[])
     test_channel_pitch();
     test_stop_sound();
     test_play_stream();
+    test_play_stream_instant();
     test_stream_ring();
     test_stop_stream();
     test_pause();

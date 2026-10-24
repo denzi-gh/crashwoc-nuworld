@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "audio/irx.h"
 #include "audio/spu2.h"
 #include "audio/vag.h"
@@ -35,6 +37,7 @@
 #define NW_IRX_ALL_VOICES 0xffffff
 
 static NwIrx irx;
+static SDL_AtomicInt nw_irx_instant; /* off the hardware speed */
 
 /* The port's side: the file system, the clock, how far the stream thread's ticks got and the SPU's cycle when they
    started; the drive (the DAT under its head, NULL when the game moved it, the next sector, the sectors read ahead
@@ -611,6 +614,11 @@ static uint64_t nw_cd_time(const NwDat *dat, int64_t sector, unsigned n, uint64_
 void nw_nusound_cd_moved(void)
 {
     iop.cd_dat = NULL;
+}
+
+void nw_nusound_set_hardware_speed(bool on)
+{
+    SDL_SetAtomicInt(&nw_irx_instant, !on);
 }
 
 /* sceCdRead of the DAT's sectors, which calls back when the drive has them; past the end of the DAT it reads
@@ -1216,9 +1224,13 @@ static uint64_t nw_iop_cycle(uint64_t us)
     return iop.spu_base + us * NW_IOP_HZ / 1000000;
 }
 
-/* The interrupts due by `cycle`: the drive's callback and the end of the SPU DMA (_AdpcmDmaInt). */
+/* The interrupts due by `cycle`: the drive's callback and the end of the SPU DMA (_AdpcmDmaInt); off the hardware
+   speed, both as soon as they are in flight. */
 static void nw_iop_interrupts(uint64_t cycle)
 {
+    if (SDL_GetAtomicInt(&nw_irx_instant)) {
+        cycle = UINT64_MAX;
+    }
     if (iop.cd_done && iop.cd_done <= cycle) {
         iop.cd_done = 0;
         _CdStreamInt();
