@@ -203,6 +203,17 @@ class Model(unittest.TestCase):
             model = nwunits.load(DECOMP, UNITS, src)
         self.assertTrue(any("the port defines FixAdd" in e for e in model.errors))
 
+    def test_port_copy_of_decomp_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            src.mkdir()
+            text = (PORT_SRC / "fiximpl.c").read_text().replace("return v * 10;", "/* copied */\n    return  v ;")
+            (src / "fiximpl.c").write_text(text)
+            model = nwunits.load(DECOMP, UNITS, src)
+        self.assertEqual(model.errors, [])
+        self.assertEqual(model.warnings, ["src/fiximpl.c:9: the port's FixLocal is identical to the decomp C "
+                                          "(nucore/fixcore); drop the override"])
+
 
 def wrap(parser, unit, wrapper=Path("w.wrap.c")):
     path = DECOMP / unit.source

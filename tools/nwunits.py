@@ -139,6 +139,7 @@ _SIGNATURE = re.compile(
     r"([A-Za-z_]\w*)\s*"
     r"\(([^;{}()]*(?:\([^()]*\)[^;{}()]*)*)\)\s*([;{])",
     re.M)
+_C_TOKEN = re.compile(r"[A-Za-z_]\w*|\.?\d[\w.]*|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|\S")
 _NOT_A_TYPE = frozenset(("if", "while", "for", "switch", "return", "sizeof", "do",
                          "else", "case", "goto", "typedef"))
 QUALIFIERS = frozenset(("const", "volatile", "register", "restrict", "__restrict"))
@@ -192,6 +193,7 @@ class Decl:
     params: str         # "" = unprototyped
     static: bool
     is_def: bool
+    body: int = 0       # hash of a definition's body tokens
 
     @property
     def where(self) -> str:
@@ -221,6 +223,7 @@ def scan_c(text: str, path: str) -> CFile:
     code = _TOKENS.sub(lambda m: m.group(0)[0] + " " * (len(m.group(0)) - 2) + m.group(0)[-1]
                        if m.group(3) or m.group(4) else m.group(0), active)
     code = _DIRECTIVE.sub(lambda m: _blank(m.group(0)), code)
+    with_strings = None
 
     decls = []
     for m in _SIGNATURE.finditer(code):
@@ -229,10 +232,28 @@ def scan_c(text: str, path: str) -> CFile:
         if name in _NOT_A_TYPE or (ret_words and ret_words[0] in _NOT_A_TYPE):
             continue
         line = code.count("\n", 0, m.start(3)) + 1
+        body = 0
+        if end == "{":
+            if with_strings is None:
+                with_strings = _DIRECTIVE.sub(lambda d: _blank(d.group(0)), active)
+            close = _closing_brace(code, m.end() - 1)
+            body = hash(tuple(_C_TOKEN.findall(with_strings, m.end(), close)))
         decls.append(Decl(path=path, line=line, name=name, ret=" ".join(ret_words),
                           params=" ".join(params.split()), static="static" in storage.split(),
-                          is_def=end == "{"))
+                          is_def=end == "{", body=body))
     return CFile(path=path, decls=decls, includes=includes, typedefs=_typedefs(code))
+
+
+def _closing_brace(code: str, start: int) -> int:
+    depth = 0
+    for i in range(start, len(code)):
+        if code[i] == "{":
+            depth += 1
+        elif code[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(code)
 
 
 def _split_top(text: str) -> list[str]:
@@ -521,6 +542,10 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
                 continue
             if f.host in port_defs:
                 f.provider, f.provenance = "port", "port"
+                if f.definition is not None and port_defs[f.host].body == f.definition.body:
+                    model.warnings.append(
+                        f"{port_defs[f.host].where}: the port's {f.host} is identical to the decomp C "
+                        f"({unit.name}); drop the override")
                 if unit.kind == "wrapper" and not f.overridden:
                     model.warnings.append(
                         f"{port_defs[f.host].where}: the port defines {f.host} ({unit.name}, "
