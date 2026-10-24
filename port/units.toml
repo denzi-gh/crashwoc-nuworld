@@ -138,7 +138,7 @@ schema = 1
 "game/deb3" = { treatment = "compile" }
 "game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"] }
 "game/visidat" = { treatment = "compile" }
-"game/cloudfx" = { treatment = "compile", override = ["cloudInit", "cloudRender", "TimeTunnelInit"] }
+"game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
 "game/move" = { treatment = "compile" }
 "game/chase" = { treatment = "compile" }
