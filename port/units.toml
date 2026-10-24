@@ -101,7 +101,9 @@ schema = 1
     "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
     "edobjPlayerObjectDistance"] }
 "gamelib/glutils" = { treatment = "compile" }
-"gamelib/edanim" = { treatment = "editor" }
+"gamelib/edanim" = { treatment = "editor", runtime = ["edanimUpdateObjects", "edanimDetermineNearestAnim",
+    "edanimSoundDestroy", "edanimParticleDestroy", "edanimFileLoad", "edanimLookupInstanceIndex",
+    "edanimRegisterBaseScene", "edanimLookupSpecial", "edanimParamReset"] }
 "gamelib/edbits" = { treatment = "compile" }
 "gamelib/edfile" = { treatment = "compile" }
 "gamelib/specterr" = { treatment = "compile" }

@@ -1,6 +1,6 @@
 /* The runtime half of the editor units (port/units.toml `runtime`) on the imported disc: every level's file loads
    into the tables the game reads, as InitWorld loads it over the level scene, and the update InitWorld then runs
-   leaves them finite. Usage: test_edunits edobj. Local only: exits 77 without NUWORLD_TEST_DATA. */
+   leaves them finite. Usage: test_edunits edobj|edanim. Local only: exits 77 without NUWORLD_TEST_DATA. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +71,35 @@ struct edobjinstance_s {
     char pad4c[0x50 - 0x4C];
 };
 
+/* As in decomp/src/gamelib/edanim.c. */
+struct edanimparam_s {
+    int id;
+    int particle_count;
+    int sound_count;
+    int switch_type;
+    int switch_id;
+    float switch_var;
+    float switch_delay;
+    char particle_name[8][16];
+    int particle_type[8];
+    int particle_rate[8];
+    int particle_switch[8];
+    struct nuvec_s particle_pos[8];
+    short particle_rotz[8];
+    short particle_roty[8];
+    float sound_last_time;
+    char sound_name[8][16];
+    int sound_type[8];
+    int sound_switch[8];
+    float sound_timing[8];
+    struct nuvec_s sound_pos[8];
+    int bouncy_instance;
+    float bouncy_player_grav;
+    float bouncy_tension;
+    float bouncy_damping;
+};
+_Static_assert(sizeof(struct edanimparam_s) * 64 == 0xB400, "retail AnimParams");
+
 extern struct edobject_s ObjectPath[64];
 extern struct edobjinstance_s ObjectInstance[64];
 void NuRndrInitWorld(void);
@@ -79,6 +108,11 @@ void edobjRegisterBaseScene(struct nugscn_s *scene);
 void edobjObjectReset(void);
 int edobjFileLoadObjects(char *file);
 void edobjUpdateObjects(float dt);
+extern struct edanimparam_s AnimParams[64];
+void edanimRegisterBaseScene(struct nugscn_s *scene);
+void edanimParamReset(void);
+int edanimFileLoad(char *filename);
+void edanimUpdateObjects(float dt);
 
 static int failures;
 
@@ -91,8 +125,14 @@ static int failures;
     } while (0)
 
 typedef struct Census {
-    unsigned files, bad, versions[16], objects, resolved, waypoints, particles, sounds, nonfinite;
+    unsigned files, bad, versions[16], entries, n[4], nonfinite;
 } Census;
+
+/* A unit's load of one level file over the level scene; fills its four counts of the file's `count` entries. */
+typedef struct Mode {
+    const char *name, *ext, *count, *labels[4];
+    bool (*level)(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite);
+} Mode;
 
 static NwVfs retail_vfs;
 static Census census;
@@ -151,43 +191,52 @@ static bool finite_mtx(const struct numtx_s *m)
     return true;
 }
 
-static void edobj_level(const char *obj, struct nugscn_s *sc)
+static bool edobj_level(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite)
 {
-    int version, count;
-    if (!header(obj, &version, &count) || version < 0 || version > 15) {
-        fprintf(stderr, "retail: %s: no header\n", obj);
-        census.bad++;
-        return;
-    }
     edobjRegisterBaseScene(sc);
     edobjObjectReset();
-    if (!edobjFileLoadObjects((char *)obj)) {
-        fprintf(stderr, "retail: %s does not load\n", obj);
-        census.bad++;
-        return;
+    if (!edobjFileLoadObjects(file)) {
+        return false;
     }
-    unsigned resolved = 0, waypoints = 0, particles = 0, sounds = 0;
     for (int i = 0; i < count && i < 64; i++) {
-        resolved += ObjectPath[i].instance != -1;
-        waypoints += ObjectPath[i].num_waypoints;
-        particles += ObjectPath[i].num_particles;
-        sounds += ObjectPath[i].num_sounds;
+        n[0] += ObjectPath[i].instance != -1;
+        n[1] += ObjectPath[i].num_waypoints;
+        n[2] += ObjectPath[i].num_particles;
+        n[3] += ObjectPath[i].num_sounds;
     }
     edobjUpdateObjects(0.0f);
-    unsigned nonfinite = 0;
     for (int i = 0; i < 64; i++) {
-        nonfinite += ObjectInstance[i].id != -1 && !finite_mtx(&ObjectInstance[i].mtx);
+        *nonfinite += ObjectInstance[i].id != -1 && !finite_mtx(&ObjectInstance[i].mtx);
     }
-    printf("%s v%d objects=%d resolved=%u waypoints=%u particles=%u sounds=%u\n", obj, version, count, resolved,
-           waypoints, particles, sounds);
-    census.versions[version]++;
-    census.objects += (unsigned)count;
-    census.resolved += resolved;
-    census.waypoints += waypoints;
-    census.particles += particles;
-    census.sounds += sounds;
-    census.nonfinite += nonfinite;
+    return true;
 }
+
+static bool edanim_level(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite)
+{
+    edanimRegisterBaseScene(sc);
+    edanimParamReset();
+    if (!edanimFileLoad(file)) {
+        return false;
+    }
+    for (int i = 0; i < count && i < 64; i++) {
+        n[0] += AnimParams[i].id != -1;
+        n[1] += AnimParams[i].switch_type != 0;
+        n[2] += AnimParams[i].particle_count;
+        n[3] += AnimParams[i].sound_count;
+    }
+    edanimUpdateObjects(0.0f);
+    for (int i = 0; i < count && i < 64; i++) {
+        struct nuinstance_s *inst = AnimParams[i].id != -1 ? sc->specials[AnimParams[i].id].instance : NULL;
+        *nonfinite += inst && inst->anim && !finite_mtx(&inst->anim->mtx);
+    }
+    return true;
+}
+
+static const Mode modes[] = {
+    { "edobj", ".OBJ", "objects", { "resolved", "waypoints", "particles", "sounds" }, edobj_level },
+    { "edanim", ".ANM", "params", { "resolved", "switched", "particles", "sounds" }, edanim_level },
+};
+static const Mode *mode;
 
 /* On the game thread, per level file: its scene as world_scene[0], then the unit's load as InitWorld runs it. */
 static int retail_main(int argc, char **argv)
@@ -198,7 +247,6 @@ static int retail_main(int argc, char **argv)
     /* No platforms until the terrain loaders (#53): an empty set, as terraininit starts one. */
     const size_t terrain_size = 0x40000;
     void *terrain = SDL_malloc(terrain_size);
-    const char *ext = ".OBJ";
     NuFileInitEx(1, 1);
     NuTexInit();
     NuMtlInit();
@@ -206,7 +254,7 @@ static int retail_main(int argc, char **argv)
     for (size_t i = 0; buffer && terrain && i < nw_disc_manifest.count; i++) {
         const NwManifestEntry *e = &nw_disc_manifest.entries[i];
         size_t n = strlen(e->path);
-        if (n < 4 || SDL_strcasecmp(e->path + n - 4, ext) != 0 || (e->flags & NW_MANIFEST_SKIP)) {
+        if (n < 4 || SDL_strcasecmp(e->path + n - 4, mode->ext) != 0 || (e->flags & NW_MANIFEST_SKIP)) {
             continue;
         }
         char file[NW_VFS_PATH_MAX], gsc[NW_VFS_PATH_MAX];
@@ -224,7 +272,22 @@ static int retail_main(int argc, char **argv)
         noterraininit();
         memset(terrain, 0, terrain_size);
         TerrainSetCur(terrain);
-        edobj_level(file, sc);
+        int version, count;
+        unsigned c[4] = { 0, 0, 0, 0 }, nonfinite = 0;
+        if (!header(file, &version, &count) || version < 0 || version > 15 || count < 0 ||
+            !mode->level(file, sc, count, c, &nonfinite)) {
+            fprintf(stderr, "retail: %s does not load\n", file);
+            census.bad++;
+        } else {
+            printf("%s v%d %s=%d %s=%u %s=%u %s=%u %s=%u\n", file, version, mode->count, count, mode->labels[0], c[0],
+                   mode->labels[1], c[1], mode->labels[2], c[2], mode->labels[3], c[3]);
+            census.versions[version]++;
+            census.entries += (unsigned)count;
+            for (int k = 0; k < 4; k++) {
+                census.n[k] += c[k];
+            }
+            census.nonfinite += nonfinite;
+        }
         nw_gscn_remove(sc);
         drain_gpu();
     }
@@ -235,8 +298,11 @@ static int retail_main(int argc, char **argv)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2 || strcmp(argv[1], "edobj") != 0) {
-        fprintf(stderr, "usage: test_edunits edobj\n");
+    for (size_t i = 0; argc == 2 && i < SDL_arraysize(modes); i++) {
+        mode = strcmp(argv[1], modes[i].name) == 0 ? &modes[i] : mode;
+    }
+    if (!mode) {
+        fprintf(stderr, "usage: test_edunits edobj|edanim\n");
         return 2;
     }
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -271,9 +337,9 @@ int main(int argc, char *argv[])
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, "retail: %s\n", nw_game_error());
     }
-    printf("TOTAL files=%u objects=%u resolved=%u waypoints=%u particles=%u sounds=%u nonfinite=%u versions",
-           census.files, census.objects, census.resolved, census.waypoints, census.particles, census.sounds,
-           census.nonfinite);
+    printf("TOTAL files=%u %s=%u %s=%u %s=%u %s=%u %s=%u nonfinite=%u versions", census.files, mode->count,
+           census.entries, mode->labels[0], census.n[0], mode->labels[1], census.n[1], mode->labels[2], census.n[2],
+           mode->labels[3], census.n[3], census.nonfinite);
     for (int v = 0; v < 16; v++) {
         if (census.versions[v]) {
             printf(" v%d:%u", v, census.versions[v]);
@@ -281,9 +347,14 @@ int main(int argc, char *argv[])
     }
     printf("\n");
     CHECK(state == NW_GAME_RETURNED && census.bad == 0 && census.nonfinite == 0);
-    /* SNOW.OBJ names 6 specials SNOW.GSC does not have. */
-    CHECK(census.files == 18 && census.objects == 373 && census.resolved == 367 && census.waypoints == 1020);
-    CHECK(census.particles == 80 && census.sounds == 76);
-    CHECK(census.versions[11] == 3 && census.versions[12] == 4 && census.versions[13] == 11);
+    const unsigned *v = census.versions, *c = census.n;
+    if (mode->level == edobj_level) {
+        /* SNOW.OBJ names 6 specials SNOW.GSC does not have. */
+        CHECK(census.files == 18 && census.entries == 373 && c[0] == 367 && c[1] == 1020 && c[2] == 80 && c[3] == 76);
+        CHECK(v[11] == 3 && v[12] == 4 && v[13] == 11);
+    } else if (mode->level == edanim_level) {
+        CHECK(census.files == 10 && census.entries == 35 && c[0] == 35 && c[1] == 0 && c[2] == 43 && c[3] == 0);
+        CHECK(v[3] == 8 && v[4] == 2);
+    }
     return failures ? 1 : 0;
 }
