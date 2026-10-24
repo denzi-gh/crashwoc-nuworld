@@ -187,6 +187,12 @@ if(NUWORLD_TESTS)
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/cut_trace.py $<TARGET_FILE:crashwoc-nuworld> {root}
       --pcsx2 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_cut.txt)
   set_tests_properties(boot-cut-pcsx2 PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: with instant loading the cut keeps PCSX2's timing from the logos key-on, and the stub hits.
+  add_test(NAME boot-cut-instant
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/cut_trace.py $<TARGET_FILE:crashwoc-nuworld> {root}
+      --pcsx2 ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/pcsx2_title_cut.txt --instant)
+  set_tests_properties(boot-cut-instant PROPERTIES SKIP_RETURN_CODE 77)
   # Local only: the title cut's frames (--capture) labelled as PCSX2's savestates (tools/pcsx2_capture.py); with
   # PCSX2's screens in {root}/captures/pcsx2 also side by side in title-frames/pairs.
   add_test(NAME title-frames-pcsx2
