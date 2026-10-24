@@ -16,6 +16,7 @@
 #ifdef NW_WITH_GAME
 #include "data/image.h"
 #include "frontend/debug.h"
+#include "frontend/settings.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -446,11 +447,28 @@ static void nw_window_close(NwPlatform *p)
     nw_platform_shutdown(p);
 }
 
-/* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
-   end it prints the stub hits in first-hit order (stdout). Returns the exit code. */
-static int nw_boot(const char *data_dir, bool hardware_speed)
+/* The data folder's settings.toml read over s or written from it; a failure is reported and passed. */
+static void nw_boot_settings(const char *data_dir, NwSettings *s, bool save)
 {
-    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, hardware_speed);
+    char *root = nw_data_root(data_dir);
+    if (root && !(save ? nw_settings_save(s, root) : nw_settings_load(s, root))) {
+        fprintf(stderr, NW_APP_NAME ": %s%s: %s\n", root, NW_PATHS_SETTINGS, SDL_GetError());
+    }
+    SDL_free(root);
+}
+
+/* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
+   end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
+   menu changes and saves. Returns the exit code. */
+static int nw_boot(const char *data_dir, int hardware_speed)
+{
+    NwSettings settings;
+    nw_settings_defaults(&settings);
+    nw_boot_settings(data_dir, &settings, false);
+    if (hardware_speed >= 0) {
+        settings.hardware_speed = hardware_speed;
+    }
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
         return code;
     }
@@ -458,6 +476,8 @@ static int nw_boot(const char *data_dir, bool hardware_speed)
     if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
+    nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
+    bool applied = settings.hardware_speed;
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
@@ -472,6 +492,11 @@ static int nw_boot(const char *data_dir, bool hardware_speed)
             if (!nw_debug_event(&event) && event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
+        }
+        if (settings.hardware_speed != applied) {
+            applied = settings.hardware_speed;
+            nw_nusound_set_hardware_speed(applied);
+            nw_boot_settings(data_dir, &settings, true);
         }
         if (SDL_GetTicks() - titled >= 500) {
             char title[160];
@@ -718,6 +743,7 @@ int main(int argc, char *argv[])
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
     int boot_loads = 0; /* --loads: background loads instead of vblanks */
+    int hardware_speed = -1; /* --hardware-speed on|off; -1: as the mode has it */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
@@ -726,7 +752,7 @@ int main(int argc, char *argv[])
         }
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
              strcmp(argv[i], "--scene-check") == 0 || strcmp(argv[i], "--capture") == 0 ||
-             strcmp(argv[i], "--capture-dir") == 0) &&
+             strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -771,6 +797,13 @@ int main(int argc, char *argv[])
             capture = argv[++i];
         } else if (strcmp(argv[i], "--capture-dir") == 0) {
             capture_dir = argv[++i];
+        } else if (strcmp(argv[i], "--hardware-speed") == 0) {
+            const char *value = argv[++i];
+            if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
+                fprintf(stderr, NW_APP_NAME ": --hardware-speed takes on or off\n");
+                return 2;
+            }
+            hardware_speed = strcmp(value, "on") == 0;
         }
     }
     if (import) {
@@ -793,15 +826,16 @@ int main(int argc, char *argv[])
         if (trace_sound) {
             nw_trace_sound_start();
         }
-        /* The runs compared with PCSX2's keep its load times; every other one loads at once. */
-        bool hardware_speed = trace_sound || capture;
+        /* The runs compared with PCSX2's keep its load times and the game window takes settings.toml's; the checks
+           load at once, so they never depend on the player's settings. --hardware-speed decides for all of them. */
+        int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture ? 1 : -1;
         if (capture) {
-            return nw_capture(data_dir, capture, capture_dir, hardware_speed);
+            return nw_capture(data_dir, capture, capture_dir, speed > 0);
         }
         return check_data   ? nw_check_data(data_dir)
                : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
-                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, hardware_speed)
-                            : nw_boot(data_dir, hardware_speed);
+                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, speed > 0)
+                            : nw_boot(data_dir, speed);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
         return 2;

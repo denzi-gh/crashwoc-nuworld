@@ -129,9 +129,10 @@ target_include_directories(nuworld_audio PUBLIC src)
 target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_audio PUBLIC nuworld_vfs)
 
-# Wizard logic without the UI: import folder listing, background import job.
+# Frontend logic without the UI: import folder listing, background import job, settings.toml.
 add_library(nuworld_frontend STATIC
-  src/frontend/import.c)
+  src/frontend/import.c
+  src/frontend/settings.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs)
@@ -152,6 +153,10 @@ if(NUWORLD_TESTS)
   add_test(NAME audio COMMAND nuworld_test_audio ${CMAKE_CURRENT_BINARY_DIR}/test-audio)
   add_test(NAME audio-retail COMMAND nuworld_test_audio retail)
   set_tests_properties(audio-retail PROPERTIES SKIP_RETURN_CODE 77)
+  add_executable(nuworld_test_settings tests/c/test_settings.c)
+  target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)
+  add_test(NAME settings COMMAND nuworld_test_settings ${CMAKE_CURRENT_BINARY_DIR}/test-settings)
 endif()
 
 if(NUWORLD_FUZZ)
