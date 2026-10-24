@@ -137,7 +137,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
-  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
+  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)

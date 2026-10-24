@@ -97,8 +97,8 @@ schema = 1
 "gamelib/edobj" = { treatment = "editor" }
 "gamelib/glutils" = { treatment = "compile" }
 "gamelib/edanim" = { treatment = "editor" }
-"gamelib/edbits" = { treatment = "editor" }
-"gamelib/edfile" = { treatment = "editor" }
+"gamelib/edbits" = { treatment = "compile" }
+"gamelib/edfile" = { treatment = "compile" }
 "gamelib/specterr" = { treatment = "compile" }
 "gamelib/saveload" = { treatment = "replace" }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
