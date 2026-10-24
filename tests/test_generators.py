@@ -1,6 +1,7 @@
 """Generator tests on the synthetic decomp in tests/fixtures/mini (libclang for
 tu_filter, clang or $CC for the end-to-end test)."""
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -161,7 +162,8 @@ class Model(unittest.TestCase):
 
     def test_editor_runtime(self):
         text = UNITS.read_text().replace('"nucore/fixcore" = { treatment = "compile",',
-                                         '"nucore/fixcore" = { treatment = "editor", runtime = ["FixAdd"],')
+                                         '"nucore/fixcore" = { treatment = "editor", runtime = ["FixAdd"], '
+                                         'called = ["FixOther"],')
         with tempfile.TemporaryDirectory() as tmp:
             units = Path(tmp) / "units.toml"
             units.write_text(text)
@@ -173,6 +175,31 @@ class Model(unittest.TestCase):
         self.assertEqual((fn["FixNear"].provider, gen_stubs.why(fn["FixNear"])), ("stub", "editor unit"))
         self.assertEqual(fn["FixLoad"].provider, "port")
         self.assertEqual({f.name: f.provider for f in on.functions()}["FixNear"], "decomp")
+
+    def test_calls_into_dead_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            decomp = Path(tmp) / "decomp"
+            shutil.copytree(DECOMP, decomp)
+            src = decomp / "src" / "game" / "fixgame.c"
+            src.write_text(src.read_text().replace(
+                "void FixGameTick(struct fixobj_s *obj)\n{\n",
+                "static void FixGameHelp(void)\n{\n    FixDeadA(0);\n}\n\n"
+                "void FixGameTick(struct fixobj_s *obj)\n{\n    FixGameHelp();\n"))
+            units = Path(tmp) / "units.toml"
+            units.write_text(UNITS.read_text())
+            plain = nwunits.load(decomp, units, PORT_SRC)
+            units.write_text(UNITS.read_text().replace('"game/fixdead" = { treatment = "dead" }',
+                                                       '"game/fixdead" = { treatment = "dead", called = ["FixDeadA"] }'))
+            allowed = nwunits.load(decomp, units, PORT_SRC)
+            unused = load(units)
+            units.write_text(UNITS.read_text().replace('"game/fixdata" = { treatment = "compile",',
+                                                       '"game/fixdata" = { treatment = "compile", called = ["FixDataUse"],'))
+            misplaced = load(units)
+        self.assertEqual(plain.errors, ["src/game/fixgame.c:11: FixGameHelp calls FixDeadA, a stub of the dead unit "
+                                        "game/fixdead; compile it (runtime) or list it under called"])
+        self.assertEqual((allowed.errors, allowed.warnings), ([], []))
+        self.assertEqual(unused.warnings, ["unit game/fixdead: called 'FixDeadA': no compiled code calls it"])
+        self.assertIn("unit game/fixdata: called on a compile unit (editor and dead only)", misplaced.errors)
 
     def test_units_toml_errors(self):
         bad = {

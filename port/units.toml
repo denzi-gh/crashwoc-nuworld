@@ -6,6 +6,8 @@
 #   the function's declarations, definition and calls in its unit
 # runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
 #   build; the rest of the unit stays editor-only
+# called: stubs of an editor or dead unit that compiled code calls behind a guard retail never passes (or until
+#   their issue); any other call into an editor or dead unit is an error
 # Overrides marked "dead" are functions retail never reaches, or reaches only through overridden
 # code, whose C does not build for the host: stubs instead of upstream fixes in dead code.
 
@@ -72,9 +74,12 @@ schema = 1
 # dead: the NuGHGWrite* writer, ReadNuIFFCollideData
 "nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
     "ReadNuIFFCollideData"] }
-"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"] }
+# called: ReadNuIFFGeom and NuGobjDestroy, reached only from the .nus/.hgo readers and NuSceneDestroy, which
+# nothing calls on the PS2 (InstSceneLoad, NuHGobjLoad, NuHGobjReadForCutScene; the port's NuHGobjDestroy)
+"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"], called = [
+    "NuPs2CreateRenderStream", "NuPs2CreateFaceOn", "NuPs2DestroyRenderStream"] }
 # NuCvtSknInstFix: the port's NuGHGRead decodes the skin DMA, resolving its CALLs against the list as the fix does
-"nu3d/nucvtskn" = { treatment = "dead" }
+"nu3d/nucvtskn" = { treatment = "dead", called = ["NuPs2CreateSkin"] }
 "nu3d/asmgobj" = { treatment = "hle" }
 "nu3d/nutexanm" = { treatment = "compile" }
 "nu3d/nufpatch" = { treatment = "dead" }
@@ -97,7 +102,8 @@ schema = 1
 "gamelib/debris" = { treatment = "compile" }
 # The effect loaders wait for the particle sets (nups2/ptl, #56): with effects loaded the cuts emit particles.
 "gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
-    "edppRegisterPointerToGameCharLocation"] }
+    "edppRegisterPointerToGameCharLocation"], called = ["edppLoadEffects", "edppMergeEffects",
+    "edppRestartAllEffectsInLevel"] }
 "gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
     "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
     "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
@@ -113,14 +119,17 @@ schema = 1
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
 "gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
-"gamelib/sceneman" = { treatment = "dead" }
+# called: from the trigger systems, which only sceneman creates
+"gamelib/sceneman" = { treatment = "dead", called = ["NuSceneInstanceRunScript"] }
 "gamelib/nubridge" = { treatment = "compile", override = ["NuBridgeStreamRope"] }
 "gamelib/nuwind" = { treatment = "compile" }
 "gamelib/edgra" = { treatment = "editor", runtime = ["edgraInitAllClumps", "edgraDetermineNearestClump", "edgraFileLoad",
     "edgraClumpsReset"] }
 
 # edtools
-"edtools/edmain" = { treatment = "editor", runtime = ["edmainRegisterLocVec", "edmainQueryLocVec"] }
+# called: behind editor_active
+"edtools/edmain" = { treatment = "editor", runtime = ["edmainRegisterLocVec", "edmainQueryLocVec"], called = [
+    "edmainProcess", "edmainRender"] }
 "edtools/edui" = { treatment = "editor" }
 "edtools/edcam" = { treatment = "editor" }
 

@@ -21,7 +21,7 @@ DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
 
 TREATMENTS = ("compile", "editor", "hle", "replace", "dead", "shim")
-UNIT_KEYS = {"treatment", "override", "keep", "rename", "runtime"}
+UNIT_KEYS = {"treatment", "override", "keep", "rename", "runtime", "called"}
 HOST_DEFINES = frozenset({"NW_HOST"})
 
 STATE_PROVENANCE = {"matching": "matching", "equivalent": "equivalent", "asm": "near"}
@@ -74,6 +74,7 @@ class Unit:
     rename: dict[str, str] = field(default_factory=dict)
     runtime: tuple[str, ...] = ()   # editor unit: compiled in every build, the rest only with the editor
     editor_dropped: bool = False    # the functions outside runtime are dropped (no editor build)
+    called: tuple[str, ...] = ()    # editor/dead unit: stubs compiled code may call (guarded or unreachable)
     functions: list[Function] = field(default_factory=list)
     source: str | None = None
     kind: str = ""                  # wrapper | standalone | none
@@ -143,6 +144,7 @@ _SIGNATURE = re.compile(
     r"([A-Za-z_]\w*)\s*"
     r"\(([^;{}()]*(?:\([^()]*\)[^;{}()]*)*)\)\s*([;{])",
     re.M)
+_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 _C_TOKEN = re.compile(r"[A-Za-z_]\w*|\.?\d[\w.]*|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|\S")
 _NOT_A_TYPE = frozenset(("if", "while", "for", "switch", "return", "sizeof", "do",
                          "else", "case", "goto", "typedef"))
@@ -198,6 +200,7 @@ class Decl:
     static: bool
     is_def: bool
     body: int = 0       # hash of a definition's body tokens
+    calls: frozenset[str] = frozenset()
 
     @property
     def where(self) -> str:
@@ -236,15 +239,16 @@ def scan_c(text: str, path: str) -> CFile:
         if name in _NOT_A_TYPE or (ret_words and ret_words[0] in _NOT_A_TYPE):
             continue
         line = code.count("\n", 0, m.start(3)) + 1
-        body = 0
+        body, calls = 0, frozenset()
         if end == "{":
             if with_strings is None:
                 with_strings = _DIRECTIVE.sub(lambda d: _blank(d.group(0)), active)
             close = _closing_brace(code, m.end() - 1)
             body = hash(tuple(_C_TOKEN.findall(with_strings, m.end(), close)))
+            calls = frozenset(_CALL.findall(code, m.end(), close))
         decls.append(Decl(path=path, line=line, name=name, ret=" ".join(ret_words),
                           params=" ".join(params.split()), static="static" in storage.split(),
-                          is_def=end == "{", body=body))
+                          is_def=end == "{", body=body, calls=calls))
     return CFile(path=path, decls=decls, includes=includes, typedefs=_typedefs(code))
 
 
@@ -454,10 +458,14 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         unit.runtime = tuple(entry.get("runtime", ()))
         if unit.runtime and unit.treatment != "editor":
             errors.append(f"unit {unit.name}: runtime on a {unit.treatment} unit (editor only)")
+        unit.called = tuple(entry.get("called", ()))
+        if unit.called and unit.treatment not in ("editor", "dead"):
+            errors.append(f"unit {unit.name}: called on a {unit.treatment} unit (editor and dead only)")
         if unit.keep and not unit.override:
             errors.append(f"unit {unit.name}: keep without override")
         fnames = [f.name for f in unit.functions]
-        for kind, patterns in (("override", unit.override), ("keep", unit.keep), ("runtime", unit.runtime)):
+        for kind, patterns in (("override", unit.override), ("keep", unit.keep), ("runtime", unit.runtime),
+                               ("called", unit.called)):
             for p in patterns:
                 if not any(fnmatch.fnmatchcase(n, p) for n in fnames):
                     errors.append(f"unit {unit.name}: {kind} {p!r} matches no function")
@@ -566,6 +574,7 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
                                       f"decomp; that needs an upstream NW_STATIC seam")
 
     _check_globals(model, units, port_defs)
+    _check_calls(model, units, files)
     return model
 
 
@@ -602,6 +611,43 @@ def _choose_proto(f: Function, unit: Unit, tu_decls, decls_by_name, typedefs,
         f.static = f.provider == "stub" and f.name == f.host
     f.proto = Decl(path="", line=0, name=f.name, ret="void", params="void",
                    static=f.static, is_def=False)
+
+
+def _check_calls(model: Model, units: list[Unit], files: dict[str, CFile]) -> None:
+    """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called.
+    Walks each wrapper's kept definitions and the file's helpers outside the registry they call."""
+    stubs = {f.name: f for u in units if u.treatment in ("editor", "dead")
+             for f in u.functions if f.provider == "stub"}
+    used = set()
+    for unit in units:
+        if unit.kind != "wrapper":
+            continue
+        defs = {d.name: d for d in files[unit.source].decls if d.is_def}
+        registry = {f.name: f for f in unit.functions}
+        todo = [f.name for f in unit.functions if f.name in defs and not f.overridden]
+        seen = set()
+        while todo:
+            name = todo.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            for c in sorted(defs[name].calls):
+                if c in defs and c not in registry:
+                    todo.append(c)
+                    continue
+                f = stubs.get(c)
+                if f is None:
+                    continue
+                if any(fnmatch.fnmatchcase(c, p) for p in f.unit.called):
+                    used.add(c)
+                    continue
+                model.errors.append(
+                    f"{defs[name].where}: {name} calls {c}, a stub of the {f.unit.treatment} unit {f.unit.name}; "
+                    "compile it (runtime) or list it under called")
+    for u in units:
+        for p in u.called:
+            if any(fnmatch.fnmatchcase(n, p) for n in stubs) and not any(fnmatch.fnmatchcase(n, p) for n in used):
+                model.warnings.append(f"unit {u.name}: called {p!r}: no compiled code calls it")
 
 
 def _check_globals(model: Model, units: list[Unit], port_defs: dict[str, Decl]) -> None:
