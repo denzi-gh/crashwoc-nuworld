@@ -11,7 +11,7 @@ schema = 1
 
 [units]
 # nucore
-"nucore/nufile" = { treatment = "compile", override = ["NuDat*"] }
+"nucore/nufile" = { treatment = "compile", override = ["NuDat*"], keep = ["NuDatOpen", "NuDatSet"] }
 "nucore/nufpar" = { treatment = "compile" }
 # NuErrorProlog: the file and line NuErrorFunction prints are nuerror.c statics
 "nucore/nuerror" = { treatment = "compile", override = ["NuErrorProlog", "NuErrorFunction"] }
@@ -39,7 +39,7 @@ schema = 1
 "numath/numath" = { treatment = "hle" }
 
 # nu3d
-"nu3d/nustream" = { treatment = "compile", override = ["*"] }
+"nu3d/nustream" = { treatment = "compile", override = ["*"], keep = ["NuRndrStreamResetStream", "NuRndrSwapStreamBuffers"] }
 "nu3d/nucamera" = { treatment = "compile" }
 "nu3d/nucamvu0" = { treatment = "hle" }
 "nu3d/nuvport" = { treatment = "compile" }
@@ -49,13 +49,14 @@ schema = 1
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
-"nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint"] }
+"nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
+    "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
-"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnRead", "NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
+"nu3d/nugscn" = { treatment = "compile", override = ["NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
     "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }

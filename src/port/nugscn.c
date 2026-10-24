@@ -190,14 +190,6 @@ int NuGScnLoad(char **buffer, char *bufend, char *filename)
     return size;
 }
 
-struct nugscn_s *NuGScnRead(char **buffer, char *bufend, char *filename)
-{
-    if (NuGScnLoad(buffer, bufend, filename) != 0) {
-        return NuGScnLoadFix();
-    }
-    return 0;
-}
-
 void ReadTextureSet(int fh)
 {
     int ntex = NuFileReadInt(fh);
