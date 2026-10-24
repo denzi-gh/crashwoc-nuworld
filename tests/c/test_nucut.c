@@ -169,6 +169,25 @@ static void test_fixup(struct NUGCUTSCENE_s *def)
     NuGCutSceneSysInit(NULL);
 }
 
+/* An animated rigid (one no retail cut has) is never drawn: retail reads its draw flag from a stack word nothing
+   writes, 0 under PlayCutMovie, and a draw would go through the NULL scene here. */
+static void test_rigid_render(struct NUGCUTSCENE_s *def)
+{
+    struct NUGCUTRIGID_s *data = &def->rigiddef->rigids[0];
+    struct nuinstance_s instance = { .flagword = 1 };
+    struct nuspecial_s special = { .instance = &instance };
+    struct instNUGCUTRIGID_s rigids[2] = { { .obj = { NULL, &special } }, { .obj = { NULL, &special } } };
+    struct instNUGCUTRIGIDSYS_s sys = { rigids };
+    struct instNUGCUTSCENE_s scene = { .def = def, .rigidsys = &sys };
+    unsigned char flags = data->flags, first = data->first_locator;
+    data->flags = 0x6; /* ANIMATED | FOUND */
+    data->first_locator = 0xFF;
+    instNuGCutRigidSysRender(&scene, 1.0f);
+    CHECK(instance.flagword == 1);
+    data->flags = flags;
+    data->first_locator = first;
+}
+
 static int missing_main(int argc, char **argv)
 {
     (void)argc, (void)argv;
@@ -214,6 +233,7 @@ static void test_load(const char *scratch)
         check_cut(def, file, &f);
         if (pass == 0) {
             test_fixup(def);
+            test_rigid_render(def);
         }
     }
 
