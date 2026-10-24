@@ -2,8 +2,8 @@
    synthetic SFX.DAT and the game's clock, stepped: a vblank is sceGsSyncV, nw_game_spend_us the EE's time between
    them, and every SIF call spends its own. Usage: test_nusound <scratch dir>.
    Local only, with your own disc: `test_nusound retail` runs InitGlobalSfx on the data image and SFX.DAT of the
-   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and plays the logos' audio stream;
-   exits 77 without it. */
+   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and plays the logos' audio stream,
+   `test_nusound retail instant` the same off the hardware speed; exits 77 without it. */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -377,7 +377,7 @@ static int transfer_ticks(int id, int slot)
     SOUND_TransferSFX(id, slot);
     FlushIOPCommand(0);
     status(ret);
-    CHECK(nw_nusound_irx()->ResStatus == 0 && ret[26] == 1);
+    CHECK(nw_nusound_irx()->ResStatus == 0);
     for (; ticks < 20 && ret[26]; ticks++) {
         nw_game_spend_us(16666);
         status(ret);
@@ -395,6 +395,15 @@ static void test_cd_time(void)
     CHECK(transfer_ticks(0x1000, 1) == 3);
     nw_nusound_cd_moved();
     CHECK(transfer_ticks(0x1000, 2) == 9);
+
+    /* Off the hardware speed the transfer is over by the module's next answer, wherever the head is. */
+    nw_nusound_set_hardware_speed(false);
+    boot_module(bank);
+    CHECK(transfer_ticks(0x1000, 0) == 0);
+    CHECK(transfer_ticks(0x1000, 1) == 0);
+    nw_nusound_cd_moved();
+    CHECK(transfer_ticks(0x1000, 2) == 0);
+    nw_nusound_set_hardware_speed(true);
 }
 
 static void test_transfer_sfx(void)
@@ -410,16 +419,23 @@ static void test_transfer_sfx(void)
     CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
     CHECK(irx->StreamMemoryEnd == 0x48310 + a_size && !irx->SPOT_IOPAddress);
 
-    /* The game's loop: loaded, missing (2), loaded again after the first with its header's size, then the end. */
-    boot_module(bank);
-    TransferAllSpotFX(0);
-    CHECK(irx->ResStatus == 1 && irx->CD_SPOT_TRANS == 0);
-    CHECK(irx->ADPCM_SpotFX[0].ID == 0x1000 && irx->ADPCM_SpotFX[0].SPUAddress == 0x48310);
-    CHECK(irx->ADPCM_SpotFX[2].ID == 0x1002 && irx->ADPCM_SpotFX[2].SPUAddress == 0x48310 + a_size);
-    CHECK(irx->ADPCM_SpotFX[3].ID == -1);
-    CHECK(memcmp(ram + 0x48310 + a_size, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
-    CHECK(irx->StreamMemoryEnd == 0x48310 + 2 * a_size);
-    CHECK(irx->StreamBuffer[4].Status == 0);
+    /* The game's loop: loaded, missing (2), loaded again after the first with its header's size, then the end; off
+       the hardware speed all within the vblank. */
+    for (int hardware = 0; hardware <= 1; hardware++) {
+        nw_nusound_set_hardware_speed(hardware);
+        boot_module(bank);
+        uint64_t edges = nw_game_edges();
+        TransferAllSpotFX(0);
+        CHECK(irx->ResStatus == 1 && irx->CD_SPOT_TRANS == 0);
+        CHECK(irx->ADPCM_SpotFX[0].ID == 0x1000 && irx->ADPCM_SpotFX[0].SPUAddress == 0x48310);
+        CHECK(irx->ADPCM_SpotFX[2].ID == 0x1002 && irx->ADPCM_SpotFX[2].SPUAddress == 0x48310 + a_size);
+        CHECK(irx->ADPCM_SpotFX[3].ID == -1);
+        CHECK(memcmp(ram + 0x48310, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+        CHECK(memcmp(ram + 0x48310 + a_size, a_vag + NW_VAG_HEADER, a_size - NW_VAG_HEADER) == 0);
+        CHECK(irx->StreamMemoryEnd == 0x48310 + 2 * a_size);
+        CHECK(irx->StreamBuffer[4].Status == 0);
+        CHECK(hardware ? nw_game_edges() > edges : nw_game_edges() == edges);
+    }
 
     /* Without files the IRX answers 1 at once. */
     nw_nusound_init(&vfs, nw_game_us);
@@ -632,6 +648,33 @@ static void test_play_stream(void)
     CHECK(frames == 144 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
+    nusound_irx_loaded = 0;
+}
+
+/* test_play_stream's long stream off the hardware speed: no seek, read or DMA time, so it keys on 3 frames sooner
+   and SYSTEMWAIT never holds it. */
+static void test_play_stream_instant(void)
+{
+    const NwIrx *irx = nw_nusound_irx();
+    const STREAMDATA *s0 = &irx->StreamBuffer[0];
+    int frames = 0;
+    bool held = false;
+
+    nusound_irx_loaded = 1;
+    nw_nusound_set_hardware_speed(false);
+    boot_module(streams);
+    SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
+    for (; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
+        frame();
+        held |= s0->iStatus == 1 && irx->SYSTEMWAIT && irx->IOPRequestLoad == -1;
+    }
+    CHECK(frames == 11 && s0->iStatus == 1 && !held);
+    for (; frames < 50 && s0->iStatus != 0; frames++) {
+        frame();
+    }
+    CHECK(frames == 13 && NuSoundKeyStatus(0) == 1 && s0->PlayingHalf == 0);
+    CHECK(memcmp(s0->IOPAddress, big_blocks + 0xd700, sizeof(big_blocks) - 0xd700) == 0);
+    nw_nusound_set_hardware_speed(true);
     nusound_irx_loaded = 0;
 }
 
@@ -853,7 +896,7 @@ static bool setup_disc(const char *scratch)
 
 /* ---- Retail (local only) ------------------------------------------------------------------------------- */
 
-static int test_retail(void)
+static int test_retail(bool hardware)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
     char path[1024], err[512];
@@ -879,12 +922,18 @@ static int test_retail(void)
         return 1;
     }
 
-    /* The game's first load: the global table, its DAT, every resident sample into SPU RAM. */
+    /* The game's first load: the global table, its DAT, every resident sample into SPU RAM; 642 vblanks (12.8 s) at
+       the hardware speed, 2 off it. */
     const NwIrx *irx = nw_nusound_irx();
+    nw_nusound_set_hardware_speed(hardware);
     nw_nusound_init(&vfs, nw_game_us);
     NuFileInitEx(1, 0);
     NuPs2InitIOP();
+    uint64_t edges = nw_game_edges();
     InitGlobalSfx();
+    edges = nw_game_edges() - edges;
+    printf("InitGlobalSfx: %llu vblanks\n", (unsigned long long)edges);
+    CHECK(edges == (hardware ? 642 : 2));
     CHECK(irx->global_dat && irx->fileinfo_cnt == 0xc5 && irx->GlobalSfxfileinfo_cnt == 0xc5 && irx->ResStatus == 1);
     uint32_t addr = 0x48310;
     int slot = 0;
@@ -906,7 +955,8 @@ static int test_retail(void)
     CHECK(slot == 158 && irx->StreamMemoryEnd == addr && irx->GlobalSfxMemoryEnd == addr);
     CHECK(addr == 0x187b40);
 
-    /* StartCutMovie's logos audio: sfx 172, a stream, on channel 4, until its key status is 1. */
+    /* StartCutMovie's logos audio: sfx 172, a stream, on channel 4, until its key status is 1; off the hardware
+       speed without the drive's time. */
     int frames = 0;
     bool starting = false;
     NuSoundPlayChan(172, 0x3fff, 0x3fff, 1, 4);
@@ -915,7 +965,7 @@ static int test_retail(void)
         starting |= NuSoundKeyStatus(4) == 2;
     }
     printf("logos stream: id %#x, keyed on after %d frames\n", irx->StreamBuffer[4].ID, frames);
-    CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == 19);
+    CHECK(starting && NuSoundKeyStatus(4) == 1 && irx->StreamBuffer[4].ID == 0xe && frames == (hardware ? 19 : 13));
 
     /* It plays through its buffer's refills to the file's END block: 799092 samples at 22050 Hz, 1812.6 frames. On
        PCSX2 the key status of channel 4 drops 1812 vblanks after it went to 1. */
@@ -934,8 +984,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "no game clock: %s\n", SDL_GetError());
         return 1;
     }
-    if (argc == 2 && strcmp(argv[1], "retail") == 0) {
-        return test_retail();
+    if (argc >= 2 && strcmp(argv[1], "retail") == 0) {
+        return test_retail(!(argc == 3 && strcmp(argv[2], "instant") == 0));
     }
     if (argc != 2) {
         fprintf(stderr, "usage: test_nusound <scratch dir> | retail\n");
@@ -963,6 +1013,7 @@ int main(int argc, char *argv[])
     test_channel_pitch();
     test_stop_sound();
     test_play_stream();
+    test_play_stream_instant();
     test_stream_ring();
     test_stop_stream();
     test_pause();

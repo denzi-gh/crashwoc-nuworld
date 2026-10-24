@@ -4,6 +4,7 @@
 #ifndef NUWORLD_AUDIO_NUSOUND_H
 #define NUWORLD_AUDIO_NUSOUND_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -20,5 +21,8 @@ void nw_nusound_rpc(unsigned fno, const void *send, size_t ssize, void *recv, si
 
 /* The game read the disc: the drive's head is no longer where the module left it. */
 void nw_nusound_cd_moved(void);
+
+/* On (the default) the drive and the SPU DMA take their PCSX2 time, off none. Any thread; init keeps it. */
+void nw_nusound_set_hardware_speed(bool on);
 
 #endif

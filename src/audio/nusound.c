@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "audio/irx.h"
 #include "audio/spu2.h"
 #include "audio/vag.h"
@@ -14,6 +16,7 @@
 #define NW_IRX_REPORTED 4 /* streams in the reply */
 #define NW_IRX_NO_REQUEST 0xffff
 #define NW_IRX_TICK_US 16666 /* the stream thread's hard timer */
+#define NW_IRX_UPLOAD_PASSES 16 /* an instant upload's passes per call; it takes up to 5, a stuck one ends there */
 #define NW_IOP_HZ 36864000u
 
 /* The drive and the SPU DMA in IOP cycles, as PCSX2 times them (CDVD.cpp, SPU2/Dma.cpp). The IRX reads at nominal
@@ -35,6 +38,7 @@
 #define NW_IRX_ALL_VOICES 0xffffff
 
 static NwIrx irx;
+static SDL_AtomicInt nw_irx_instant; /* off the hardware speed */
 
 /* The port's side: the file system, the clock, how far the stream thread's ticks got and the SPU's cycle when they
    started; the drive (the DAT under its head, NULL when the game moved it, the next sector, the sectors read ahead
@@ -611,6 +615,11 @@ static uint64_t nw_cd_time(const NwDat *dat, int64_t sector, unsigned n, uint64_
 void nw_nusound_cd_moved(void)
 {
     iop.cd_dat = NULL;
+}
+
+void nw_nusound_set_hardware_speed(bool on)
+{
+    SDL_SetAtomicInt(&nw_irx_instant, !on);
 }
 
 /* sceCdRead of the DAT's sectors, which calls back when the drive has them; past the end of the DAT it reads
@@ -1216,9 +1225,13 @@ static uint64_t nw_iop_cycle(uint64_t us)
     return iop.spu_base + us * NW_IOP_HZ / 1000000;
 }
 
-/* The interrupts due by `cycle`: the drive's callback and the end of the SPU DMA (_AdpcmDmaInt). */
+/* The interrupts due by `cycle`: the drive's callback and the end of the SPU DMA (_AdpcmDmaInt); off the hardware
+   speed, both as soon as they are in flight. */
 static void nw_iop_interrupts(uint64_t cycle)
 {
+    if (SDL_GetAtomicInt(&nw_irx_instant)) {
+        cycle = UINT64_MAX;
+    }
     if (iop.cd_done && iop.cd_done <= cycle) {
         iop.cd_done = 0;
         _CdStreamInt();
@@ -1230,7 +1243,8 @@ static void nw_iop_interrupts(uint64_t cycle)
 }
 
 /* The ticks due since the timer started, all before the call they precede, each at its own time on the SPU after
-   the interrupts due by then; then the SPU runs to now (unless the IRX's waits took it further). */
+   the interrupts due by then; then the SPU runs to now (unless the IRX's waits took it further). Off the hardware
+   speed a resident sample's upload then runs to its end: the thread goes on without its timer, the SPU stays. */
 static void nw_iop_catch_up(void)
 {
     if (!iop.timer || !iop.now_us) {
@@ -1250,6 +1264,11 @@ static void nw_iop_catch_up(void)
     }
     nw_spu2_run_to(nw_iop_cycle(now - iop.timer_us));
     nw_iop_interrupts(nw_spu2_cycle());
+    bool instant = SDL_GetAtomicInt(&nw_irx_instant);
+    for (int pass = 0; instant && irx.CD_SPOT_TRANS && pass < NW_IRX_UPLOAD_PASSES; pass++) {
+        StreamADPCM();
+        nw_iop_interrupts(nw_spu2_cycle());
+    }
 }
 
 /* The EE's current path (NuFileGetCurrentPath), where the DATs open; each call resets the SPU. */

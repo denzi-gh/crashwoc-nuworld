@@ -1,5 +1,5 @@
-/* Data folder layout: <root>disc/, <root>import/, <root>saves/. Returned paths end with a separator and are
-   freed with SDL_free. Errors via SDL_GetError(). */
+/* Data folder layout: <root>disc/, <root>import/, <root>saves/, <root>settings.toml. Returned paths end with a
+   separator and are freed with SDL_free. Errors via SDL_GetError(). */
 #ifndef NUWORLD_PLATFORM_PATHS_H
 #define NUWORLD_PLATFORM_PATHS_H
 
@@ -9,6 +9,7 @@
 #define NW_PATHS_PORTABLE "portable.txt"
 #define NW_PATHS_IMPORT "import" /* disc images to import, e.g. copied there on a Steam Deck */
 #define NW_PATHS_SAVES "saves"
+#define NW_PATHS_SETTINGS "settings.toml"
 #define NW_PATHS_SCREENSHOTS "screenshots"
 #define NW_PATHS_CAPTURES "captures/port" /* --capture's frames; tools/pcsx2_capture.py writes captures/pcsx2 */
 
