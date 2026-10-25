@@ -1,8 +1,13 @@
 /* nups2/ps2dma, nups2/asmdma and nups2/vu1man, which the port replaces (port/units.toml): the packet writers the
    boot reaches. They write retail's DMA tags and VIF codes into the caller's buffer (NuLightInit keeps its
-   packets to send again); nothing sends them yet (M3). */
+   packets to send again); nothing sends them yet (M3). Also the scratchpad allocator. */
 #include <stdint.h>
 #include <string.h>
+
+#include "nucore/nuerror.h"
+
+#define ps2dma_srcfile "..\\nu2crash.ps2\\nups2\\ps2dma.c"
+#define NW_SCRATCH_SIZE 0x10000 /* the PS2's is 16 KB; the host's terrain scan blocks are twice retail's */
 
 static uint32_t *nw_direct_curr; /* vt_direct_curr: the open VIF DIRECT code */
 static uint32_t *nw_dmatag_curr; /* vpdmatag_curr: the open DMA tag */
@@ -98,4 +103,30 @@ void *vpDmaTag_Close(void *packet)
 /* Resets VU1 and uploads its microcode: the renderer's (M3). */
 void NuPs2InitVU(void)
 {
+}
+
+static _Alignas(16) unsigned char nw_scratch[NW_SCRATCH_SIZE];
+static unsigned char *nw_scratch_ptr = nw_scratch;
+
+/* A stack, as retail's on the scratchpad: each block is followed by the cursor before it, which NuScratchRelease
+   returns to. */
+void *NuScratchAlloc32(uint32_t size)
+{
+    unsigned char *previous = nw_scratch_ptr;
+    unsigned char *block = (unsigned char *)(((uintptr_t)previous + 3) & ~(uintptr_t)3);
+    unsigned char *link = (unsigned char *)(((uintptr_t)block + ((size + 3) & ~3u) + 7) & ~(uintptr_t)7);
+    if (link > nw_scratch + NW_SCRATCH_SIZE - sizeof(void *)) {
+        NuErrorProlog(ps2dma_srcfile, 0)("NuScratchAlloc32: %u bytes overflow the scratchpad", size);
+    }
+    memcpy(link, &previous, sizeof(previous));
+    nw_scratch_ptr = link + sizeof(void *);
+    return block;
+}
+
+void NuScratchRelease(void)
+{
+    if (nw_scratch_ptr == nw_scratch) {
+        NuErrorProlog(ps2dma_srcfile, 0)("NuScratchRelease: no block to release");
+    }
+    memcpy(&nw_scratch_ptr, nw_scratch_ptr - sizeof(void *), sizeof(void *));
 }

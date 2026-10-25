@@ -26,6 +26,8 @@
 /* Declared by no header. */
 s32 ReadTerrain(char *name, s32 situ, short **store, TerrainSetType *terrset);
 void NuRndrInitWorld(void);
+void *NuScratchAlloc32(u32 size);
+void NuScratchRelease(void);
 void buildBitCountTable(void);
 extern void *crashdata;
 extern s32 situtotal;
@@ -84,7 +86,7 @@ static void test_read(const GscBuild *b, const TerFile *f)
 }
 
 /* terraininit around it: the set and terr[] carved at host sizes, then the file, the objects grouped and the
-   platform bound to its instance. */
+   platform bound to its instance; casts onto the floor of the static object. */
 static void test_init(const TerFile *f)
 {
     static struct nuinstance_s inst[1];
@@ -95,6 +97,7 @@ static void test_init(const TerFile *f)
     scene.numinstance = 1;
     scene.instances = inst;
     short *store = (short *)ter_heap;
+    TerrainSetCur(ter_heap);
     TerrainSetType *set = (TerrainSetType *)terraininit(0, &store, (short *)(ter_heap + sizeof(ter_heap)), 0, "test",
                                                         &scene, 0);
     char *file = (char *)set + sizeof(TerrainSetType) + 0x880 * sizeof(TerrainSituType);
@@ -112,6 +115,35 @@ static void test_init(const TerFile *f)
     CHECK(set->terrgroup[256].count == 1 && set->terrlist[set->terrgroup[256].start] == 1);
     CHECK(set->platdata[0].curmtx == &inst[0].mtx && set->platdata[0].instance == 0);
     CHECK(set->platdata[0].terrno == 1 && set->platdata[0].status.bit.rotate == 1);
+
+    NewScanInit();
+    struct nuvec_s above = { 10.0f, 1.0f, 0.5f }, beside = { 50.0f, 1.0f, 0.0f };
+    CHECK(NewShadow(&above, 0.1f) == 0.0f && NewShadow(&beside, 0.1f) == 2000000.0f);
+    struct nuvec_s from = { 10.5f, 2.0f, 0.5f }, down = { 0.0f, -3.0f, 0.0f }, part = { 0.0f, -1.0f, 0.0f };
+    CHECK(NewRayCast(&from, &down, 0.1f) != 0 && NewRayCast(&from, &part, 0.1f) == 0);
+}
+
+/* The scratchpad stack: 4-aligned blocks, each released to the cursor before it. */
+static void test_scratch(void)
+{
+    char *a = NuScratchAlloc32(10), *b = NuScratchAlloc32(0x930), *c = NuScratchAlloc32(4);
+    CHECK(((uintptr_t)a & 3) == 0 && ((uintptr_t)b & 3) == 0 && b >= a + 12 && c >= b + 0x930);
+    NuScratchRelease();
+    CHECK(NuScratchAlloc32(4) == c);
+    NuScratchRelease();
+    NuScratchRelease();
+    CHECK(NuScratchAlloc32(0x930) == b);
+    NuScratchRelease();
+    NuScratchRelease();
+    CHECK(NuScratchAlloc32(10) == a);
+    NuScratchRelease();
+}
+
+static int overflow_main(int argc, char **argv)
+{
+    (void)argc, (void)argv;
+    NuScratchAlloc32(0x20000);
+    return 0;
 }
 
 static int corrupt_main(int argc, char **argv)
@@ -159,6 +191,11 @@ static void test_load(const char *scratch)
         SDL_Delay(10);
     }
     CHECK(state == NW_GAME_FATAL && strstr(nw_game_error(), "terrain.c(787) : terrain <bad.ter>: directory"));
+    CHECK(nw_game_start(overflow_main, 0, NULL));
+    while ((state = nw_game_state()) == NW_GAME_RUNNING) {
+        SDL_Delay(10);
+    }
+    CHECK(state == NW_GAME_FATAL && strstr(nw_game_error(), "NuScratchAlloc32: 131072 bytes overflow the scratchpad"));
 
     nw_shim_file_init(NULL);
     nw_vfs_shutdown(&vfs);
@@ -169,7 +206,7 @@ static void test_load(const char *scratch)
 }
 
 typedef struct RetailStats {
-    unsigned files, objects, platforms, bound, triangles, walls, points, crash, bad;
+    unsigned files, objects, platforms, bound, triangles, walls, points, crash, casts, ground, rays, bad;
 } RetailStats;
 
 static NwVfs retail_vfs;
@@ -190,6 +227,32 @@ static void drain_gpu(void)
         }
     }
     SDL_free(jobs);
+}
+
+/* Down-casts over a grid spanning the level's static objects: the ground under each point, and a sweep onto it. */
+static void retail_casts(const TerrainSetType *set)
+{
+    float lo[2] = { 1e9f, 1e9f }, hi[2] = { -1e9f, -1e9f };
+    for (int g = 0; g < set->terrgroupcnt; g++) {
+        const float *b = set->terrgroup[g].bounds; /* minx, minz, maxx, maxz */
+        lo[0] = b[0] < lo[0] ? b[0] : lo[0];
+        lo[1] = b[1] < lo[1] ? b[1] : lo[1];
+        hi[0] = b[2] > hi[0] ? b[2] : hi[0];
+        hi[1] = b[3] > hi[1] ? b[3] : hi[1];
+    }
+    NewScanInit();
+    for (int i = 0; i < 24 * 24 && lo[0] <= hi[0]; i++) {
+        struct nuvec_s pos = { lo[0] + (hi[0] - lo[0]) * ((float)(i % 24) + 0.5f) / 24.0f, 100000.0f,
+                               lo[1] + (hi[1] - lo[1]) * ((float)(i / 24) + 0.5f) / 24.0f };
+        float y = NewShadow(&pos, 0.1f);
+        retail.casts++;
+        if (y >= 2000000.0f) {
+            continue;
+        }
+        retail.ground++;
+        struct nuvec_s from = { pos.x, y + 1.0f, pos.z }, down = { 0.0f, -2.0f, 0.0f };
+        retail.rays += NewRayCast(&from, &down, 0.1f) != 0;
+    }
 }
 
 static void retail_file(const char *base, char *buffer, size_t size)
@@ -229,15 +292,16 @@ static void retail_file(const char *base, char *buffer, size_t size)
         retail.points += w->count + 1u;
     }
     retail.crash += crashdata != NULL;
+    retail_casts(set);
     retail.files++;
     if (situtotal <= 0) {
         fprintf(stderr, "retail: %s: no terrain objects\n", base);
         retail.bad++;
     }
-    printf("TER %s objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u\n", base,
-           retail.objects - was.objects, retail.platforms - was.platforms, retail.bound - was.bound,
+    printf("TER %s objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u ground=%u rays=%u\n",
+           base, retail.objects - was.objects, retail.platforms - was.platforms, retail.bound - was.bound,
            retail.triangles - was.triangles, retail.walls - was.walls, retail.points - was.points,
-           retail.crash - was.crash);
+           retail.crash - was.crash, retail.ground - was.ground, retail.rays - was.rays);
     nw_gscn_remove(sc);
     drain_gpu();
 }
@@ -270,8 +334,8 @@ static int retail_main(int argc, char **argv)
     return 0;
 }
 
-/* Every .ter loads over its scene to the pinned counts: platforms bound to a visible instance, and no level has
-   crash data. */
+/* Every .ter loads over its scene to the pinned counts: platforms bound to a visible instance, no level has
+   crash data, and a sweep onto every ground point a down-cast finds hits it. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -289,12 +353,14 @@ static int test_retail(void)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, "retail: %s\n", nw_game_error());
     }
-    printf("TOTAL files=%u objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u bad=%u\n",
-           retail.files, retail.objects, retail.platforms, retail.bound, retail.triangles, retail.walls,
-           retail.points, retail.crash, retail.bad);
+    printf("TOTAL files=%u objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u casts=%u "
+           "ground=%u rays=%u bad=%u\n", retail.files, retail.objects, retail.platforms, retail.bound,
+           retail.triangles, retail.walls, retail.points, retail.crash, retail.casts, retail.ground, retail.rays,
+           retail.bad);
     CHECK(state == NW_GAME_RETURNED && retail.files == 40 && retail.bad == 0);
     CHECK(retail.objects == 2460 && retail.platforms == 275 && retail.bound == 175 && retail.triangles == 199369);
     CHECK(retail.walls == 243 && retail.points == 14103 && retail.crash == 0);
+    CHECK(retail.casts == 23040 && retail.ground == 10459 && retail.rays == 10459);
     return failures ? 1 : 0;
 }
 
@@ -310,6 +376,7 @@ int main(int argc, char *argv[])
     char *scratch = NULL;
     SDL_asprintf(&scratch, "%s/", argv[1]);
     SDL_CreateDirectory(scratch);
+    test_scratch();
     test_load(scratch);
     SDL_free(scratch);
     printf("%s\n", failures ? "FAILED" : "terrain: all checks passed");
