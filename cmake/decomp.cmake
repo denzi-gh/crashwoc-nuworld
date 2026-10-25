@@ -134,7 +134,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
-  src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/trace.c
+  src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/terrain.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
@@ -272,6 +272,17 @@ if(NUWORLD_TESTS)
   add_test(NAME nuanim COMMAND nuworld_test_nuanim ${CMAKE_CURRENT_BINARY_DIR}/test-nuanim)
   add_test(NAME nuanim-retail COMMAND nuworld_test_nuanim retail)
   set_tests_properties(nuanim-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+
+  # The .ter loader override on a synthetic file, then under terraininit; terrain-retail loads every .ter of
+  # NUWORLD_TEST_DATA over its level scene.
+  add_executable(nuworld_test_terrain tests/c/test_terrain.c)
+  add_dependencies(nuworld_test_terrain nuworld_types)
+  target_include_directories(nuworld_test_terrain PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_terrain PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_terrain PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME terrain COMMAND nuworld_test_terrain ${CMAKE_CURRENT_BINARY_DIR}/test-terrain)
+  add_test(NAME terrain-retail COMMAND nuworld_test_terrain retail)
+  set_tests_properties(terrain-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
 
   # The NUSOUND.IRX port under the decomp's own nusound.c.
   add_executable(nuworld_test_nusound tests/c/test_nusound.c)
