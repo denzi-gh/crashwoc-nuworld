@@ -118,6 +118,7 @@ schema = 1
 "gamelib/saveload" = { treatment = "replace" }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
 "gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
+# dead: NuTriggerSysLoad, called only by sceneman's NuSceneDataLoad; the disc has no .trg
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
 # called: from the trigger systems, which only sceneman creates
 "gamelib/sceneman" = { treatment = "dead", called = ["NuSceneInstanceRunScript"] }
