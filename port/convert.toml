@@ -10,8 +10,13 @@ schema = 1
 [unions]
 # numtl/nuwater read only .s32 and .f32; .voidptr is never used.
 "union nufx_u" = { member = "u32" }
+# A .gsc colour reference: the scene loader reads them in place, nothing converts one.
+"struct nucolourref_s$1" = { member = "addr_offset" }
+"struct nucolourref_s$2" = { member = "cols" }
 # The per-curve flags decide; the .cut loader converts these.
 "union nuanimcurve2_u" = { hook = true }
+# The .shd table: file offsets, which the port's ShadDataLoad turns into its own records.
+"union shadslot_u" = { member = "offset" }
 # Editor-only: built at runtime, never in the retail data image.
 "struct eduiitem_s$1" = { hook = true }
 "struct eduiitem_s$2" = { hook = true }
@@ -20,3 +25,4 @@ schema = 1
 "struct eduimenu_s.titlebuf" = { hook = true }
 # The .DAT directory behind the header: built when an archive opens (NuDat*), never in the data image.
 "struct nudathdr_s.data" = { hook = true }
+"struct nucolourref_s$2.pair" = { hook = true }

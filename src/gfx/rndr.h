@@ -71,9 +71,9 @@ void nw_rndr_splice(struct rndrstream_s *dst, struct rndrstream_s *src);
 /* NuRndrOTInsertItem: the item into its depth's bin of the ordering table, which NuRndrOTFlush empties into the
    ot_sort stream. */
 void nw_rndr_ot_insert(NwRecord *item, float depth);
-struct nutribatch_s;
+struct nutristream_s;
 /* NuRndrOTInsertTriBatch with the geom's mesh (src/gfx/nurndr.c). */
-void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutribatch_s *batch);
+void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutristream_s *batch);
 /* The packet this frame's flushes build. */
 NwPacket *nw_rndr_packet(void);
 /* The streams found holding packets the compiled decomp wrote into them, which are not drawn. */

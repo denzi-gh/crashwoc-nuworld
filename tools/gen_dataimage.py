@@ -158,11 +158,14 @@ class Registry:
         self.ranges = [(r["section"], int(r["start"]), int(r["end"]), r["owner"])
                        for r in tomllib.loads((cfg / "data_map.toml").read_text())["range"]]
         self.matching: set[tuple[int, int]] = set()     # (unit, address) the decomp defines in C
+        self.retail: set[tuple[int, int]] = set()       # of those, the ones holding retail's bytes
         for path in sorted((cfg / "status").rglob("*.toml")):
             for d in tomllib.loads(path.read_text()).get("data", []):
                 _v, unit, addr, _name = d["id"].split(":", 3)
-                if d["state"] == "matching":
+                if d["state"] in ("matching", "retail"):
                     self.matching.add((int(unit.rsplit("-", 1)[1]), int(addr, 16)))
+                if d["state"] == "retail":
+                    self.retail.add((int(unit.rsplit("-", 1)[1]), int(addr, 16)))
         bounds = {a for _n, a, n, _b in self.sections} | {a + n for _n, a, n, _b in self.sections}
         for s in self.symbols:
             bounds.add(s.addr)
@@ -685,6 +688,7 @@ class Obj:
     nwtype: str | None = None
     plain: bool = False
     host_size: int = 0
+    retail: bool = False         # copied in from the ELF
 
     @property
     def end(self) -> int:
@@ -871,7 +875,9 @@ class Image:
                         elem, elem_ps2, elem_host, count, plain, nwtype = None, 0, 0, 1, False, None
                 obj = Obj(d.name, sym.addr, sym.size or (elem_ps2 * count), elem, elem_ps2, elem_host,
                           count, d.need, unit, static=d.static, nwtype=nwtype, plain=plain,
-                          host_size=d.host_size)
+                          host_size=d.host_size, retail=(unit.index, sym.addr) in self.reg.retail)
+                if obj.retail and not plain:
+                    self.error(f"{unit.name}: {d.name} holds retail's bytes but is not plain data")
                 self.objs.append(obj)
                 self.unit_objs[uname].append(obj)
 
@@ -1094,9 +1100,10 @@ def render_unit(image: Image, unit: nwunits.Unit) -> str:
         lines.append("static const NwDataObj nw_data_objs_[] = {")
         for o in objs:
             t = f"&{o.nwtype}" if o.nwtype else "0"
+            flags = "NW_DATA_PLAIN | NW_DATA_RETAIL" if o.retail else "NW_DATA_PLAIN" if o.plain else "0u"
             lines.append(f'    {{ "{o.name}", 0x{o.addr:08x}u, {o.ps2_size}u, (void *)&{o.name}, '
                          f"(unsigned int)sizeof {o.name}, {t}, {o.count}u, "
-                         f"{'NW_DATA_PLAIN' if o.plain else '0u'} }},")
+                         f"{flags} }},")
         lines += ["};", f'const NwDataUnit {unit_symbol(unit)} = {{ "{unit.name}", nw_data_objs_, '
                         f"{len(objs)}u }};"]
     else:

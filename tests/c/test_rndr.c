@@ -463,7 +463,7 @@ static void test_ot_batch(void)
     global_camera.mtx = id;
     struct numtl_s *m = NuMtlCreate(1);
     NuMtlUpdate(m);
-    nw_rndr_ot_batch(&id, m, &mesh, (struct nutribatch_s *)batch);
+    nw_rndr_ot_batch(&id, m, &mesh, (struct nutristream_s *)batch);
     mark(rndrstream_3d_l, 70);
     NuRndrEndScene();
     const NwPacket *p = nw_rndr_packet();
@@ -569,7 +569,7 @@ static void test_hgobj(void)
     g[0].next_gobj = &g[1];
     g[1].origin = (struct nuvec_s){ 0.0f, 2.0f, 0.0f };
     struct nugobj_s *gobjs[3] = { &g[0], NULL, &g[2] };
-    struct NUHLAYERDATA_s layer = { NULL, gobjs, &g[3], NULL, NULL };
+    struct NULAYERDATA_s layer = { NULL, gobjs, &g[3], NULL, NULL };
     struct NUHGOBJ_s h;
     memset(&h, 0, sizeof(h));
     h.type = 1;

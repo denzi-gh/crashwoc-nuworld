@@ -164,13 +164,13 @@ static float nw_scene_frame_ghg(const struct NUHGOBJ_s *h, NwSceneInfo *info)
     memset(info, 0, sizeof(*info));
     float lo[3] = { INFINITY, INFINITY, INFINITY }, hi[3] = { -INFINITY, -INFINITY, -INFINITY };
     for (int i = 0; i < h->num_layers; i++) {
-        const struct NUHLAYERDATA_s *l = &h->layers[i];
+        const struct NULAYERDATA_s *l = &h->layers[i];
         for (int j = 0; j < h->num_joints; j++) {
             nw_scene_count(l->gobjs ? l->gobjs[j] : NULL, info, lo, hi);
             nw_scene_count(l->blend_gobjs ? l->blend_gobjs[j] : NULL, info, lo, hi);
         }
-        nw_scene_count(l->skin_object, info, lo, hi);
-        nw_scene_count(l->blend_skin_object, info, lo, hi);
+        nw_scene_count(l->skin_gobj, info, lo, hi);
+        nw_scene_count(l->blend_skin_gobj, info, lo, hi);
     }
     if (lo[0] > hi[0]) {
         memcpy(lo, &h->bbox_min, sizeof(lo));

@@ -75,10 +75,10 @@ static void check_hobj(struct NUHGOBJ_s *h, char *file, const GhgFile *f)
     CHECK(h->sphere_radius == 2.0f && h->sphere_y == 0.5f && h->bbox_min.z == -3.0f && h->bbox_max.y == 2.0f);
     CHECK(h->cyl_y == 0.25f && h->cyl_height == 1.5f && h->cyl_radius == 0.75f && h->texanim_tids == NULL);
 
-    struct NUHLAYERDATA_s *l = h->layers;
-    CHECK(strcmp(l->name, "layer") == 0 && l->blend_gobjs == NULL && l->blend_skin_object == NULL);
-    CHECK(l->gobjs[1] == NULL && l->gobjs[0] && l->gobjs[2] && l->skin_object);
-    if (l->gobjs[0] && l->gobjs[2] && l->skin_object) {
+    struct NULAYERDATA_s *l = h->layers;
+    CHECK(strcmp(l->name, "layer") == 0 && l->blend_gobjs == NULL && l->blend_skin_gobj == NULL);
+    CHECK(l->gobjs[1] == NULL && l->gobjs[0] && l->gobjs[2] && l->skin_gobj);
+    if (l->gobjs[0] && l->gobjs[2] && l->skin_gobj) {
         struct nugobj_s *g = l->gobjs[0], *g2 = g->next_gobj;
         CHECK(g->sysnext == NULL && g->syslast == NULL && g->ngobjs == 1 && g->max.z == 3.0f && g->faceon_geom == NULL);
         CHECK(g->blend == NULL && g->tricount == 0 && g->faceon_blend == NULL);
@@ -86,10 +86,10 @@ static void check_hobj(struct NUHGOBJ_s *h, char *file, const GhgFile *f)
         CHECK(geom && geom->mtl == h->mtls[0] && geom->next && geom->next->next == NULL && geom->skindma == NULL);
         CHECK(mesh_of(geom) && mesh_of(geom)->nverts == 4 && mesh_of(geom)->ntris == 2);
         CHECK(geom->next && mesh_of(geom->next) && mesh_of(geom->next)->nverts == 6);
-        CHECK(geom->otbatch == NULL && geom->mtl_id == 0 && geom->blendgeom == NULL);
+        CHECK(geom->tristream == NULL && geom->mtl_id == 0 && geom->blendgeom == NULL);
         CHECK(g2 && g2->next_gobj == NULL && g2->geom->mtl == h->mtls[1] && mesh_of(g2->geom)->nverts == 5);
         CHECK(l->gobjs[2]->geom && mesh_of(l->gobjs[2]->geom)->ntris == 3);
-        struct nugeom_s *sg = l->skin_object->geom;
+        struct nugeom_s *sg = l->skin_gobj->geom;
         const NwVifSkin *s = sg && sg->skindma ? &((const NwGpuSkin *)sg->skindma)->skin : NULL;
         CHECK(s && sg->dmastream == NULL && s->nverts == 3 && s->ntris == 1 && s->maxjoint == 2);
         CHECK(s && s->verts[2].joint[1] == 2 && s->verts[2].weight[1] == 24576 && s->verts[0].nrmjoint == 2);
@@ -102,11 +102,11 @@ static void check_hobj(struct NUHGOBJ_s *h, char *file, const GhgFile *f)
     CHECK(a->numtids == 1 && a->tids[0] == h->tids[0] && strcmp(a->ntaname, "anim") == 0 && !a->succ && !a->prev);
     CHECK(strcmp(a->scriptname, "script") == 0 && a->env && a->env->mtl == h->mtls[1] && a->env->prog == NULL);
     CHECK((char *)a->env >= (char *)(h + 1) && (char *)a->env < ghg_buffer + sizeof(ghg_buffer));
-    struct nushadowdata_s *sh = h->shadow;
-    CHECK(sh && sh[0].ellipsoids == file + f->ellipsoids && sh[0].cylinders == (void *)0x1234 && sh[0].last == 2);
-    CHECK(sh && sh[0].numellipsoids == 1 && sh[0].nummeshes == 1 && sh[1].last == 0xFF);
-    CHECK(sh && sh[0].meshes[0].first == (struct nushadowvtx_s *)(file + f->shadow_vtx[0]));
-    CHECK(sh && sh[0].meshes[0].second == (struct nushadowvtx_s *)(file + f->shadow_vtx[1]));
+    struct NUSHADOWDATA_s *sh = h->shadow;
+    CHECK(sh && (char *)sh[0].ellipsoids == file + f->ellipsoids && sh[0].cylinders == (void *)0x1234 && sh[0].joint == 2);
+    CHECK(sh && sh[0].nellipsoids == 1 && sh[0].nshadow_meshes == 1 && sh[1].joint == 0xFF);
+    CHECK(sh && sh[0].shadow_meshes[0].normal_counts == (struct nushadowvtx_s *)(file + f->shadow_vtx[0]));
+    CHECK(sh && sh[0].shadow_meshes[0].vert_counts == (struct nushadowvtx_s *)(file + f->shadow_vtx[1]));
 }
 
 static void test_load(const char *scratch)
@@ -247,13 +247,13 @@ static void retail_file(RetailStats *st, const char *path)
     memset(st->used, 0, sizeof(st->used));
     unsigned verts = st->verts, dupes = st->dupes, batches = st->batches, deltas = st->deltas;
     for (int i = 0; i < h->num_layers; i++) {
-        const struct NUHLAYERDATA_s *l = &h->layers[i];
+        const struct NULAYERDATA_s *l = &h->layers[i];
         for (int j = 0; j < h->num_joints; j++) {
             retail_skin(st, path, h, l->gobjs ? l->gobjs[j] : NULL);
             retail_skin(st, path, h, l->blend_gobjs ? l->blend_gobjs[j] : NULL);
         }
-        retail_skin(st, path, h, l->skin_object);
-        retail_skin(st, path, h, l->blend_skin_object);
+        retail_skin(st, path, h, l->skin_gobj);
+        retail_skin(st, path, h, l->blend_skin_gobj);
     }
     NuHGobjEval(h, 0, NULL, pose);
     double bind = 0.0;

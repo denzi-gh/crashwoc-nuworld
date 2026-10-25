@@ -14,7 +14,7 @@
 /* Declared by no header. */
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void buildBitCountTable(void);
-extern int D_0062EE18; /* bitcount_table_built */
+extern int isBitCountTable;
 
 #define NW_ANIM_AT(f, p, type, field, size) (f)->at((f), (p) + offsetof(nw_ps2_##type, field), (size))
 #define NW_ANIM_NEW(f, type, n) ((type *)(f)->alloc((f), (size_t)(n) * sizeof(type), _Alignof(type)))
@@ -134,7 +134,7 @@ struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, uni
     if (hdr.version != 1) {
         NuErrorProlog(nuanim_srcfile, 0x2FE)("NuAnimDataLoadBuff: Is in new format, expecting old format.", file);
     }
-    if (!D_0062EE18) {
+    if (!isBitCountTable) {
         buildBitCountTable();
     }
     ld.addr = (uint32_t)hdr.address_offset;

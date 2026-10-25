@@ -213,16 +213,16 @@ static void nw_ghg_layers(NwGhgLoad *ld, const struct nughgheader_s *h)
 {
     struct NUHGOBJ_s *hobj = ld->hobj;
     hobj->num_layers = (u8)h->num_layers;
-    hobj->layers = NW_GHG_NEW(ld, struct NUHLAYERDATA_s, hobj->num_layers);
+    hobj->layers = NW_GHG_NEW(ld, struct NULAYERDATA_s, hobj->num_layers);
     for (int i = 0; i < hobj->num_layers; i++) {
         struct nughglayer_s f;
-        struct NUHLAYERDATA_s *layer = &hobj->layers[i];
+        struct NULAYERDATA_s *layer = &hobj->layers[i];
         memcpy(&f, nw_ghg_at(ld, h->layers + i * (int32_t)sizeof(f), sizeof(f)), sizeof(f));
         layer->name = f.name ? nw_ghg_at(ld, f.name, 1) : NULL;
         layer->gobjs = f.gobjs ? nw_ghg_joint_gobjs(ld, f.gobjs) : NULL;
-        layer->skin_object = f.skin_object ? nw_ghg_gobjs(ld, f.skin_object) : NULL;
+        layer->skin_gobj = f.skin_object ? nw_ghg_gobjs(ld, f.skin_object) : NULL;
         layer->blend_gobjs = f.blend_gobjs ? nw_ghg_joint_gobjs(ld, f.blend_gobjs) : NULL;
-        layer->blend_skin_object = f.blend_skin_object ? nw_ghg_gobjs(ld, f.blend_skin_object) : NULL;
+        layer->blend_skin_gobj = f.blend_skin_object ? nw_ghg_gobjs(ld, f.blend_skin_object) : NULL;
     }
 }
 
@@ -299,10 +299,10 @@ static void nw_ghg_collide(NwGhgLoad *ld, const struct nughgheader_s *h)
         struct nuhcollide_s *collide = hobj->collide = NW_GHG_NEW(ld, struct nuhcollide_s, 1);
         NW_FILE_X(nuhcollide_s, collide, nw_ghg_at(ld, h->collide, sizeof(nw_ps2_nuhcollide_s)));
         int32_t entries = NW_FILE_IX(collide->entries);
-        collide->entries = NW_GHG_NEW(ld, struct nuhcollideentry_s, collide->nentries);
+        collide->entries = NW_GHG_NEW(ld, struct NUCOLLISIONHDR_s, collide->nentries);
         for (unsigned i = 0; i < collide->nentries; i++) {
-            struct nuhcollideentry_s *e = &collide->entries[i];
-            NW_FILE_X(nuhcollideentry_s, e, nw_ghg_at(ld, entries + (int32_t)i * 8, sizeof(nw_ps2_nuhcollideentry_s)));
+            struct NUCOLLISIONHDR_s *e = &collide->entries[i];
+            NW_FILE_X(NUCOLLISIONHDR_s, e, nw_ghg_at(ld, entries + (int32_t)i * 8, sizeof(nw_ps2_NUCOLLISIONHDR_s)));
             e->data = nw_ghg_at(ld, NW_FILE_IX(e->data), 0);
         }
     }
@@ -311,26 +311,28 @@ static void nw_ghg_collide(NwGhgLoad *ld, const struct nughgheader_s *h)
         while (*(u8 *)nw_ghg_at(ld, h->shadow + n * 0x10 + 0xF, 1) != 0xFF) {
             n++;
         }
-        struct nushadowdata_s *shadow = hobj->shadow = NW_GHG_NEW(ld, struct nushadowdata_s, n + 1);
+        struct NUSHADOWDATA_s *shadow = hobj->shadow = NW_GHG_NEW(ld, struct NUSHADOWDATA_s, n + 1);
         for (int32_t i = 0; i <= n; i++, shadow++) {
-            NW_FILE_X(nushadowdata_s, shadow, nw_ghg_at(ld, h->shadow + i * 0x10, sizeof(nw_ps2_nushadowdata_s)));
+            NW_FILE_X(NUSHADOWDATA_s, shadow, nw_ghg_at(ld, h->shadow + i * 0x10, sizeof(nw_ps2_NUSHADOWDATA_s)));
             if (i == n) {
                 break;
             }
-            if (shadow->numellipsoids) {
-                shadow->ellipsoids = nw_ghg_at(ld, NW_FILE_IX(shadow->ellipsoids), shadow->numellipsoids * 0x30u);
+            if (shadow->nellipsoids) {
+                shadow->ellipsoids = (struct NUELLIPSOID_s *)nw_ghg_at(ld, NW_FILE_IX(shadow->ellipsoids),
+                                                                       shadow->nellipsoids * 0x30u);
             }
-            if (shadow->numcylinders) {
-                shadow->cylinders = nw_ghg_at(ld, NW_FILE_IX(shadow->cylinders), shadow->numcylinders * 0x40u);
+            if (shadow->ncylinders) {
+                shadow->cylinders = (struct NUCYLINDER_s *)nw_ghg_at(ld, NW_FILE_IX(shadow->cylinders),
+                                                                     shadow->ncylinders * 0x40u);
             }
-            if (shadow->nummeshes) {
-                int32_t meshes = NW_FILE_IX(shadow->meshes);
-                shadow->meshes = NW_GHG_NEW(ld, struct nushadowmesh_s, shadow->nummeshes);
-                for (int m = 0; m < shadow->nummeshes; m++) {
-                    struct nushadowmesh_s *mesh = &shadow->meshes[m];
-                    NW_FILE_X(nushadowmesh_s, mesh, nw_ghg_at(ld, meshes + m * 8, sizeof(nw_ps2_nushadowmesh_s)));
-                    mesh->second = (struct nushadowvtx_s *)nw_ghg_at(ld, NW_FILE_IX(mesh->second), 0x10);
-                    mesh->first = (struct nushadowvtx_s *)nw_ghg_at(ld, NW_FILE_IX(mesh->first), 0x10);
+            if (shadow->nshadow_meshes) {
+                int32_t meshes = NW_FILE_IX(shadow->shadow_meshes);
+                shadow->shadow_meshes = NW_GHG_NEW(ld, struct NUSHADOWMESH_s, shadow->nshadow_meshes);
+                for (int m = 0; m < shadow->nshadow_meshes; m++) {
+                    struct NUSHADOWMESH_s *mesh = &shadow->shadow_meshes[m];
+                    NW_FILE_X(NUSHADOWMESH_s, mesh, nw_ghg_at(ld, meshes + m * 8, sizeof(nw_ps2_NUSHADOWMESH_s)));
+                    mesh->vert_counts = (struct nushadowvtx_s *)nw_ghg_at(ld, NW_FILE_IX(mesh->vert_counts), 0x10);
+                    mesh->normal_counts = (struct nushadowvtx_s *)nw_ghg_at(ld, NW_FILE_IX(mesh->normal_counts), 0x10);
                 }
             }
         }

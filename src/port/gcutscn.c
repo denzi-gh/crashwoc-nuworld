@@ -21,7 +21,7 @@ _Static_assert(sizeof(union nuanimmask_u) == sizeof(nw_ps2_nuanimmask_u), "nuani
 /* Declared by no header. */
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void buildBitCountTable(void);
-extern int D_0062EE18; /* bitcount_table_built */
+extern int isBitCountTable;
 
 typedef struct NwCutLoad {
     char *base;
@@ -82,7 +82,7 @@ static void *nw_cut_new(NwCutLoad *ld, size_t size, size_t align)
 /* NuAnimData2FixPtrs: curves become 8-byte unions, a constant where the curve's flag is 0. */
 static struct nuanimdata2_s *nw_cut_anim2(NwCutLoad *ld, void *field)
 {
-    if (!D_0062EE18) {
+    if (!isBitCountTable) {
         buildBitCountTable();
     }
     char *p = NW_CUT_PTR(ld, field, sizeof(nw_ps2_nuanimdata2_s));
