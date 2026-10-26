@@ -40,6 +40,11 @@ void *vtCloseDirect(void *packet)
     return packet;
 }
 
+void *vpDmaTag_Cnt(void *packet)
+{
+    return nw_dmatag(packet, 1, 0, 0, 0);
+}
+
 void *vpDmaTag_CntEx(void *packet, uint32_t vif0, uint32_t vif1)
 {
     return nw_dmatag(packet, 1, 0, vif0, vif1);

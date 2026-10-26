@@ -29,6 +29,7 @@ int NuPlnLineVU0(struct nuplane_s *pln, struct nuvec_s *p0, struct nuvec_s *p1, 
 void NuCameraInitClipTestVU0(struct numtx_s *vpc, struct numtx_s *scissor, struct numtx_s *wm);
 int NuCameraClipTestExtentsVU0(struct nuvec_s *min, struct nuvec_s *max);
 void NuRndrStreamLink(struct rndrstream_s *stream);
+void *vpDmaTag_Cnt(void *packet);
 void *vpDmaTag_CntEx(void *packet, uint32_t vif0, uint32_t vif1);
 void *vpDmaTag_Next(void *packet, uint32_t addr);
 void *vpDmaTag_RefEx(void *packet, uint32_t addr, uint32_t vif0, uint32_t vif1);
@@ -202,6 +203,12 @@ static void test_dma(void)
 {
     _Alignas(16) uint32_t p[32];
     uint32_t *q;
+
+    memset(p, 0xAA, sizeof p);
+    q = vpDmaTag_Cnt(p); /* animateWater's tag: its VIF words follow it */
+    q[0] = 0x10000000, q[1] = 0x6C2001B2;
+    q = vpDmaTag_Close(q + 2);
+    CHECK(q == p + 8 && p[0] == 0x10000001u && p[1] == 0 && p[2] == 0 && p[3] == 0 && p[6] == 0 && p[7] == 0);
 
     memset(p, 0xAA, sizeof p);
     q = vpDmaTag_CntEx(p, 0x11, 0x22);
