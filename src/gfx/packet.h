@@ -103,6 +103,7 @@ typedef struct NwCmd {
                                       the NwPacket.verts */
             uint32_t weights, nweights; /* SKIN: the blend-shape weights in NwPacket.weights */
             uint8_t mode;               /* VERTS: an NwVertsMode */
+            uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */

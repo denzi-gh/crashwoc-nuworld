@@ -533,6 +533,9 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
         nw_be_object(p, c, program, &o);
     }
     NwVuMaterial m = nw_be_material(p, c, false);
+    if (c->alpha) {
+        m.state.alpha = (uint8_t)c->alpha;
+    }
     NwMtlPass pass[2];
     glBindVertexArray(nw_be.verts_vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);

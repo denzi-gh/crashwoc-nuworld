@@ -48,6 +48,14 @@ void NuCameraSet(struct nucamera_s *cam);
 void AddQuad3DrotXYZ(struct nuvec_s *pos, struct nuvec_s *shape, struct numtl_s *mtl, s32 *a, f32 *uvs, u32 colour);
 int NuBridgeStreamRope(struct rndrstream_s *rs, struct nuvec_s *points, int npoints, int colour);
 void *vpDmaTag_Next(void *packet, uint32_t addr);
+void NuRndrInitWorld(void);
+void NuRndrAddShadow(struct nuvec_s *pos, float size, int shade, int xrot, int yrot, int zrot);
+void NuRndrAddWaterRipple(struct nuvec_s *pos, int duration, u32 colour, float startsize, float endsize);
+void NuRndrAddFootPrint(int rot, float sizex, float sizez, int brightness, struct nuvec_s *pos, struct nuvec_s *norm,
+                        int gfx, u32 colour);
+extern int NuRndrShadowCnt, NuRndrFootFree;
+extern struct nurndrwaterrip_s NuRndrWaterRipDat[];
+extern struct nurndrfoot_s NuRndrFootData[];
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -757,6 +765,62 @@ static void test_rope(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The hub's first-frame fx: the kept bookkeeping and draws of the shadow polys and ripples and the footprints, each a
+   VERTS record in the fx stream under fx2 and the identity. A shadow is black with its shade as alpha and empties the
+   list; a ripple takes its current colour; a footprint fades with its timer below 16 and draws over ALPHA_1 0x44. */
+static void test_fx_quads(void)
+{
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuRndrInitWorld();
+    unsigned raw = nw_rndr_raw_streams();
+    struct nuvec_s pos = { 1.0f, 2.0f, 3.0f }, at = pos, norm = { 0.0f, 1.0f, 0.0f };
+    NuRndrAddShadow(&at, 0.5f, 0x60, 0, 0, 0);
+    NuRndrShadPolys(mtl);
+    CHECK(NuRndrShadowCnt == 0);
+    at = pos;
+    NuRndrAddWaterRipple(&at, 10, 0x80204060, 1.0f, 2.0f);
+    NuRndrWaterRippleUpdate(1);
+    NuRndrWaterRip(mtl);
+    float u[8] = { 0 }, v[8] = { 0 };
+    for (int k = 0; k < 4; k++) {
+        u[4 + k] = 0.25f * (float)k;
+        v[4 + k] = 0.5f;
+    }
+    NuRndrAddFootPrint(0, 0.5f, 0.25f, 0x40, &pos, &norm, 1, 0x00102030);
+    NuRndrFootPrints(mtl, u, v);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 3 ? p->cmds : NULL;
+    CHECK(c && c[0].count == 6 && c[1].count == 6 && c[2].count == 6);
+    for (int i = 0; c && i < 3; i++) {
+        CHECK(c[i].op == NW_CMD_VERTS && c[i].mode == NW_VERTS_TRIS && c[i].mpg == (void *)vu_load_fx2_mpg);
+        CHECK(c[i].material == mtl && same_mtx(c[i].local, &numtx_identity) && c[i].alpha == (i == 2 ? 0x144 : 0));
+    }
+    if (c && c[0].count == 6 && c[1].count == 6 && c[2].count == 6) {
+        const NwVuSpriteVertex *s = &p->verts[c[0].first], *r = &p->verts[c[1].first], *f = &p->verts[c[2].first];
+        CHECK(s[0].pos[0] == 0.5f && s[0].pos[1] == 2.01f && s[0].pos[2] == 2.5f && s[5].pos[0] == 1.5f);
+        CHECK(s[0].col[0] == 0 && s[0].col[3] == 0x60 && s[5].tex[0] == 4096.0f && s[5].tex[1] == 4096.0f);
+        u32 curcolour = NuRndrWaterRipDat[0].curcolour;
+        CHECK(r[0].pos[0] == 1.0f - NuRndrWaterRipDat[0].size && memcmp(r[0].col, &curcolour, 4) == 0);
+        CHECK(r[0].tex[0] == 0xC00 && r[0].tex[1] == 0x400 && r[5].tex[0] == 0xFF0 && r[5].tex[1] == 0x7F0);
+        const struct nurndrfoot_s *foot = &NuRndrFootData[(NuRndrFootFree - 1) & 0x3F];
+        CHECK(f[0].pos[0] == foot->pnts[0].x && f[5].pos[2] == foot->pnts[3].z);
+        CHECK(f[0].col[3] == 0x40 && f[0].col[0] == 0x30 && f[1].tex[0] == 1024.0f && f[0].tex[1] == 2048.0f);
+    }
+    CHECK(nw_rndr_raw_streams() == raw);
+    NuRndrSwapStreamBuffers();
+
+    struct nurndrfoot_s *foot = &NuRndrFootData[(NuRndrFootFree - 1) & 0x3F];
+    foot->timer = 15;
+    NuRndrFootPrints(mtl, u, v);
+    NuRndrEndScene();
+    p = nw_rndr_packet();
+    CHECK(foot->timer == 14 && p->ncmds == 1 && p->verts[p->cmds[0].first].col[3] == 0x40 * 14 >> 4);
+    NuRndrStreamFxMPG(0);
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -850,6 +914,7 @@ int main(void)
     test_xuv();
     test_crate_quad();
     test_rope();
+    test_fx_quads();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }
