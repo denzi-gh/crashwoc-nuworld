@@ -74,10 +74,10 @@ schema = 1
 # dead: the NuGHGWrite* writer, ReadNuIFFCollideData
 "nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
     "ReadNuIFFCollideData"] }
-# called: ReadNuIFFGeom and NuGobjDestroy, reached only from the .nus/.hgo readers and NuSceneDestroy, which
-# nothing calls on the PS2 (InstSceneLoad, NuHGobjLoad, NuHGobjReadForCutScene; the port's NuHGobjDestroy)
-"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuCvtGeoFixup", "NuPs2DestroyRenderStream"], called = [
-    "NuPs2CreateRenderStream", "NuPs2CreateFaceOn", "NuPs2DestroyRenderStream"] }
+# called: ReadNuIFFGeom's, reached only from the .nus/.hgo readers, which nothing calls on the PS2 (InstSceneLoad,
+# NuHGobjLoad, NuHGobjReadForCutScene); NuPs2DestroyRenderStream leaves the port's meshes to their scene
+"nu3d/nucvtgeo" = { treatment = "dead", override = ["NuPs2DestroyRenderStream"], called = ["NuPs2CreateRenderStream",
+    "NuPs2CreateFaceOn"] }
 # NuCvtSknInstFix: the port's NuGHGRead decodes the skin DMA, resolving its CALLs against the list as the fix does
 "nu3d/nucvtskn" = { treatment = "dead", called = ["NuPs2CreateSkin"] }
 "nu3d/asmgobj" = { treatment = "hle" }

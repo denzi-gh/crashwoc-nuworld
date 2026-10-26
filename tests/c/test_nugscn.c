@@ -321,6 +321,22 @@ static int test_retail(void)
     return failures ? 1 : 0;
 }
 
+/* A destroyed gobj leaves its geoms' meshes to their scene: NuPs2DestroyRenderStream frees nothing. */
+static void test_destroy(void)
+{
+    static NwGpuMesh mesh;
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0;
+    nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    struct nugobj_s *g = NuGobjCreate();
+    struct nugeom_s *geom = NuGeomCreate();
+    geom->dmastream = &mesh;
+    NuGobjAddGeom(g, geom);
+    NuGobjDestroy(g);
+    CHECK(nw_gpu_take(UINT64_MAX, &jobs, &cap) == 0);
+    SDL_free(jobs);
+}
+
 int main(int argc, char *argv[])
 {
     if (argc > 1 && strcmp(argv[1], "retail") == 0) {
@@ -335,6 +351,7 @@ int main(int argc, char *argv[])
     SDL_CreateDirectory(scratch);
     test_attrib();
     test_load(scratch);
+    test_destroy();
     SDL_free(scratch);
     printf("%s\n", failures ? "FAILED" : "nugscn: all checks passed");
     return failures ? 1 : 0;

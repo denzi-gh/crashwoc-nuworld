@@ -39,7 +39,6 @@ int NuMemFileSeek(int fh, int offset, int origin);
 void timeUserReset(void);
 void NuDisableVBlank(void);
 void NuEnableVBlank(void);
-void NuCvtGeoFixup(struct nucolourref_s *ref, int offset);
 void NuRndrSplineSearch(void *scene);
 extern NuMtlReadEventFunc NuMtlReadEvent;
 extern int nugscn_mtlupdate_enabled;
@@ -47,7 +46,6 @@ extern int in_protected_bit;
 
 static char **buffer_freeptr; /* the caller's buffer cursor */
 static char *buffer_tmpptr;   /* the buffer's end (no temp workspace) */
-static char *readfile_base;
 static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
 
@@ -130,6 +128,12 @@ void nw_gscn_free_meshes(void)
     nw_gscn_ngpu = nw_gscn_gpucap = 0;
 }
 
+/* nu3d/nucvtgeo (port/units.toml override): a geom's mesh is its scene's or its hgobj's, freed with them. */
+void NuPs2DestroyRenderStream(struct nugobj_s *gobj)
+{
+    (void)gobj;
+}
+
 void nw_gscn_remove(struct nugscn_s *scene)
 {
     NuGScnRemove(scene);
@@ -180,7 +184,6 @@ int NuGScnLoad(char **buffer, char *bufend, char *filename)
         NuErrorProlog(nugscn_srcfile, 0x184)("NuGScnBufferAllocAligned failed, scene buffer overrun. ");
         filebuf = 0;
     }
-    readfile_base = filebuf;
     int size = NuFileLoadBuffer(filename, filebuf, (int)(bufend - *buffer));
     gsc_load_context.size = size;
     gsc_load_context.filebuffer = filebuf;
@@ -373,10 +376,11 @@ void ReadObjSet(int fh)
             NuFileReadInt(fh);
             NuFileReadInt(fh);
             NuFileReadInt(fh);
+            /* Retail's NuCvtGeoFixup rebases the colour references onto the file for NuGobjColourBlendGobj, which
+               nothing reaches; no retail scene has them. */
             if (gscene->gobjs[i]->tricount != 0) {
                 gscene->gobjs[i]->blend = NuMemFileAddr(fh);
                 NuMemFileSeek(fh, gscene->gobjs[i]->tricount, 1);
-                NuCvtGeoFixup(gscene->gobjs[i]->blend, (int)(intptr_t)readfile_base);
             }
         }
     }
