@@ -1,0 +1,121 @@
+/* The pad shim under the decomp's NuPs2OpenPad / NuPs2ReadPad, and a virtual SDL gamepad as the pad. */
+#include <stdio.h>
+
+#include <SDL3/SDL.h>
+
+#include "nups2/ps2ctl.h"
+#include "platform/input.h"
+
+static int failures;
+
+#define CHECK(cond) \
+    do { \
+        if (!(cond)) { \
+            fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #cond); \
+            failures++; \
+        } \
+    } while (0)
+
+static const NwPadInput idle = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
+
+/* NuPs2ReadPad steps its setup once per call; a DualShock 2 is ready well within 16. */
+static void read_until_valid(struct nupad_s *pad)
+{
+    for (int i = 0; i < 16 && !pad->valid; i++) {
+        NuPs2ReadPad(pad);
+    }
+}
+
+static void test_shim(void)
+{
+    nw_pad_set(&idle);
+    struct nupad_s *pad = NuPs2OpenPad(0, 0);
+    CHECK(pad != NULL);
+    if (!pad) {
+        return;
+    }
+    read_until_valid(pad);
+    CHECK(pad->valid && pad->analogue_sticks && pad->analogue_buttons);
+    CHECK(pad->rdata.read_id == 0x79);
+    CHECK(pad->paddata == 0 && pad->ldx == 0 && pad->ldy == 0);
+
+    NwPadInput in = { NW_PAD_CROSS | NW_PAD_L2, 0xFF, 0x00, 0x80, 0x80, 0xFF, 0 };
+    nw_pad_set(&in);
+    NuPs2ReadPad(pad);
+    CHECK(pad->paddata == (NW_PAD_CROSS | NW_PAD_L2));
+    CHECK(pad->paddata_db == (NW_PAD_CROSS | NW_PAD_L2));
+    CHECK(pad->rdata.l_alg_x == 0xFF && pad->rdata.l_alg_y == 0x00);
+    CHECK(pad->ldx == 0x7F && pad->ldy == 0x80);
+    CHECK(pad->rdata.r_algpad_d == 0xFF && pad->rdata.r_algpad_l == 0 && pad->rdata.l2_alg == 0xFF);
+    NuPs2ReadPad(pad);
+    CHECK(pad->paddata == (NW_PAD_CROSS | NW_PAD_L2) && pad->paddata_db == 0);
+    nw_pad_set(&idle);
+    NuPs2ReadPad(pad);
+    CHECK(pad->valid && pad->paddata == 0 && pad->ldx == 0);
+    NuPs2PadSetMotors(pad, 1, 200);
+
+    struct nupad_s *second = NuPs2OpenPad(1, 0);
+    CHECK(second != NULL);
+    if (second) {
+        read_until_valid(second);
+        CHECK(!second->valid && second->paddata == 0);
+        NuPs2PadSetMotors(second, 1, 200);
+    }
+}
+
+static void test_gamepad(void)
+{
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        fprintf(stderr, "test_pad: SDL_Init: %s\n", SDL_GetError());
+        failures++;
+        return;
+    }
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "nuworld test pad";
+    SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+    SDL_Gamepad *gamepad = id ? SDL_OpenGamepad(id) : NULL;
+    CHECK(gamepad != NULL);
+    if (!gamepad) {
+        fprintf(stderr, "test_pad: virtual gamepad: %s\n", SDL_GetError());
+        SDL_Quit();
+        return;
+    }
+    SDL_Joystick *joystick = SDL_GetGamepadJoystick(gamepad);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_WEST, true);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_START, true);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_DPAD_LEFT, true);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, SDL_JOYSTICK_AXIS_MAX);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY, SDL_JOYSTICK_AXIS_MIN);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTY, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_JOYSTICK_AXIS_MIN);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, SDL_JOYSTICK_AXIS_MAX);
+    SDL_UpdateGamepads();
+
+    NwPadInput in;
+    nw_input_gamepad(gamepad, &in);
+    CHECK(in.buttons == (NW_PAD_CROSS | NW_PAD_SQUARE | NW_PAD_START | NW_PAD_LEFT | NW_PAD_R2));
+    CHECK(in.lx == 0xFF && in.ly == 0x00 && in.rx == 0x80 && in.ry == 0x80);
+    CHECK(in.l2 == 0x00 && in.r2 == 0xFF);
+
+    SDL_CloseGamepad(gamepad);
+    SDL_DetachVirtualJoystick(id);
+    SDL_Quit();
+}
+
+int main(void)
+{
+    test_shim();
+    test_gamepad();
+    if (failures) {
+        fprintf(stderr, "test_pad: %d check(s) failed\n", failures);
+        return 1;
+    }
+    printf("test_pad: all checks passed\n");
+    return 0;
+}

@@ -20,6 +20,7 @@
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
+#include "platform/input.h"
 #include "port/capture.h"
 #include "port/game.h"
 #include "port/scene.h"
@@ -492,7 +493,9 @@ static int nw_boot(const char *data_dir, int hardware_speed)
             if (!nw_debug_event(&event) && event.type == SDL_EVENT_QUIT) {
                 running = false;
             }
+            nw_input_event(&event);
         }
+        nw_input_poll();
         if (settings.hardware_speed != applied) {
             applied = settings.hardware_speed;
             nw_nusound_set_hardware_speed(applied);
@@ -520,6 +523,7 @@ static int nw_boot(const char *data_dir, int hardware_speed)
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
+    nw_input_shutdown();
     nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
