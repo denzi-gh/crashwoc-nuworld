@@ -374,9 +374,10 @@ static char *nw_ghg_texanims(NwGhgLoad *ld, const struct nughgheader_s *h, char 
         anim->ntaname = nw_ghg_at(ld, NW_FILE_IX(anim->ntaname), 1);
         struct nutexanimprog_s *prog = NuTexAnimProgFind(anim->scriptname);
         union variptr_u buff;
-        buff.voidptr = nw_heap_side_new(ld->side, sizeof(struct nutexanimenv_s), _Alignof(struct nutexanimenv_s));
+        ptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF);
+        buff.voidptr = nw_heap_side_at(ld->side, sizeof(struct nutexanimenv_s), _Alignof(struct nutexanimenv_s), ptr);
         anim->env = NuTexAnimEnvCreate(&buff, anim->mtl, anim->tids, prog);
-        ptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF) + sizeof(nw_ps2_nutexanimenv_s);
+        ptr += sizeof(nw_ps2_nutexanimenv_s);
     }
     for (int j = 0; j < hobj->numtexanims - 1; j++) {
         hobj->texanims[j].succ = &hobj->texanims[j] + 1;
@@ -406,7 +407,8 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
     }
     nw_ghg_at(&ld, 0, (size_t)h.size);
     ld.side = nw_heap_side();
-    struct NUHGOBJ_s *hobj = nw_heap_side_new(ld.side, sizeof(*hobj), _Alignof(struct NUHGOBJ_s));
+    char *at = (char *)(((uintptr_t)base + (size_t)h.size + 0xF) & ~(uintptr_t)0xF);
+    struct NUHGOBJ_s *hobj = nw_heap_side_at(ld.side, sizeof(*hobj), _Alignof(struct NUHGOBJ_s), at);
     hobj->type = 1;
     ld.hobj = hobj;
     ld.g = SDL_calloc(1, sizeof(NwGhg));
@@ -425,7 +427,7 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
     hobj->cyl_height = h.cyl_height;
     hobj->cyl_radius = h.cyl_radius;
     nw_ghg_collide(&ld, &h);
-    char *ptr = (char *)(((uintptr_t)base + (size_t)h.size + 0xF) & ~(uintptr_t)0xF) + sizeof(nw_ps2_NUHGOBJ_s);
+    char *ptr = at + sizeof(nw_ps2_NUHGOBJ_s);
     ptr = nw_ghg_texanims(&ld, &h, ptr);
     buffer->charptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF);
     nw_heap_side_own(ld.side, base, buffer->charptr);

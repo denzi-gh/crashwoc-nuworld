@@ -522,6 +522,24 @@ bool nw_image_ps2(const void *host, uint32_t *ps2)
     return true;
 }
 
+void nw_image_each(void (*fn)(const NwImageObj *o, void *user), void *user)
+{
+    for (size_t i = 0; i < nw_image.nobjs; i++) {
+        const NwObj *o = &nw_image.objs[i];
+        bool plain = (o->flags & NW_OBJ_PLAIN) || (o->type && (o->type->flags & NW_TYPE_POD));
+        if (!o->size || (!plain && !nw_image_typed(o->type))) {
+            continue;
+        }
+        NwImageObj v = { o->name, o->addr, o->size, o->host, plain ? NULL : o->type, plain ? 1 : o->count };
+        fn(&v, user);
+    }
+}
+
+bool nw_image_kept_int(const void *p)
+{
+    return (uintptr_t)p < NW_IMAGE_INT_LIMIT || (intptr_t)p == -1;
+}
+
 const NwVuProg *nw_vu_prog(const void *mpg)
 {
     const NwImageTables *t = nw_image.t;
@@ -589,7 +607,7 @@ static uint32_t nw_trip_ptr_out(NwXCtx *ctx, const void *p, const NwType *type, 
 {
     (void)type;
     uint32_t ps2;
-    if ((uintptr_t)p < NW_IMAGE_INT_LIMIT || (intptr_t)p == -1) {
+    if (nw_image_kept_int(p)) {
         return (uint32_t)(uintptr_t)p;
     }
     return nw_image_ps2(p, &ps2) ? ps2 : nw_trip_mark(ctx, p, site);

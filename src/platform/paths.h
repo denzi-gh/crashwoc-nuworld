@@ -12,6 +12,7 @@
 #define NW_PATHS_SETTINGS "settings.toml"
 #define NW_PATHS_SCREENSHOTS "screenshots"
 #define NW_PATHS_CAPTURES "captures/port" /* --capture's frames; tools/pcsx2_capture.py writes captures/pcsx2 */
+#define NW_PATHS_DUMPS "dumps/port"       /* --dump's states; tools/pcsx2_dump.py writes dumps/pcsx2 */
 
 /* <base_dir>user/ when <base_dir>portable.txt exists (portable mode), else pref_dir
    (NULL: SDL_GetPrefPath(NULL, NW_PATHS_APP)). */
