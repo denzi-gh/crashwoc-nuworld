@@ -8,6 +8,7 @@
 #include "nu3d/nuvport.h"
 #include "nups2/ps2video.h"
 #include "port/capture.h"
+#include "port/dump.h"
 #include "port/game.h"
 #include "port/ps2video.h"
 #include "port/trace.h"
@@ -149,6 +150,7 @@ void nw_vblank_deliver(unsigned edges)
         return;
     }
     for (unsigned i = 0; i < edges; i++) {
+        nw_dump_vblank(nuvideo_global_vbcnt - (int)(edges - i) + 1);
         int vbs = SDL_GetAtomicInt(&nw_vbs_intc);
         if (vbs & NW_INTC_HOOKED) {
             if (vbs & NW_INTC_MASKED) {

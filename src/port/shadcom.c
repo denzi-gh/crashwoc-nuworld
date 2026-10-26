@@ -70,9 +70,7 @@ struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer)
     NwHeapSide *side = nw_heap_side();
     nw_heap_side_own(side, ld.base, buffer->charptr);
     size_t table = offsetof(struct shaddata_s, table) + 2 * (size_t)count * sizeof(union shadslot_u);
-    struct shaddata_s *data = nw_heap_side_new(side, table, _Alignof(struct shaddata_s));
-    struct shadentry_s *entries =
-        nw_heap_side_new(side, count * sizeof(struct shadentry_s), _Alignof(struct shadentry_s));
+    struct shaddata_s *data = nw_heap_side_at(side, table, _Alignof(struct shaddata_s), ld.base);
     data->count = count;
     data->external = 1;
     for (int i = 0; i < count; i++) {
@@ -84,7 +82,7 @@ struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer)
             SDL_strnlen(ld.base + name, ld.size - (size_t)name) == ld.size - (size_t)name) {
             nw_shd_bad(&ld, "name", (size_t)name);
         }
-        struct shadentry_s *entry = &entries[i];
+        struct shadentry_s *entry = nw_heap_side_at(side, sizeof(*entry), _Alignof(struct shadentry_s), ld.base + at);
         memcpy(&entry->xframes, ld.base + at, 2);
         memcpy(&entry->yframes, ld.base + at + 2, 2);
         memcpy(&entry->pad04, ld.base + at + 4, 4);

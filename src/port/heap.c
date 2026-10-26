@@ -1,6 +1,8 @@
 #include "port/heap.h"
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
@@ -9,6 +11,8 @@
 
 #define NW_HEAP_FIRST 0x400  /* a side's first chunk; each next one doubles */
 #define NW_HEAP_CHUNK 0x10000 /* up to this */
+#define NW_SUPERBUFFER_PS2 0x7069C0u /* retail's superbuffer (PCSX2, over PINE) */
+#define NW_SUPERBUFFER_ALIGN 0x1000u
 
 typedef struct NwHeapChunk {
     struct NwHeapChunk *next;
@@ -20,11 +24,22 @@ struct NwHeapSide {
     const char *lo, *hi; /* empty until nw_heap_side_own */
     NwHeapChunk *chunks;
     size_t bytes;
+    NwHeapRec *recs;
+    size_t nrecs, reccap;
+    struct NwHeapHole {
+        const void *at;
+        size_t size;
+        const char *why;
+    } *holes;
+    size_t nholes, holecap;
 };
 
 /* EE threads pass a baton, so no lock. */
 static NwHeapSide **nw_heap_live;
 static size_t nw_heap_nlive, nw_heap_cap;
+static const NwHeapRec **nw_heap_index; /* every live record in host address order, rebuilt when stale */
+static size_t nw_heap_nindex;
+static bool nw_heap_stale = true;
 
 static _Noreturn void nw_heap_oom(void)
 {
@@ -76,7 +91,25 @@ void *nw_heap_side_new(NwHeapSide *side, size_t size, size_t align)
     }
     c->used = at - (uintptr_t)c->data + size;
     memset((void *)at, 0, size);
+    if (side->nrecs == side->reccap) {
+        size_t n = side->reccap ? side->reccap * 2 : 16;
+        NwHeapRec *grown = SDL_realloc(side->recs, n * sizeof(*grown));
+        if (!grown) {
+            nw_heap_oom();
+        }
+        side->recs = grown;
+        side->reccap = n;
+    }
+    side->recs[side->nrecs++] = (NwHeapRec){ (void *)at, size, NULL };
+    nw_heap_stale = true;
     return (void *)at;
+}
+
+void *nw_heap_side_at(NwHeapSide *side, size_t size, size_t align, const void *at)
+{
+    void *rec = nw_heap_side_new(side, size, align);
+    side->recs[side->nrecs - 1].at = at;
+    return rec;
 }
 
 static void nw_heap_side_free(size_t i)
@@ -86,8 +119,11 @@ static void nw_heap_side_free(size_t i)
         next = c->next;
         SDL_free(c);
     }
+    SDL_free(side->recs);
+    SDL_free(side->holes);
     SDL_free(side);
     nw_heap_live[i] = nw_heap_live[--nw_heap_nlive];
+    nw_heap_stale = true;
 }
 
 void nw_heap_side_own(NwHeapSide *side, const void *lo, const void *hi)
@@ -104,12 +140,102 @@ void nw_heap_side_own(NwHeapSide *side, const void *lo, const void *hi)
     }
 }
 
+void nw_heap_side_hole(NwHeapSide *side, const void *at, size_t size, const char *why)
+{
+    if (side->nholes == side->holecap) {
+        size_t n = side->holecap ? side->holecap * 2 : 16;
+        struct NwHeapHole *grown = SDL_realloc(side->holes, n * sizeof(*grown));
+        if (!grown) {
+            nw_heap_oom();
+        }
+        side->holes = grown;
+        side->holecap = n;
+    }
+    side->holes[side->nholes++] = (struct NwHeapHole){ at, size, why };
+}
+
+void nw_heap_hole(const void *at, size_t size, const char *why)
+{
+    if (at && size) {
+        NwHeapSide *side = nw_heap_side();
+        nw_heap_side_hole(side, at, size, why);
+        nw_heap_side_own(side, at, (const char *)at + size);
+    }
+}
+
+void nw_heap_each_hole(void (*fn)(const void *at, size_t size, const char *why, void *user), void *user)
+{
+    for (size_t i = 0; i < nw_heap_nlive; i++) {
+        for (size_t h = 0; h < nw_heap_live[i]->nholes; h++) {
+            const struct NwHeapHole *x = &nw_heap_live[i]->holes[h];
+            fn(x->at, x->size, x->why, user);
+        }
+    }
+}
+
+void *NuMemAllocFn(int size, char *file, int line);
+
+/* Never freed, as retail's. */
+void *nw_superbuffer_alloc(int size, char *file, int line)
+{
+    char *p = NuMemAllocFn(size + (int)NW_SUPERBUFFER_ALIGN, file, line);
+    if (!p) {
+        return NULL;
+    }
+    uintptr_t want = NW_SUPERBUFFER_PS2 % NW_SUPERBUFFER_ALIGN, have = (uintptr_t)p % NW_SUPERBUFFER_ALIGN;
+    return p + (want - have + NW_SUPERBUFFER_ALIGN) % NW_SUPERBUFFER_ALIGN;
+}
+
 void *nw_heap_twin(void *at, size_t charge, size_t size, size_t align)
 {
     NwHeapSide *side = nw_heap_side();
-    void *rec = nw_heap_side_new(side, size, align);
+    void *rec = nw_heap_side_at(side, size, align, at);
     nw_heap_side_own(side, at, (char *)at + charge);
     return rec;
+}
+
+static int nw_heap_cmp(const void *a, const void *b)
+{
+    uintptr_t x = (uintptr_t)(*(const NwHeapRec *const *)a)->host;
+    uintptr_t y = (uintptr_t)(*(const NwHeapRec *const *)b)->host;
+    return x < y ? -1 : x > y;
+}
+
+const NwHeapRec *nw_heap_find(const void *p)
+{
+    if (nw_heap_stale) {
+        size_t n = 0;
+        for (size_t i = 0; i < nw_heap_nlive; i++) {
+            n += nw_heap_live[i]->nrecs;
+        }
+        const NwHeapRec **index = SDL_realloc(nw_heap_index, (n ? n : 1) * sizeof(*index));
+        if (!index) {
+            nw_heap_oom();
+        }
+        nw_heap_index = index;
+        nw_heap_nindex = 0;
+        for (size_t i = 0; i < nw_heap_nlive; i++) {
+            for (size_t r = 0; r < nw_heap_live[i]->nrecs; r++) {
+                index[nw_heap_nindex++] = &nw_heap_live[i]->recs[r];
+            }
+        }
+        qsort(index, nw_heap_nindex, sizeof(*index), nw_heap_cmp);
+        nw_heap_stale = false;
+    }
+    size_t lo = 0, hi = nw_heap_nindex;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if ((const void *)nw_heap_index[mid]->host <= p) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo == 0) {
+        return NULL;
+    }
+    const NwHeapRec *rec = nw_heap_index[lo - 1];
+    return (uintptr_t)p - (uintptr_t)rec->host <= rec->size ? rec : NULL;
 }
 
 size_t nw_heap_sides(size_t *bytes)

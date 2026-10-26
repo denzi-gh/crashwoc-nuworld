@@ -6,10 +6,10 @@
 #include <stddef.h>
 
 /* A format's pointers: at() the size bytes a pointer field of the image addresses (NULL for 0), alloc() zeroed
-   host records. */
+   host records of the image's records at ps2 (retail fixes them in place). */
 typedef struct NwAnimFile {
     char *(*at)(struct NwAnimFile *f, char *field, size_t size);
-    void *(*alloc)(struct NwAnimFile *f, size_t size, size_t align);
+    void *(*alloc)(struct NwAnimFile *f, size_t size, size_t align, const void *ps2);
     int node_names; /* relocated (the .ani), or the file's value (the animlib) */
 } NwAnimFile;
 

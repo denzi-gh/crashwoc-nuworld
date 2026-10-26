@@ -18,20 +18,20 @@ void buildBitCountTable(void);
 extern int isBitCountTable;
 
 #define NW_ANIM_AT(f, p, type, field, size) (f)->at((f), (p) + offsetof(nw_ps2_##type, field), (size))
-#define NW_ANIM_NEW(f, type, n) ((type *)(f)->alloc((f), (size_t)(n) * sizeof(type), _Alignof(type)))
+#define NW_ANIM_NEW(f, type, n, ps2) ((type *)(f)->alloc((f), (size_t)(n) * sizeof(type), _Alignof(type), (ps2)))
 
 static struct nuanimcurveset_s *nw_anim_curveset(NwAnimFile *f, char *p)
 {
-    struct nuanimcurveset_s *set = NW_ANIM_NEW(f, struct nuanimcurveset_s, 1);
+    struct nuanimcurveset_s *set = NW_ANIM_NEW(f, struct nuanimcurveset_s, 1, p);
     NW_FILE_X(nuanimcurveset_s, set, p);
     int n = set->ncurves > 0 ? set->ncurves : 0;
     set->constants = (float *)NW_ANIM_AT(f, p, nuanimcurveset_s, constants, (size_t)n * 4);
     char *curves = NW_ANIM_AT(f, p, nuanimcurveset_s, set, (size_t)n * 4);
-    set->set = curves ? NW_ANIM_NEW(f, struct nuanimcurve_s *, n) : NULL;
+    set->set = curves ? NW_ANIM_NEW(f, struct nuanimcurve_s *, n, curves) : NULL;
     for (int k = 0; curves && k < n; k++) {
         char *c = f->at(f, curves + 4 * k, sizeof(nw_ps2_nuanimcurve_s));
         if (c) {
-            struct nuanimcurve_s *curve = NW_ANIM_NEW(f, struct nuanimcurve_s, 1);
+            struct nuanimcurve_s *curve = NW_ANIM_NEW(f, struct nuanimcurve_s, 1, c);
             NW_FILE_X(nuanimcurve_s, curve, c);
             curve->animkeys = (struct nuanimkey_s *)NW_ANIM_AT(f, c, nuanimcurve_s, animkeys,
                                                                curve->numkeys * sizeof(nw_ps2_nuanimkey_s));
@@ -43,11 +43,11 @@ static struct nuanimcurveset_s *nw_anim_curveset(NwAnimFile *f, char *p)
 
 static struct nuanimdatachunk_s *nw_anim_chunk(NwAnimFile *f, char *p)
 {
-    struct nuanimdatachunk_s *chunk = NW_ANIM_NEW(f, struct nuanimdatachunk_s, 1);
+    struct nuanimdatachunk_s *chunk = NW_ANIM_NEW(f, struct nuanimdatachunk_s, 1, p);
     NW_FILE_X(nuanimdatachunk_s, chunk, p);
     int n = chunk->numnodes > 0 ? chunk->numnodes : 0;
     char *sets = NW_ANIM_AT(f, p, nuanimdatachunk_s, animcurvesets, (size_t)n * 4);
-    chunk->animcurvesets = sets ? NW_ANIM_NEW(f, struct nuanimcurveset_s *, n) : NULL;
+    chunk->animcurvesets = sets ? NW_ANIM_NEW(f, struct nuanimcurveset_s *, n, sets) : NULL;
     for (int j = 0; sets && j < n; j++) {
         char *s = f->at(f, sets + 4 * j, sizeof(nw_ps2_nuanimcurveset_s));
         chunk->animcurvesets[j] = s ? nw_anim_curveset(f, s) : NULL;
@@ -57,14 +57,14 @@ static struct nuanimdatachunk_s *nw_anim_chunk(NwAnimFile *f, char *p)
 
 struct nuanimdata_s *nw_anim_data(NwAnimFile *f, char *p)
 {
-    struct nuanimdata_s *data = NW_ANIM_NEW(f, struct nuanimdata_s, 1);
+    struct nuanimdata_s *data = NW_ANIM_NEW(f, struct nuanimdata_s, 1, p);
     NW_FILE_X(nuanimdata_s, data, p);
     if (f->node_names) {
         data->node_names = NW_ANIM_AT(f, p, nuanimdata_s, node_names, 0);
     }
     int n = data->nchunks > 0 ? data->nchunks : 0;
     char *chunks = NW_ANIM_AT(f, p, nuanimdata_s, chunks, (size_t)n * 4);
-    data->chunks = chunks ? NW_ANIM_NEW(f, struct nuanimdatachunk_s *, n) : NULL;
+    data->chunks = chunks ? NW_ANIM_NEW(f, struct nuanimdatachunk_s *, n, chunks) : NULL;
     for (int i = 0; chunks && i < n; i++) {
         char *c = f->at(f, chunks + 4 * i, sizeof(nw_ps2_nuanimdatachunk_s));
         data->chunks[i] = c ? nw_anim_chunk(f, c) : NULL;
@@ -103,9 +103,9 @@ static char *nw_ani_at(NwAnimFile *f, char *field, size_t size)
     return ld->base + off;
 }
 
-static void *nw_ani_new(NwAnimFile *f, size_t size, size_t align)
+static void *nw_ani_new(NwAnimFile *f, size_t size, size_t align, const void *ps2)
 {
-    return nw_heap_side_new(((NwAniLoad *)f)->side, size, align);
+    return nw_heap_side_at(((NwAniLoad *)f)->side, size, align, ps2);
 }
 
 struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, union variptr_u *buffend)

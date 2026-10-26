@@ -27,6 +27,12 @@ static int all_zero(const char *p, size_t n)
     return 1;
 }
 
+static void count_hole(const void *at, size_t size, const char *why, void *user)
+{
+    (void)at, (void)size, (void)why;
+    ++*(unsigned *)user;
+}
+
 int main(void)
 {
     NwHeapSide *a = nw_heap_side();
@@ -59,6 +65,34 @@ int main(void)
     /* Owning a wider range again frees what it now covers. */
     nw_heap_side_own(grown, heap + 512, heap + 4096);
     CHECK(nw_heap_sides(NULL) == 2);
+
+    /* Records are found by any host address inside them, their end included unless the next one starts there, and
+       keep where retail has them; holes live and die with their load. */
+    NwHeapSide *load = nw_heap_side();
+    char *x = nw_heap_side_at(load, 24, 8, heap + 64);
+    char *y = nw_heap_side_at(load, 8, 8, heap + 96);
+    char *z = nw_heap_side_new(load, 4, 4);
+    nw_heap_side_hole(load, heap + 128, 32, "DMA");
+    nw_heap_side_own(load, heap, heap + 256);
+    const NwHeapRec *r = nw_heap_find(x + 10);
+    CHECK(r && r->host == x && r->size == 24 && r->at == heap + 64);
+    r = nw_heap_find(y);
+    CHECK(r && r->host == y && r->at == heap + 96);
+    r = nw_heap_find(z + 4);
+    CHECK(r && r->host == z && r->at == NULL);
+    CHECK(nw_heap_find(heap) == NULL);
+    unsigned holes = 0;
+    nw_heap_each_hole(count_hole, &holes);
+    CHECK(holes == 1);
+    nw_heap_hole(heap + 1024, 16, "packet");
+    nw_heap_each_hole(count_hole, &holes);
+    CHECK(holes == 3);
+    NwHeapSide *over = nw_heap_side();
+    nw_heap_side_own(over, heap, heap + 2048);
+    CHECK(nw_heap_find(x) == NULL);
+    holes = 0;
+    nw_heap_each_hole(count_hole, &holes);
+    CHECK(holes == 0);
 
     printf("%s\n", failures ? "FAILED" : "heap: all checks passed");
     return failures ? 1 : 0;

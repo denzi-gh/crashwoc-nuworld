@@ -1,0 +1,11 @@
+^struct numtl_s\.(sbdata|vuattr)  # GS and VU packets the host renderer does not build
+^struct rndrstream_s\.  # render streams: the port draws through its own renderer
+^rndrstream_3d\.  # render streams: the port draws through its own renderer
+^(NRFanData|nurndr_tritot_this_frame)\.  # render bookkeeping of the port's renderer
+^loadstackmem\.  # EE thread stacks
+^sem_id\.  # semaphore ids of the shim
+^(totalloc|highallocaddr|peakallocaddr)\.  # host malloc bookkeeping
+^nuvideo_global_vbcnt\.  # vblanks since boot; the trace counts from the title cut
+^struct NUGCUTSCENE_s\.base  # file-to-heap delta of host addresses
+^(buffer_start|buffer_freeptr|buffer_tmpptr|buffer_endptr|readfile_base|gscene)\.  # nugscn loader statics the port's loader replaces
+^NuTrigTable\.  # EE float rounding (#91): NuTrigInit's table

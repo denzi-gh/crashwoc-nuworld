@@ -22,6 +22,7 @@
 #include "gfx/view.h"
 #include "platform/input.h"
 #include "port/capture.h"
+#include "port/dump.h"
 #include "port/game.h"
 #include "port/saveload.h"
 #include "port/scene.h"
@@ -294,6 +295,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
+#define NW_DUMP_MS 3600000             /* the watchdog of --dump */
 
 /* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
    file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
@@ -615,6 +617,48 @@ static int nw_capture(const char *data_dir, const char *list, const char *dir, b
     return nw_boot_exit(finished && saved && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
+/* --dump: the game headless on the stepped clock; its state at the requested vblanks goes to dir as <vblank>.nwd
+   (src/port/dump.h), then the stub hits to stdout. Returns 0 once every one is written, 1 on a failed one, a stopped
+   game or the watchdog, 2 without usable data or vblanks. */
+static int nw_dump_run(const char *data_dir, const char *list, const char *dir, bool heap, bool hardware_speed)
+{
+    char *root = nw_data_root(data_dir);
+    char *out = dir ? nw_paths_dir(dir, NULL, true) : root ? nw_paths_dir(root, NW_PATHS_DUMPS, true) : NULL;
+    SDL_free(root);
+    if (!out || !nw_dump_start(list, out, heap)) {
+        fprintf(stderr, NW_APP_NAME ": --dump: no vblanks in %s or no folder for them\n", list);
+        SDL_free(out);
+        return 2;
+    }
+    SDL_free(out);
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_STEPPED, hardware_speed);
+    if (code) {
+        return code;
+    }
+    nw_stub_set_continue(true);
+    if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
+        fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        return 1;
+    }
+    uint64_t start = SDL_GetTicks(), edge = 0;
+    while (!nw_dump_finished() && nw_game_state() == NW_GAME_RUNNING && SDL_GetTicks() - start < NW_DUMP_MS) {
+        edge = nw_game_watch_edge(edge, 100);
+    }
+    bool finished = nw_dump_finished();
+    bool parked = nw_game_parked();
+    NwGameState state = nw_game_state();
+    unsigned failed, written = nw_dump_written(&failed);
+    fflush(stderr);
+    printf("dump: %u states written, %u failed\n", written, failed);
+    nw_print_stub_hits("dump", state);
+    if (state == NW_GAME_FATAL) {
+        fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
+    } else if (!finished) {
+        fprintf(stderr, NW_APP_NAME ": dump: the game stopped or the watchdog ran out before the last vblank\n");
+    }
+    return nw_boot_exit(finished && !failed && state == NW_GAME_PARKED ? 0 : 1, parked);
+}
+
 /* A .gsc or .ghg of the imported disc by its manifest path (either slash); NULL when it is not on the disc. */
 static const NwManifestEntry *nw_scene_entry(const char *path)
 {
@@ -764,6 +808,10 @@ int main(int argc, char *argv[])
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *import_save = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
     const char *capture = NULL, *capture_dir = NULL; /* --capture <vblanks|file> [--capture-dir <dir>] */
+    const char *dump = NULL, *dump_dir = NULL;       /* --dump <vblanks|file> [--dump-dir <dir>] [--dump-no-heap] */
+    const char *poke = NULL;                         /* --poke <vblank:symbol=value,...> */
+    const char *dump_after = NULL;                   /* --dump-after <symbol=value> */
+    bool dump_heap = true;
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
@@ -778,7 +826,9 @@ int main(int argc, char *argv[])
         if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--import-save") == 0 ||
              strcmp(argv[i], "--data-dir") == 0 ||
              strcmp(argv[i], "--scene-check") == 0 || strcmp(argv[i], "--capture") == 0 ||
-             strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0) &&
+             strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
+             strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
+             strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -825,6 +875,16 @@ int main(int argc, char *argv[])
             capture = argv[++i];
         } else if (strcmp(argv[i], "--capture-dir") == 0) {
             capture_dir = argv[++i];
+        } else if (strcmp(argv[i], "--dump") == 0) {
+            dump = argv[++i];
+        } else if (strcmp(argv[i], "--dump-dir") == 0) {
+            dump_dir = argv[++i];
+        } else if (strcmp(argv[i], "--dump-no-heap") == 0) {
+            dump_heap = false;
+        } else if (strcmp(argv[i], "--poke") == 0) {
+            poke = argv[++i];
+        } else if (strcmp(argv[i], "--dump-after") == 0) {
+            dump_after = argv[++i];
         } else if (strcmp(argv[i], "--hardware-speed") == 0) {
             const char *value = argv[++i];
             if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
@@ -848,7 +908,7 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || scene || scene_check || boot || boot_check || capture) {
+    if (check_data || check_scenes || scene || scene_check || boot || boot_check || capture || dump) {
 #ifdef NW_WITH_GAME
         if (check_scenes) {
             return nw_check_scenes(data_dir);
@@ -862,11 +922,17 @@ int main(int argc, char *argv[])
         if (trace_sound) {
             nw_trace_sound_start();
         }
+        if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
+            return 2;
+        }
         /* The runs compared with PCSX2's keep its load times and the game window takes settings.toml's; the checks
            load at once, so they never depend on the player's settings. --hardware-speed decides for all of them. */
-        int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture ? 1 : -1;
+        int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
         if (capture) {
             return nw_capture(data_dir, capture, capture_dir, speed > 0);
+        }
+        if (dump) {
+            return nw_dump_run(data_dir, dump, dump_dir, dump_heap, speed > 0);
         }
         return check_data   ? nw_check_data(data_dir)
                : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,

@@ -38,6 +38,22 @@ void *nw_image_host(uint32_t ps2);
 /* The way back: the PS2 address of a host address in the image (one past an object's end included). */
 bool nw_image_ps2(const void *host, uint32_t *ps2);
 
+/* One object of the image with storage of its own. */
+typedef struct NwImageObj {
+    const char *name;
+    uint32_t addr, size; /* PS2 extent */
+    const void *host;
+    const struct NwType *type; /* element type of a converted object; NULL: plain bytes */
+    uint32_t count;
+} NwImageObj;
+
+/* fn for every sized object in address order (roots with storage, C definitions at retail addresses, objects only
+   pointers reach), with the game's current host bytes; objects with no type to convert them back are left out. */
+void nw_image_each(void (*fn)(const NwImageObj *o, void *user), void *user);
+
+/* Whether a host pointer slot holds what the image kept as an integer: a small value or -1. */
+bool nw_image_kept_int(const void *p);
+
 /* The microcode package mpg is the token of (rndrstream_s.mpg, the address a DMA call tag calls), else NULL. */
 const NwVuProg *nw_vu_prog(const void *mpg);
 

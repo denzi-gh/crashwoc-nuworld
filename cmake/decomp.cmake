@@ -135,7 +135,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c
-  src/port/capture.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
+  src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c

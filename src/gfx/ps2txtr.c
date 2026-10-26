@@ -10,6 +10,7 @@
 #include "gfx/rndr.h"
 #include "nu3d/nutex.h"
 #include "nucore/nuerror.h"
+#include "port/heap.h"
 
 #define ps2txtr_srcfile "..\\nu2crash.ps2\\nups2\\ps2txtr.c"
 #define NW_TEX_SLOTS 0x400 /* NUTEX_MAX */
@@ -19,8 +20,11 @@ extern struct nutexslot_s *D_0062EBEC;
 extern int gs_botfree;
 extern int PS2_REZ_W;
 extern int PS2_REZ_H;
+extern int numtl_force_mipmap;
 
 int NuTexReserve(int size);
+void *NuMemAllocFn(int size, char *file, int line);
+void NuMemFreeFn(void *ptr, char *file, int line);
 
 static NwGpuTex *nw_ps2tx[NW_TEX_SLOTS];
 
@@ -196,6 +200,34 @@ int NuPs2CreateRenderTarget(struct nutex_s *spec, struct nups2tex_s *tex)
 /* GenTextureLoad's GS formats by bitmap type 2-5. */
 static const uint8_t nw_ps2tx_psm[4] = { 0x01, 0x00, 0x14, 0x13 };
 
+/* Retail's upload packets, never filled here: GenTextureLoad's per mip level, GenPaletteLoad's for types 4-7. Inside
+   NuMemSetExternal they come off the caller's buffer (the time tunnel's texture off the superbuffer). */
+static void nw_ps2tx_charge(const struct nutex_s *spec, struct nups2tex_s *tex)
+{
+    int w = spec->width, h = spec->height;
+    while (w > 0x200 || h > 0x200) {
+        w >>= 1;
+        h >>= 1;
+    }
+    int levels = !spec->bits ? 0 : spec->mmcnt ? spec->mmcnt : numtl_force_mipmap ? 7 : 1;
+    for (int i = 0; i < levels && i < 7 && w >> i >= 8 && h >> i >= 8; i++) {
+        int texels = (w >> i) * (h >> i);
+        int size = spec->type == 4 ? texels / 2 : spec->type == 5 ? texels : spec->type == 2 ? texels * 3
+                 : spec->type == 3 || spec->type >= 6 ? texels * 4 : texels * 2;
+        int alloc = ((size + 15) & ~15) + 0x90;
+        alloc += (alloc + 0x7CFFF) / 0x7D000 * 32;
+        tex->mipdata[i] = NuMemAllocFn(alloc, ps2txtr_srcfile, 0x250);
+        tex->reqsize[i] = alloc;
+        nw_heap_hole(tex->mipdata[i], (size_t)alloc, "texture packet");
+    }
+    if (spec->type >= 4 && spec->type <= 7) {
+        int size = (spec->type == 4 || spec->type == 6 ? 0x40 : 0x400) + 0x80;
+        tex->paldata = NuMemAllocFn(size, ps2txtr_srcfile, 0x3ED);
+        tex->palstreamsize = tex->paldata ? size : 0;
+        nw_heap_hole(tex->paldata, (size_t)size, "palette packet");
+    }
+}
+
 int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
 {
     if (spec->type >= 8) {
@@ -206,6 +238,7 @@ int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
         return 0;
     }
     memset(tex, 0, sizeof(*tex));
+    nw_ps2tx_charge(spec, tex);
     tex->tw = Ps2TxValToPowerOfTwo(spec->width);
     tex->th = Ps2TxValToPowerOfTwo(spec->height);
     /* Without bits retail uploads a palette type's CLUT alone (ShadComInit's palettes). */
@@ -238,6 +271,14 @@ int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
 
 int NuPs2TxDestroy(struct nups2tex_s *tex)
 {
+    for (int i = 0; i < 7; i++) {
+        if (tex->mipdata[i]) {
+            NuMemFreeFn(tex->mipdata[i], ps2txtr_srcfile, 0x136);
+        }
+    }
+    if (tex->paldata) {
+        NuMemFreeFn(tex->paldata, ps2txtr_srcfile, 0x139);
+    }
     nw_ps2tx_set(tex, NULL);
     return 0;
 }
