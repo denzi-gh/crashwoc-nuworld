@@ -192,6 +192,26 @@ NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op)
     return &r->cmd;
 }
 
+NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v)
+{
+    NwRecord *r = nw_rndr_record(NW_CMD_VERTS, stream->mtl, stream->mpg, (int)(stream->attr & 0x43));
+    *v = nw_rndr_alloc(n * sizeof(**v));
+    r->verts = *v;
+    r->cmd.count = n;
+    r->cmd.mode = (uint8_t)mode;
+    nw_rndr_push(stream, r);
+    return &r->cmd;
+}
+
+NwVuSpriteVertex *nw_rndr_quad(NwVuSpriteVertex *v, const NwVuSpriteVertex q[4])
+{
+    static const int strip[6] = { 0, 1, 2, 1, 2, 3 };
+    for (int k = 0; k < 6; k++) {
+        v[k] = q[strip[k]];
+    }
+    return v + 6;
+}
+
 /* Raw packets in a stream: reported once per stream. */
 static void nw_rndr_raw(const struct rndrstream_s *stream)
 {
@@ -262,6 +282,12 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             uint32_t *idx = r->idx ? nw_packet_idx(nw_packet_building(), r->cmd.count, &c->first) : NULL;
             if (idx) {
                 memcpy(idx, r->idx, r->cmd.count * sizeof(*idx));
+            }
+            NwVuSpriteVertex *verts = r->verts ? nw_packet_verts(nw_packet_building(), r->cmd.count, &c->first) : NULL;
+            if (verts) {
+                memcpy(verts, r->verts, r->cmd.count * sizeof(*verts));
+            } else if (r->verts) {
+                c->count = 0;
             }
             NwJointSnap *j = (NwJointSnap *)r->joints;
             if (j && j->n && j->frame != nw_frame + 1) {

@@ -37,6 +37,7 @@ static struct {
     GLuint ot_ibo;                       /* the packet's OT triangles */
     GLuint pool, pool_tex;               /* the packet's joint palettes, a texture buffer on unit 3 */
     GLuint weights, weights_tex;         /* its blend-shape weights, on unit 4 */
+    GLuint verts_vao, verts_vbo;         /* its VERTS triangles */
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
     bool wireframe;
@@ -108,6 +109,8 @@ void nw_backend_shutdown(void)
     glDeleteTextures(1, &nw_be.pool_tex);
     glDeleteBuffers(1, &nw_be.weights);
     glDeleteTextures(1, &nw_be.weights_tex);
+    glDeleteVertexArrays(1, &nw_be.verts_vao);
+    glDeleteBuffers(1, &nw_be.verts_vbo);
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -471,6 +474,37 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
 }
 
+/* The packet's VERTS triangles into one vertex buffer before they are drawn. */
+static void nw_be_verts(const NwPacket *p)
+{
+    if (!p->nverts) {
+        return;
+    }
+    if (!nw_be.verts_vao) {
+        glGenVertexArrays(1, &nw_be.verts_vao);
+        glGenBuffers(1, &nw_be.verts_vbo);
+    }
+    glBindVertexArray(nw_be.verts_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, nw_be.verts_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)p->nverts * (GLsizeiptr)sizeof(*p->verts), p->verts, GL_STREAM_DRAW);
+    nw_vu_sprite_attribs();
+}
+
+static void nw_be_tris(const NwPacket *p, const NwCmd *c)
+{
+    NwVuObject o;
+    memset(&o, 0, sizeof(o));
+    nw_be_gs(&p->views[c->view], nw_be.width, nw_be.height, o.lv);
+    NwVuMaterial m = nw_be_material(p, c, false);
+    NwMtlPass pass[2];
+    glBindVertexArray(nw_be.verts_vao);
+    uint32_t n = nw_vu_use(NW_VU_TRICU, &o, &m, pass);
+    for (uint32_t k = 0; k < n; k++) {
+        nw_vu_pass(NW_VU_TRICU, &m, &pass[k]);
+        glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
+    }
+}
+
 /* A package whose program the port does not draw, once per package and kind of geom. */
 static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 {
@@ -634,6 +668,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     glEnable(GL_DEPTH_TEST);
     glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
     nw_be_rects(p);
+    nw_be_verts(p);
     nw_be_pool(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
@@ -666,6 +701,9 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_SKIN:
             nw_be_skin(p, c);
+            break;
+        case NW_CMD_VERTS:
+            nw_be_tris(p, c);
             break;
         }
     }

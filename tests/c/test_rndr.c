@@ -44,6 +44,7 @@ void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl
 void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
                      struct numtl_s *mtl);
 void NuCameraSet(struct nucamera_s *cam);
+void AddQuad3DrotXYZ(struct nuvec_s *pos, struct nuvec_s *shape, struct numtl_s *mtl, s32 *a, f32 *uvs, u32 colour);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -675,6 +676,44 @@ static void test_xuv(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The crate explosion's quad: the corners turned, placed and through the camera's VPCS matrix to whole GS units, a
+   VERTS strip in the material's stream; a point out of view draws nothing. */
+static void test_crate_quad(void)
+{
+    static struct nuvec_s shape[4] = { { -0.25f, 0.25f, 0.0f }, { 0.25f, 0.25f, 0.0f }, { -0.25f, -0.25f, 0.0f },
+                                       { 0.25f, -0.25f, 0.0f } };
+    float uvs[8] = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f };
+    s32 a[3] = { 0x1000, 0x2000, 0 };
+    struct nuvec_s pos = { 1.0f, 0.5f, 0.0f }, behind = { 0.0f, 0.0f, -40.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    AddQuad3DrotXYZ(&pos, shape, mtl, a, uvs, 0x80402010);
+    AddQuad3DrotXYZ(&behind, shape, mtl, a, uvs, 0x80402010);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? &p->cmds[0] : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->count == 6 && c->material == mtl);
+    if (c && c->count == 6) {
+        static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+        struct numtx_s m;
+        NuMtxSetRotateXYZ(&m, (struct nuangvec_s *)a);
+        NuMtxTranslate(&m, &pos);
+        NuMtxMulH(&m, &m, NuCameraGetVPCSMtx());
+        for (int k = 0; k < 6; k++) {
+            const NwVuSpriteVertex *v = &p->verts[c->first + k];
+            const struct nuvec_s *s = &shape[corner[k]];
+            float w = s->x * m._03 + s->y * m._13 + s->z * m._23 + m._33;
+            float x = (s->x * m._00 + s->y * m._10 + s->z * m._20 + m._30) / w;
+            float y = (s->x * m._01 + s->y * m._11 + s->z * m._21 + m._31) / w;
+            CHECK(SDL_fabsf(v->pos[0] - x) <= 1.0f && SDL_fabsf(v->pos[1] - y) <= 1.0f);
+            CHECK(v->pos[0] == SDL_floorf(v->pos[0]) && v->pos[3] == 1.0f);
+            CHECK(v->tex[0] == uvs[corner[k] * 2] * 4096.0f && v->tex[1] == uvs[corner[k] * 2 + 1] * 4096.0f);
+            CHECK(v->col[0] == 0x10 && v->col[1] == 0x20 && v->col[2] == 0x40 && v->col[3] == 0x80);
+        }
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -766,6 +805,7 @@ int main(void)
     test_render_target();
     test_hgobj();
     test_xuv();
+    test_crate_quad();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

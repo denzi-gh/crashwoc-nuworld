@@ -54,7 +54,13 @@ typedef enum NwCmdOp {
     NW_CMD_SPRITES, /* a face-on geom's sprites under the local matrix */
     NW_CMD_TARGET,  /* what the draws after it go to: the back or front buffer, or a render target */
     NW_CMD_SKIN,    /* a skin geom under the local matrix and its joint palette */
+    NW_CMD_VERTS,   /* triangles of vertices made this frame, in NwPacket.verts */
 } NwCmdOp;
+
+/* How a VERTS command's vertices are drawn. */
+typedef enum NwVertsMode {
+    NW_VERTS_GS, /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
+} NwVertsMode;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
 typedef struct NwView {
@@ -92,8 +98,10 @@ typedef struct NwCmd {
                 const NwGpuSkin *skin;       /* SKIN */
             };
             float local[16];
-            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints */
+            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints; VERTS:
+                                      the NwPacket.verts */
             uint32_t weights, nweights; /* SKIN: the blend-shape weights in NwPacket.weights */
+            uint8_t mode;               /* VERTS: an NwVertsMode */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */
@@ -129,6 +137,8 @@ typedef struct NwPacket {
     uint32_t njoints, jointcap;
     float *weights;
     uint32_t nweights, weightcap;
+    NwVuSpriteVertex *verts; /* the VERTS triangles */
+    uint32_t nverts, vertcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -136,10 +146,11 @@ NwCmd *nw_packet_cmd(NwPacket *p);
 NwView *nw_packet_view(NwPacket *p, uint32_t *index);
 NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index);
 NwLights *nw_packet_light(NwPacket *p, uint32_t *index);
-/* Appends n vertex indices, joint matrices or weights; NULL on out of memory. */
+/* Appends n vertex indices, joint matrices, weights or vertices; NULL on out of memory. */
 uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first);
 float (*nw_packet_joints(NwPacket *p, uint32_t n, uint32_t *first))[16];
 float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first);
+NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 
