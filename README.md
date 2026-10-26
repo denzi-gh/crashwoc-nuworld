@@ -59,6 +59,14 @@ reached them, the functions that have no C yet and the decomp C that is only a n
 (`python tools/stub_hits.py <saved output>...` orders the remaining decomp work by those lists); `--data-dir <dir>`
 uses another folder.
 
+## Saves
+
+The game's memory card is the data folder's `saves/`: its four save slots are `saves/BESLES-50386slot00.toml`, a
+TOML file in which levels are keyed by their path and hubs by their number, so that mods can change or add levels
+without breaking a save. Keys the port does not know are kept when it saves, and the previous file stays as `.bak`.
+`--import-save <file>` imports a PS2 save: a raw `BESLES-50386slot00`, or a PCSX2 memory card (`.ps2`) holding one.
+Without a save, the first load also imports one that is in `saves/`.
+
 ## License
 
 GPL-3.0, see [LICENSE](LICENSE).

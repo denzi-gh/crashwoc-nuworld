@@ -23,6 +23,7 @@
 #include "platform/input.h"
 #include "port/capture.h"
 #include "port/game.h"
+#include "port/saveload.h"
 #include "port/scene.h"
 #include "port/trace.h"
 #include "shim/shim.h"
@@ -116,6 +117,23 @@ static int nw_verify(const char *data_dir)
 }
 
 #ifdef NW_WITH_GAME
+/* A PS2 save (a raw BESLES-50386slot00 or a .ps2 card image) as the game's save; returns the exit code: 2 when the
+   card has no save. */
+static int nw_import_save(const char *file, const char *data_dir)
+{
+    char *root = nw_data_root(data_dir);
+    char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
+    NwSaveResult r = saves ? nw_saveload_import(saves, file) : NW_SAVE_FAILED;
+    if (r == NW_SAVE_IMPORTED) {
+        printf("Imported %s into %s\n", file, saves);
+    } else if (root) {
+        fprintf(stderr, NW_APP_NAME ": save import failed: %s\n", SDL_GetError());
+    }
+    SDL_free(saves);
+    SDL_free(root);
+    return r == NW_SAVE_IMPORTED ? 0 : r == NW_SAVE_NONE ? 2 : 1;
+}
+
 /* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
 static void *nw_read_elf(const NwVfs *vfs, size_t *size)
 {
@@ -277,10 +295,10 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 
-/* What the game thread needs before it starts, in order: the data folder, the file system (the sce file shim's
-   too), newlib's state, the data image from the boot ELF, the vblank clock, the sound module on both (at the
-   hardware speed or with instant loads). The file system stays open for the game. Returns 0, else the exit code: 2
-   without usable data, 1 when the image or the clock fails. */
+/* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
+   file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
+   sound module on both (at the hardware speed or with instant loads). The file system stays open for the game.
+   Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
 static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware_speed)
 {
     static NwVfs vfs;
@@ -288,6 +306,9 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     char *root = nw_data_root(data_dir);
     bool vfs_open = root && nw_vfs_init(&vfs, root);
     void *elf = vfs_open ? nw_read_elf(&vfs, &size) : NULL;
+    char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
+    nw_saveload_init(saves);
+    SDL_free(saves);
     SDL_free(root);
     if (!elf) {
         fprintf(stderr, NW_APP_NAME ": no data image: %s\n", SDL_GetError());
@@ -741,7 +762,7 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
-    const char *import = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
+    const char *import = NULL, *import_save = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
     const char *capture = NULL, *capture_dir = NULL; /* --capture <vblanks|file> [--capture-dir <dir>] */
     bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
@@ -754,7 +775,8 @@ int main(int argc, char *argv[])
             printf(NW_APP_NAME " %s\n", NUWORLD_VERSION);
             return 0;
         }
-        if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--data-dir") == 0 ||
+        if ((strcmp(argv[i], "--import") == 0 || strcmp(argv[i], "--import-save") == 0 ||
+             strcmp(argv[i], "--data-dir") == 0 ||
              strcmp(argv[i], "--scene-check") == 0 || strcmp(argv[i], "--capture") == 0 ||
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0) &&
             i + 1 >= argc) {
@@ -765,6 +787,8 @@ int main(int argc, char *argv[])
             max_frames = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--import") == 0) {
             import = argv[++i];
+        } else if (strcmp(argv[i], "--import-save") == 0) {
+            import_save = argv[++i];
         } else if (strcmp(argv[i], "--data-dir") == 0) {
             data_dir = argv[++i];
         } else if (strcmp(argv[i], "--verify") == 0) {
@@ -812,6 +836,14 @@ int main(int argc, char *argv[])
     }
     if (import) {
         return nw_import(import, data_dir);
+    }
+    if (import_save) {
+#ifdef NW_WITH_GAME
+        return nw_import_save(import_save, data_dir);
+#else
+        fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
+        return 2;
+#endif
     }
     if (verify) {
         return nw_verify(data_dir);
