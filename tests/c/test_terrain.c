@@ -32,6 +32,8 @@ void buildBitCountTable(void);
 extern void *crashdata;
 extern s32 situtotal;
 extern s32 terraincnt;
+extern s32 TempScanStack[0x1000];
+extern void *TempStackPtr;
 
 static int failures;
 static _Alignas(16) char ter_heap[1 << 20];
@@ -121,6 +123,18 @@ static void test_init(const TerFile *f)
     CHECK(NewShadow(&above, 0.1f) == 0.0f && NewShadow(&beside, 0.1f) == 2000000.0f);
     struct nuvec_s from = { 10.5f, 2.0f, 0.5f }, down = { 0.0f, -3.0f, 0.0f }, part = { 0.0f, -1.0f, 0.0f };
     CHECK(NewRayCast(&from, &down, 0.1f) != 0 && NewRayCast(&from, &part, 0.1f) == 0);
+
+    /* A handle scan, as the crates and vehicles cast with: in TempScanStack, none started 100 slots from its end.
+       A cast that hits leaves its velocity at the impact, so each gets its own. */
+    struct nuvec_s scan = { 0.0f, -3.0f, 0.0f }, hit = scan, miss = part;
+    NewScanInit();
+    short *handle = NewScanHandel(&from, &scan, 0, NULL, 0.1f);
+    CHECK(handle == (short *)TempScanStack && handle[0] == 1 && handle[1] == 0);
+    CHECK(handle && NewRayCastSetHandel(&from, &hit, 0.1f, 0.01f, 0.0f, handle) != 0);
+    CHECK(handle && NewRayCastSetHandel(&from, &miss, 0.1f, 0.01f, 0.0f, handle) == 0);
+    TempStackPtr = (tertype **)TempScanStack + 0x800 - 50;
+    CHECK(NewScanHandel(&from, &scan, 0, NULL, 0.1f) == NULL);
+    NewScanInit();
 }
 
 /* The scratchpad stack: 4-aligned blocks, each released to the cursor before it. */
@@ -206,7 +220,7 @@ static void test_load(const char *scratch)
 }
 
 typedef struct RetailStats {
-    unsigned files, objects, platforms, bound, triangles, walls, points, crash, casts, ground, rays, bad;
+    unsigned files, objects, platforms, bound, triangles, walls, points, crash, casts, ground, rays, handles, bad;
 } RetailStats;
 
 static NwVfs retail_vfs;
@@ -252,6 +266,10 @@ static void retail_casts(const TerrainSetType *set)
         retail.ground++;
         struct nuvec_s from = { pos.x, y + 1.0f, pos.z }, down = { 0.0f, -2.0f, 0.0f };
         retail.rays += NewRayCast(&from, &down, 0.1f) != 0;
+        struct nuvec_s scan = { 0.0f, -2.0f, 0.0f }, hit = scan;
+        NewScanInit();
+        short *handle = NewScanHandel(&from, &scan, 1, NULL, 0.1f);
+        retail.handles += handle && NewRayCastSetHandel(&from, &hit, 0.1f, 0.01f, 0.0f, handle) != 0;
     }
 }
 
@@ -298,10 +316,11 @@ static void retail_file(const char *base, char *buffer, size_t size)
         fprintf(stderr, "retail: %s: no terrain objects\n", base);
         retail.bad++;
     }
-    printf("TER %s objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u ground=%u rays=%u\n",
-           base, retail.objects - was.objects, retail.platforms - was.platforms, retail.bound - was.bound,
-           retail.triangles - was.triangles, retail.walls - was.walls, retail.points - was.points,
-           retail.crash - was.crash, retail.ground - was.ground, retail.rays - was.rays);
+    printf("TER %s objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u ground=%u rays=%u "
+           "handles=%u\n", base, retail.objects - was.objects, retail.platforms - was.platforms,
+           retail.bound - was.bound, retail.triangles - was.triangles, retail.walls - was.walls,
+           retail.points - was.points, retail.crash - was.crash, retail.ground - was.ground, retail.rays - was.rays,
+           retail.handles - was.handles);
     nw_gscn_remove(sc);
     drain_gpu();
 }
@@ -335,7 +354,7 @@ static int retail_main(int argc, char **argv)
 }
 
 /* Every .ter loads over its scene to the pinned counts: platforms bound to a visible instance, no level has
-   crash data, and a sweep onto every ground point a down-cast finds hits it. */
+   crash data, and a sweep onto every ground point a down-cast finds hits it, also through a handle scan. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -354,13 +373,13 @@ static int test_retail(void)
         fprintf(stderr, "retail: %s\n", nw_game_error());
     }
     printf("TOTAL files=%u objects=%u platforms=%u bound=%u triangles=%u walls=%u points=%u crash=%u casts=%u "
-           "ground=%u rays=%u bad=%u\n", retail.files, retail.objects, retail.platforms, retail.bound,
+           "ground=%u rays=%u handles=%u bad=%u\n", retail.files, retail.objects, retail.platforms, retail.bound,
            retail.triangles, retail.walls, retail.points, retail.crash, retail.casts, retail.ground, retail.rays,
-           retail.bad);
+           retail.handles, retail.bad);
     CHECK(state == NW_GAME_RETURNED && retail.files == 40 && retail.bad == 0);
     CHECK(retail.objects == 2460 && retail.platforms == 275 && retail.bound == 175 && retail.triangles == 199369);
     CHECK(retail.walls == 243 && retail.points == 14103 && retail.crash == 0);
-    CHECK(retail.casts == 23040 && retail.ground == 10459 && retail.rays == 10459);
+    CHECK(retail.casts == 23040 && retail.ground == 10459 && retail.rays == 10459 && retail.handles == 10459);
     return failures ? 1 : 0;
 }
 
