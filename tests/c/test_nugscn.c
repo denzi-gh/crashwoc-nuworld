@@ -46,6 +46,9 @@ void buildBitCountTable(void);
 static int failures;
 static char scene_buffer[1 << 20];
 
+/* A host record: beside the buffer, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < scene_buffer || (char *)(p) >= scene_buffer + sizeof(scene_buffer))
+
 #define CHECK(cond) \
     do { \
         if (!(cond)) { \
@@ -145,7 +148,47 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     struct nutexanim_s *tex = sc->texanims;
     CHECK(tex->mtl == sc->mtls[2] && strcmp(tex->ntaname, "anim") == 0 && !tex->succ && !tex->prev);
     CHECK(tex->env && tex->env->mtl == sc->mtls[2] && tex->env->prog == NULL);
-    CHECK((char *)tex->env > file && (char *)tex->env < scene_buffer + sizeof(scene_buffer));
+    CHECK(BESIDE(sc) && BESIDE(sc->gobjs) && BESIDE(sc->gobjs[0]) && BESIDE(sc->instances) && BESIDE(tex->env));
+}
+
+static char *carve(char *c, size_t align, size_t size)
+{
+    return (char *)(((uintptr_t)c + align - 1) & ~(uintptr_t)(align - 1)) + size;
+}
+
+/* Where retail's NuGScnLoadFix leaves the buffer after the image at c: its records at their PS2 sizes, in the
+   builder's block order. */
+static char *retail_end(const struct nugscn_s *sc, char *c)
+{
+    c = carve(c, 4, sizeof(nw_ps2_nugscn_s));
+    c = carve(c, 4, (size_t)sc->numtid * 4);
+    c = carve(c, 4, (size_t)sc->nummtl * 4);
+    c = carve(c, 4, (size_t)sc->numgobj * 4);
+    for (int i = 0; i < sc->numgobj; i++) {
+        struct nugobj_s *gobj = sc->gobjs[i];
+        c = carve(c, 4, (size_t)gobj->ngobjs * sizeof(nw_ps2_nugobj_s));
+        for (int j = 0; j < gobj->ngobjs; j++) {
+            size_t n = 0;
+            if (gobj[j].type == 0) {
+                for (struct nugeom_s *g = gobj[j].geom; g; g = g->next) {
+                    n += sizeof(nw_ps2_nugeom_s);
+                }
+            } else {
+                for (struct nufaceongeom_s *g = gobj[j].faceon_geom; g; g = g->next) {
+                    n += sizeof(nw_ps2_nufaceongeom_s);
+                }
+            }
+            c = carve(c, 4, n);
+        }
+    }
+    c = carve(c, 4, (size_t)sc->numsplines * sizeof(nw_ps2_nugspline_s));
+    for (int i = 0; i < sc->numsplines; i++) {
+        c = carve(c, 4, (size_t)sc->splines[i].ptsize * (size_t)sc->splines[i].len);
+    }
+    for (int i = 0; i < sc->numtexanims; i++) {
+        c = carve(c, 16, sizeof(nw_ps2_nutexanimenv_s));
+    }
+    return carve(c, 16, 0);
 }
 
 static int count_mtls(void)
@@ -191,7 +234,7 @@ static void test_load(const char *scratch)
         char *buf = scene_buffer + 3;
         NuRndrInitWorld();
         struct nugscn_s *sc = NuGScnRead(&buf, end, "test.gsc");
-        CHECK(sc != NULL && ((uintptr_t)buf & 15) == 0 && buf > file + b.len);
+        CHECK(sc != NULL && buf == retail_end(sc, file + b.len));
         CHECK(memcmp(file, b.buf, 16) == 0);
         if (sc) {
             check_scene(sc, file, &s);

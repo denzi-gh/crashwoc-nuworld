@@ -1,17 +1,18 @@
 /* nu3d/nuanim's .ani loader (port/units.toml override): retail's NuAnimDataLoadBuff with host copies of the records
-   it fixes in place, carved from the caller's buffer after the file; and the anim v1 walk it shares with the
-   animlib. */
+   it fixes in place, beside the caller's buffer (src/port/heap.h); and the anim v1 walk it shares with the animlib. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "nw_convert.h"
+#include "port/heap.h"
 #include "port/nuanim.h"
 #include "port/xfile.h"
 
 #define nuanim_srcfile "..\\nu2crash.ps2\\nu3d\\nuanim.c"
 
 /* Declared by no header. */
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void buildBitCountTable(void);
 extern int isBitCountTable;
@@ -77,7 +78,7 @@ typedef struct NwAniLoad {
     size_t size;
     uint32_t addr; /* the exporter's address of the file's first byte */
     char *file;
-    union variptr_u *buffer, *buffend;
+    NwHeapSide *side;
 } NwAniLoad;
 
 static _Noreturn void nw_ani_bad(const NwAniLoad *ld, uint32_t off)
@@ -104,15 +105,7 @@ static char *nw_ani_at(NwAnimFile *f, char *field, size_t size)
 
 static void *nw_ani_new(NwAnimFile *f, size_t size, size_t align)
 {
-    NwAniLoad *ld = (NwAniLoad *)f;
-    char *p = (char *)(((uintptr_t)ld->buffer->charptr + align - 1) & ~(uintptr_t)(align - 1));
-    if (p > ld->buffend->charptr || size > (size_t)(ld->buffend->charptr - p)) {
-        NuErrorProlog(nuanim_srcfile, 0x2F8)(
-            "Could not read from <%s>, either file is not there or the buffer may be full", ld->file);
-    }
-    memset(p, 0, size);
-    ld->buffer->charptr = p + size;
-    return p;
+    return nw_heap_side_new(((NwAniLoad *)f)->side, size, align);
 }
 
 struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, union variptr_u *buffend)
@@ -124,8 +117,9 @@ struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, uni
             "Could not read from <%s>, either file is not there or the buffer may be full", file);
     }
     NwAniLoad ld = { .f = { nw_ani_at, nw_ani_new, 1 }, .base = buffer->charptr, .size = (size_t)size,
-                     .file = file, .buffer = buffer, .buffend = buffend };
+                     .file = file, .side = nw_heap_side() };
     buffer->charptr += size;
+    nw_heap_side_own(ld.side, ld.base, buffer->charptr);
     nw_ps2_nuanimdatahdr_s hdr;
     if (ld.size < sizeof(hdr)) {
         nw_ani_bad(&ld, 0);

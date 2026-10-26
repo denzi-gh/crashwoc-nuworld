@@ -1,10 +1,12 @@
 /* gamelib/terrain's .ter loader (port/units.toml override): retail's ReadTerrain, with each linked wall spline copied
-   after the file, so that its link to the previous one holds a host pointer instead of the file's 4-byte slot. */
+   beside the caller's buffer (src/port/heap.h), so that its link to the previous one holds a host pointer instead of
+   the file's 4-byte slot. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "nw_convert.h"
+#include "port/heap.h"
 
 #define terrain_srcfile "..\\nu2crash.ps2\\gamelib\\terrain.c"
 #define NW_TER_LINK 0x12345678 /* a wall spline ReadTerrain links */
@@ -17,6 +19,7 @@ _Static_assert(sizeof(tertype) == sizeof(nw_ps2_tertype), "tertype");
 _Static_assert(offsetof(WallSplineType, spl) == offsetof(nw_ps2_WallSplineType, spl), "WallSplineType");
 
 /* Declared by no header. */
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 extern void *crashdata;
 
@@ -79,7 +82,7 @@ s32 ReadTerrain(char *name, s32 situ, short **store, TerrainSetType *terrset)
         nw_ter_bad(&ld, "directory", 2 * (size_t)dir);
     }
     const char *offlist = ld.base + 2 * (size_t)dir + 4;
-    char *copies = (char *)(((uintptr_t)ld.base + ld.size + 7) & ~(uintptr_t)7), *end = copies;
+    NwHeapSide *side = nw_heap_side();
     size_t at = 4;
     s32 count = 0;
     terrset->wallinfo = 0;
@@ -116,11 +119,10 @@ s32 ReadTerrain(char *name, s32 situ, short **store, TerrainSetType *terrset)
                     len - 4 < offsetof(WallSplineType, spl) + points * sizeof(struct nuvec_s)) {
                     nw_ter_bad(&ld, "wall spline", at);
                 }
-                end = (char *)(((uintptr_t)end + 7) & ~(uintptr_t)7);
-                memcpy(end, &terrset->wallinfo, sizeof(void *));
-                WallSplineType *w = (WallSplineType *)(end + sizeof(void *));
+                char *link = nw_heap_side_new(side, sizeof(void *) + (len - 4), _Alignof(void *));
+                memcpy(link, &terrset->wallinfo, sizeof(void *));
+                WallSplineType *w = (WallSplineType *)(link + sizeof(void *));
                 memcpy(w, ld.base + at + 4, len - 4);
-                end += sizeof(void *) + (len - 4);
                 terrset->wallinfo = w;
                 w->count--;
             }
@@ -131,7 +133,8 @@ s32 ReadTerrain(char *name, s32 situ, short **store, TerrainSetType *terrset)
         }
         at += len;
     }
-    *store = (short *)(end > copies ? end : ld.base + at);
+    *store = (short *)(ld.base + at);
+    nw_heap_side_own(side, ld.base, ld.base + at);
     for (WallSplineType *w = terrset->wallinfo; w; w = ((WallSplineType **)w)[-1]) {
         for (int a = 0; a < w->count; a += 16) {
             if (w->spl[a].y == 2147483647.0f) {

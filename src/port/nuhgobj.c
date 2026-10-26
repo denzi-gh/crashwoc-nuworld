@@ -1,5 +1,6 @@
 /* nu3d/nuhgobj's .ghg loader (port/units.toml override): retail's NuGHGRead with host copies of the records it fixes
-   in place. They live outside the caller's buffer with the object's meshes until NuHGobjDestroy. */
+   in place. They live outside the caller's buffer with the object's meshes until NuHGobjDestroy; the object and the
+   texanim envs, which retail carves off the buffer, take their PS2 size there and live beside it (src/port/heap.h). */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -9,6 +10,7 @@
 #include "gfx/packet.h"
 #include "gfx/vif.h"
 #include "nw_convert.h"
+#include "port/heap.h"
 #include "port/nuhgobj.h"
 #include "port/xfile.h"
 
@@ -37,6 +39,7 @@ struct nughglayer_s {
 };
 
 /* Declared by no header. */
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void NuDisableVBlank(void);
 void NuEnableVBlank(void);
@@ -70,6 +73,7 @@ typedef struct NwGhgLoad {
     const char *file;
     struct NUHGOBJ_s *hobj;
     NwGhg *g;
+    NwHeapSide *side;
 } NwGhgLoad;
 
 uint32_t nw_ghg_count(void)
@@ -339,7 +343,8 @@ static void nw_ghg_collide(NwGhgLoad *ld, const struct nughgheader_s *h)
     }
 }
 
-/* As ReadTexAnimSet: tids and mtl by index, the names into the string table, the envs carved after the object. */
+/* As ReadTexAnimSet: tids and mtl by index, the names into the string table, the envs carved after the object. ptr
+   is the buffer's, returned past them. */
 static char *nw_ghg_texanims(NwGhgLoad *ld, const struct nughgheader_s *h, char *ptr)
 {
     struct NUHGOBJ_s *hobj = ld->hobj;
@@ -369,9 +374,9 @@ static char *nw_ghg_texanims(NwGhgLoad *ld, const struct nughgheader_s *h, char 
         anim->ntaname = nw_ghg_at(ld, NW_FILE_IX(anim->ntaname), 1);
         struct nutexanimprog_s *prog = NuTexAnimProgFind(anim->scriptname);
         union variptr_u buff;
-        buff.charptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF);
+        buff.voidptr = nw_heap_side_new(ld->side, sizeof(struct nutexanimenv_s), _Alignof(struct nutexanimenv_s));
         anim->env = NuTexAnimEnvCreate(&buff, anim->mtl, anim->tids, prog);
-        ptr = buff.charptr;
+        ptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF) + sizeof(nw_ps2_nutexanimenv_s);
     }
     for (int j = 0; j < hobj->numtexanims - 1; j++) {
         hobj->texanims[j].succ = &hobj->texanims[j] + 1;
@@ -400,8 +405,8 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
                                               "VER:%d)", h.version, NW_GHG_VERSION);
     }
     nw_ghg_at(&ld, 0, (size_t)h.size);
-    struct NUHGOBJ_s *hobj = (struct NUHGOBJ_s *)(((uintptr_t)base + (size_t)h.size + 0xF) & ~(uintptr_t)0xF);
-    memset(hobj, 0, sizeof(*hobj));
+    ld.side = nw_heap_side();
+    struct NUHGOBJ_s *hobj = nw_heap_side_new(ld.side, sizeof(*hobj), _Alignof(struct NUHGOBJ_s));
     hobj->type = 1;
     ld.hobj = hobj;
     ld.g = SDL_calloc(1, sizeof(NwGhg));
@@ -420,8 +425,10 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
     hobj->cyl_height = h.cyl_height;
     hobj->cyl_radius = h.cyl_radius;
     nw_ghg_collide(&ld, &h);
-    char *ptr = nw_ghg_texanims(&ld, &h, (char *)(hobj + 1));
+    char *ptr = (char *)(((uintptr_t)base + (size_t)h.size + 0xF) & ~(uintptr_t)0xF) + sizeof(nw_ps2_NUHGOBJ_s);
+    ptr = nw_ghg_texanims(&ld, &h, ptr);
     buffer->charptr = (char *)(((uintptr_t)ptr + 0xF) & ~(uintptr_t)0xF);
+    nw_heap_side_own(ld.side, base, buffer->charptr);
     if (nw_nghgs == nw_ghgcap) {
         uint32_t n = nw_ghgcap ? nw_ghgcap * 2 : 64;
         void *grown = SDL_realloc(nw_ghgs, n * sizeof(*nw_ghgs));

@@ -32,6 +32,9 @@ static int failures;
 static char cut_heap[8 << 20];
 static char ghg_buffer[4 << 20];
 
+/* A host record: beside the heap, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < cut_heap || (char *)(p) >= cut_heap + sizeof(cut_heap))
+
 #define CHECK(cond) \
     do { \
         if (!(cond)) { \
@@ -82,7 +85,7 @@ static void check_anim2(struct nuanimdata2_s *a, char *file, size_t flags, int n
 {
     CHECK(a && a->time == 4.0f && a->nnodes == 1 && a->ncurves == n && a->nchunks == 1);
     CHECK(a && a->curveflags == (signed char *)file + flags && a->curvesetflags == file + flags + n);
-    CHECK(a && (char *)a->curves > file && (((uintptr_t)a->curves) & 7) == 0);
+    CHECK(a && BESIDE(a->curves) && (((uintptr_t)a->curves) & 7) == 0);
 }
 
 static void check_cut(struct NUGCUTSCENE_s *def, char *file, const CutFile *f)
@@ -221,7 +224,8 @@ static void test_load(const char *scratch)
     nw_shim_file_init(&vfs);
     NuFileInitEx(1, 1);
 
-    /* Twice in a row on one heap, as LoadCutComponents loads a movie's cuts. */
+    /* Twice in a row on one heap, as LoadCutComponents loads a movie's cuts; the heap takes the image alone, as
+       retail's. */
     union variptr_u heap, end;
     heap.charptr = cut_heap + 3;
     end.charptr = cut_heap + sizeof(cut_heap);
@@ -229,7 +233,7 @@ static void test_load(const char *scratch)
         char *file = (char *)(((uintptr_t)heap.charptr + 15) & ~(uintptr_t)15);
         struct NUGCUTSCENE_s *def = NuGCutSceneLoad("test.cut", &heap, &end);
         CHECK(memcmp(file, b.buf, b.len) == 0);
-        CHECK((char *)def >= file + b.len && heap.charptr > (char *)(def + 1) && heap.charptr < end.charptr);
+        CHECK(heap.charptr == file + b.len && BESIDE(def));
         check_cut(def, file, &f);
         if (pass == 0) {
             test_fixup(def);
@@ -256,7 +260,6 @@ static void test_load(const char *scratch)
 typedef struct RetailStats {
     unsigned files, cams, locators, types, rigids, chars, triggers, states, anims, keyed, joints, bad;
     unsigned before, nonfinite; /* frames read before a curve's first key, and those that come out inf or NaN */
-    size_t host;
 } RetailStats;
 
 static RetailStats retail;
@@ -355,8 +358,8 @@ static void retail_file(const char *path)
     end.charptr = cut_heap + sizeof(cut_heap);
     struct NUGCUTSCENE_s *def = NuGCutSceneLoad((char *)path, &heap, &end);
     const char *file = cut_heap;
-    /* The image up to the host records, with at most their alignment's padding. */
-    size_t size = (size_t)((char *)def - file), host = (size_t)(heap.charptr - (char *)def);
+    size_t size = (size_t)(heap.charptr - file);
+    CHECK(BESIDE(def));
     RetailStats was = retail;
 
     if (def->camdef) {
@@ -389,11 +392,10 @@ static void retail_file(const char *path)
         retail.triggers += (unsigned)def->triggerdef->count;
     }
     retail.files++;
-    retail.host += host;
-    printf("CUT %s cams=%u locators=%u types=%u rigids=%u chars=%u anims=%u keyed=%u states=%u bytes=%zu "
-           "host=%zu\n", path, retail.cams - was.cams, retail.locators - was.locators, retail.types - was.types,
+    printf("CUT %s cams=%u locators=%u types=%u rigids=%u chars=%u anims=%u keyed=%u states=%u bytes=%zu\n", path,
+           retail.cams - was.cams, retail.locators - was.locators, retail.types - was.types,
            retail.rigids - was.rigids, retail.chars - was.chars, retail.anims - was.anims,
-           retail.keyed - was.keyed, retail.states - was.states, size, host);
+           retail.keyed - was.keyed, retail.states - was.states, size);
 }
 
 static NwVfs retail_vfs;
@@ -442,9 +444,9 @@ static int test_retail(void)
         fprintf(stderr, "retail: %s\n", nw_game_error());
     }
     printf("TOTAL files=%u cams=%u locators=%u types=%u rigids=%u chars=%u triggers=%u anims=%u keyed=%u states=%u "
-           "before=%u nonfinite=%u joints=%u host=%zu bad=%u\n", retail.files, retail.cams, retail.locators,
+           "before=%u nonfinite=%u joints=%u bad=%u\n", retail.files, retail.cams, retail.locators,
            retail.types, retail.rigids, retail.chars, retail.triggers, retail.anims, retail.keyed, retail.states,
-           retail.before, retail.nonfinite, retail.joints, retail.host, retail.bad);
+           retail.before, retail.nonfinite, retail.joints, retail.bad);
     CHECK(state == NW_GAME_RETURNED && retail.files == 18 && retail.bad == 0);
     CHECK(retail.cams == 70 && retail.locators == 128 && retail.types == 40 && retail.rigids == 178);
     CHECK(retail.chars == 67 && retail.anims == 385 && retail.keyed == 4284 && retail.states == 107);

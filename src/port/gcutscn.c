@@ -1,5 +1,5 @@
 /* gamelib/gcutscn's .cut loader (port/units.toml override): retail's NuGCutSceneLoad with host copies of the records
-   it fixes in place, carved from the caller's heap after the file. */
+   it fixes in place, beside the caller's heap (src/port/heap.h). */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include "nw_convert.h"
+#include "port/heap.h"
 #include "port/xfile.h"
 
 #define gcutscn_srcfile "..\\nu2crash.ps2\\gamelib\\gcutscn.c"
@@ -20,6 +21,7 @@ _Static_assert(sizeof(union nuanimmask_u) == sizeof(nw_ps2_nuanimmask_u), "nuani
 
 /* Declared by no header. */
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void buildBitCountTable(void);
 extern int isBitCountTable;
 
@@ -28,7 +30,7 @@ typedef struct NwCutLoad {
     size_t size;
     uint32_t addr; /* the exporter's address of the file's first byte */
     char *file;
-    union variptr_u *heap, *heapend;
+    NwHeapSide *side;
 } NwCutLoad;
 
 static _Noreturn void nw_cut_bad(const NwCutLoad *ld, const char *what, uint32_t off)
@@ -64,20 +66,7 @@ static char *nw_cut_str(const NwCutLoad *ld, ptrdiff_t off)
     return ld->base + off;
 }
 
-/* Zeroed host records off the caller's heap. */
-static void *nw_cut_new(NwCutLoad *ld, size_t size, size_t align)
-{
-    char *p = (char *)(((uintptr_t)ld->heap->charptr + align - 1) & ~(uintptr_t)(align - 1));
-    if (p > ld->heapend->charptr || size > (size_t)(ld->heapend->charptr - p)) {
-        NuErrorProlog(gcutscn_srcfile, 0x14C)(
-            "Could not read from cutscene <fname>, either file is not there or the buffer may be full");
-    }
-    memset(p, 0, size);
-    ld->heap->charptr = p + size;
-    return p;
-}
-
-#define NW_CUT_NEW(ld, type, n) ((type *)nw_cut_new((ld), (size_t)(n) * sizeof(type), _Alignof(type)))
+#define NW_CUT_NEW(ld, type, n) ((type *)nw_heap_side_new((ld)->side, (size_t)(n) * sizeof(type), _Alignof(type)))
 
 /* NuAnimData2FixPtrs: curves become 8-byte unions, a constant where the curve's flag is 0. */
 static struct nuanimdata2_s *nw_cut_anim2(NwCutLoad *ld, void *field)
@@ -147,8 +136,8 @@ static char *nw_cut_name(const NwCutLoad *ld, const struct NUGCUTSCENE_s *def, c
 static void nw_cut_cams(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
 {
     char *p = NW_CUT_PTR(ld, def->camdef, offsetof(nw_ps2_NUGCUTCAMSYS_s, remap) + NW_CUT_REMAP);
-    struct NUGCUTCAMSYS_s *camdef =
-        nw_cut_new(ld, offsetof(struct NUGCUTCAMSYS_s, remap) + NW_CUT_REMAP, _Alignof(struct NUGCUTCAMSYS_s));
+    struct NUGCUTCAMSYS_s *camdef = nw_heap_side_new(ld->side, offsetof(struct NUGCUTCAMSYS_s, remap) + NW_CUT_REMAP,
+                                                     _Alignof(struct NUGCUTCAMSYS_s));
     NW_FILE_X(NUGCUTCAMSYS_s, camdef, p);
     memcpy(camdef->remap, p + offsetof(nw_ps2_NUGCUTCAMSYS_s, remap), NW_CUT_REMAP);
     def->camdef = camdef;
@@ -256,8 +245,9 @@ struct NUGCUTSCENE_s *NuGCutSceneLoad(char *name, union variptr_u *heap, union v
         NuErrorProlog(gcutscn_srcfile, 0x14C)(
             "Could not read from cutscene <fname>, either file is not there or the buffer may be full");
     }
-    NwCutLoad ld = { .base = heap->charptr, .size = (size_t)size, .file = name, .heap = heap, .heapend = heapend };
+    NwCutLoad ld = { .base = heap->charptr, .size = (size_t)size, .file = name, .side = nw_heap_side() };
     heap->charptr += size;
+    nw_heap_side_own(ld.side, ld.base, heap->charptr);
     if (ld.size < sizeof(nw_ps2_NUGCUTSCENE_s)) {
         nw_cut_bad(&ld, "header", 0);
     }

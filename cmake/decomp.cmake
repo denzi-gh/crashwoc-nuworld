@@ -133,7 +133,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustream.c src/gfx/numtl.c
   src/gfx/nutex.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
+  src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
+  src/port/nuhgobj.c
   src/port/capture.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
   src/shim/cdvd.c
@@ -233,6 +234,13 @@ if(NUWORLD_TESTS)
   add_test(NAME nudat COMMAND nuworld_test_nudat ${CMAKE_CURRENT_BINARY_DIR}/test-nudat)
   add_test(NAME nudat-retail COMMAND nuworld_test_nudat retail)
   set_tests_properties(nudat-retail PROPERTIES SKIP_RETURN_CODE 77)
+
+  # The loaders' host records beside the game's heaps.
+  add_executable(nuworld_test_heap tests/c/test_heap.c)
+  target_include_directories(nuworld_test_heap PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_heap PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_heap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME heap COMMAND nuworld_test_heap)
 
   # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts. nugscn-retail
   # checks the animation library of every .gsc of NUWORLD_TEST_DATA.
