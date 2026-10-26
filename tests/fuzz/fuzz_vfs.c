@@ -1,10 +1,13 @@
-/* libFuzzer target for the VFS readers and the VIF decoder (no game data). The first byte picks the reader, the rest
-   is its input:
+/* libFuzzer target for the VFS readers, the VIF decoder and the save readers (no game data). The first byte picks
+   the reader, the rest is its input:
      0  a disc image (.iso or raw .bin, detected): nw_disc_open, nw_iso_index, nw_verify_identity, every file
         looked up again and read at both ends;
      1  a cue sheet: u16 LE length, the sheet, then the image (fuzz.bin, also the cue's own name with .bin);
      2  a .DAT archive opened through the VFS, listed, every entry found by its path and loaded;
-     3  a .gsc geom (DMA chain and VIF stream): nw_vif_decode, every triangle checked against the vertices.
+     3  a .gsc geom (DMA chain and VIF stream): nw_vif_decode, every triangle checked against the vertices;
+     4  a save document: what parses is written, read back and written again to the same text, and records it
+        decodes to are merged back and decode the same;
+     5  a PS2 memory card image: the save file looked up and read.
    The readers open files, so each input is written to a scratch folder under $TMPDIR first.
    Built with -DNUWORLD_FUZZ=ON; nuworld_fuzz_seeds writes the seed corpus from the synthetic test builders. */
 #include <stdint.h>
@@ -16,6 +19,10 @@
 
 #include "gfx/vif.h"
 #include "platform/paths.h"
+#include "save/ps2card.h"
+#include "save/savecodec.h"
+#include "save/savedoc.h"
+#include "save/savestore.h"
 #include "vfs/dat.h"
 #include "vfs/disc.h"
 #include "vfs/extract.h"
@@ -24,13 +31,14 @@
 #include "vfs/verify.h"
 #include "vfs/vfs.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_READERS };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD, FUZZ_READERS };
 
 static char *scratch;  /* <tmp>/nuworld-fuzz-<pid>/ */
 static char *bin_path; /* the image, of FUZZ_DISC and FUZZ_CUE alike */
 static char *cue_path;
 static char *dat_path; /* <scratch>disc/FUZZ.DAT, mounted as cdrom0:\FUZZ.DAT */
 static NwVfs vfs;
+static NwSaveRegistry save_reg; /* keys "#0".., as fuzz_seeds.c writes them */
 
 static void fuzz_die(const char *what)
 {
@@ -80,6 +88,9 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
     fuzz_save(dat_path, NULL, 0);
     if (!nw_vfs_init(&vfs, scratch)) {
         fuzz_die("nw_vfs_init");
+    }
+    if (!nw_save_registry_init(&save_reg, NULL, NW_SAVE_LEVELS, NW_SAVE_HUBS)) {
+        fuzz_die("nw_save_registry_init");
     }
     SDL_free(stamp);
     SDL_free(disc_dir);
@@ -167,6 +178,44 @@ static void fuzz_vif(const uint8_t *data, size_t size)
     nw_vif_free(&mesh);
 }
 
+static void fuzz_save_doc(const uint8_t *data, size_t size)
+{
+    static uint8_t games[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE], again[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE];
+    NwDoc doc, back;
+    size_t n1 = 0, n2 = 0;
+    if (!nw_doc_init(&doc)) {
+        fuzz_die("nw_doc_init");
+    }
+    if (nw_doc_parse(&doc, (const char *)data, size)) {
+        char *t1 = nw_doc_write(&doc, NULL, &n1), *t2 = NULL;
+        if (!t1 || !nw_doc_init(&back)) {
+            fuzz_die("nw_doc_write");
+        }
+        if (!nw_doc_parse(&back, t1, n1) || !(t2 = nw_doc_write(&back, NULL, &n2)) || n1 != n2 ||
+            memcmp(t1, t2, n1) != 0) {
+            SDL_Log("fuzz_vfs: a written document does not read back the same: %s", SDL_GetError());
+            abort();
+        }
+        nw_doc_free(&back);
+        SDL_free(t2);
+        SDL_free(t1);
+        if (nw_save_decode(&doc, &save_reg, games, NW_SAVE_RECORDS) &&
+            nw_save_merge(&doc, &save_reg, games, NW_SAVE_RECORDS) &&
+            (!nw_save_decode(&doc, &save_reg, again, NW_SAVE_RECORDS) || memcmp(games, again, sizeof(games)) != 0)) {
+            SDL_Log("fuzz_vfs: merged records do not decode the same: %s", SDL_GetError());
+            abort();
+        }
+    }
+    nw_doc_free(&doc);
+}
+
+static void fuzz_card(const uint8_t *data, size_t size)
+{
+    size_t len = 0;
+    bool missing = false;
+    SDL_free(nw_ps2card_file(data, size, NW_SAVE_CARD_NAME, NW_SAVE_CARD_NAME "slot00", &len, &missing));
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     if (size < 1) {
@@ -185,6 +234,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         break;
     case FUZZ_VIF:
         fuzz_vif(data + 1, size - 1);
+        break;
+    case FUZZ_SAVE:
+        fuzz_save_doc(data + 1, size - 1);
+        break;
+    case FUZZ_CARD:
+        fuzz_card(data + 1, size - 1);
         break;
     }
     return 0;

@@ -134,8 +134,8 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/nurndr.c src/gfx/nustr
   src/gfx/nutex.c src/gfx/ps2txtr.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/nuhgobj.c
-  src/port/capture.c src/port/ps2video.c src/port/scene.c src/port/shadcom.c src/port/terrain.c
-  src/port/trace.c
+  src/port/capture.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
+  src/port/terrain.c src/port/trace.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
@@ -145,7 +145,8 @@ add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
-target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audio nuworld_gfx nuworld_port nuworld_vfs)
+target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audio nuworld_gfx nuworld_port nuworld_save
+  nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
 target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c src/platform/input.c)
@@ -369,6 +370,21 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_pad PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_pad PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME pad COMMAND nuworld_test_pad)
+
+  # The port's gamelib/saveload under the decomp's UpdateSaveSlots. saveload-card imports the PS2 card image
+  # NUWORLD_TEST_CARD (skipped without it); saveload-toml reads what the save tests wrote with Python's tomllib.
+  add_executable(nuworld_test_saveload tests/c/test_saveload.c)
+  add_dependencies(nuworld_test_saveload nuworld_types)
+  target_include_directories(nuworld_test_saveload PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_saveload PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_saveload PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME saveload COMMAND nuworld_test_saveload ${CMAKE_CURRENT_BINARY_DIR}/test-saveload)
+  add_test(NAME saveload-card COMMAND nuworld_test_saveload ${CMAKE_CURRENT_BINARY_DIR}/test-saveload-card card)
+  set_tests_properties(saveload-card PROPERTIES SKIP_RETURN_CODE 77)
+  add_test(NAME saveload-toml COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/save_toml.py
+    ${CMAKE_CURRENT_BINARY_DIR}/test-savefile ${CMAKE_CURRENT_BINARY_DIR}/test-saveload)
+  set_tests_properties(savefile saveload PROPERTIES FIXTURES_SETUP save_files)
+  set_tests_properties(saveload-toml PROPERTIES FIXTURES_REQUIRED save_files)
 
   add_executable(nuworld_test_hle tests/c/test_hle.c)
   target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})

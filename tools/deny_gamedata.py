@@ -14,16 +14,19 @@ DENY_EXTENSIONS = {
     ".gsc", ".ghg", ".cut", ".ani", ".anm", ".bsa", ".shd", ".vag",
     ".ter", ".trg", ".ptl", ".cpt", ".vis", ".ppd", ".pad", ".irx",
     ".ai", ".crt", ".lgt", ".wmp", ".gra", ".ats", ".dat",
+    # memory card images and save exports: a card's save folder holds the game's icon files
+    ".ps2", ".mcd", ".psu", ".max",
 }
 DENY_NAMES = {"sles_503.86", "slus_202.38", "sceu_000.01", "system.cnf"}
 
 # (offset, magic): ELF (game executable, IRX modules), RNC-packed files,
-# NU20 scenes, PS VAG audio, raw CD sectors, ISO9660 volume descriptors.
+# NU20 scenes, PS VAG audio, PS2 memory card images, raw CD sectors, ISO9660 volume descriptors.
 DENY_MAGIC = [
     (0, b"\x7fELF"),
     (0, b"RNC\x02"),
     (0, b"NU20"),
     (0, b"VAGp"),
+    (0, b"Sony PS2 Memory Card Format"),
     (0, b"\x00" + b"\xff" * 10 + b"\x00"),
     (0x8001, b"CD001"),
     (37657, b"CD001"),

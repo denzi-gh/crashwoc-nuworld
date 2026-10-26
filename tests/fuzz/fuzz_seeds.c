@@ -1,6 +1,6 @@
 /* Seed corpus for nuworld_fuzz_vfs from the synthetic test builders (no game data): the disc as .iso, raw
-   Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, .DAT archives and .gsc geoms. Each seed
-   is the reader byte of fuzz_vfs.c and its input.
+   Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, .DAT archives, .gsc geoms, save documents
+   and a PS2 memory card. Each seed is the reader byte of fuzz_vfs.c and its input.
    Usage: fuzz_seeds <corpus dir>. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,10 +10,13 @@
 
 #include "dat_builder.h"
 #include "disc_builder.h"
+#include "mc_builder.h"
 #include "rnc2_fixture.inc"
+#include "save/savecodec.h"
+#include "save/savestore.h"
 #include "vif_builder.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD };
 
 static const char *corpus;
 
@@ -125,5 +128,39 @@ int main(int argc, char *argv[])
     vif_end(&b, 0);
     seed("vif-faceon", FUZZ_VIF, NULL, 0, b.buf, b.len);
     vif_free(&b);
+
+    /* a save as the codec writes it (level keys "#0".., as fuzz_vfs.c's registry has them), one written by hand, and
+       a card that holds the first */
+    static uint8_t games[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE];
+    for (size_t i = 0; i < sizeof(games); i++) {
+        games[i] = (uint8_t)(i * 7 + (i >> 5));
+    }
+    NwSaveRegistry reg;
+    NwDoc doc;
+    size_t size = 0;
+    char *text = NULL;
+    if (!nw_save_registry_init(&reg, NULL, NW_SAVE_LEVELS, NW_SAVE_HUBS) || !nw_doc_init(&doc) ||
+        !nw_save_merge(&doc, &reg, games, NW_SAVE_RECORDS) || !(text = nw_doc_write(&doc, "seed", &size))) {
+        fprintf(stderr, "save seed: %s\n", SDL_GetError());
+        return 1;
+    }
+    seed("save", FUZZ_SAVE, NULL, 0, text, size);
+    SDL_free(text);
+    nw_doc_free(&doc);
+    nw_save_registry_free(&reg);
+    static const char by_hand[] = "\xEF\xBB\xBF# by hand\r\nformat = 1\r\nnote = 'kept'\r\n"
+                                  "[mod.\"some.mod\"]\r\ndata = [1, -2, 0x10, [\"x\", true], [], ]\r\n"
+                                  "[slot.0]\r\nname = \"CRASH\\u0000\xC3\xA9\"\r\nempty = false\r\n"
+                                  "[slot.0.level.\"#3\"]\r\nflags = 0x001f\r\ntime = [[\"1ST\", 25500]]\r\n";
+    seed("save-by-hand", FUZZ_SAVE, NULL, 0, by_hand, sizeof(by_hand) - 1);
+
+    static Mcb card;
+    const char *names[1] = { NW_SAVE_CARD_NAME "slot00" };
+    const void *files[1] = { games };
+    size_t lens[1] = { sizeof(games) };
+    mcb_build(&card, 1, NW_SAVE_CARD_NAME, 1, names, files, lens);
+    uint8_t *image = mcb_image(&card, false, &size);
+    seed("card", FUZZ_CARD, NULL, 0, image, size);
+    free(image);
     return 0;
 }

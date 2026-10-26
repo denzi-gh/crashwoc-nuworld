@@ -137,6 +137,17 @@ target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs)
 
+# Saves: the TOML document, the save records in it, the saves folder and PS2 card images (no decomp).
+set(NW_SAVE_SOURCES
+  src/save/ps2card.c
+  src/save/savecodec.c
+  src/save/savedoc.c
+  src/save/savestore.c)
+add_library(nuworld_save STATIC ${NW_SAVE_SOURCES})
+target_include_directories(nuworld_save PUBLIC src)
+target_compile_options(nuworld_save PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_save PUBLIC SDL3::SDL3)
+
 if(NUWORLD_TESTS)
   enable_testing()
   add_executable(nuworld_test_vfs tests/c/test_vfs.c)
@@ -157,16 +168,20 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)
   add_test(NAME settings COMMAND nuworld_test_settings ${CMAKE_CURRENT_BINARY_DIR}/test-settings)
+  add_executable(nuworld_test_savefile tests/c/test_savefile.c)
+  target_compile_options(nuworld_test_savefile PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save nuworld_vfs)
+  add_test(NAME savefile COMMAND nuworld_test_savefile ${CMAKE_CURRENT_BINARY_DIR}/test-savefile)
 endif()
 
 if(NUWORLD_FUZZ)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang" OR MINGW)
     message(FATAL_ERROR "NUWORLD_FUZZ needs clang on Linux or macOS (libFuzzer does not support MinGW).")
   endif()
-  # The VFS readers and the VIF decoder again, instrumented for libFuzzer, and the seed corpus from the synthetic
-  # test builders.
+  # The VFS readers, the VIF decoder and the save readers again, instrumented for libFuzzer, and the seed corpus from
+  # the synthetic test builders.
   set(nw_fuzz_flags -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
-  add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES} src/gfx/vif.c)
+  add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES} ${NW_SAVE_SOURCES} src/gfx/vif.c)
   target_include_directories(nuworld_vfs_fuzz PUBLIC src)
   target_compile_options(nuworld_vfs_fuzz PRIVATE -Wall -Wextra -fsanitize=fuzzer-no-link ${nw_fuzz_flags})
   target_link_libraries(nuworld_vfs_fuzz PUBLIC SDL3::SDL3)
@@ -177,7 +192,7 @@ if(NUWORLD_FUZZ)
   add_executable(nuworld_fuzz_seeds tests/fuzz/fuzz_seeds.c)
   target_include_directories(nuworld_fuzz_seeds PRIVATE tests/c)
   target_compile_options(nuworld_fuzz_seeds PRIVATE -Wall -Wextra)
-  target_link_libraries(nuworld_fuzz_seeds PRIVATE nuworld_vfs)
+  target_link_libraries(nuworld_fuzz_seeds PRIVATE nuworld_save nuworld_vfs)
   if(NUWORLD_TESTS)
     # Every seed once through the instrumented readers.
     set(nw_fuzz_seeds ${CMAKE_CURRENT_BINARY_DIR}/fuzz-seeds)
