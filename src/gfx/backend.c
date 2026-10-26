@@ -536,8 +536,8 @@ static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program,
     }
 }
 
-/* A VERTS command's triangles: GS coordinates under the GS matrix and unlit, or points through the command's
-   program. */
+/* A VERTS command's triangles: GS coordinates under the GS matrix and unlit, sprites as faceon draws them with GS
+   units, or points through the command's program. */
 static void nw_be_tris(const NwPacket *p, const NwCmd *c)
 {
     NwVuObject o;
@@ -545,6 +545,11 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     if (c->mode == NW_VERTS_GS) {
         memset(&o, 0, sizeof(o));
         nw_be_gs(&p->views[c->view], nw_be.width, nw_be.height, o.lv);
+    } else if (c->mode == NW_VERTS_SPRITE) {
+        program = NW_VU_FACEON;
+        nw_be_object(p, c, program, &o);
+        o.sprite[0] = 1.0f / (8.0f * (float)nw_be.width);
+        o.sprite[1] = -1.0f / (8.0f * (float)nw_be.height);
     } else {
         const NwVuProg *mpg = c->mpg;
         program = nw_vu_program(mpg ? mpg->name : NULL);

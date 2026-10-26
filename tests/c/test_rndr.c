@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "game/cloudfx.h"
 #include "gamelib/debris.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
@@ -69,7 +70,9 @@ struct debdma_s *CreateDmaPartEffectList(struct debdma_s *list, int *size);
 void LinkDmaParticalSets(struct DmaTag **sets, int count);
 void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
                          int mode, float time);
-extern char vu_load_ptl_mpg[];
+extern char vu_load_ptl_mpg[], vu_load_cloud_mpg[];
+void cloudRender(struct nuvec_s *pos, struct nuvec_s *off, f32 size, f32 rng, s32 density, s32 maxc,
+                 struct cloud_s *cl, struct numtl_s *mtl, struct nuvec_s *col);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -925,6 +928,33 @@ static void test_particles(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* cloudRender: each cloud a sprite in the clouds stream under the identity, its point off the wrapped scroll folded
+   into +-rng about it (a cloud at rng + 1 lands at 1 - rng), its corners +-size by +-size / 2, in col times density
+   with alpha 126. */
+static void test_clouds(void)
+{
+    CloudFxInit();
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    struct cloud_s cl[2] = { { 16 * 7, 16, -16 * 2 }, { -16 * 6, 0, 0 } };
+    struct nuvec_s pos = { 10.0f, 20.0f, 30.0f }, off = { 0.0f, 0.0f, 0.0f }, col = { 0.5f, 0.25f, 1.0f };
+    cloudRender(&pos, &off, 8.0f, 4.0f, 64, 2, cl, mtl, &col);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? p->cmds : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_SPRITE && c->count == 12 && c->material == mtl);
+    CHECK(c && c->mpg == (void *)vu_load_cloud_mpg && same_mtx(c->local, &numtx_identity));
+    if (c && c->count == 12) {
+        const NwVuSpriteVertex *v = &p->verts[c->first];
+        float wx = 10.0f - 8.0f * (int)(10.0f / 8.0f), wz = 30.0f - 8.0f * (int)(30.0f / 8.0f);
+        CHECK(v[0].pos[0] == 7.0f - wx - 8.0f + 10.0f && v[0].pos[2] == -2.0f - wz + 8.0f + 30.0f);
+        CHECK(v[6].pos[0] == -6.0f - wx + 8.0f + 10.0f && v[5].pos[0] == v[0].pos[0]);
+        CHECK(v[0].tex[0] == 0.0f && v[5].tex[0] == 1.0f && v[5].tex[1] == 1.0f && v[0].tex[2] == -8.0f);
+        CHECK(v[0].tex[3] == -4.0f && v[0].col[0] == 32 && v[0].col[1] == 16 && v[0].col[2] == 64 && v[0].col[3] == 126);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -1021,6 +1051,7 @@ int main(void)
     test_fx_quads();
     test_shadows();
     test_particles();
+    test_clouds();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }
