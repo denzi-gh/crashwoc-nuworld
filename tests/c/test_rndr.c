@@ -21,7 +21,8 @@
 
 #include "gsc_builder.h"
 
-extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[];
+extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[],
+    vu_load_fx2_mpg[];
 extern struct nutexslot_s *D_0062EBEC;
 extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
 extern struct numtl_s *numtl_defaultmtl2d;
@@ -45,6 +46,8 @@ void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, fl
                      struct numtl_s *mtl);
 void NuCameraSet(struct nucamera_s *cam);
 void AddQuad3DrotXYZ(struct nuvec_s *pos, struct nuvec_s *shape, struct numtl_s *mtl, s32 *a, f32 *uvs, u32 colour);
+int NuBridgeStreamRope(struct rndrstream_s *rs, struct nuvec_s *points, int npoints, int colour);
+void *vpDmaTag_Next(void *packet, uint32_t addr);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -714,6 +717,46 @@ static void test_crate_quad(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* NuBrdigeDrawRope's sequence: a rope of three points is two segments of four faces, the offsets turning a quarter
+   from face to face, one VERTS record in the fx stream under fx2 and the identity; a link of the fx stream after
+   another stream's leaves no raw packets. */
+static void test_rope(void)
+{
+    struct nuvec_s pts[3] = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 0.0f } };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    unsigned raw = nw_rndr_raw_streams();
+    for (int pass = 0; pass < 2; pass++) {
+        NuRndrStreamLink(rndrstream_fx);
+        NuRndrStreamSetMisc(rndrstream_fx);
+        NuRndrStreamAddMtl(rndrstream_fx, mtl);
+        NuRndrSetLocalMtx(&numtx_identity, 2);
+        NuRndrStreamSetViewMtxScissorClip(rndrstream_fx);
+        NuRndrStreamSetLocalMtx(rndrstream_fx);
+        NuRndrStreamFxMPG(1);
+        NuBridgeStreamRope(rndrstream_fx, pass ? &pts[1] : pts, pass ? 2 : 3, (int)0x80FF8040);
+        rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+        NuRndrStreamLink(rndrstream_2d);
+        rndrstream_free = vpDmaTag_Next(rndrstream_2d->ptr.u8, 0);
+    }
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 2 ? &p->cmds[0] : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_TRIS && c->count == 48 && p->cmds[1].count == 24);
+    CHECK(c && c->mpg == (void *)vu_load_fx2_mpg && c->material == mtl && same_mtx(c->local, &numtx_identity));
+    if (c && c->count == 48) {
+        const NwVuSpriteVertex *v = &p->verts[c->first];
+        CHECK(v[0].pos[0] == 0.0f && v[0].pos[1] == 0.0f && v[0].pos[2] == -0.05f);
+        CHECK(v[5].pos[0] == 1.0f && v[5].pos[1] == 0.05f && v[5].pos[2] == 0.0f);
+        CHECK(v[6].pos[1] == -0.05f && v[12].pos[2] == 0.05f && v[24].pos[0] == 1.0f && v[24].pos[2] == -0.05f);
+        CHECK(v[5].tex[0] == 0x5F0 && v[5].tex[1] == 0xFF0 && v[0].tex[0] == 0x400 && v[0].tex[1] == 0xC00);
+        CHECK(v[3].col[0] == 0x40 && v[3].col[1] == 0x80 && v[3].col[2] == 0xFF && v[3].col[3] == 0x80);
+    }
+    CHECK(nw_rndr_raw_streams() == raw);
+    NuRndrStreamFxMPG(0);
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -806,6 +849,7 @@ int main(void)
     test_hgobj();
     test_xuv();
     test_crate_quad();
+    test_rope();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

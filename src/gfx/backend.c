@@ -490,21 +490,6 @@ static void nw_be_verts(const NwPacket *p)
     nw_vu_sprite_attribs();
 }
 
-static void nw_be_tris(const NwPacket *p, const NwCmd *c)
-{
-    NwVuObject o;
-    memset(&o, 0, sizeof(o));
-    nw_be_gs(&p->views[c->view], nw_be.width, nw_be.height, o.lv);
-    NwVuMaterial m = nw_be_material(p, c, false);
-    NwMtlPass pass[2];
-    glBindVertexArray(nw_be.verts_vao);
-    uint32_t n = nw_vu_use(NW_VU_TRICU, &o, &m, pass);
-    for (uint32_t k = 0; k < n; k++) {
-        nw_vu_pass(NW_VU_TRICU, &m, &pass[k]);
-        glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
-    }
-}
-
 /* A package whose program the port does not draw, once per package and kind of geom. */
 static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 {
@@ -530,6 +515,30 @@ static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program,
         nw_vu1init_uv(o, c->local, &p->lights[c->light]);
     } else if (c->light != NW_LIGHT_NONE) {
         nw_vu1init_lights(o, c->local, &p->lights[c->light]);
+    }
+}
+
+/* A VERTS command's triangles: GS coordinates under the GS matrix and unlit, or points through the command's
+   program. */
+static void nw_be_tris(const NwPacket *p, const NwCmd *c)
+{
+    NwVuObject o;
+    NwVuProgram program = NW_VU_TRICU;
+    if (c->mode == NW_VERTS_GS) {
+        memset(&o, 0, sizeof(o));
+        nw_be_gs(&p->views[c->view], nw_be.width, nw_be.height, o.lv);
+    } else {
+        const NwVuProg *mpg = c->mpg;
+        program = nw_vu_program(mpg ? mpg->name : NULL);
+        nw_be_object(p, c, program, &o);
+    }
+    NwVuMaterial m = nw_be_material(p, c, false);
+    NwMtlPass pass[2];
+    glBindVertexArray(nw_be.verts_vao);
+    uint32_t n = nw_vu_use(program, &o, &m, pass);
+    for (uint32_t k = 0; k < n; k++) {
+        nw_vu_pass(program, &m, &pass[k]);
+        glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
     }
 }
 

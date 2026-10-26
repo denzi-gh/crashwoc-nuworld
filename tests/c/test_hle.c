@@ -260,6 +260,19 @@ static void test_stream_link(void)
     NuRndrStreamLink(&s);
     CHECK(s.ptr.u8 == buf + 16 && s.base.u8 == buf);
 
+    /* a stream whose links left only their NEXT tag starts over at its next link; one with packets does not */
+    memset(buf, 0, sizeof buf);
+    memset(&s, 0, sizeof s);
+    rndrstream_free = buf;
+    NuRndrStreamLink(&s);
+    rndrstream_free = (u8 *)vpDmaTag_Next(s.ptr.u8, 0) + 32;
+    NuRndrStreamLink(&s);
+    CHECK(s.base.u8 == buf + 48 && s.ptr.u8 == buf + 48);
+    s.ptr.u8 = vpDmaTag_Cnt(s.ptr.u8);
+    rndrstream_free = buf + 96;
+    NuRndrStreamLink(&s);
+    CHECK(s.base.u8 == buf + 48 && s.ptr.u8 == buf + 96);
+
     rndrstream_free = saved;
 }
 

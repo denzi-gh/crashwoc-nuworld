@@ -59,7 +59,8 @@ typedef enum NwCmdOp {
 
 /* How a VERTS command's vertices are drawn. */
 typedef enum NwVertsMode {
-    NW_VERTS_GS, /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
+    NW_VERTS_GS,   /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
+    NW_VERTS_TRIS, /* points under the local matrix, s and t x4096, through the command's program */
 } NwVertsMode;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */

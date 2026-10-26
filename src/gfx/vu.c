@@ -309,6 +309,7 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_trica_mpg", NW_VU_TRICA },
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
         { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
+        { "vu_load_fx2_mpg", NW_VU_TRICU }, /* its triangles at MSCAL 0x306: vertex colour, unlit */
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {
         if (strcmp(package, map[i].name) == 0) {
