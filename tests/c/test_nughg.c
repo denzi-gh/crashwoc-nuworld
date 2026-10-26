@@ -19,6 +19,7 @@
 #include "nu3d/nutexanm.h"
 #include "nucore/nufile.h"
 #include "numath/numtx.h"
+#include "nw_ps2types.h"
 #include "port/game.h"
 #include "port/nuhgobj.h"
 #include "shim/shim.h"
@@ -36,6 +37,10 @@ void NuHGobjEval(struct NUHGOBJ_s *hobj, int njanims, struct NUJOINTANIM_s *jani
 
 static int failures;
 static char ghg_buffer[4 << 20];
+
+/* A host record: beside the buffer, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < ghg_buffer || (char *)(p) >= ghg_buffer + sizeof(ghg_buffer))
+#define ALIGN16(p) ((char *)(((uintptr_t)(p) + 0xF) & ~(uintptr_t)0xF))
 
 #define CHECK(cond) \
     do { \
@@ -101,7 +106,7 @@ static void check_hobj(struct NUHGOBJ_s *h, char *file, const GhgFile *f)
     CHECK(h->numtexanims == 1 && a->mtl == h->mtls[1] && a->tids == (short *)(file + f->texanim_tids));
     CHECK(a->numtids == 1 && a->tids[0] == h->tids[0] && strcmp(a->ntaname, "anim") == 0 && !a->succ && !a->prev);
     CHECK(strcmp(a->scriptname, "script") == 0 && a->env && a->env->mtl == h->mtls[1] && a->env->prog == NULL);
-    CHECK((char *)a->env >= (char *)(h + 1) && (char *)a->env < ghg_buffer + sizeof(ghg_buffer));
+    CHECK(BESIDE(a->env));
     struct NUSHADOWDATA_s *sh = h->shadow;
     CHECK(sh && (char *)sh[0].ellipsoids == file + f->ellipsoids && sh[0].cylinders == (void *)0x1234 && sh[0].joint == 2);
     CHECK(sh && sh[0].nellipsoids == 1 && sh[0].nshadow_meshes == 1 && sh[1].joint == 0xFF);
@@ -134,14 +139,15 @@ static void test_load(const char *scratch)
     NuTexInit();
     NuMtlInit();
 
-    char *file = (char *)(((uintptr_t)ghg_buffer + 3 + 0xF) & ~(uintptr_t)0xF);
+    char *file = ALIGN16(ghg_buffer + 3);
+    /* Retail's charge: the image, then the object and the texanim's env at their PS2 sizes. */
+    char *end = ALIGN16(ALIGN16(ALIGN16(file + f.size) + sizeof(nw_ps2_NUHGOBJ_s)) + sizeof(nw_ps2_nutexanimenv_s));
     int mtls = count_mtls();
     for (int pass = 0; pass < 2; pass++) {
         union variptr_u buf;
         buf.charptr = ghg_buffer + 3;
         struct NUHGOBJ_s *h = NuGHGRead(&buf, "test.ghg");
-        CHECK(h == (struct NUHGOBJ_s *)(file + ((f.size + 0xF) & ~(size_t)0xF)) && memcmp(file, b.buf, 16) == 0);
-        CHECK(((uintptr_t)buf.charptr & 15) == 0 && buf.charptr > (char *)(h + 1));
+        CHECK(h && BESIDE(h) && memcmp(file, b.buf, 16) == 0 && buf.charptr == end);
         if (h) {
             check_hobj(h, file, &f);
             CHECK(count_mtls() == mtls + 2 && nw_ghg_count() == 1);

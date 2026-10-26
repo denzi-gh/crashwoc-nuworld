@@ -14,6 +14,7 @@
 #include "nu3d/numtl.h"
 #include "nu3d/nutex.h"
 #include "nucore/nufile.h"
+#include "nw_ps2types.h"
 #include "port/game.h"
 #include "port/nugscn.h"
 #include "shim/shim.h"
@@ -34,9 +35,13 @@ extern s32 situtotal;
 extern s32 terraincnt;
 extern s32 TempScanStack[0x1000];
 extern void *TempStackPtr;
+extern TerrainSetType *CurTerr;
 
 static int failures;
 static _Alignas(16) char ter_heap[1 << 20];
+
+/* A host record: beside the buffer, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < ter_heap || (char *)(p) >= ter_heap + sizeof(ter_heap))
 static TerrainSetType ter_set;
 static TerrainSituType ter_terr[0x800];
 
@@ -53,7 +58,8 @@ static WallSplineType *next_wall(WallSplineType *w)
     return ((WallSplineType **)w)[-1];
 }
 
-/* ReadTerrain on its own: objects into terr[], the walls as host copies after the untouched image. */
+/* ReadTerrain on its own: objects into terr[], the walls as host copies beside the untouched image, and the store
+   past the records, where retail's leaves it. */
 static void test_read(const GscBuild *b, const TerFile *f)
 {
     memset(&ter_set, 0, sizeof(ter_set));
@@ -74,21 +80,21 @@ static void test_read(const GscBuild *b, const TerFile *f)
     WallSplineType *w1 = ter_set.wallinfo, *w0 = w1 ? next_wall(w1) : NULL;
     CHECK(w1 && w0 && next_wall(w0) == NULL);
     if (w1 && w0) {
-        CHECK((char *)w0 > file + b->len && (char *)w1 > (char *)w0);
+        CHECK(BESIDE(w0) && BESIDE(w1));
         CHECK(((uintptr_t)w0 & 7) == 0 && ((uintptr_t)w1 & 7) == 0);
         CHECK(w0->count == 17 && w0->val == 7 && w1->count == 2 && w1->val == 9);
         CHECK(w0->spl[0].y == 0.0f && w0->spl[1].y == 16.0f && w0->spl[2].y == 0.0f && w0->spl[3].y == 32.0f);
         CHECK(w0->spl[4].y == 0.0f && w0->spl[16].y == 2147483647.0f && w0->spl[17].x == 17.0f);
         CHECK(w1->spl[0].y == 2147483647.0f && w1->spl[2].z == 4.0f);
-        CHECK((char *)store == (char *)w1 + offsetof(WallSplineType, spl) + 3 * sizeof(struct nuvec_s));
     }
+    CHECK((char *)store == file + f->dir);
 
     short *keep = store;
     CHECK(ReadTerrain("missing", 0, &store, &ter_set) == -1 && store == keep);
 }
 
-/* terraininit around it: the set and terr[] carved at host sizes, then the file, the objects grouped and the
-   platform bound to its instance; casts onto the floor of the static object. */
+/* terraininit around it: the set and terr[] as host records beside the heap, which takes their PS2 size, then the
+   file, the objects grouped and the platform bound to its instance; casts onto the floor of the static object. */
 static void test_init(const TerFile *f)
 {
     static struct nuinstance_s inst[1];
@@ -102,8 +108,8 @@ static void test_init(const TerFile *f)
     TerrainSetCur(ter_heap);
     TerrainSetType *set = (TerrainSetType *)terraininit(0, &store, (short *)(ter_heap + sizeof(ter_heap)), 0, "test",
                                                         &scene, 0);
-    char *file = (char *)set + sizeof(TerrainSetType) + 0x880 * sizeof(TerrainSituType);
-    CHECK(set == (TerrainSetType *)ter_heap && (char *)set->terr == (char *)set + sizeof(TerrainSetType));
+    char *file = ter_heap + sizeof(nw_ps2_TerrainSetType) + 0x880 * sizeof(nw_ps2_TerrainSituType);
+    CHECK(set && BESIDE(set) && BESIDE(set->terr) && CurTerr == set);
     CHECK(situtotal == 2 && terraincnt == 2 && set->miny == 0);
 
     TerrainSituType *t = set->terr;
@@ -329,7 +335,7 @@ static void retail_file(const char *base, char *buffer, size_t size)
 static int retail_main(int argc, char **argv)
 {
     (void)argc, (void)argv;
-    size_t size = 0x2400000; /* main's superbuffer, doubled for the host's larger records */
+    size_t size = 0x1200000; /* main's superbuffer */
     char *buffer = SDL_malloc(size);
     nw_shim_file_init(&retail_vfs);
     NuFileInitEx(1, 1);

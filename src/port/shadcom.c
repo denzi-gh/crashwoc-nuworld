@@ -1,6 +1,6 @@
 /* game/shadcom (port/units.toml override): retail's ShadDataLoad with the table and the entries, which hold a
-   material pointer, as host records after the file (the native textures stay in the file, where their TexList slots
-   point), and ShadRndr's quad as a record with its palette as a CLUT. */
+   material pointer, as host records beside the caller's buffer (src/port/heap.h; the native textures stay in the file,
+   where their TexList slots point), and ShadRndr's quad as a record with its palette as a CLUT. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -9,12 +9,14 @@
 
 #include "gfx/rndr.h"
 #include "nw_convert.h"
+#include "port/heap.h"
 
 #define shadcom_srcfile ".\\shadcom.c"
 #define NW_SHD_TEX 0x10 /* the native texture after an entry's header */
 
 /* Declared by no header. */
 int NuFileSize(char *fname);
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 extern u32 shadcol;
 extern s32 palids[4];
@@ -23,7 +25,6 @@ typedef struct NwShdLoad {
     char *base;
     size_t size;
     const char *file;
-    union variptr_u *buffer;
 } NwShdLoad;
 
 static _Noreturn void nw_shd_bad(const NwShdLoad *ld, const char *what, size_t off)
@@ -44,17 +45,6 @@ static int32_t nw_shd_i32(const NwShdLoad *ld, size_t off)
     return v;
 }
 
-/* Zeroed host records off the caller's buffer. */
-static void *nw_shd_new(NwShdLoad *ld, size_t size, size_t align)
-{
-    union variptr_u *b = ld->buffer;
-    b->intaddr = (b->intaddr + align - 1) & ~(nuintptr)(align - 1);
-    void *p = b->voidptr;
-    memset(p, 0, size);
-    b->u8 += size;
-    return p;
-}
-
 struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer)
 {
     int size = NuFileSize(file);
@@ -67,17 +57,22 @@ struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer)
     }
     buffer->intaddr = (buffer->intaddr + 0xF) & ~(nuintptr)0xF;
     size = NuFileLoadBuffer(file, buffer->voidptr, 0x7FFFFFFF);
-    NwShdLoad ld = { .base = buffer->charptr, .size = (size_t)size, .file = file, .buffer = buffer };
+    NwShdLoad ld = { .base = buffer->charptr, .size = (size_t)size, .file = file };
     buffer->u8 += size;
     int16_t count;
     if (ld.size < 4 || (memcpy(&count, ld.base, 2), count < 0) || (ld.size - 4) / 8 < (size_t)count) {
         nw_shd_bad(&ld, "table", 0);
     }
     /* The material block retail zeroes and never uses: its mtls != 0 test is inverted. */
-    nw_shd_new(&ld, count * sizeof(struct numtl_s), 16);
+    buffer->intaddr = (buffer->intaddr + 0xF) & ~(nuintptr)0xF;
+    memset(buffer->voidptr, 0, count * sizeof(nw_ps2_numtl_s));
+    buffer->u8 += count * sizeof(nw_ps2_numtl_s);
+    NwHeapSide *side = nw_heap_side();
+    nw_heap_side_own(side, ld.base, buffer->charptr);
     size_t table = offsetof(struct shaddata_s, table) + 2 * (size_t)count * sizeof(union shadslot_u);
-    struct shaddata_s *data = nw_shd_new(&ld, table, _Alignof(struct shaddata_s));
-    struct shadentry_s *entries = nw_shd_new(&ld, count * sizeof(struct shadentry_s), _Alignof(struct shadentry_s));
+    struct shaddata_s *data = nw_heap_side_new(side, table, _Alignof(struct shaddata_s));
+    struct shadentry_s *entries =
+        nw_heap_side_new(side, count * sizeof(struct shadentry_s), _Alignof(struct shadentry_s));
     data->count = count;
     data->external = 1;
     for (int i = 0; i < count; i++) {

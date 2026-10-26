@@ -1,4 +1,6 @@
-/* nu3d/nugscn's loader (port/units.toml override): retail's, with host copies of the records retail fixes in place. */
+/* nu3d/nugscn's loader (port/units.toml override): retail's, with the host records beside the caller's buffer
+   (src/port/heap.h): a record retail carves off the buffer still takes its PS2 size there, one it fixes in place
+   none. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -8,6 +10,7 @@
 #include "gfx/packet.h"
 #include "gfx/rndr.h"
 #include "nw_convert.h"
+#include "port/heap.h"
 #include "port/nuanim.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
@@ -25,6 +28,7 @@ struct nugscnload_s {
 };
 
 /* Declared by no header. */
+int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 int NuFileRead(int fh, void *data, int size);
 int NuFileReadInt(int fh);
@@ -48,6 +52,7 @@ static char **buffer_freeptr; /* the caller's buffer cursor */
 static char *buffer_tmpptr;   /* the buffer's end (no temp workspace) */
 static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
+static NwHeapSide *gscene_side; /* the scene being loaded */
 
 /* The GPU objects of the scenes loaded so far, and the job that frees each. */
 static struct {
@@ -68,9 +73,18 @@ static void *GScnBufferAlloc(size_t size, size_t align)
     return 0;
 }
 
-/* n host records, at least 4-aligned as retail's. */
-#define NW_GSCN_NEW(type, n) \
-    ((type *)GScnBufferAlloc((size_t)(n) * sizeof(type), _Alignof(type) > 4 ? _Alignof(type) : 4))
+/* n host records of a struct retail carves off the buffer: its PS2 size there, the host records beside. */
+#define NW_GSCN_NEW(tag, n) \
+    (GScnBufferAlloc((size_t)(n) * sizeof(nw_ps2_##tag), 4), \
+     (struct tag *)nw_heap_side_new(gscene_side, (size_t)(n) * sizeof(struct tag), _Alignof(struct tag)))
+
+/* The same for an array of pointers (4 bytes each on the EE). */
+#define NW_GSCN_PTRS(type, n) \
+    (GScnBufferAlloc((size_t)(n) * sizeof(uint32_t), 4), \
+     (type **)nw_heap_side_new(gscene_side, (size_t)(n) * sizeof(type *), _Alignof(type *)))
+
+/* Host copies of records retail fixes in place in the file. */
+#define NW_GSCN_COPY(type, n) ((type *)nw_heap_side_new(gscene_side, (size_t)(n) * sizeof(type), _Alignof(type)))
 
 /* RELOCATE: a self-relative pointer of the file image, NULL for 0. */
 static char *nw_gscn_rel(char *field)
@@ -155,9 +169,7 @@ static char *nw_gscn_anim_at(NwAnimFile *f, char *field, size_t size)
 static void *nw_gscn_anim_new(NwAnimFile *f, size_t size, size_t align)
 {
     (void)f;
-    void *p = GScnBufferAlloc(size, align > 4 ? align : 4);
-    memset(p, 0, size);
-    return p;
+    return nw_heap_side_new(gscene_side, size, align);
 }
 
 void ReadAnimationLibrary(int fh)
@@ -166,7 +178,7 @@ void ReadAnimationLibrary(int fh)
     int count = NuFileReadInt(fh);
     NuFileReadInt(fh);
     char *table = NuMemFileAddr(fh);
-    gscene->instanimdata = NW_GSCN_NEW(struct nuanimdata_s *, count);
+    gscene->instanimdata = NW_GSCN_COPY(struct nuanimdata_s *, count);
     for (int i = 0; i < count; i++) {
         char *p = nw_gscn_rel(table + 4 * i);
         gscene->instanimdata[i] = p ? nw_anim_data(&file, p) : 0;
@@ -197,7 +209,7 @@ void ReadTextureSet(int fh)
 {
     int ntex = NuFileReadInt(fh);
     NuFileReadInt(fh);
-    gscene->tids = NW_GSCN_NEW(int, ntex);
+    gscene->tids = GScnBufferAlloc((size_t)ntex * sizeof(int), 4);
     memset(gscene->tids, 0, ntex * sizeof(int));
     gscene->numtid = ntex;
     for (int i = 0; i < ntex; i++) {
@@ -219,10 +231,10 @@ void ReadMaterialSet(int fh)
 {
     int nmtls = NuFileReadInt(fh);
     NuFileReadInt(fh);
-    gscene->mtls = NW_GSCN_NEW(struct numtl_s *, nmtls);
+    gscene->mtls = NW_GSCN_PTRS(struct numtl_s, nmtls);
     gscene->nummtl = nmtls;
     for (int i = 0; i < nmtls; i++) {
-        struct numtl_s *mtl = NW_GSCN_NEW(struct numtl_s, 1);
+        struct numtl_s *mtl = NW_GSCN_COPY(struct numtl_s, 1);
         NW_FILE_X(numtl_s, mtl, NuMemFileAddr(fh));
         NuMemFileSeek(fh, sizeof(nw_ps2_numtl_s), 1);
         gscene->mtls[i] = mtl;
@@ -267,17 +279,15 @@ void ReadObjSet(int fh)
     memset(&origin, 0, sizeof(origin));
     int ngobjs = NuFileReadInt(fh);
     int colourref = NuFileReadInt(fh);
-    gscene->gobjs = NW_GSCN_NEW(struct nugobj_s *, ngobjs);
-    memset(gscene->gobjs, 0, ngobjs * sizeof(struct nugobj_s *));
+    gscene->gobjs = NW_GSCN_PTRS(struct nugobj_s, ngobjs);
     gscene->numgobj = ngobjs;
     for (int i = 0; i < ngobjs; i++) {
         int nsub = NuFileReadInt(fh);
         NuFileReadInt(fh);
         NuFileReadInt(fh);
         NuFileReadInt(fh);
-        struct nugobj_s *gobj = NW_GSCN_NEW(struct nugobj_s, nsub);
+        struct nugobj_s *gobj = NW_GSCN_NEW(nugobj_s, nsub);
         gscene->gobjs[i] = gobj;
-        memset(gobj, 0, nsub * sizeof(struct nugobj_s));
         gobj->ngobjs = nsub;
         for (int j = 0; j < nsub; j++) {
             int count, size;
@@ -285,8 +295,7 @@ void ReadObjSet(int fh)
             case 0: {
                 count = NuFileReadInt(fh);
                 NuFileRead(fh, &gobj->origin, sizeof(struct nuvec_s));
-                struct nugeom_s *geom = NW_GSCN_NEW(struct nugeom_s, count);
-                memset(geom, 0, count * sizeof(struct nugeom_s));
+                struct nugeom_s *geom = NW_GSCN_NEW(nugeom_s, count);
                 int tricount = NuFileReadInt(fh);
                 NuFileReadInt(fh);
                 NuFileReadInt(fh);
@@ -320,8 +329,7 @@ void ReadObjSet(int fh)
                 NuFileReadInt(fh);
                 NuFileReadInt(fh);
                 gobj->origin = origin;
-                struct nufaceongeom_s *fgeom = NW_GSCN_NEW(struct nufaceongeom_s, count);
-                memset(fgeom, 0, count * sizeof(struct nufaceongeom_s));
+                struct nufaceongeom_s *fgeom = NW_GSCN_NEW(nufaceongeom_s, count);
                 gobj->faceon_geom = fgeom;
                 for (int k = 0; k < count; k++, fgeom++) {
                     if (k != count - 1) {
@@ -394,7 +402,7 @@ void ReadTexAnimSet(int fh)
     NuMemFileSeek(fh, gscene->numtexanims * sizeof(nw_ps2_nutexanim_s), 1);
     NuFileReadInt(fh);
     short *tidtab = NuMemFileAddr(fh);
-    gscene->texanims = NW_GSCN_NEW(struct nutexanim_s, gscene->numtexanims);
+    gscene->texanims = NW_GSCN_COPY(struct nutexanim_s, gscene->numtexanims);
 
     for (int i = 0; i < gscene->numtexanims; i++) {
         struct nutexanim_s *tex = &gscene->texanims[i];
@@ -411,9 +419,9 @@ void ReadTexAnimSet(int fh)
         tex->dynalloc = 0;
         struct nutexanimprog_s *prog = NuTexAnimProgFind(scriptname);
         union variptr_u buff;
-        char *start = buff.charptr = (char *)(((uintptr_t)*buffer_freeptr + 0xF) & ~(uintptr_t)0xF);
+        buff.voidptr = NW_GSCN_COPY(struct nutexanimenv_s, 1);
         tex->env = NuTexAnimEnvCreate(&buff, tex->mtl, tex->tids, prog);
-        GScnBufferAlloc(buff.charptr - start, 0x10);
+        GScnBufferAlloc(sizeof(nw_ps2_nutexanimenv_s), 0x10);
     }
 
     for (int i = 0; i < gscene->numtexanims - 1; i++) {
@@ -428,7 +436,7 @@ void ReadSplineSet(int fh)
 {
     gscene->numsplines = NuFileReadInt(fh);
     int size = NuFileReadInt(fh);
-    gscene->splines = NW_GSCN_NEW(struct nugspline_s, gscene->numsplines);
+    gscene->splines = NW_GSCN_NEW(nugspline_s, gscene->numsplines);
     char *data = NuMemFileAddr(fh);
     NuMemFileSeek(fh, size, 1);
     for (int i = 0; i < gscene->numsplines; i++) {
@@ -463,9 +471,10 @@ struct nugscn_s *NuGScnLoadFix(void)
         if (data == 0) {
             NuErrorProlog(nugscn_srcfile, 0xF00)("GSC File too large, \"%s\" ", filename);
         }
-        gscene = NW_GSCN_NEW(struct nugscn_s, 1);
+        gscene_side = nw_heap_side();
+        nw_heap_side_own(gscene_side, data, data + size);
+        gscene = NW_GSCN_NEW(nugscn_s, 1);
         if (gscene != 0) {
-            memset(gscene, 0, sizeof(struct nugscn_s));
             int fh = NuMemFileOpen(data, size, 0);
             if (fh != 0) {
                 NuFileBeginBlkRead(fh, 0x3032554E);
@@ -497,7 +506,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                         NuFileReadInt(fh);
                         char *src = NuMemFileAddr(fh);
                         NuMemFileSeek(fh, gscene->numinstance * sizeof(nw_ps2_nuinstance_s), 1);
-                        gscene->instances = NW_GSCN_NEW(struct nuinstance_s, gscene->numinstance);
+                        gscene->instances = NW_GSCN_COPY(struct nuinstance_s, gscene->numinstance);
                         for (int i = 0; i < gscene->numinstance; i++) {
                             NW_FILE_X(nuinstance_s, &gscene->instances[i], src + i * sizeof(nw_ps2_nuinstance_s));
                             gscene->instances[i].flags.visitest = -1; /* the signed 1-bit field's set bit */
@@ -519,7 +528,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                         NuFileReadInt(fh);
                         char *src = NuMemFileAddr(fh);
                         NuMemFileSeek(fh, gscene->numspecial * sizeof(nw_ps2_nuspecial_s), 1);
-                        gscene->specials = NW_GSCN_NEW(struct nuspecial_s, gscene->numspecial);
+                        gscene->specials = NW_GSCN_COPY(struct nuspecial_s, gscene->numspecial);
                         struct nuspecial_s *special = gscene->specials;
                         for (int k = 0; k < gscene->numspecial; k++, special++) {
                             NW_FILE_X(nuspecial_s, special, src + k * sizeof(nw_ps2_nuspecial_s));
@@ -567,6 +576,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                 NuMemFileClose(fh);
             }
             *buffer = (char *)(((uintptr_t)*buffer + 0xF) & ~(uintptr_t)0xF);
+            nw_heap_side_own(gscene_side, data, *buffer);
             NuRndrSplineSearch(gscene);
         }
     }

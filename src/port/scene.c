@@ -23,7 +23,7 @@
 #include "port/nugscn.h"
 #include "vfs/vfs.h"
 
-#define NW_SCENE_BUFFER 0x2400000 /* main's superbuffer, doubled for the host's larger records */
+#define NW_SCENE_BUFFER 0x1200000 /* main's superbuffer */
 
 /* Declared by no header. */
 void NuPs2Init(void);

@@ -33,6 +33,9 @@ static int failures;
 static char ani_buffer[8 << 20];
 static char ghg_buffer[4 << 20];
 
+/* A host record: beside the buffer, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < ani_buffer || (char *)(p) >= ani_buffer + sizeof(ani_buffer))
+
 #define CHECK(cond) \
     do { \
         if (!(cond)) { \
@@ -97,7 +100,8 @@ static void test_load(const char *scratch)
     nw_shim_file_init(&vfs);
     NuFileInitEx(1, 1);
 
-    /* Twice in a row on one buffer, as InstAnimDataLoad loads a character's anims; the first builds the bit counts. */
+    /* Twice in a row on one buffer, as InstAnimDataLoad loads a character's anims; the first builds the bit counts.
+       The buffer takes the image alone, as retail's. */
     CHECK(isBitCountTable == 0);
     union variptr_u buf, end;
     buf.charptr = ani_buffer + 3;
@@ -106,7 +110,7 @@ static void test_load(const char *scratch)
         char *file = (char *)(((uintptr_t)buf.charptr + 15) & ~(uintptr_t)15);
         struct nuanimdata_s *data = NuAnimDataLoadBuff("test.ani", &buf, &end);
         CHECK(isBitCountTable == 1 && memcmp(file, b.buf, b.len) == 0);
-        CHECK((char *)data >= file + b.len && buf.charptr > (char *)(data + 1) && buf.charptr < end.charptr);
+        CHECK(buf.charptr == file + b.len && BESIDE(data));
         check_anim(data, file, &f);
     }
 
@@ -129,7 +133,6 @@ static void test_load(const char *scratch)
 typedef struct RetailStats {
     unsigned other, bad;
     AnimStats ani, bsa;
-    size_t host;
 } RetailStats;
 
 static RetailStats retail = { .ani = ANIM_STATS_INIT, .bsa = ANIM_STATS_INIT };
@@ -166,14 +169,13 @@ static void retail_file(const char *path)
     buf.charptr = ani_buffer;
     end.charptr = ani_buffer + sizeof(ani_buffer);
     struct nuanimdata_s *data = NuAnimDataLoadBuff((char *)path, &buf, &end);
-    /* The image up to the host records, with at most their alignment's padding. */
-    size_t size = (size_t)((char *)data - ani_buffer), host = (size_t)(buf.charptr - (char *)data);
+    size_t size = (size_t)(buf.charptr - ani_buffer);
+    CHECK(BESIDE(data));
     AnimStats st = ANIM_STATS_INIT;
     anim_check(&st, path, ani_buffer, ani_buffer + size, data);
-    printf("ANI %s time=%g chunks=%u sets=%u curves=%u keys=%u bytes=%zu host=%zu\n", path, data->time, st.chunks,
-           st.sets, st.curves, st.keys, size, host);
+    printf("ANI %s time=%g chunks=%u sets=%u curves=%u keys=%u bytes=%zu\n", path, data->time, st.chunks, st.sets,
+           st.curves, st.keys, size);
     anim_add(SDL_strcasecmp(path + strlen(path) - 4, ".bsa") == 0 ? &retail.bsa : &retail.ani, &st);
-    retail.host += host;
 }
 
 /* BGLoadScreenInit: the character and its fall in the superbuffer's last 1 MB. */
@@ -265,7 +267,7 @@ static int test_retail(void)
     }
     anim_print("TOTAL .ani", &retail.ani);
     anim_print("TOTAL .bsa", &retail.bsa);
-    printf("TOTAL other=%u host=%zu bad=%u\n", retail.other, retail.host, retail.bad);
+    printf("TOTAL other=%u bad=%u\n", retail.other, retail.bad);
     const AnimStats *a = &retail.ani, *b = &retail.bsa;
     CHECK(state == NW_GAME_RETURNED && retail.bad == 0 && a->bad == 0 && b->bad == 0 && retail.other == 17);
     CHECK(a->anims == 509 && a->chunks == 1370 && a->sets == 45128 && a->curves == 44848 && a->keys == 495592);

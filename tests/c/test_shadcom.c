@@ -13,6 +13,7 @@
 #include "nu3d/nutex.h"
 #include "nucore/nufile.h"
 #include "numath/numtx.h"
+#include "nw_ps2types.h"
 #include "port/game.h"
 #include "shim/shim.h"
 #include "vfs/dat.h"
@@ -35,6 +36,9 @@ extern int no_default_font;
 
 static int failures;
 static _Alignas(16) char shd_heap[8 << 20];
+
+/* A host record: beside the buffer, never in it (src/port/heap.h). */
+#define BESIDE(p) ((char *)(p) < shd_heap || (char *)(p) >= shd_heap + sizeof(shd_heap))
 
 #define CHECK(cond) \
     do { \
@@ -108,15 +112,16 @@ static void test_load(const char *scratch)
     char *file = shd_heap + 16;
     struct shaddata_s *data = ShadDataLoad("test.shd", &buf);
     CHECK(memcmp(file, b.buf, b.len) == 0);
+    /* Retail's charge: the image, then its zeroed block of two PS2 materials. */
     char *mtls = file + ((b.len + 15) & ~(size_t)15);
-    CHECK(data && (char *)data >= mtls + 2 * sizeof(struct numtl_s));
-    for (size_t i = 0; i < 2 * sizeof(struct numtl_s); i++) {
+    CHECK(data && BESIDE(data) && buf.charptr == mtls + 2 * sizeof(nw_ps2_numtl_s));
+    for (size_t i = 0; i < 2 * sizeof(nw_ps2_numtl_s); i++) {
         CHECK(mtls[i] == 0);
     }
     if (data) {
         CHECK(data->count == 2 && data->external == 1);
         struct shadentry_s *e0 = data->table[0].entry, *e1 = data->table[1].entry;
-        CHECK(buf.charptr == (char *)(e0 + 2) && e1 == e0 + 1);
+        CHECK(BESIDE(e0) && e1 == e0 + 1);
         check_entry(e0, 2);
         check_entry(e1, 3);
         CHECK(e0->tid != e1->tid && e0->mtl != e1->mtl);
