@@ -1,12 +1,13 @@
-/* game/shadcom's .shd loader (port/units.toml override): retail's ShadDataLoad with the table and the entries, which
-   hold a material pointer, as host records after the file. The native textures stay in the file, where their
-   TexList slots point. */
+/* game/shadcom (port/units.toml override): retail's ShadDataLoad with the table and the entries, which hold a
+   material pointer, as host records after the file (the native textures stay in the file, where their TexList slots
+   point), and ShadRndr's quad as a record with its palette as a CLUT. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
+#include "gfx/rndr.h"
 #include "nw_convert.h"
 
 #define shadcom_srcfile ".\\shadcom.c"
@@ -15,6 +16,8 @@
 /* Declared by no header. */
 int NuFileSize(char *fname);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
+extern u32 shadcol;
+extern s32 palids[4];
 
 typedef struct NwShdLoad {
     char *base;
@@ -109,4 +112,47 @@ struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer)
         data->table[count + i].name = ld.base + name;
     }
     return data;
+}
+
+/* The frame's cell of the atlas, whose 4-bit texels hold four frames in their bits: palids[frame & 3] shows one bit
+   of them, put over the material texture's CLUT where retail uploads it into the stream. */
+void ShadRndr(struct numtx_s *mtx, struct shadentry_s *shad, f32 frame, f32 scale)
+{
+    static const float corner[4][2] = { { -1.0f, 1.0f }, { 1.0f, 1.0f }, { -1.0f, -1.0f }, { 1.0f, -1.0f } };
+    struct nuvtx_tc1_s vtx[4];
+    struct numtx_s m;
+    if (shad == NULL || shad->mtl == NULL) {
+        return;
+    }
+    int last = (s32)frame - 1;
+    int n = shad->xframes * shad->yframes * 4;
+    f32 du = 1.0f / shad->xframes;
+    f32 dv = 1.0f / shad->yframes;
+    if (last < n) {
+        n = last;
+    }
+    if (n < 0) {
+        n = 0;
+    }
+    int pal = n & 3;
+    n >>= 2;
+    int col = n % shad->xframes, row = n / shad->xframes;
+    memset(vtx, 0, sizeof(vtx));
+    for (int k = 0; k < 4; k++) {
+        vtx[k].pnt.x = corner[k][0];
+        vtx[k].pnt.z = corner[k][1];
+        vtx[k].diffuse = (int)shadcol;
+        vtx[k].tc[0] = (col + (k & 1)) * du;
+        vtx[k].tc[1] = (row + (k >> 1)) * dv;
+    }
+    m = *mtx;
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            (&m._00)[r * 4 + c] *= scale;
+        }
+    }
+    struct rndrstream_s *rs = &shad->mtl->rs;
+    NuRndrStreamAddMtl(rs, shad->mtl);
+    NwCmd *c = nw_rndr_strip(vtx, 4, &m, rs);
+    c->clut = palids[pal] ? nw_rndr_texture(palids[pal]) : NULL;
 }

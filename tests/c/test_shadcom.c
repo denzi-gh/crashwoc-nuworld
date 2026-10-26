@@ -12,6 +12,7 @@
 #include "nu3d/numtl.h"
 #include "nu3d/nutex.h"
 #include "nucore/nufile.h"
+#include "numath/numtx.h"
 #include "port/game.h"
 #include "shim/shim.h"
 #include "vfs/dat.h"
@@ -25,6 +26,12 @@
 struct shaddata_s *ShadDataLoad(char *file, union variptr_u *buffer);
 void ShadDataDestroy(struct shaddata_s *data);
 struct shadentry_s *ShadFindData(struct shaddata_s *data, char *name);
+void ShadRndr(struct numtx_s *mtx, struct shadentry_s *shad, f32 frame, f32 scale);
+void NuRndrInitEx(int streamsize);
+void NuRndrEndScene(void);
+void NuRndrSwapStreamBuffers(void);
+extern s32 palids[4];
+extern int no_default_font;
 
 static int failures;
 static _Alignas(16) char shd_heap[8 << 20];
@@ -140,6 +147,46 @@ static void test_load(const char *scratch)
     SDL_free(root);
 }
 
+/* ShadRndr: the frame's cell of a 2 x 2 atlas, a strip under the matrix with its axes scaled; the frame's palette
+   (frame & 3), one of ShadComInit's four CLUTs that each show one bit of the texels, is the record's CLUT. */
+static void test_draw(void)
+{
+    no_default_font = 1;
+    NuRndrInitEx(0x10000);
+    ShadComInit();
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    struct shadentry_s e;
+    memset(&e, 0, sizeof(e));
+    e.xframes = 2;
+    e.yframes = 2;
+    e.mtl = mtl;
+    struct numtx_s mtx;
+    NuMtxSetIdentity(&mtx);
+    mtx._30 = 5.0f;
+    ShadRndr(&mtx, &e, 6.0f, 2.0f);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? p->cmds : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_TRIS && c->count == 6 && c->material == mtl);
+    CHECK(c && c->local[0] == 2.0f && c->local[5] == 2.0f && c->local[12] == 5.0f && c->local[15] == 1.0f);
+    const NwGpuTex *pal1 = nw_rndr_texture(palids[1]);
+    CHECK(c && c->clut == pal1 && pal1 && pal1->tex.nlevels == 0 && pal1->tex.ncolours == 16);
+    CHECK(pal1 && pal1->tex.clut[1][3] == 0 && pal1->tex.clut[2][3] == 0x20 && pal1->tex.clut[2][0] == 0xFF);
+    if (c && c->count == 6) {
+        const NwVuSpriteVertex *v = &p->verts[c->first];
+        CHECK(v[0].pos[0] == -1.0f && v[0].pos[2] == 1.0f && v[5].pos[0] == 1.0f && v[5].pos[2] == -1.0f);
+        CHECK(v[0].tex[0] == 2048.0f && v[0].tex[1] == 0.0f && v[5].tex[0] == 4096.0f && v[5].tex[1] == 2048.0f);
+        CHECK(v[0].col[0] == 0xFF && v[0].col[3] == 0x7F);
+    }
+    NuRndrSwapStreamBuffers();
+    ShadRndr(&mtx, &e, 0.0f, 1.0f);
+    NuRndrEndScene();
+    p = nw_rndr_packet();
+    CHECK(p->ncmds == 1 && p->cmds[0].clut == nw_rndr_texture(palids[0]) && p->verts[p->cmds[0].first].tex[0] == 0.0f);
+    NuRndrSwapStreamBuffers();
+}
+
 typedef struct RetailStats {
     unsigned files, entries, textures, bad;
 } RetailStats;
@@ -243,6 +290,7 @@ int main(int argc, char *argv[])
     SDL_asprintf(&scratch, "%s/", argv[1]);
     SDL_CreateDirectory(scratch);
     test_load(scratch);
+    test_draw();
     SDL_free(scratch);
     printf("%s\n", failures ? "FAILED" : "shadcom: all checks passed");
     return failures ? 1 : 0;

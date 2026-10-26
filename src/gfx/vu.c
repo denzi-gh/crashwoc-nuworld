@@ -397,16 +397,20 @@ static void nw_vu_upload(GLuint name, GLint format, GLenum layout, const NwTexLe
     }
 }
 
+/* A texture of no levels is a CLUT alone, which a draw puts over its material texture's. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
 {
     GLuint names[2] = { 0, 0 };
-    glGenTextures(t->ncolours ? 2 : 1, names);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glActiveTexture(GL_TEXTURE0);
-    nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER,
-                 t->levels, t->nlevels);
+    if (t->nlevels) {
+        glGenTextures(1, &names[0]);
+        nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER,
+                     t->levels, t->nlevels);
+    }
     if (t->ncolours) {
         const NwTexLevel clut = { 256, 1, (uint8_t *)t->clut };
+        glGenTextures(1, &names[1]);
         nw_vu_upload(names[1], GL_RGBA8UI, GL_RGBA_INTEGER, &clut, 1);
     }
     tex->index = names[0];

@@ -503,6 +503,47 @@ int NuRndrStreamQuad3dClip(struct nuvtx_tc1_s *verts, int count, void *mtx, stru
     return 1;
 }
 
+/* A strip under mtx (the identity for NULL) through the stream's program, which retail sends in batches of 42 that
+   each start the strip over; the normal goes as the tri programs read it, x in w and y, z x4096 after s and t. */
+NwCmd *nw_rndr_strip(struct nuvtx_tc1_s *verts, int count, struct numtx_s *mtx, struct rndrstream_s *stream)
+{
+    NwVuSpriteVertex *v;
+    uint32_t n = 0;
+    for (int b = 0; b < count; b += 42) {
+        int batch = count - b < 42 ? count - b : 42;
+        n += batch >= 3 ? (uint32_t)(batch - 2) * 3 : 0;
+    }
+    NuRndrSetLocalMtx(mtx ? mtx : &numtx_identity, 2);
+    NwCmd *c = nw_rndr_verts(stream, NW_VERTS_TRIS, n, &v);
+    for (int b = 0; b < count; b += 42) {
+        for (int i = b + 2; i < b + 42 && i < count; i++) {
+            for (int k = i - 2; k <= i; k++, v++) {
+                const struct nuvtx_tc1_s *s = &verts[k];
+                memset(v, 0, sizeof(*v));
+                v->pos[0] = s->pnt.x;
+                v->pos[1] = s->pnt.y;
+                v->pos[2] = s->pnt.z;
+                v->pos[3] = s->nrm.x;
+                v->tex[0] = (float)(int)(s->tc[0] * 4096.0f);
+                v->tex[1] = (float)(int)(s->tc[1] * 4096.0f);
+                v->tex[2] = (float)(int)(s->nrm.y * 4096.0f);
+                v->tex[3] = (float)(int)(s->nrm.z * 4096.0f);
+                v->col[0] = (uint8_t)s->rgba.r;
+                v->col[1] = (uint8_t)s->rgba.g;
+                v->col[2] = (uint8_t)s->rgba.b;
+                v->col[3] = (uint8_t)s->rgba.a;
+            }
+        }
+    }
+    return c;
+}
+
+int NuRndrStreamTriStrip3dClip(struct nuvtx_tc1_s *verts, int count, struct numtx_s *mtx, struct rndrstream_s *stream)
+{
+    nw_rndr_strip(verts, count, mtx, stream);
+    return 1;
+}
+
 /* NuRndrShadPolys' quads: each shadow's square turned by y, z then x at its point, black with the shade as alpha. */
 int NuRndrStreamQuadShad(struct rndrstream_s *stream)
 {

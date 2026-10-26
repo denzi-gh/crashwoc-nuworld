@@ -536,6 +536,12 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     if (c->alpha) {
         m.state.alpha = (uint8_t)c->alpha;
     }
+    NwVuTexture clut;
+    if (c->clut && c->clut->gl.clut && m.tex && m.tex->clut) {
+        clut = *m.tex;
+        clut.clut = c->clut->gl.clut;
+        m.tex = &clut;
+    }
     NwMtlPass pass[2];
     glBindVertexArray(nw_be.verts_vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);
