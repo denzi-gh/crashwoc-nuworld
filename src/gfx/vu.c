@@ -39,6 +39,9 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
     "uniform vec4 u_sprite;\n"
     "uniform vec4 u_uv[4];\n" /* the xuv programs' VF24-27 */
+    "#if PROGRAM == PTL\n"
+    "uniform uvec4 u_ptl[132];\n" /* VU 0x3C-0xBF */
+    "#endif\n"
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
     "#if PROGRAM == SKIN || PROGRAM == SKINXUV\n"
@@ -49,8 +52,38 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "void main()\n"
     "{\n"
+    /* ptl.vsm: a particle aged t = time - birth falls under gravity; k = rate * t picks the table entry whose offsets,
+       lerped to the next by k's fraction, its corners add in GS units before the divide, in the order (v0, uv0),
+       (v2, uv2), (v0 + v1, uv1), (v2 + v1, uv3) that strips them; the entry's colour is not lerped. Dead before its
+       birth or past entry 62.9. */
+    "#if PROGRAM == PTL\n"
+    "    const int strip[6] = int[6](0, 1, 2, 1, 2, 3);\n"
+    "    int corner = strip[gl_VertexID];\n"
+    "    vec4 head = uintBitsToFloat(u_ptl[0]);\n"
+    "    float t = head.w - a_pos.w;\n"
+    "    float k = a_tex.w * t;\n"
+    "    if (t < 0.0 || k > 62.9) {\n"
+    "        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);\n"
+    "        return;\n"
+    "    }\n"
+    "    int i = int(k) & 63;\n"
+    "    float f = k - float(int(k));\n"
+    "    vec4 v01 = mix(uintBitsToFloat(u_ptl[4 + 2 * i]), uintBitsToFloat(u_ptl[4 + 2 * min(i + 1, 63)]), f);\n"
+    "    vec2 v2 = mix(uintBitsToFloat(u_ptl[5 + 2 * i].xy), uintBitsToFloat(u_ptl[5 + 2 * min(i + 1, 63)].xy), f);\n"
+    "    vec2 offset = (corner & 1) != 0 ? v2 : v01.xy;\n"
+    "    if (corner >= 2) {\n"
+    "        offset += v01.zw;\n"
+    "    }\n"
+    "    vec3 p = a_pos.xyz + a_tex.xyz * t + vec3(0.0, head.y * t * t, 0.0);\n"
+    "    gl_Position = u_lv * vec4(p, 1.0);\n"
+    "    gl_Position.xy += offset * u_sprite.xy;\n"
+    "    const ivec2 uv[4] = ivec2[4](ivec2(1, 0), ivec2(2, 0), ivec2(1, 2), ivec2(2, 2));\n"
+    "    uvec4 corners = u_ptl[uv[corner].x];\n"
+    "    uvec2 st = uv[corner].y == 0 ? corners.xy : corners.zw;\n"
+    "    v_uv = vec2(st & 0x3FFFu) * u_sprite.zw;\n"
+    "    v_col = vec4(u_ptl[4 + 2 * i] & 0xFFu);\n"
     /* faceon adds its corners in GS units before the divide; facey spans its quad along VF15 and the object's y. */
-    "#if PROGRAM == FACEON || PROGRAM == FACEY\n"
+    "#elif PROGRAM == FACEON || PROGRAM == FACEY\n"
     "    vec2 corner = 1.0 - 2.0 * a_tex.xy;\n"
     "#if PROGRAM == FACEON\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
@@ -205,13 +238,13 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv;
+        uv, ptl;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
     static const char *const names[NW_VU_PROGRAMS] = { "TRIC", "TRICU", "TRICA", "TRICDV", "FACEON", "FACEY", "SKIN",
-                                                       "TRIXUV", "SKINXUV" };
+                                                       "TRIXUV", "SKINXUV", "PTL" };
     char head[512];
     int n = SDL_snprintf(head, sizeof(head), "#version 330 core\n");
     for (int i = 0; i < NW_VU_PROGRAMS; i++) {
@@ -270,6 +303,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].joints = glGetUniformLocation(p, "u_joints");
     nw_vu[program].blend = glGetUniformLocation(p, "u_blend");
     nw_vu[program].uv = glGetUniformLocation(p, "u_uv");
+    nw_vu[program].ptl = glGetUniformLocation(p, "u_ptl");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -309,6 +343,7 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_trica_mpg", NW_VU_TRICA },
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
         { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
+        { "vu_load_fx2_mpg", NW_VU_TRICU }, /* its triangles at MSCAL 0x306: vertex colour, unlit */
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {
         if (strcmp(package, map[i].name) == 0) {
@@ -330,6 +365,11 @@ void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t
 {
     glUniform1i(nw_vu[program].joints, (GLint)joints * 4);
     glUniform2i(nw_vu[program].blend, (GLint)weights, (GLint)nweights);
+}
+
+void nw_vu_ptl(const uint32_t image[132][4])
+{
+    glUniform4uiv(nw_vu[NW_VU_PTL].ptl, 132, image[0]);
 }
 
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
@@ -396,16 +436,20 @@ static void nw_vu_upload(GLuint name, GLint format, GLenum layout, const NwTexLe
     }
 }
 
+/* A texture of no levels is a CLUT alone, which a draw puts over its material texture's. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
 {
     GLuint names[2] = { 0, 0 };
-    glGenTextures(t->ncolours ? 2 : 1, names);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glActiveTexture(GL_TEXTURE0);
-    nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER,
-                 t->levels, t->nlevels);
+    if (t->nlevels) {
+        glGenTextures(1, &names[0]);
+        nw_vu_upload(names[0], t->ncolours ? GL_R8UI : GL_RGBA8UI, t->ncolours ? GL_RED_INTEGER : GL_RGBA_INTEGER,
+                     t->levels, t->nlevels);
+    }
     if (t->ncolours) {
         const NwTexLevel clut = { 256, 1, (uint8_t *)t->clut };
+        glGenTextures(1, &names[1]);
         nw_vu_upload(names[1], GL_RGBA8UI, GL_RGBA_INTEGER, &clut, 1);
     }
     tex->index = names[0];
@@ -454,6 +498,16 @@ void nw_vu_skin_attribs(void)
     glVertexAttribIPointer(7, 2, GL_UNSIGNED_BYTE, stride, (const void *)offsetof(NwVifSkinVertex, nrmjoint));
     glEnableVertexAttribArray(8);
     glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, stride, (const void *)offsetof(NwVifSkinVertex, delta));
+}
+
+void nw_vu_ptl_attribs(size_t offset)
+{
+    const GLsizei stride = 8 * sizeof(float);
+    for (GLuint i = 0; i < 2; i++) {
+        glEnableVertexAttribArray(i);
+        glVertexAttribPointer(i, 4, GL_FLOAT, GL_FALSE, stride, (const void *)(offset + i * 4 * sizeof(float)));
+        glVertexAttribDivisor(i, 1);
+    }
 }
 
 void nw_vu_sprite_attribs(void)

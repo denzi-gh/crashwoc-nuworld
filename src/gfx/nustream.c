@@ -30,7 +30,8 @@ extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_3d_u;
 extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_fx;
-extern char vu_load_faceon_mpg[], vu_load_tricu_mpg[], vu_load_tric_mpg[], vu_load_ptl_mpg[], vu_load_fx_mpg[];
+extern char vu_load_faceon_mpg[], vu_load_tricu_mpg[], vu_load_tric_mpg[], vu_load_ptl_mpg[], vu_load_fx_mpg[],
+    vu_load_fx2_mpg[];
 extern struct nucamera_s global_camera;
 extern struct numtx_s numtx_identity;
 
@@ -40,6 +41,7 @@ struct rndrstream_s *rndrstream_faceon;
 struct rndrstream_s *rndrstream_3d_l;
 struct rndrstream_s *rndrstream_ptl;
 struct rndrstream_s *rndrstream_ot_sort;
+void *rndrstream_fx_microcode; /* the fx stream's program, NuRndrStreamFxMPG's */
 
 static struct rndrstream_s rndrstream_pool[NW_STREAMS];
 static struct rndrstream_s *rndrstream_sorted[NW_STREAMS];
@@ -185,11 +187,48 @@ void nw_rndr_latch(NwRecord *r)
     r->lights = nw_misc_now(r->misc);
 }
 
+static const void *nw_stream_mpg(const struct rndrstream_s *stream)
+{
+    return stream == rndrstream_fx ? rndrstream_fx_microcode : stream->mpg;
+}
+
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op)
 {
-    NwRecord *r = nw_rndr_record(op, stream->mtl, stream->mpg, (int)(stream->attr & 0x43));
+    NwRecord *r = nw_rndr_record(op, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
     nw_rndr_push(stream, r);
     return &r->cmd;
+}
+
+NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v)
+{
+    NwRecord *r = nw_rndr_record(NW_CMD_VERTS, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
+    *v = nw_rndr_alloc(n * sizeof(**v));
+    r->verts = *v;
+    r->cmd.count = n;
+    r->cmd.mode = (uint8_t)mode;
+    nw_rndr_push(stream, r);
+    return &r->cmd;
+}
+
+NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls)
+{
+    NwRecord *r = nw_rndr_record(NW_CMD_PARTICLES, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
+    *list = nw_rndr_alloc(sizeof(**list));
+    *ptls = nw_rndr_alloc(n * sizeof(**ptls));
+    r->ptllist = *list;
+    r->ptls = *ptls;
+    r->cmd.count = n;
+    nw_rndr_push(stream, r);
+    return &r->cmd;
+}
+
+NwVuSpriteVertex *nw_rndr_quad(NwVuSpriteVertex *v, const NwVuSpriteVertex q[4])
+{
+    static const int strip[6] = { 0, 1, 2, 1, 2, 3 };
+    for (int k = 0; k < 6; k++) {
+        v[k] = q[strip[k]];
+    }
+    return v + 6;
 }
 
 /* Raw packets in a stream: reported once per stream. */
@@ -263,6 +302,20 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             if (idx) {
                 memcpy(idx, r->idx, r->cmd.count * sizeof(*idx));
             }
+            NwVuSpriteVertex *verts = r->verts ? nw_packet_verts(nw_packet_building(), r->cmd.count, &c->first) : NULL;
+            if (verts) {
+                memcpy(verts, r->verts, r->cmd.count * sizeof(*verts));
+            } else if (r->verts) {
+                c->count = 0;
+            }
+            NwPtlList *list = r->ptllist ? nw_packet_ptllist(nw_packet_building(), &c->ptllist) : NULL;
+            NwPtl *ptls = list ? nw_packet_ptls(nw_packet_building(), r->cmd.count, &c->first) : NULL;
+            if (ptls) {
+                *list = *r->ptllist;
+                memcpy(ptls, r->ptls, r->cmd.count * sizeof(*ptls));
+            } else if (r->ptllist) {
+                c->count = 0;
+            }
             NwJointSnap *j = (NwJointSnap *)r->joints;
             if (j && j->n && j->frame != nw_frame + 1) {
                 float(*copy)[16] = nw_packet_joints(nw_packet_building(), j->n, &j->index);
@@ -294,6 +347,7 @@ void NuRndrStreamResetStreams(int flag)
         rndrstream_pool[i].mtl = 0;
         NuRndrStreamResetStream(&rndrstream_pool[i], flag);
     }
+    rndrstream_fx_microcode = vu_load_fx_mpg;
 }
 
 /* Retail also opens the system stream with a PRMODECONT; the port draws by records. */
@@ -443,6 +497,37 @@ int NuRndrStreamAddMtl(struct rndrstream_s *stream, struct numtl_s *mtl)
     }
     stream->mtl = mtl;
     return 1;
+}
+
+/* What retail's stream setters write into a stream (scissor, offset, the view and local matrices, the VU 0x0C block)
+   each record takes when it is made. */
+void NuRndrStreamSetMisc(struct rndrstream_s *stream)
+{
+    (void)stream;
+}
+
+int NuRndrStreamSetViewMtx(struct rndrstream_s *stream)
+{
+    (void)stream;
+    return 0;
+}
+
+int NuRndrStreamSetViewMtxScissorClip(struct rndrstream_s *stream)
+{
+    (void)stream;
+    return 0;
+}
+
+int NuRndrStreamSetLocalMtx(struct rndrstream_s *stream)
+{
+    (void)stream;
+    return 0;
+}
+
+/* Mode 1 is fx2, every other fx; retail calls the package into the fx stream when it changes. */
+void NuRndrStreamFxMPG(int mode)
+{
+    rndrstream_fx_microcode = mode == 1 ? vu_load_fx2_mpg : vu_load_fx_mpg;
 }
 
 /* rndrstream_zfix is 0 in retail (NuRndrSetZFix is unreachable), so vm goes as it is. */

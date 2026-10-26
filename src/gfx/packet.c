@@ -108,6 +108,35 @@ float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first)
     return &p->weights[*first];
 }
 
+NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first)
+{
+    if (!nw_packet_grow((void **)&p->verts, &p->vertcap, p->nverts + n - 1, sizeof(*p->verts))) {
+        return NULL;
+    }
+    *first = p->nverts;
+    p->nverts += n;
+    return &p->verts[*first];
+}
+
+NwPtlList *nw_packet_ptllist(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->ptllists, &p->ptllistcap, p->nptllists, sizeof(*p->ptllists))) {
+        return NULL;
+    }
+    *index = p->nptllists;
+    return &p->ptllists[p->nptllists++];
+}
+
+NwPtl *nw_packet_ptls(NwPacket *p, uint32_t n, uint32_t *first)
+{
+    if (!nw_packet_grow((void **)&p->ptls, &p->ptlcap, p->nptls + n - 1, sizeof(*p->ptls))) {
+        return NULL;
+    }
+    *first = p->nptls;
+    p->nptls += n;
+    return &p->ptls[*first];
+}
+
 void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
@@ -119,6 +148,9 @@ void nw_packet_reset(NwPacket *p)
     p->nidx = 0;
     p->njoints = 0;
     p->nweights = 0;
+    p->nverts = 0;
+    p->nptllists = 0;
+    p->nptls = 0;
 }
 
 NwPacket *nw_packet_building(void)

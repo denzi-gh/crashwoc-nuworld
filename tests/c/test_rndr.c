@@ -7,6 +7,8 @@
 
 #include <SDL3/SDL.h>
 
+#include "game/cloudfx.h"
+#include "gamelib/debris.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nugobj.h"
@@ -18,10 +20,12 @@
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
+#include "nups2/nups2types.h"
 
 #include "gsc_builder.h"
 
-extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[];
+extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[],
+    vu_load_fx2_mpg[];
 extern struct nutexslot_s *D_0062EBEC;
 extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
 extern struct numtl_s *numtl_defaultmtl2d;
@@ -44,6 +48,31 @@ void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl
 void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour,
                      struct numtl_s *mtl);
 void NuCameraSet(struct nucamera_s *cam);
+void AddQuad3DrotXYZ(struct nuvec_s *pos, struct nuvec_s *shape, struct numtl_s *mtl, s32 *a, f32 *uvs, u32 colour);
+int NuBridgeStreamRope(struct rndrstream_s *rs, struct nuvec_s *points, int npoints, int colour);
+void *vpDmaTag_Next(void *packet, uint32_t addr);
+void NuRndrInitWorld(void);
+void NuRndrAddShadow(struct nuvec_s *pos, float size, int shade, int xrot, int yrot, int zrot);
+void NuRndrAddWaterRipple(struct nuvec_s *pos, int duration, u32 colour, float startsize, float endsize);
+void NuRndrAddFootPrint(int rot, float sizex, float sizez, int brightness, struct nuvec_s *pos, struct nuvec_s *norm,
+                        int gfx, u32 colour);
+extern int NuRndrShadowCnt, NuRndrFootFree;
+extern struct nurndrwaterrip_s NuRndrWaterRipDat[];
+extern struct nurndrfoot_s NuRndrFootData[];
+void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
+void NuRndrShadowStencil(int paused, struct nuvec_s *pos);
+void NuRndrShadow(int mode);
+extern struct nuvec_s lightfan[], NuRndrShadBox[2];
+extern struct nurndrshadstore_s shadstore[];
+extern int NuRndrShadMaskCount, shadstorecnt, testflipold;
+struct DmaTag *CreateDmaParticleSet(struct DmaTag *set, int *size);
+struct debdma_s *CreateDmaPartEffectList(struct debdma_s *list, int *size);
+void LinkDmaParticalSets(struct DmaTag **sets, int count);
+void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
+                         int mode, float time);
+extern char vu_load_ptl_mpg[], vu_load_cloud_mpg[];
+void cloudRender(struct nuvec_s *pos, struct nuvec_s *off, f32 size, f32 rng, s32 density, s32 maxc,
+                 struct cloud_s *cl, struct numtl_s *mtl, struct nuvec_s *col);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -675,6 +704,257 @@ static void test_xuv(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The crate explosion's quad: the corners turned, placed and through the camera's VPCS matrix to whole GS units, a
+   VERTS strip in the material's stream; a point out of view draws nothing. */
+static void test_crate_quad(void)
+{
+    static struct nuvec_s shape[4] = { { -0.25f, 0.25f, 0.0f }, { 0.25f, 0.25f, 0.0f }, { -0.25f, -0.25f, 0.0f },
+                                       { 0.25f, -0.25f, 0.0f } };
+    float uvs[8] = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f };
+    s32 a[3] = { 0x1000, 0x2000, 0 };
+    struct nuvec_s pos = { 1.0f, 0.5f, 0.0f }, behind = { 0.0f, 0.0f, -40.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    AddQuad3DrotXYZ(&pos, shape, mtl, a, uvs, 0x80402010);
+    AddQuad3DrotXYZ(&behind, shape, mtl, a, uvs, 0x80402010);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? &p->cmds[0] : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->count == 6 && c->material == mtl);
+    if (c && c->count == 6) {
+        static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+        struct numtx_s m;
+        NuMtxSetRotateXYZ(&m, (struct nuangvec_s *)a);
+        NuMtxTranslate(&m, &pos);
+        NuMtxMulH(&m, &m, NuCameraGetVPCSMtx());
+        for (int k = 0; k < 6; k++) {
+            const NwVuSpriteVertex *v = &p->verts[c->first + k];
+            const struct nuvec_s *s = &shape[corner[k]];
+            float w = s->x * m._03 + s->y * m._13 + s->z * m._23 + m._33;
+            float x = (s->x * m._00 + s->y * m._10 + s->z * m._20 + m._30) / w;
+            float y = (s->x * m._01 + s->y * m._11 + s->z * m._21 + m._31) / w;
+            CHECK(SDL_fabsf(v->pos[0] - x) <= 1.0f && SDL_fabsf(v->pos[1] - y) <= 1.0f);
+            CHECK(v->pos[0] == SDL_floorf(v->pos[0]) && v->pos[3] == 1.0f);
+            CHECK(v->tex[0] == uvs[corner[k] * 2] * 4096.0f && v->tex[1] == uvs[corner[k] * 2 + 1] * 4096.0f);
+            CHECK(v->col[0] == 0x10 && v->col[1] == 0x20 && v->col[2] == 0x40 && v->col[3] == 0x80);
+        }
+    }
+    NuRndrSwapStreamBuffers();
+}
+
+/* NuBrdigeDrawRope's sequence: a rope of three points is two segments of four faces, the offsets turning a quarter
+   from face to face, one VERTS record in the fx stream under fx2 and the identity; a link of the fx stream after
+   another stream's leaves no raw packets. */
+static void test_rope(void)
+{
+    struct nuvec_s pts[3] = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 0.0f } };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    unsigned raw = nw_rndr_raw_streams();
+    for (int pass = 0; pass < 2; pass++) {
+        NuRndrStreamLink(rndrstream_fx);
+        NuRndrStreamSetMisc(rndrstream_fx);
+        NuRndrStreamAddMtl(rndrstream_fx, mtl);
+        NuRndrSetLocalMtx(&numtx_identity, 2);
+        NuRndrStreamSetViewMtxScissorClip(rndrstream_fx);
+        NuRndrStreamSetLocalMtx(rndrstream_fx);
+        NuRndrStreamFxMPG(1);
+        NuBridgeStreamRope(rndrstream_fx, pass ? &pts[1] : pts, pass ? 2 : 3, (int)0x80FF8040);
+        rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+        NuRndrStreamLink(rndrstream_2d);
+        rndrstream_free = vpDmaTag_Next(rndrstream_2d->ptr.u8, 0);
+    }
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 2 ? &p->cmds[0] : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_TRIS && c->count == 48 && p->cmds[1].count == 24);
+    CHECK(c && c->mpg == (void *)vu_load_fx2_mpg && c->material == mtl && same_mtx(c->local, &numtx_identity));
+    if (c && c->count == 48) {
+        const NwVuSpriteVertex *v = &p->verts[c->first];
+        CHECK(v[0].pos[0] == 0.0f && v[0].pos[1] == 0.0f && v[0].pos[2] == -0.05f);
+        CHECK(v[5].pos[0] == 1.0f && v[5].pos[1] == 0.05f && v[5].pos[2] == 0.0f);
+        CHECK(v[6].pos[1] == -0.05f && v[12].pos[2] == 0.05f && v[24].pos[0] == 1.0f && v[24].pos[2] == -0.05f);
+        CHECK(v[5].tex[0] == 0x5F0 && v[5].tex[1] == 0xFF0 && v[0].tex[0] == 0x400 && v[0].tex[1] == 0xC00);
+        CHECK(v[3].col[0] == 0x40 && v[3].col[1] == 0x80 && v[3].col[2] == 0xFF && v[3].col[3] == 0x80);
+    }
+    CHECK(nw_rndr_raw_streams() == raw);
+    NuRndrStreamFxMPG(0);
+    NuRndrSwapStreamBuffers();
+}
+
+/* The hub's first-frame fx: the kept bookkeeping and draws of the shadow polys and ripples and the footprints, each a
+   VERTS record in the fx stream under fx2 and the identity. A shadow is black with its shade as alpha and empties the
+   list; a ripple takes its current colour; a footprint fades with its timer below 16 and draws over ALPHA_1 0x44. */
+static void test_fx_quads(void)
+{
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuRndrInitWorld();
+    unsigned raw = nw_rndr_raw_streams();
+    struct nuvec_s pos = { 1.0f, 2.0f, 3.0f }, at = pos, norm = { 0.0f, 1.0f, 0.0f };
+    NuRndrAddShadow(&at, 0.5f, 0x60, 0, 0, 0);
+    NuRndrShadPolys(mtl);
+    CHECK(NuRndrShadowCnt == 0);
+    at = pos;
+    NuRndrAddWaterRipple(&at, 10, 0x80204060, 1.0f, 2.0f);
+    NuRndrWaterRippleUpdate(1);
+    NuRndrWaterRip(mtl);
+    float u[8] = { 0 }, v[8] = { 0 };
+    for (int k = 0; k < 4; k++) {
+        u[4 + k] = 0.25f * (float)k;
+        v[4 + k] = 0.5f;
+    }
+    NuRndrAddFootPrint(0, 0.5f, 0.25f, 0x40, &pos, &norm, 1, 0x00102030);
+    NuRndrFootPrints(mtl, u, v);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 3 ? p->cmds : NULL;
+    CHECK(c && c[0].count == 6 && c[1].count == 6 && c[2].count == 6);
+    for (int i = 0; c && i < 3; i++) {
+        CHECK(c[i].op == NW_CMD_VERTS && c[i].mode == NW_VERTS_TRIS && c[i].mpg == (void *)vu_load_fx2_mpg);
+        CHECK(c[i].material == mtl && same_mtx(c[i].local, &numtx_identity) && c[i].alpha == (i == 2 ? 0x144 : 0));
+    }
+    if (c && c[0].count == 6 && c[1].count == 6 && c[2].count == 6) {
+        const NwVuSpriteVertex *s = &p->verts[c[0].first], *r = &p->verts[c[1].first], *f = &p->verts[c[2].first];
+        CHECK(s[0].pos[0] == 0.5f && s[0].pos[1] == 2.01f && s[0].pos[2] == 2.5f && s[5].pos[0] == 1.5f);
+        CHECK(s[0].col[0] == 0 && s[0].col[3] == 0x60 && s[5].tex[0] == 4096.0f && s[5].tex[1] == 4096.0f);
+        u32 curcolour = NuRndrWaterRipDat[0].curcolour;
+        CHECK(r[0].pos[0] == 1.0f - NuRndrWaterRipDat[0].size && memcmp(r[0].col, &curcolour, 4) == 0);
+        CHECK(r[0].tex[0] == 0xC00 && r[0].tex[1] == 0x400 && r[5].tex[0] == 0xFF0 && r[5].tex[1] == 0x7F0);
+        const struct nurndrfoot_s *foot = &NuRndrFootData[(NuRndrFootFree - 1) & 0x3F];
+        CHECK(f[0].pos[0] == foot->pnts[0].x && f[5].pos[2] == foot->pnts[3].z);
+        CHECK(f[0].col[3] == 0x40 && f[0].col[0] == 0x30 && f[1].tex[0] == 1024.0f && f[0].tex[1] == 2048.0f);
+    }
+    CHECK(nw_rndr_raw_streams() == raw);
+    NuRndrSwapStreamBuffers();
+
+    struct nurndrfoot_s *foot = &NuRndrFootData[(NuRndrFootFree - 1) & 0x3F];
+    foot->timer = 15;
+    NuRndrFootPrints(mtl, u, v);
+    NuRndrEndScene();
+    p = nw_rndr_packet();
+    CHECK(foot->timer == 14 && p->ncmds == 1 && p->verts[p->cmds[0].first].col[3] == 0x40 * 14 >> 4);
+    NuRndrStreamFxMPG(0);
+    NuRndrSwapStreamBuffers();
+}
+
+/* The hub's part of the volume shadows: the light's fan of unit directions square to it, the stencil's full-screen
+   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) and drawing nothing, and an
+   hgobj's joint shadows stored under the joint's matrix times wm. */
+static void test_shadows(void)
+{
+    struct nuvec_s dir = { 1.0f, 0.0f, 0.0f }, pos = { 0.0f, 0.0f, 0.0f };
+    NuRndrShadowDirCol(&dir, 0x80202020);
+    for (int i = 0; i < 8; i++) {
+        float len = lightfan[i].x * lightfan[i].x + lightfan[i].y * lightfan[i].y + lightfan[i].z * lightfan[i].z;
+        CHECK(SDL_fabsf(lightfan[i].x) < 1e-3f && SDL_fabsf(len - 1.0f) < 1e-3f);
+    }
+    NuRndrShadMaskCount = 0;
+    shadstorecnt = 2;
+    NuRndrShadowStencil(0, &pos);
+    CHECK(NuRndrShadBox[0].x == 0.0f && NuRndrShadBox[1].x == nurndr_pixel_width * 16.0f);
+    CHECK(NuRndrShadBox[1].y == nurndr_pixel_height * 16.0f && shadstorecnt == 2);
+    testflipold = 5;
+    NuRndrShadow(0);
+    CHECK(shadstorecnt == 2);
+    testflipold = 1;
+    NuRndrShadow(0);
+    NuRndrEndScene();
+    CHECK(shadstorecnt == 0 && nw_rndr_packet()->ncmds == 0);
+    NuRndrSwapStreamBuffers();
+
+    struct NUCYLINDER_s cyl;
+    struct NUSHADOWDATA_s shadow[2];
+    memset(shadow, 0, sizeof(shadow));
+    shadow[0].cylinders = &cyl;
+    shadow[0].ncylinders = 1;
+    shadow[0].joint = 1;
+    shadow[1].joint = 0xFF;
+    struct numtx_s pose[2], wm, want;
+    set_mtx(&pose[0], 0.0f, 0.0f, 0.0f, 0.0f);
+    set_mtx(&pose[1], 0.5f, 1.0f, 2.0f, 0.0f);
+    set_mtx(&wm, 0.25f, 0.5f, 0.0f, 2.0f);
+    struct NUHGOBJ_s h;
+    memset(&h, 0, sizeof(h));
+    h.num_joints = 2;
+    h.shadow = shadow;
+    h.bbox_min = (struct nuvec_s){ -5.0f, -5.0f, -5.0f };
+    h.bbox_max = (struct nuvec_s){ 5.0f, 5.0f, 5.0f };
+    NuHGobjRndrMtxDwa(&h, &wm, 0, NULL, pose, NULL);
+    NuMtxMul(&want, &pose[1], &wm);
+    CHECK(shadstorecnt == 1 && same_mtx(&shadstore[0].mtx._00, &want) && shadstore[0].shadow.cylinders == &cyl);
+    CHECK(shadstore[0].shadow.ncylinders == 1 && shadstore[0].shadow.shadow_meshes == NULL);
+    shadstorecnt = 0;
+}
+
+/* SetupDebris's sets and effect lists as retail lays them out; three sets linked out of order are one PARTICLES record
+   of their 96 particles in link order under the matrix, with the list's VU image and the time, which the list keeps;
+   the last set's tag ends the chain. */
+static void test_particles(void)
+{
+    static _Alignas(16) uint8_t buf[3 * 0x430 + 0x870];
+    struct DmaTag *sets[3];
+    int size = 0;
+    for (int i = 0; i < 3; i++) {
+        sets[i] = CreateDmaParticleSet((struct DmaTag *)(buf + i * 0x430), &size);
+        CHECK(size == 0x430 && sets[i]->ctrl == 0x60000000u + 0x42);
+    }
+    struct debdma_s *list = CreateDmaPartEffectList((struct debdma_s *)(buf + 3 * 0x430), &size);
+    CHECK(size == 0x870 && list->u1 == 0xC8 && list->v3 == 0xB8 && list->tri[0].v0x.colour == 0x80);
+    CHECK(list->tri[63].v1y.colour == (u8)(0x40 - 63) && *(uint32_t *)&list->tri[64] == 0x14000302);
+    struct DmaTag *order[3] = { sets[2], sets[0], sets[1] };
+    LinkDmaParticalSets(order, 3);
+    CHECK(sets[1]->ctrl >> 28 == 6 && sets[2]->ctrl >> 28 == 2 && (sets[2]->ctrl & 0xFFFF) == 0x42);
+    ((struct debchunk_s *)sets[0])->parts[5].pos.x = 1.0f;
+    ((struct debchunk_s *)sets[1])->parts[0].rate = 7.0f;
+    list->grav = -0.5f;
+    struct numtx_s mtx;
+    set_mtx(&mtx, 0.5f, 1.0f, 2.0f, 3.0f);
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuRndrParticleGroup((struct debchunk_s *)order[0], list, mtl, &mtx, 0, 5.0f);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? p->cmds : NULL;
+    CHECK(c && c->op == NW_CMD_PARTICLES && c->count == 96 && c->material == mtl && same_mtx(c->local, &mtx));
+    CHECK(c && c->mpg == (void *)vu_load_ptl_mpg && list->time == 5.0f);
+    if (c && c->count == 96) {
+        const NwPtl *ptls = &p->ptls[c->first];
+        const NwPtlList *l = &p->ptllists[c->ptllist];
+        CHECK(ptls[0].birth == -1.0f && ptls[0].rate == 128.0f && ptls[37].pos[0] == 1.0f && ptls[64].rate == 7.0f);
+        CHECK(l->head[1] == -0.5f && l->head[3] == 5.0f && l->uv[1][0] == 0xC8 && l->uv[3][1] == 0xB8);
+        CHECK(memcmp(l->tri, list->tri, sizeof(l->tri)) == 0);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
+/* cloudRender: each cloud a sprite in the clouds stream under the identity, its point off the wrapped scroll folded
+   into +-rng about it (a cloud at rng + 1 lands at 1 - rng), its corners +-size by +-size / 2, in col times density
+   with alpha 126. */
+static void test_clouds(void)
+{
+    CloudFxInit();
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    struct cloud_s cl[2] = { { 16 * 7, 16, -16 * 2 }, { -16 * 6, 0, 0 } };
+    struct nuvec_s pos = { 10.0f, 20.0f, 30.0f }, off = { 0.0f, 0.0f, 0.0f }, col = { 0.5f, 0.25f, 1.0f };
+    cloudRender(&pos, &off, 8.0f, 4.0f, 64, 2, cl, mtl, &col);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? p->cmds : NULL;
+    CHECK(c && c->op == NW_CMD_VERTS && c->mode == NW_VERTS_SPRITE && c->count == 12 && c->material == mtl);
+    CHECK(c && c->mpg == (void *)vu_load_cloud_mpg && same_mtx(c->local, &numtx_identity));
+    if (c && c->count == 12) {
+        const NwVuSpriteVertex *v = &p->verts[c->first];
+        float wx = 10.0f - 8.0f * (int)(10.0f / 8.0f), wz = 30.0f - 8.0f * (int)(30.0f / 8.0f);
+        CHECK(v[0].pos[0] == 7.0f - wx - 8.0f + 10.0f && v[0].pos[2] == -2.0f - wz + 8.0f + 30.0f);
+        CHECK(v[6].pos[0] == -6.0f - wx + 8.0f + 10.0f && v[5].pos[0] == v[0].pos[0]);
+        CHECK(v[0].tex[0] == 0.0f && v[5].tex[0] == 1.0f && v[5].tex[1] == 1.0f && v[0].tex[2] == -8.0f);
+        CHECK(v[0].tex[3] == -4.0f && v[0].col[0] == 32 && v[0].col[1] == 16 && v[0].col[2] == 64 && v[0].col[3] == 126);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -766,6 +1046,12 @@ int main(void)
     test_render_target();
     test_hgobj();
     test_xuv();
+    test_crate_quad();
+    test_rope();
+    test_fx_quads();
+    test_shadows();
+    test_particles();
+    test_clouds();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

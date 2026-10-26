@@ -1,6 +1,7 @@
 /* The runtime half of the editor units (port/units.toml `runtime`) on the imported disc: every level's file loads
    into the tables the game reads, as InitWorld loads it over the level scene, and the update InitWorld then runs
-   leaves them finite. Usage: test_edunits edobj|edanim|edgra. Local only: exits 77 without NUWORLD_TEST_DATA. */
+   leaves them finite; edptl's effects resolve each placed emitter, which then starts on the particle sets. Usage:
+   test_edunits edobj|edanim|edgra|edptl. Local only: exits 77 without NUWORLD_TEST_DATA. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -112,6 +113,29 @@ struct grassclump_s {
 };
 _Static_assert(sizeof(struct grassclump_s) * 64 == 0x900, "retail GrassClumps");
 
+/* As in decomp/src/gamelib/edptl.c. */
+struct edppptl_s {
+    struct nuvec_s pos;
+    int type;
+    int debris;
+    short rotz;
+    short roty;
+    short emitrotz;
+    short emitroty;
+    int offset;
+    char name[0x10];
+    int switchtype;
+    int switchid;
+    float switchvar;
+    short refrotz;
+    short refroty;
+    float bounceoffset;
+    float bouncefactor;
+    short group;
+    char pad4A[0x2];
+};
+_Static_assert(sizeof(struct edppptl_s) * 256 == 0x4C00, "retail edpp_ptls");
+
 extern struct edobject_s ObjectPath[64];
 extern struct edobjinstance_s ObjectInstance[64];
 void NuRndrInitWorld(void);
@@ -132,6 +156,16 @@ void edbitsRegisterBaseScene(struct nugscn_s *scene);
 void edgraClumpsReset(void);
 int edgraFileLoad(char *filename);
 void NuWindUpdate(struct nuvec_s *pos);
+extern struct edppptl_s edpp_ptls[256];
+extern int effect_types_used;
+int LookupDebrisEffect(char *name);
+void DebrisSetup(void);
+void ParticleReset(void);
+void edppDestroyAllParticles(void);
+void edppDestroyAllEffects(void);
+int edppLoadEffects(char *filename, signed char list);
+int edppMergeEffects(char *filename, signed char list);
+void edppRestartAllEffectsInLevel(void);
 
 static int failures;
 
@@ -147,10 +181,12 @@ typedef struct Census {
     unsigned files, bad, versions[16], entries, n[4], nonfinite;
 } Census;
 
-/* A unit's load of one level file over the level scene; fills its four counts of the file's `count` entries. */
+/* A unit's load of one level file, over the level scene when `scene`; fills its four counts of the file's `count`
+   entries. */
 typedef struct Mode {
     const char *name, *ext, *count, *labels[4];
     bool (*level)(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite);
+    bool scene;
 } Mode;
 
 static NwVfs retail_vfs;
@@ -274,10 +310,47 @@ static bool edgra_level(char *file, struct nugscn_s *sc, int count, unsigned n[4
     return true;
 }
 
+/* A level's .PTL with STUFF/GENERAL.PTL and the level's .CPT merged, as InitWorld loads them over the previous
+   level's, then its emitters started on the particle sets. */
+static bool edptl_level(char *file, struct nugscn_s *sc, int count, unsigned n[4], unsigned *nonfinite)
+{
+    (void)sc, (void)count;
+    char cpt[NW_VFS_PATH_MAX];
+    game_path(cpt, sizeof(cpt), file, ".CPT");
+    edppDestroyAllParticles();
+    edppDestroyAllEffects();
+    if (!edppLoadEffects(file, 1) || !edppMergeEffects("stuff\\general.ptl", 0)) {
+        return false;
+    }
+    char manifest_cpt[NW_VFS_PATH_MAX];
+    SDL_strlcpy(manifest_cpt, cpt, sizeof(manifest_cpt));
+    for (char *c = manifest_cpt; *c; c++) {
+        *c = *c == '\\' ? '/' : *c;
+    }
+    if (nw_manifest_find(&nw_disc_manifest, manifest_cpt) && !edppMergeEffects(cpt, 5)) {
+        return false;
+    }
+    n[0] = (unsigned)effect_types_used;
+    for (int i = 0; i < 256; i++) {
+        if (edpp_ptls[i].debris == -1) {
+            continue;
+        }
+        n[1]++;
+        n[2] += edpp_ptls[i].name[0] && LookupDebrisEffect(edpp_ptls[i].name) != -1;
+        *nonfinite += !(isfinite(edpp_ptls[i].pos.x) && isfinite(edpp_ptls[i].pos.y) && isfinite(edpp_ptls[i].pos.z));
+    }
+    edppRestartAllEffectsInLevel();
+    for (int i = 0; i < 256; i++) {
+        n[3] += edpp_ptls[i].debris != -1;
+    }
+    return true;
+}
+
 static const Mode modes[] = {
-    { "edobj", ".OBJ", "objects", { "resolved", "waypoints", "particles", "sounds" }, edobj_level },
-    { "edanim", ".ANM", "params", { "resolved", "switched", "particles", "sounds" }, edanim_level },
-    { "edgra", ".GRA", "clumps", { "resolved", "points", "groups", "matrices" }, edgra_level },
+    { "edobj", ".OBJ", "objects", { "resolved", "waypoints", "particles", "sounds" }, edobj_level, true },
+    { "edanim", ".ANM", "params", { "resolved", "switched", "particles", "sounds" }, edanim_level, true },
+    { "edgra", ".GRA", "clumps", { "resolved", "points", "groups", "matrices" }, edgra_level, true },
+    { "edptl", ".PTL", "types", { "effects", "placed", "resolved", "started" }, edptl_level, false },
 };
 static const Mode *mode;
 
@@ -291,10 +364,16 @@ static int retail_main(int argc, char **argv)
     NuTexInit();
     NuMtlInit();
     buildBitCountTable();
+    if (!mode->scene) {
+        DebrisSetup();
+        ParticleReset();
+    }
     for (size_t i = 0; buffer && i < nw_disc_manifest.count; i++) {
         const NwManifestEntry *e = &nw_disc_manifest.entries[i];
         size_t n = strlen(e->path);
-        if (n < 4 || SDL_strcasecmp(e->path + n - 4, mode->ext) != 0 || (e->flags & NW_MANIFEST_SKIP)) {
+        /* STUFF/GENERAL.PTL is only ever merged into a level's effects. */
+        if (n < 4 || SDL_strcasecmp(e->path + n - 4, mode->ext) != 0 || (e->flags & NW_MANIFEST_SKIP) ||
+            SDL_strcasecmp(e->path, "STUFF/GENERAL.PTL") == 0) {
             continue;
         }
         char file[NW_VFS_PATH_MAX], gsc[NW_VFS_PATH_MAX];
@@ -303,8 +382,8 @@ static int retail_main(int argc, char **argv)
         census.files++;
         char *buf = buffer;
         NuRndrInitWorld();
-        struct nugscn_s *sc = NuGScnRead(&buf, buffer + size, gsc);
-        if (!sc) {
+        struct nugscn_s *sc = mode->scene ? NuGScnRead(&buf, buffer + size, gsc) : NULL;
+        if (mode->scene && !sc) {
             fprintf(stderr, "retail: %s does not load\n", gsc);
             census.bad++;
             continue;
@@ -316,7 +395,9 @@ static int retail_main(int argc, char **argv)
         buf = (char *)(((uintptr_t)buf + 15) & ~(uintptr_t)15);
         TerrainSetCur(buf);
         short *store = (short *)buf;
-        terraininit(0, &store, (short *)(buffer + size), 0, ter, sc, 0);
+        if (sc) {
+            terraininit(0, &store, (short *)(buffer + size), 0, ter, sc, 0);
+        }
         int version, count;
         unsigned c[4] = { 0, 0, 0, 0 }, nonfinite = 0;
         if (!header(file, &version, &count) || version < 0 || version > 15 || count < 0 ||
@@ -333,7 +414,9 @@ static int retail_main(int argc, char **argv)
             }
             census.nonfinite += nonfinite;
         }
-        nw_gscn_remove(sc);
+        if (sc) {
+            nw_gscn_remove(sc);
+        }
         drain_gpu();
     }
     SDL_free(buffer);
@@ -346,7 +429,7 @@ int main(int argc, char *argv[])
         mode = strcmp(argv[1], modes[i].name) == 0 ? &modes[i] : mode;
     }
     if (!mode) {
-        fprintf(stderr, "usage: test_edunits edobj|edanim|edgra\n");
+        fprintf(stderr, "usage: test_edunits edobj|edanim|edgra|edptl\n");
         return 2;
     }
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -402,6 +485,10 @@ int main(int argc, char *argv[])
     } else if (mode->level == edgra_level) {
         CHECK(census.files == 8 && census.entries == 263 && c[0] == 263 && c[1] == 5178 && c[2] == 263);
         CHECK(c[3] == 5178 && v[1] == 1 && v[3] == 7);
+    } else if (mode->level == edptl_level) {
+        /* No file is older than version 4, which reads a table of PS2 pointers. */
+        CHECK(census.files == 39 && census.entries == 596 && c[0] == 3106 && c[1] == 2890 && c[2] == 2890);
+        CHECK(c[3] == 2890 && v[10] == 2 && v[11] == 2 && v[13] == 6 && v[15] == 29);
     }
     return failures ? 1 : 0;
 }

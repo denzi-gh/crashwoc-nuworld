@@ -54,7 +54,31 @@ typedef enum NwCmdOp {
     NW_CMD_SPRITES, /* a face-on geom's sprites under the local matrix */
     NW_CMD_TARGET,  /* what the draws after it go to: the back or front buffer, or a render target */
     NW_CMD_SKIN,    /* a skin geom under the local matrix and its joint palette */
+    NW_CMD_VERTS,   /* triangles of vertices made this frame, in NwPacket.verts */
+    NW_CMD_PARTICLES, /* particles under the local matrix, as the ptl program draws them from their effect list */
 } NwCmdOp;
+
+/* What an effect list unpacks to VU 0x3C-0xBF for the ptl program: the gravity and the time, the corners' texel
+   coordinates (u, v), and 64 entries by age of the corner offsets and the colour. */
+typedef struct NwPtlList {
+    float head[4]; /* [1] the gravity, [3] the time */
+    int32_t uv[4][2];
+    uint32_t pad[4];
+    uint32_t tri[64][8];
+} NwPtlList;
+
+/* A particle as a set holds it: the point and its birth time, its momentum and the rate it ages at. */
+typedef struct NwPtl {
+    float pos[3], birth;
+    float mom[3], rate;
+} NwPtl;
+
+/* How a VERTS command's vertices are drawn. */
+typedef enum NwVertsMode {
+    NW_VERTS_GS,   /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
+    NW_VERTS_TRIS, /* points under the local matrix, s and t x4096, through the command's program */
+    NW_VERTS_SPRITE, /* points under the local matrix, each corner moved by tex.zw GS units before the divide */
+} NwVertsMode;
 
 /* The screen state a draw is made under: NuRndrSetViewMtx's world-to-GS matrix, XYOFFSET and SCISSOR. */
 typedef struct NwView {
@@ -92,8 +116,13 @@ typedef struct NwCmd {
                 const NwGpuSkin *skin;       /* SKIN */
             };
             float local[16];
-            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints */
+            uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints; VERTS:
+                                      the NwPacket.verts; PARTICLES: the NwPacket.ptls */
             uint32_t weights, nweights; /* SKIN: the blend-shape weights in NwPacket.weights */
+            uint8_t mode;               /* VERTS: an NwVertsMode */
+            uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
+            const NwGpuTex *clut;       /* VERTS: a CLUT over the material texture's, NULL none */
+            uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */
@@ -129,6 +158,12 @@ typedef struct NwPacket {
     uint32_t njoints, jointcap;
     float *weights;
     uint32_t nweights, weightcap;
+    NwVuSpriteVertex *verts; /* the VERTS triangles */
+    uint32_t nverts, vertcap;
+    NwPtlList *ptllists;
+    uint32_t nptllists, ptllistcap;
+    NwPtl *ptls;
+    uint32_t nptls, ptlcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -136,10 +171,13 @@ NwCmd *nw_packet_cmd(NwPacket *p);
 NwView *nw_packet_view(NwPacket *p, uint32_t *index);
 NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index);
 NwLights *nw_packet_light(NwPacket *p, uint32_t *index);
-/* Appends n vertex indices, joint matrices or weights; NULL on out of memory. */
+/* Appends n vertex indices, joint matrices, weights or vertices; NULL on out of memory. */
 uint32_t *nw_packet_idx(NwPacket *p, uint32_t n, uint32_t *first);
 float (*nw_packet_joints(NwPacket *p, uint32_t n, uint32_t *first))[16];
 float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first);
+NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first);
+NwPtlList *nw_packet_ptllist(NwPacket *p, uint32_t *index);
+NwPtl *nw_packet_ptls(NwPacket *p, uint32_t n, uint32_t *first);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

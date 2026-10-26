@@ -208,11 +208,23 @@ int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
     memset(tex, 0, sizeof(*tex));
     tex->tw = Ps2TxValToPowerOfTwo(spec->width);
     tex->th = Ps2TxValToPowerOfTwo(spec->height);
-    if (!spec->bits) {
+    /* Without bits retail uploads a palette type's CLUT alone (ShadComInit's palettes). */
+    bool clut = !spec->bits && spec->pal && (spec->type == 4 || spec->type == 5);
+    if (!spec->bits && !clut) {
         nw_ps2tx_set(tex, NULL);
         return 1;
     }
     NwGpuTex *gpu = SDL_calloc(1, sizeof(*gpu));
+    if (gpu && clut) {
+        gpu->tex.type = spec->type;
+        gpu->tex.tcc = true;
+        gpu->tex.ncolours = spec->type == 4 ? 16 : 256;
+        memcpy(gpu->tex.clut, spec->pal, gpu->tex.ncolours * 4);
+        tex->psm = tex->uppsm = nw_ps2tx_psm[spec->type - 2];
+        tex->tcc = true;
+        nw_ps2tx_set(tex, gpu);
+        return 1;
+    }
     if (!gpu || !nw_ps2tx_bitmap(&gpu->tex, spec)) {
         NuErrorProlog(ps2txtr_srcfile, 0)("%s", gpu ? SDL_GetError() : "out of memory");
         return 0;
