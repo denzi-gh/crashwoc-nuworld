@@ -362,7 +362,7 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_ee PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME ee COMMAND nuworld_test_ee)
 
-  # The pad shim under the decomp's NuPs2ReadPad, and a virtual gamepad as the pad.
+  # The pad shim under the decomp's NuPs2ReadPad, and a virtual gamepad and the keyboard as the pad.
   add_executable(nuworld_test_pad tests/c/test_pad.c src/platform/input.c)
   target_include_directories(nuworld_test_pad PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_pad PRIVATE NW_HOST)

@@ -1,4 +1,5 @@
-/* The pad shim under the decomp's NuPs2OpenPad / NuPs2ReadPad, and a virtual SDL gamepad as the pad. */
+/* The pad shim under the decomp's NuPs2OpenPad / NuPs2ReadPad, and a virtual SDL gamepad and the keyboard as the
+   pad. */
 #include <stdio.h>
 
 #include <SDL3/SDL.h>
@@ -108,10 +109,41 @@ static void test_gamepad(void)
     SDL_Quit();
 }
 
+static void test_keyboard(void)
+{
+    static bool keys[SDL_SCANCODE_COUNT];
+    NwPadInput in = idle;
+    keys[SDL_SCANCODE_SPACE] = true;
+    nw_input_keyboard(keys, &in);
+    CHECK(in.buttons == NW_PAD_CROSS && in.lx == 0x80 && in.ly == 0x80);
+
+    keys[SDL_SCANCODE_SPACE] = false;
+    keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = true;
+    in = idle;
+    nw_input_keyboard(keys, &in);
+    CHECK(in.buttons == NW_PAD_R2 && in.r2 == 0xFF && in.l2 == 0);
+    CHECK(in.lx == 0xFF && in.ly == 0x00);
+
+    /* With a gamepad: the buttons add up, the pushed key axis wins, the other stays the gamepad's. */
+    keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = false;
+    keys[SDL_SCANCODE_A] = keys[SDL_SCANCODE_RETURN] = true;
+    in = (NwPadInput){ NW_PAD_SQUARE, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
+    nw_input_keyboard(keys, &in);
+    CHECK(in.buttons == (NW_PAD_SQUARE | NW_PAD_START));
+    CHECK(in.lx == 0x00 && in.ly == 0x40);
+
+    /* Opposite keys cancel out and leave the gamepad's axis. */
+    keys[SDL_SCANCODE_D] = true;
+    in = (NwPadInput){ 0, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
+    nw_input_keyboard(keys, &in);
+    CHECK(in.lx == 0xC0);
+}
+
 int main(void)
 {
     test_shim();
     test_gamepad();
+    test_keyboard();
     if (failures) {
         fprintf(stderr, "test_pad: %d check(s) failed\n", failures);
         return 1;

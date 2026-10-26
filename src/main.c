@@ -495,7 +495,7 @@ static int nw_boot(const char *data_dir, int hardware_speed)
             }
             nw_input_event(&event);
         }
-        nw_input_poll();
+        nw_input_poll(!nw_debug_wants_keyboard());
         if (settings.hardware_speed != applied) {
             applied = settings.hardware_speed;
             nw_nusound_set_hardware_speed(applied);
