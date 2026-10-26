@@ -102,10 +102,9 @@ schema = 1
 # gamelib
 "gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
 "gamelib/debris" = { treatment = "compile" }
-# The effect loaders wait for the particle sets (nups2/ptl, #56): with effects loaded the cuts emit particles.
 "gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
-    "edppRegisterPointerToGameCharLocation"], called = ["edppLoadEffects", "edppMergeEffects",
-    "edppRestartAllEffectsInLevel"] }
+    "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
+    "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"] }
 "gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
     "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
     "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
