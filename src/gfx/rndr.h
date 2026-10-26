@@ -46,6 +46,8 @@ typedef struct NwRecord {
     const NwJointSnap *joints; /* SKIN: the palette */
     const uint32_t *blend;     /* SKIN: retail's deformer weights packet, the count at [5] and the weights after it */
     const NwVuSpriteVertex *verts; /* VERTS: cmd.count vertices */
+    const NwPtlList *ptllist;      /* PARTICLES: the effect list */
+    const NwPtl *ptls;             /* PARTICLES: cmd.count particles */
     uint8_t misc;              /* the stream's attr & 0x43 */
     struct NwRecord *next;
 } NwRecord;
@@ -56,6 +58,8 @@ typedef struct NwRecord {
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 /* The same as a VERTS record of n vertices, three a triangle, which the caller writes at *v. */
 NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v);
+/* The same as a PARTICLES record of an effect list and n particles, which the caller writes at *list and *ptls. */
+NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls);
 /* A quad's corners as the GS strip draws them, the triangles (0, 1, 2) and (1, 2, 3); returns v + 6. */
 NwVuSpriteVertex *nw_rndr_quad(NwVuSpriteVertex *v, const NwVuSpriteVertex q[4]);
 struct numtx_s;

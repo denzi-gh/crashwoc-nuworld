@@ -12,9 +12,11 @@
 #include "nu3d/numtl.h"
 #include "nu3d/nurndr.h"
 #include "nu3d/nustream.h"
+#include "gamelib/debris.h"
 #include "nu3d/nutex.h"
 #include "numath/numtx.h"
 #include "numath/nuvec.h"
+#include "nups2/nups2types.h"
 
 int NuPs2ScreenSwap(int vsync);
 void NuPs2DisableAutoScreenSwap(void);
@@ -49,6 +51,7 @@ extern struct nutexslot_s *D_0062EBEC;
 extern struct rndrstream_s *rndrstream_system;
 extern struct rndrstream_s *rndrstream_ot_sort;
 extern struct rndrstream_s *rndrstream_fx;
+extern struct rndrstream_s *rndrstream_ptl;
 extern u8 *rndrstream_free;
 extern struct numtx_s numtx_identity;
 extern NuRndrShadType NuRndrShadPolDat[];
@@ -75,6 +78,7 @@ int testflipold = 1;
 struct nuvec_s lightfan[9];
 struct nurndrshadstore_s shadstore[256];
 static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
+struct debdma_s *testforcepart; /* an effect list over every particle group's; NULL in retail */
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -698,6 +702,43 @@ void NuRndrFootPrints(struct numtl_s *mtl, float *u, float *v)
     NuRndrStreamFxMPG(1);
     nw_rndr_quads(rndrstream_fx, vtx, (int)(vp - vtx))->alpha = 0x100 | 0x44;
     rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+}
+
+_Static_assert(sizeof(NwPtl) == sizeof(struct debpart_s), "debpart_s");
+_Static_assert(sizeof(((NwPtlList *)0)->tri) == sizeof(((struct debdma_s *)0)->tri), "debdma_s.tri");
+
+/* The effect list's VU image with the time set, and the particles of the chain of sets from chunk (each set's tag a
+   NEXT to the next, LinkDmaParticalSets' offset, or the last's RET), a PARTICLES record under mtx in the ptl stream;
+   mode picks retail's entry with or without the screen clamp, which the GPU's clipping makes the same. */
+void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
+                         int mode, float time)
+{
+    NwPtlList *l;
+    NwPtl *ptls;
+    (void)mode;
+    if (testforcepart) {
+        list = testforcepart;
+    }
+    list->time = time;
+    struct debchunk_s *sets[256];
+    uint32_t n = 0;
+    for (struct debchunk_s *set = chunk; set && n < 256;) {
+        const struct DmaTag *tag = (const struct DmaTag *)set;
+        sets[n++] = set;
+        set = (tag->ctrl >> 28 & 7) == 2 ? (struct debchunk_s *)((u8 *)set + (s32)tag->addr) : NULL;
+    }
+    NuRndrSetLocalMtx(mtx, 1);
+    NuRndrStreamAddMtl(rndrstream_ptl, mtl);
+    nw_rndr_particles(rndrstream_ptl, n * 32, &l, &ptls);
+    memset(l, 0, sizeof(*l));
+    l->head[1] = list->grav;
+    l->head[3] = list->time;
+    const s32 uv[8] = { list->u0, list->v0, list->u1, list->v1, list->u2, list->v2, list->u3, list->v3 };
+    memcpy(l->uv, uv, sizeof(uv));
+    memcpy(l->tri, list->tri, sizeof(l->tri));
+    for (uint32_t i = 0; i < n; i++) {
+        memcpy(&ptls[i * 32], sets[i]->parts, sizeof(sets[i]->parts));
+    }
 }
 
 /* Retail's packet: a RET tag, the S-32 unpack of the count and the weights to VU 0x63, the count at u32 [5]; the

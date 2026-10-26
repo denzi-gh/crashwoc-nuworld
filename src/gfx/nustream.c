@@ -210,6 +210,18 @@ NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, 
     return &r->cmd;
 }
 
+NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls)
+{
+    NwRecord *r = nw_rndr_record(NW_CMD_PARTICLES, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
+    *list = nw_rndr_alloc(sizeof(**list));
+    *ptls = nw_rndr_alloc(n * sizeof(**ptls));
+    r->ptllist = *list;
+    r->ptls = *ptls;
+    r->cmd.count = n;
+    nw_rndr_push(stream, r);
+    return &r->cmd;
+}
+
 NwVuSpriteVertex *nw_rndr_quad(NwVuSpriteVertex *v, const NwVuSpriteVertex q[4])
 {
     static const int strip[6] = { 0, 1, 2, 1, 2, 3 };
@@ -294,6 +306,14 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             if (verts) {
                 memcpy(verts, r->verts, r->cmd.count * sizeof(*verts));
             } else if (r->verts) {
+                c->count = 0;
+            }
+            NwPtlList *list = r->ptllist ? nw_packet_ptllist(nw_packet_building(), &c->ptllist) : NULL;
+            NwPtl *ptls = list ? nw_packet_ptls(nw_packet_building(), r->cmd.count, &c->first) : NULL;
+            if (ptls) {
+                *list = *r->ptllist;
+                memcpy(ptls, r->ptls, r->cmd.count * sizeof(*ptls));
+            } else if (r->ptllist) {
                 c->count = 0;
             }
             NwJointSnap *j = (NwJointSnap *)r->joints;

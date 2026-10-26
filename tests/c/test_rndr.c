@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "gamelib/debris.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nugobj.h"
@@ -18,6 +19,7 @@
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
+#include "nups2/nups2types.h"
 
 #include "gsc_builder.h"
 
@@ -62,6 +64,12 @@ void NuRndrShadow(int mode);
 extern struct nuvec_s lightfan[], NuRndrShadBox[2];
 extern struct nurndrshadstore_s shadstore[];
 extern int NuRndrShadMaskCount, shadstorecnt, testflipold;
+struct DmaTag *CreateDmaParticleSet(struct DmaTag *set, int *size);
+struct debdma_s *CreateDmaPartEffectList(struct debdma_s *list, int *size);
+void LinkDmaParticalSets(struct DmaTag **sets, int count);
+void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
+                         int mode, float time);
+extern char vu_load_ptl_mpg[];
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -876,6 +884,47 @@ static void test_shadows(void)
     shadstorecnt = 0;
 }
 
+/* SetupDebris's sets and effect lists as retail lays them out; three sets linked out of order are one PARTICLES record
+   of their 96 particles in link order under the matrix, with the list's VU image and the time, which the list keeps;
+   the last set's tag ends the chain. */
+static void test_particles(void)
+{
+    static _Alignas(16) uint8_t buf[3 * 0x430 + 0x870];
+    struct DmaTag *sets[3];
+    int size = 0;
+    for (int i = 0; i < 3; i++) {
+        sets[i] = CreateDmaParticleSet((struct DmaTag *)(buf + i * 0x430), &size);
+        CHECK(size == 0x430 && sets[i]->ctrl == 0x60000000u + 0x42);
+    }
+    struct debdma_s *list = CreateDmaPartEffectList((struct debdma_s *)(buf + 3 * 0x430), &size);
+    CHECK(size == 0x870 && list->u1 == 0xC8 && list->v3 == 0xB8 && list->tri[0].v0x.colour == 0x80);
+    CHECK(list->tri[63].v1y.colour == (u8)(0x40 - 63) && *(uint32_t *)&list->tri[64] == 0x14000302);
+    struct DmaTag *order[3] = { sets[2], sets[0], sets[1] };
+    LinkDmaParticalSets(order, 3);
+    CHECK(sets[1]->ctrl >> 28 == 6 && sets[2]->ctrl >> 28 == 2 && (sets[2]->ctrl & 0xFFFF) == 0x42);
+    ((struct debchunk_s *)sets[0])->parts[5].pos.x = 1.0f;
+    ((struct debchunk_s *)sets[1])->parts[0].rate = 7.0f;
+    list->grav = -0.5f;
+    struct numtx_s mtx;
+    set_mtx(&mtx, 0.5f, 1.0f, 2.0f, 3.0f);
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuRndrParticleGroup((struct debchunk_s *)order[0], list, mtl, &mtx, 0, 5.0f);
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *c = p->ncmds == 1 ? p->cmds : NULL;
+    CHECK(c && c->op == NW_CMD_PARTICLES && c->count == 96 && c->material == mtl && same_mtx(c->local, &mtx));
+    CHECK(c && c->mpg == (void *)vu_load_ptl_mpg && list->time == 5.0f);
+    if (c && c->count == 96) {
+        const NwPtl *ptls = &p->ptls[c->first];
+        const NwPtlList *l = &p->ptllists[c->ptllist];
+        CHECK(ptls[0].birth == -1.0f && ptls[0].rate == 128.0f && ptls[37].pos[0] == 1.0f && ptls[64].rate == 7.0f);
+        CHECK(l->head[1] == -0.5f && l->head[3] == 5.0f && l->uv[1][0] == 0xC8 && l->uv[3][1] == 0xB8);
+        CHECK(memcmp(l->tri, list->tri, sizeof(l->tri)) == 0);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -971,6 +1020,7 @@ int main(void)
     test_rope();
     test_fx_quads();
     test_shadows();
+    test_particles();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }
