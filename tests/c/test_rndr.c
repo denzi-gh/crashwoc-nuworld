@@ -56,6 +56,12 @@ void NuRndrAddFootPrint(int rot, float sizex, float sizez, int brightness, struc
 extern int NuRndrShadowCnt, NuRndrFootFree;
 extern struct nurndrwaterrip_s NuRndrWaterRipDat[];
 extern struct nurndrfoot_s NuRndrFootData[];
+void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
+void NuRndrShadowStencil(int paused, struct nuvec_s *pos);
+void NuRndrShadow(int mode);
+extern struct nuvec_s lightfan[], NuRndrShadBox[2];
+extern struct nurndrshadstore_s shadstore[];
+extern int NuRndrShadMaskCount, shadstorecnt, testflipold;
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
@@ -821,6 +827,55 @@ static void test_fx_quads(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The hub's part of the volume shadows: the light's fan of unit directions square to it, the stencil's full-screen
+   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) and drawing nothing, and an
+   hgobj's joint shadows stored under the joint's matrix times wm. */
+static void test_shadows(void)
+{
+    struct nuvec_s dir = { 1.0f, 0.0f, 0.0f }, pos = { 0.0f, 0.0f, 0.0f };
+    NuRndrShadowDirCol(&dir, 0x80202020);
+    for (int i = 0; i < 8; i++) {
+        float len = lightfan[i].x * lightfan[i].x + lightfan[i].y * lightfan[i].y + lightfan[i].z * lightfan[i].z;
+        CHECK(SDL_fabsf(lightfan[i].x) < 1e-3f && SDL_fabsf(len - 1.0f) < 1e-3f);
+    }
+    NuRndrShadMaskCount = 0;
+    shadstorecnt = 2;
+    NuRndrShadowStencil(0, &pos);
+    CHECK(NuRndrShadBox[0].x == 0.0f && NuRndrShadBox[1].x == nurndr_pixel_width * 16.0f);
+    CHECK(NuRndrShadBox[1].y == nurndr_pixel_height * 16.0f && shadstorecnt == 2);
+    testflipold = 5;
+    NuRndrShadow(0);
+    CHECK(shadstorecnt == 2);
+    testflipold = 1;
+    NuRndrShadow(0);
+    NuRndrEndScene();
+    CHECK(shadstorecnt == 0 && nw_rndr_packet()->ncmds == 0);
+    NuRndrSwapStreamBuffers();
+
+    struct NUCYLINDER_s cyl;
+    struct NUSHADOWDATA_s shadow[2];
+    memset(shadow, 0, sizeof(shadow));
+    shadow[0].cylinders = &cyl;
+    shadow[0].ncylinders = 1;
+    shadow[0].joint = 1;
+    shadow[1].joint = 0xFF;
+    struct numtx_s pose[2], wm, want;
+    set_mtx(&pose[0], 0.0f, 0.0f, 0.0f, 0.0f);
+    set_mtx(&pose[1], 0.5f, 1.0f, 2.0f, 0.0f);
+    set_mtx(&wm, 0.25f, 0.5f, 0.0f, 2.0f);
+    struct NUHGOBJ_s h;
+    memset(&h, 0, sizeof(h));
+    h.num_joints = 2;
+    h.shadow = shadow;
+    h.bbox_min = (struct nuvec_s){ -5.0f, -5.0f, -5.0f };
+    h.bbox_max = (struct nuvec_s){ 5.0f, 5.0f, 5.0f };
+    NuHGobjRndrMtxDwa(&h, &wm, 0, NULL, pose, NULL);
+    NuMtxMul(&want, &pose[1], &wm);
+    CHECK(shadstorecnt == 1 && same_mtx(&shadstore[0].mtx._00, &want) && shadstore[0].shadow.cylinders == &cyl);
+    CHECK(shadstore[0].shadow.ncylinders == 1 && shadstore[0].shadow.shadow_meshes == NULL);
+    shadstorecnt = 0;
+}
+
 /* The TARGET command of the packet, by order among them. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
@@ -915,6 +970,7 @@ int main(void)
     test_crate_quad();
     test_rope();
     test_fx_quads();
+    test_shadows();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

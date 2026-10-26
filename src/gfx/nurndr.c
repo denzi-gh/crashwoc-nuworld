@@ -56,14 +56,25 @@ extern int NuRndrShadowCnt;
 extern struct nurndrwaterrip_s NuRndrWaterRipDat[];
 extern int NuRndrWaterRipCnt;
 extern struct nurndrfoot_s NuRndrFootData[];
+extern int shadstorecnt;
+extern struct nuvec_s curlight;
+extern float NuTrigTable[];
 void *vpDmaTag_Next(void *packet, uint32_t addr);
 void NuRndrStreamLink(struct rndrstream_s *stream);
+void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
+void NuRndrShadowStack(struct nuvec_s *light);
+void RotateCyl(struct nuvec_s *v, float xang, float yang);
+void DeRotateVectorAngles(struct nuvec_s *dir, float *xang, float *yang);
 
 #define NW_OT_BINS 0x1000
 #define NW_OT_ITEMS 0x400
 #define NW_OT_TRIS 0x800 /* a batch's most, the per-triangle buckets' slots */
 
 u32 testfootcol; /* a debug colour over every footprint's; 0 in retail */
+int testflipold = 1;
+struct nuvec_s lightfan[9];
+struct nurndrshadstore_s shadstore[256];
+static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -148,13 +159,54 @@ void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh 
     nw_rndr_ot_insert(item, batchz);
 }
 
-/* Retail also builds the shadow DMA data (#56) and the default blend-deformer weights, which a NULL weights array
-   stands for here. */
+/* Retail also builds the volume shadows' cylinder DMA data and the default blend-deformer weights, which a NULL
+   weights array stands for here. */
 void NuRndrInitEx(int streamsize)
 {
     NuRndrStreamInit(streamsize);
     NuFntInit();
     NuRndrOTInit();
+    NuRndrShadowDirCol(&default_light_dir, 0x10808080);
+    NuRndrShadowCnt = 0;
+    for (int i = 0; i < 32; i++) {
+        NuRndrWaterRipDat[i].timer = 0;
+    }
+}
+
+/* The volume shadows' fan of eight directions about the light; their DMA packet the port has none of (#61). */
+u32 *NuRndrShadowLightFan(void)
+{
+    struct nuvec_s angles;
+    DeRotateVectorAngles(&curlight, &angles.x, &angles.y);
+    for (int i = 0; i < 8; i++) {
+        lightfan[i].x = NuTrigTable[(i * 0x2000 + 0x4000) & 0xFFFF];
+        lightfan[i].y = -NuTrigTable[(i * 0x2000) & 0xFFFF];
+        lightfan[i].z = 0.0f;
+        RotateCyl(&lightfan[i], angles.x, angles.y);
+    }
+    return NULL;
+}
+
+/* Level 0xC's volume shadows (nurndr_shadowson): the port draws neither the volumes nor their composite yet (#61). */
+void NuRndrShadow(int mode)
+{
+    (void)mode;
+    if ((testflipold & 4) || shadstorecnt == 0) {
+        return;
+    }
+    NuRndrShadowStack(&curlight);
+}
+
+/* Empties the store as retail does once the volumes are drawn. */
+void NuRndrShadowStack(struct nuvec_s *light)
+{
+    static bool reported;
+    (void)light;
+    if (!reported) {
+        reported = true;
+        fprintf(stderr, NW_APP_NAME ": the volume shadows are not drawn\n");
+    }
+    shadstorecnt = 0;
 }
 
 /* A TARGET into stream: the back buffer (-1), the front buffer (-3), or a render target texture, whose size
@@ -416,9 +468,9 @@ int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struc
     return vis;
 }
 
-/* Each layer's joint gobjs under their joint's matrix times wm, then its skin objects under wm with the palette
-   INV_WT x mtx_array, dwa[ix] the layer's blend-shape weights. hgobj_enabled is 1 in retail and nothing clears it;
-   the shadow store comes with the shadows (#56). */
+/* Each joint's shadow volumes into the store under the joint's matrix times wm, each layer's joint gobjs under that
+   matrix, then its skin objects under wm with the palette INV_WT x mtx_array, dwa[ix] the layer's blend-shape
+   weights. hgobj_enabled is 1 in retail and nothing clears it. */
 int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
                       float **dwa)
 {
@@ -427,6 +479,20 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
     int vis = NuCameraClipTestExtents(&hobj->bbox_min, &hobj->bbox_max, wm);
     if (vis == 0) {
         return 0;
+    }
+    if (hobj->shadow && (u8)hobj->pad81[0] == 0) {
+        for (struct NUSHADOWDATA_s *shadow = hobj->shadow; shadow->joint != 0xFF; shadow++) {
+            if (shadstorecnt < 256) {
+                struct nurndrshadstore_s *s = &shadstore[shadstorecnt++];
+                NuMtxMulVU0(&s->mtx, &mtx_array[shadow->joint], wm);
+                s->shadow.ellipsoids = shadow->ellipsoids;
+                s->shadow.cylinders = shadow->cylinders;
+                s->shadow.shadow_meshes = shadow->nshadow_meshes ? shadow->shadow_meshes : NULL;
+                s->shadow.nellipsoids = shadow->nellipsoids;
+                s->shadow.ncylinders = shadow->ncylinders;
+                s->shadow.nshadow_meshes = shadow->nshadow_meshes;
+            }
+        }
     }
     for (int i = 0; i < nlayers; i++) {
         int ix = 0;

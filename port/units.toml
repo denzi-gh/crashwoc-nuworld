@@ -55,12 +55,13 @@ schema = 1
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
 # kept: the shadow, footprint and water-ripple bookkeeping, the shadow and ripple draws over the port's quad writers,
-# and the bodies retail leaves empty; NuRndrFx calls the overridden shadow, water and light packet writers
+# the volume shadows' light and screen box, and the bodies retail leaves empty; NuRndrFx calls the overridden shadow,
+# water and light packet writers
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
     "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld", "NuRndrShadowInit",
     "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
     "NuRndrWaterRippleUpdate", "NuRndrWaterLevelTint", "NuRndrShadPolys", "NuRndrWaterRip", "NuRndrFx", "NuRndrClose",
-    "NuRndrFog*", "NuRndrLine3dDbg*",
+    "NuRndrShadowStencil", "NuRndrShadowDirCol", "RotateCyl", "DeRotateVectorAngles", "NuRndrFog*", "NuRndrLine3dDbg*",
     "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
