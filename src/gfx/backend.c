@@ -38,6 +38,7 @@ static struct {
     GLuint pool, pool_tex;               /* the packet's joint palettes, a texture buffer on unit 3 */
     GLuint weights, weights_tex;         /* its blend-shape weights, on unit 4 */
     GLuint verts_vao, verts_vbo;         /* its VERTS triangles */
+    GLuint ptl_vao, ptl_vbo;             /* its particles */
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
     bool wireframe;
@@ -111,6 +112,8 @@ void nw_backend_shutdown(void)
     glDeleteTextures(1, &nw_be.weights_tex);
     glDeleteVertexArrays(1, &nw_be.verts_vao);
     glDeleteBuffers(1, &nw_be.verts_vbo);
+    glDeleteVertexArrays(1, &nw_be.ptl_vao);
+    glDeleteBuffers(1, &nw_be.ptl_vbo);
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -490,6 +493,21 @@ static void nw_be_verts(const NwPacket *p)
     nw_vu_sprite_attribs();
 }
 
+/* The packet's particles into one vertex buffer before they are drawn. */
+static void nw_be_ptls(const NwPacket *p)
+{
+    if (!p->nptls) {
+        return;
+    }
+    if (!nw_be.ptl_vao) {
+        glGenVertexArrays(1, &nw_be.ptl_vao);
+        glGenBuffers(1, &nw_be.ptl_vbo);
+    }
+    glBindVertexArray(nw_be.ptl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, nw_be.ptl_vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)p->nptls * (GLsizeiptr)sizeof(*p->ptls), p->ptls, GL_STREAM_DRAW);
+}
+
 /* A package whose program the port does not draw, once per package and kind of geom. */
 static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 {
@@ -548,6 +566,33 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     for (uint32_t k = 0; k < n; k++) {
         nw_vu_pass(program, &m, &pass[k]);
         glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
+    }
+}
+
+/* A particle group, a quad of each particle: its corners in GS units before the divide, its texel coordinates in
+   1/16 of the material texture's level 0. */
+static void nw_be_particles(const NwPacket *p, const NwCmd *c)
+{
+    _Static_assert(sizeof(NwPtlList) == 132 * 16, "NwPtlList is VU 0x3C-0xBF");
+    NwVuObject o;
+    nw_be_object(p, c, NW_VU_PTL, &o);
+    o.sprite[0] = 1.0f / (8.0f * (float)nw_be.width);
+    o.sprite[1] = -1.0f / (8.0f * (float)nw_be.height);
+    NwVuMaterial m = nw_be_material(p, c, false);
+    const NwGpuTex *tex = c->mtl != NW_MTL_NONE ? p->mtls[c->mtl].tex : NULL;
+    if (tex && tex->tex.nlevels) {
+        o.sprite[2] = 1.0f / (16.0f * (float)tex->tex.levels[0].width);
+        o.sprite[3] = 1.0f / (16.0f * (float)tex->tex.levels[0].height);
+    }
+    NwMtlPass pass[2];
+    glBindVertexArray(nw_be.ptl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, nw_be.ptl_vbo);
+    nw_vu_ptl_attribs((size_t)c->first * sizeof(NwPtl));
+    uint32_t n = nw_vu_use(NW_VU_PTL, &o, &m, pass);
+    nw_vu_ptl((const uint32_t(*)[4])&p->ptllists[c->ptllist]);
+    for (uint32_t k = 0; k < n; k++) {
+        nw_vu_pass(NW_VU_PTL, &m, &pass[k]);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)c->count);
     }
 }
 
@@ -687,6 +732,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
     nw_be_rects(p);
     nw_be_verts(p);
+    nw_be_ptls(p);
     nw_be_pool(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
@@ -722,6 +768,9 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_VERTS:
             nw_be_tris(p, c);
+            break;
+        case NW_CMD_PARTICLES:
+            nw_be_particles(p, c);
             break;
         }
     }

@@ -3,13 +3,14 @@
 #define NUWORLD_GFX_VU_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 
 /* The triangle packages' per-vertex programs (tri runs the same code as tric), the sprite programs they jump to for
-   face-on geoms, and the skin programs of tri and xformuv (MSCAL 0x302). */
+   face-on geoms, the skin programs of tri and xformuv (MSCAL 0x302), and ptl's particles. */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
@@ -20,12 +21,14 @@ typedef enum NwVuProgram {
     NW_VU_SKIN,
     NW_VU_TRIXUV,
     NW_VU_SKINXUV,
+    NW_VU_PTL,
     NW_VU_PROGRAMS
 } NwVuProgram;
 
 /* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights, or for the
    xuv programs the UV matrix: u, v and w dotted with the object's normal, then the offset), and for the sprite
-   programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15. */
+   programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15; for ptl the
+   clip space per GS unit (x, y) and the texture per texel coordinate unit (z, w). */
 typedef struct NwVuObject {
     float lv[16];
     float ambient[4];
@@ -78,6 +81,11 @@ NwVuProgram nw_vu_skin_program(const char *package);
 /* A skin draw's palette and blend-shape weights in the packet's texture buffers (units 3 and 4), its geom's deltas
    on unit 5. */
 void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t nweights);
+/* ptl's VU 0x3C-0xBF: the effect list as NwPtlList holds it. */
+void nw_vu_ptl(const uint32_t image[132][4]);
+/* The particles of the bound VBO from the byte offset on, one per instance: the point and birth, the momentum and
+   rate. */
+void nw_vu_ptl_attribs(size_t offset);
 /* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);
 /* Their lights for a lit stream (mode 1): each direction dotted with the normalised rows of the local matrix, the
