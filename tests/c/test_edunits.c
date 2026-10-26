@@ -287,14 +287,11 @@ static int retail_main(int argc, char **argv)
     (void)argc, (void)argv;
     size_t size = 0x2400000; /* the scene viewer's buffer */
     char *buffer = SDL_malloc(size);
-    /* No platforms until the terrain loaders (#53): an empty set, as terraininit starts one. */
-    const size_t terrain_size = 0x40000;
-    void *terrain = SDL_malloc(terrain_size);
     NuFileInitEx(1, 1);
     NuTexInit();
     NuMtlInit();
     buildBitCountTable();
-    for (size_t i = 0; buffer && terrain && i < nw_disc_manifest.count; i++) {
+    for (size_t i = 0; buffer && i < nw_disc_manifest.count; i++) {
         const NwManifestEntry *e = &nw_disc_manifest.entries[i];
         size_t n = strlen(e->path);
         if (n < 4 || SDL_strcasecmp(e->path + n - 4, mode->ext) != 0 || (e->flags & NW_MANIFEST_SKIP)) {
@@ -312,9 +309,14 @@ static int retail_main(int argc, char **argv)
             census.bad++;
             continue;
         }
+        /* The level's terrain over the scene, as InitWorld loads it: an empty set where there is no .ter. */
+        char ter[NW_VFS_PATH_MAX];
+        game_path(ter, sizeof(ter), e->path, "");
         noterraininit();
-        memset(terrain, 0, terrain_size);
-        TerrainSetCur(terrain);
+        buf = (char *)(((uintptr_t)buf + 15) & ~(uintptr_t)15);
+        TerrainSetCur(buf);
+        short *store = (short *)buf;
+        terraininit(0, &store, (short *)(buffer + size), 0, ter, sc, 0);
         int version, count;
         unsigned c[4] = { 0, 0, 0, 0 }, nonfinite = 0;
         if (!header(file, &version, &count) || version < 0 || version > 15 || count < 0 ||
@@ -334,7 +336,6 @@ static int retail_main(int argc, char **argv)
         nw_gscn_remove(sc);
         drain_gpu();
     }
-    SDL_free(terrain);
     SDL_free(buffer);
     return 0;
 }

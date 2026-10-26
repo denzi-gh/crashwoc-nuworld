@@ -95,7 +95,7 @@ void NuRndrOTFlush(void)
    buckets it, the buckets drawn far to near and each from its latest triangle, so a batch is drawn in batch order
    within a bucket; the batch goes into the ordering table at its nearest triangle. Retail drops a batch over 0x800
    triangles or with the item pool used up. */
-void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutribatch_s *batch)
+void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutristream_s *batch)
 {
     static float depth[NW_OT_TRIS];
     static uint16_t bucket[NW_OT_TRIS];
@@ -306,8 +306,8 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
                 }
                 for (; mtl; mtl = mtl->next) {
                     rndrstream_3d = &mtl->rs;
-                    if (geom->otbatch) {
-                        nw_rndr_ot_batch(m, mtl, geom->dmastream, geom->otbatch);
+                    if (geom->tristream) {
+                        nw_rndr_ot_batch(m, mtl, geom->dmastream, geom->tristream);
                     } else if (geom->dmastream) {
                         NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW);
                         c->mesh = geom->dmastream;
@@ -426,7 +426,7 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
             continue;
         }
         float *weights = dwa ? dwa[ix] : 0;
-        struct NUHLAYERDATA_s *l = &hobj->layers[ix];
+        struct NULAYERDATA_s *l = &hobj->layers[ix];
         for (int set = 0; set < 2; set++) {
             struct nugobj_s **gobjs = set ? l->blend_gobjs : l->gobjs;
             for (int j = 0; gobjs && j < hobj->num_joints; j++) {
@@ -436,13 +436,13 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
                 }
             }
         }
-        if (l->skin_object || l->blend_skin_object) {
+        if (l->skin_gobj || l->blend_skin_gobj) {
             NuMtxMulArrayVU0(nw_rndr_joints(hobj->num_joints), hobj->INV_WT, mtx_array, hobj->num_joints);
-            if (l->skin_object) {
-                rv |= NuRndrGobjSkin(l->skin_object, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
+            if (l->skin_gobj) {
+                rv |= NuRndrGobjSkin(l->skin_gobj, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
             }
-            if (l->blend_skin_object) {
-                rv |= NuRndrGobjSkin(l->blend_skin_object, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
+            if (l->blend_skin_gobj) {
+                rv |= NuRndrGobjSkin(l->blend_skin_gobj, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
             }
         }
     }

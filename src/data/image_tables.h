@@ -27,7 +27,8 @@ typedef struct NwImageRoot {
 } NwImageRoot;
 
 /* NwDataObj.flags */
-#define NW_DATA_PLAIN 1u /* the same bytes on both sides */
+#define NW_DATA_PLAIN 1u  /* the same bytes on both sides */
+#define NW_DATA_RETAIL 2u /* a placeholder for retail's bytes (status state "retail"): copied in */
 
 /* Data a compiled unit defines in C, at its retail address: pointers into it resolve to the host object. */
 typedef struct NwDataObj {

@@ -147,10 +147,10 @@ static void find_chars(struct NUGCUTSCENE_s *def)
 }
 
 static void locator_fn(struct instNUGCUTSCENE_s *scene, struct NUGCUTLOCATORSYS_s *def,
-                       struct instNUGCUTLOCATOR_s *locator, struct NUGCUTLOCATOR_s *data, struct numtx_s *mtx,
-                       float time)
+                       struct instNUGCUTLOCATOR_s *locator, struct NUGCUTLOCATOR_s *data, float time,
+                       struct numtx_s *mtx)
 {
-    (void)scene, (void)def, (void)locator, (void)data, (void)mtx, (void)time;
+    (void)scene, (void)def, (void)locator, (void)data, (void)time, (void)mtx;
 }
 
 /* Retail's second pass on the loaded records. */

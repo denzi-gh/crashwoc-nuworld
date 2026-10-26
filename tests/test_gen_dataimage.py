@@ -117,6 +117,8 @@ class Fixture(unittest.TestCase):
             self.assertIn(line + "\n", src)
         for line in ['    { "fixstatic", 0x00100c00u, 16u, (void *)&fixstatic, (unsigned int)sizeof fixstatic, 0, '
                      '4u, NW_DATA_PLAIN },',
+                     '    { "fixtent", 0x00101100u, 4u, (void *)&fixtent, (unsigned int)sizeof fixtent, 0, 1u, '
+                     'NW_DATA_PLAIN | NW_DATA_RETAIL },',
                      '        ".set " NW_SYM(D_00100C08) ", " NW_SYM(fixstatic) "+8\\n");',
                      '_Static_assert(sizeof(fixroot) == 40, "fixroot");',
                      '_Static_assert(sizeof(D_00100B00[0]) == 1, "D_00100B00");']:

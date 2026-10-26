@@ -27,7 +27,7 @@
 /* Declared by no header. */
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 struct nuanimdata_s *NuAnimDataLoadBuff(char *file, union variptr_u *buffer, union variptr_u *buffend);
-extern int D_0062EE18; /* bitcount_table_built */
+extern int isBitCountTable;
 
 static int failures;
 static char ani_buffer[8 << 20];
@@ -98,14 +98,14 @@ static void test_load(const char *scratch)
     NuFileInitEx(1, 1);
 
     /* Twice in a row on one buffer, as InstAnimDataLoad loads a character's anims; the first builds the bit counts. */
-    CHECK(D_0062EE18 == 0);
+    CHECK(isBitCountTable == 0);
     union variptr_u buf, end;
     buf.charptr = ani_buffer + 3;
     end.charptr = ani_buffer + sizeof(ani_buffer);
     for (int pass = 0; pass < 2; pass++) {
         char *file = (char *)(((uintptr_t)buf.charptr + 15) & ~(uintptr_t)15);
         struct nuanimdata_s *data = NuAnimDataLoadBuff("test.ani", &buf, &end);
-        CHECK(D_0062EE18 == 1 && memcmp(file, b.buf, b.len) == 0);
+        CHECK(isBitCountTable == 1 && memcmp(file, b.buf, b.len) == 0);
         CHECK((char *)data >= file + b.len && buf.charptr > (char *)(data + 1) && buf.charptr < end.charptr);
         check_anim(data, file, &f);
     }

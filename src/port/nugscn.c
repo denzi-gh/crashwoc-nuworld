@@ -39,7 +39,7 @@ int NuMemFileSeek(int fh, int offset, int origin);
 void timeUserReset(void);
 void NuDisableVBlank(void);
 void NuEnableVBlank(void);
-void NuCvtGeoFixup(struct nucolourblend_s *ref, int offset);
+void NuCvtGeoFixup(struct nucolourref_s *ref, int offset);
 void NuRndrSplineSearch(void *scene);
 extern NuMtlReadEventFunc NuMtlReadEvent;
 extern int nugscn_mtlupdate_enabled;
@@ -304,9 +304,9 @@ void ReadObjSet(int fh)
                        geom keeps its batch, which XFormVuTriZ reads, and its triangles as a mesh in dmastream,
                        which NuRndrGScnObj draws through the ordering table. */
                     if (geom->mtl->attrib.ot == 1) {
-                        geom->otbatch = NuMemFileAddr(fh);
+                        geom->tristream = NuMemFileAddr(fh);
                     }
-                    geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size, geom->otbatch != NULL);
+                    geom->dmastream = nw_gscn_mesh(NuMemFileAddr(fh), size, geom->tristream != NULL);
                     NuMemFileSeek(fh, size, 1);
                 }
                 gobj->tricount = tricount;

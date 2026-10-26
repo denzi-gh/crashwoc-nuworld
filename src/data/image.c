@@ -430,6 +430,9 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
         const NwDataUnit *unit = t->units[u];
         for (unsigned i = 0; i < unit->count; i++) {
             const NwDataObj *d = &unit->objs[i];
+            if (d->flags & NW_DATA_RETAIL) {
+                memcpy(d->host, t->mirror + (d->addr - t->mirror_base), d->ps2_size);
+            }
             NwObj o = { d->addr, d->ps2_size, d->host, d->host_size, d->type, d->count,
                         d->flags & NW_DATA_PLAIN ? NW_OBJ_PLAIN : 0u, d->name };
             nw_image_push(&o);

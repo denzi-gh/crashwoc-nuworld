@@ -99,7 +99,7 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     CHECK(g->cntr_r2 == 38.75f && g->cntr_r == (float)sqrt(38.75));
     struct nugeom_s *geom = g->geom;
     CHECK(geom->next == geom + 1 && geom[1].next == NULL);
-    CHECK(geom->mtl == sc->mtls[0] && geom[1].mtl == sc->mtls[2] && geom->otbatch == NULL);
+    CHECK(geom->mtl == sc->mtls[0] && geom[1].mtl == sc->mtls[2] && geom->tristream == NULL);
     for (int i = 0; i < 2; i++) {
         const NwVifMesh *m = &((const NwGpuMesh *)geom[i].dmastream)->mesh;
         CHECK(m && m->nbatches == s->batches[i] && m->nverts == s->verts[i] && m->ntris == s->tris[i]);
@@ -107,7 +107,7 @@ static void check_scene(struct nugscn_s *sc, const char *file, const GscScene *s
     g = sc->gobjs[1];
     CHECK(g->ngobjs == 2 && g[0].type == 0 && g[1].type == 1);
     const NwGpuMesh *ot = g[0].geom->dmastream;
-    CHECK(g[0].geom->otbatch == (void *)(file + s->blob[2]) && ot && ot->mesh.ntris == 1 && ot->mesh.nverts == 3);
+    CHECK(g[0].geom->tristream == (void *)(file + s->blob[2]) && ot && ot->mesh.ntris == 1 && ot->mesh.nverts == 3);
     CHECK(ot && ot->mesh.verts[2].pos[2] == 6.0f && ot->mesh.verts[1].tex[0] == 4096 && ot->mesh.verts[2].col[0] == 32);
     CHECK(ot && ot->mesh.verts[0].col[3] == 0x80 && ot->mesh.tris[2] == 2);
     struct nufaceongeom_s *f = g[1].faceon_geom;
