@@ -1,6 +1,7 @@
 /* --trace-sound: the sound key status the game reads, its title cut's state, its copies of the sound module's
    stream loads (request, busy, CD stages) and the logo's texanim frame, one line whenever they change at a vblank,
-   numbered from the vblank on which the logos cut first holds for its audio (cutmovie_hold 0 -> 1).
+   numbered from the vblank on which the logos cut first holds for its audio (cutmovie_hold 0 -> 1), with --level
+   from the one on which its level runs (port/level.h).
    tools/pcsx2_trace.py prints the same lines from PCSX2. */
 #ifndef NUWORLD_PORT_TRACE_H
 #define NUWORLD_PORT_TRACE_H

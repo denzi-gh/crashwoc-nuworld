@@ -24,7 +24,10 @@ static struct {
     int entering;        /* the level last entered, until it runs: a cutscene may come first */
     bool steady;
     signed char present[SDL_arraysize(LData)]; /* 0 not looked up, 1 on the disc, -1 not */
-} nw_level = { .entering = -1 };
+    int arrival;           /* --level's, -1 for none */
+    bool on_way;           /* entered, not yet running */
+    SDL_AtomicInt arrived; /* 1 once it runs */
+} nw_level = { .entering = -1, .arrival = -1 };
 
 int nw_level_count(void)
 {
@@ -67,6 +70,37 @@ void nw_level_load(int level)
     if (nw_level_name(level)) {
         SDL_SetAtomicInt(&nw_level.asked, level + 1);
     }
+}
+
+bool nw_level_start(const char *name)
+{
+    char *end;
+    long level = SDL_strtol(name, &end, 10);
+    if (*end) {
+        level = -1;
+        for (int i = 0; i < (int)SDL_arraysize(LData) && level < 0; i++) {
+            const char *file = LData[i].path ? SDL_strrchr(LData[i].path, '\\') : NULL;
+            if (file && SDL_strcasecmp(file + 1, name) == 0) {
+                level = i;
+            }
+        }
+    }
+    if (level < 0 || level >= (long)SDL_arraysize(LData) || !nw_level_name((int)level)) {
+        return false;
+    }
+    nw_level.arrival = (int)level;
+    nw_level_load((int)level);
+    return true;
+}
+
+int nw_level_arrival(void)
+{
+    return nw_level.arrival;
+}
+
+bool nw_level_arrived(void)
+{
+    return SDL_GetAtomicInt(&nw_level.arrived) != 0;
 }
 
 /* Ends the running level, title or cutscene at once: the screen is already faded out. */
@@ -116,6 +150,7 @@ void nw_level_poll(void)
         nw_level_enter(NW_LEVEL_TITLES);
     } else if (level >= 0 && SDL_CompareAndSwapAtomicInt(&nw_level.asked, level + 1, 0)) {
         nw_level.entering = level;
+        nw_level.on_way = level == nw_level.arrival;
         nw_level_enter(level);
     } else if (nw_level.entering >= 0) {
         if (GameMode == 1 && Level == NW_LEVEL_SPACE && gamecut_newlevel == nw_level.entering) {
@@ -125,5 +160,8 @@ void nw_level_poll(void)
             nw_level_cut();
         }
         nw_level.entering = -1;
+    } else if (nw_level.on_way && Level == nw_level.arrival && GameMode == 0 && cutmovie < 0) {
+        nw_level.on_way = false;
+        SDL_SetAtomicInt(&nw_level.arrived, 1);
     }
 }
