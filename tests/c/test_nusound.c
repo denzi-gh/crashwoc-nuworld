@@ -58,6 +58,10 @@ void SOUND_SetEffectMasterVolume(int core, int left, int right);
 void SOUND_SetChannelEffectOn(int channel);
 void SOUND_SetChannelEffectOff(int channel);
 void SOUND_AllChannelEffectsOn(int core);
+int NuSoundApply3d(struct nuvec_s *pos, int *left, int *right);
+struct numtx_s *NuCameraGetVPCMtx(void);
+extern int nusound_dpl_enabled;
+extern struct nuvec_s *NuSoundListenPos;
 void SOUND_AllChannelEffectsOff(int core);
 void NuSoundKillAllAudio(void);
 void NuSoundPlayChan(int sfx, int left, int right, int pitch, int channel);
@@ -540,6 +544,34 @@ static void test_channel_volume(void)
     CHECK(nw_spu2_get_param(5 << 1 | NW_SD_VP_VOLL) == 0x1234 && nw_spu2_get_param(5 << 1 | NW_SD_VP_VOLR) == 0x0567);
     CHECK(nw_spu2_get_param(1 | 16 << 1 | NW_SD_VP_VOLL) == 0x7fff);
     CHECK(nw_spu2_get_param(1 | 16 << 1 | NW_SD_VP_VOLR) == 0);
+}
+
+/* Game.surround (nusound_dpl_enabled) negates the right volume of a sound behind the camera. A loop's re-pan sends
+   it raw, which on the SPU2 is a sweep (bit 15). The camera here puts w = z: z < 0 is behind it. */
+static void test_surround(void)
+{
+    struct numtx_s *vpc = NuCameraGetVPCMtx(), saved = *vpc;
+    struct nuvec_s ear = { 0.0f, 0.0f, 0.0f }, front = { 0.0f, 0.0f, 1.0f }, back = { 0.0f, 0.0f, -1.0f };
+    struct nuvec_s *listen = NuSoundListenPos;
+    int dpl = nusound_dpl_enabled, l = 0x3fff, r = 0x3fff;
+
+    *vpc = (struct numtx_s){ ._00 = 1.0f, ._11 = 1.0f, ._22 = 1.0f, ._23 = 1.0f };
+    NuSoundListenPos = &ear;
+    nusound_dpl_enabled = 1;
+    CHECK(NuSoundApply3d(&front, &l, &r) && l == 0x1fff && r == 0x1fff);
+    l = r = 0x3fff;
+    CHECK(NuSoundApply3d(&back, &l, &r) && l == 0x1fff && r == -0x1fff);
+    nw_nusound_init(&vfs, nw_game_us);
+    SOUND_SetChannelVolume(24, l, r);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(1 | NW_SD_VP_VOLR) == 0xe001);
+    nusound_dpl_enabled = 0;
+    l = r = 0x3fff;
+    CHECK(NuSoundApply3d(&back, &l, &r) && l == 0x1fff && r == 0x1fff);
+
+    nusound_dpl_enabled = dpl;
+    NuSoundListenPos = listen;
+    *vpc = saved;
 }
 
 static void test_channel_pitch(void)
@@ -1249,6 +1281,7 @@ int main(int argc, char *argv[])
     test_local_bank();
     test_play_sfx();
     test_channel_volume();
+    test_surround();
     test_channel_pitch();
     test_stop_sound();
     test_ee_envelope();

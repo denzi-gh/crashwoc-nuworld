@@ -391,6 +391,45 @@ static void test_spu_mix(void)
     nw_spu2_init();
 }
 
+/* Voice volumes as PCSX2's V_VolumeSlide runs them, on core 1's voice 0 at ENVX 0x7fff (4076 before VOL, VOL then
+   MVOL 0x3fff out). 15 bits sign extended invert the phase: 0x4001 is -32766, -4076 out. Bit 15 sweeps from the
+   volume it finds: 0x8000 (linear up, shift 0, step 7) adds 0x3800 a sample, 1782, 3565, then 4074 at the top;
+   0xe0c0 (-8000 as a looping sound behind the camera sends it: exponential down, shift 16) takes 8 every 32
+   samples from 0x7ffe, 4074 to 4073. */
+static void test_spu_sweep(void)
+{
+    const uint32_t loud = 0x3000;
+    const uint16_t vl = 1 | NW_SD_VP_VOLL;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0x4001, 0);
+    spu_samples(40);
+    CHECK(mix_all(-4076, 0));
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0, 0);
+    spu_samples(4);
+    nw_spu2_set_param(vl, 0x8000);
+    spu_samples(4);
+    CHECK(mix.frame[3][0] == 0 && mix.frame[4][0] == 1782 && mix.frame[5][0] == 3565 && mix.frame[6][0] == 4074);
+    CHECK(mix.frame[7][0] == 4074 && nw_spu2_get_param(vl) == 0x8000);
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0x3fff, 0);
+    spu_samples(4);
+    nw_spu2_set_param(vl, 0xe0c0);
+    spu_samples(MIX_FRAMES - 4);
+    CHECK(mix.frame[4 + 30][0] == 4074 && mix.frame[4 + 31][0] == 4073 && mix.frame[MIX_FRAMES - 1][0] == 4073);
+
+    nw_spu2_set_output(NULL, NULL);
+    nw_spu2_init();
+}
+
 /* The envelope scales the voice after its step: the attack of ADSR1 0x00ff gives ENVX 0x3800 and 0x7000 (1779,
    3563 out of core 1), the IRX's fastest release (ADSR2 0x1fc0) 0x3fff (2034), then silence. The game's own release
    (Release 0x10, ADSR2 0x1fd0) takes 8 every 32 samples. */
@@ -840,6 +879,7 @@ int main(int argc, char *argv[])
     test_spu_voice();
     test_spu_mix();
     test_spu_envelope();
+    test_spu_sweep();
     test_spu_loop();
     test_spu_reverb();
     test_sfx(scratch);

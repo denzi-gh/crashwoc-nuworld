@@ -58,6 +58,8 @@ typedef struct NwSpu2Voice {
     uint8_t phase;
     uint32_t counter;
     int32_t level; /* ENVX */
+    int32_t vol[2]; /* VOLL and VOLR as they apply, and their sweeps' counters */
+    uint32_t vol_counter[2];
     NwAdpcm adpcm;
     bool block_ready; /* the block at NAX is in pcm */
     int16_t pcm[NW_ADPCM_SAMPLES];
@@ -168,11 +170,17 @@ static uint16_t *nw_spu2_param(uint16_t entry)
     return v ? &v->param[nw_spu2_reg(entry) & 0xf] : NULL;
 }
 
+/* A voice's VOLL or VOLR applies at once when fixed (V_VolumeSlide::RegSet); a sweep starts from where it is. */
 void nw_spu2_set_param(uint16_t entry, uint16_t value)
 {
     uint16_t *p = nw_spu2_param(entry);
     if (p) {
         *p = value;
+    }
+    unsigned reg = nw_spu2_reg(entry);
+    NwSpu2Voice *v = entry & 0x80 ? NULL : nw_spu2_voice(entry);
+    if (v && reg <= nw_spu2_reg(NW_SD_VP_VOLR) && !(value & 0x8000)) {
+        v->vol[reg] = (int16_t)(uint16_t)(value << 1);
     }
 }
 
@@ -491,7 +499,7 @@ static int32_t nw_spu2_interpolate(const NwSpu2Voice *v)
     return out;
 }
 
-/* A fixed volume register (bit 15 clear; the IRX never sweeps) as V_VolumeSlide::RegSet scales it. */
+/* A fixed volume register (bit 15 clear; the IRX's master volumes never sweep) as V_VolumeSlide::RegSet scales it. */
 static int32_t nw_spu2_volume(uint16_t reg)
 {
     return (int16_t)(uint16_t)(reg << 1);
@@ -500,6 +508,42 @@ static int32_t nw_spu2_volume(uint16_t reg)
 static int32_t nw_spu2_clamp(int32_t x)
 {
     return x < -0x8000 ? -0x8000 : x > 0x7fff ? 0x7fff : x;
+}
+
+/* A voice volume with bit 15 set sweeps, a step a sample (PCSX2 V_VolumeSlide::Update): bits 0-6 the rate, 12 the
+   phase, 13 down, 14 exponential. The EE sends one when surround negates a looping sound's right volume behind the
+   camera and only the one-shots mask it to 15 bits. */
+static void nw_spu2_sweep(uint16_t reg, int32_t *value, uint32_t *counter)
+{
+    if (!(reg & 0x8000)) {
+        return;
+    }
+    int rate = reg & 3, shift = reg >> 2 & 0x1f, step = 7 - rate;
+    bool phase = reg >> 12 & 1, down = reg >> 13 & 1, exp = reg >> 14 & 1;
+    if (down) {
+        step = ~step;
+    }
+    uint32_t counter_inc = 0x8000u >> (shift > 11 ? shift - 11 : 0);
+    int32_t level_inc = step * (1 << (shift < 11 ? 11 - shift : 0));
+    if (exp && !down && *value > 0x6000) {
+        counter_inc >>= 2;
+    }
+    if (exp && down) {
+        level_inc = (int16_t)((level_inc * *value) >> 15);
+    }
+    if (rate != 3 && shift != 0x1f && counter_inc == 0) {
+        counter_inc = 1;
+    }
+    *counter += counter_inc;
+    if (!(exp && down) && phase) {
+        level_inc = -level_inc;
+    }
+    if (*counter >= 0x8000) {
+        bool negative = down && phase && !exp;
+        int32_t lo = !down || negative ? -0x8000 : 0, hi = negative ? 0 : 0x7fff;
+        *counter = 0;
+        *value = SDL_clamp(*value + level_inc, lo, hi);
+    }
 }
 
 /* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, scaled by the envelope after its
@@ -511,6 +555,9 @@ static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
         const uint32_t *sw = core->sw;
         for (unsigned i = 0; i < NW_SPU2_VOICES; i++) {
             NwSpu2Voice *v = &core->voice[i];
+            for (int s = 0; s < 2; s++) {
+                nw_spu2_sweep(v->param[s], &v->vol[s], &v->vol_counter[s]);
+            }
             nw_spu2_decode(core, i);
             if (v->phase != NW_ADSR_STOPPED) {
                 int32_t value = mix ? nw_spu2_interpolate(v) : 0;
@@ -522,8 +569,7 @@ static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
                 if (cut) {
                     value = (value * (NW_SPU2_UNITY - cut)) >> 15;
                 }
-                int32_t l =(value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
-                int32_t r = (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLR)])) >> 15;
+                int32_t l = (value * v->vol[0]) >> 15, r = (value * v->vol[1]) >> 15;
                 dry[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1 ? l : 0;
                 dry[c][1] += sw[nw_spu2_reg(NW_SD_S_VMIXR)] >> i & 1 ? r : 0;
                 wet[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXEL)] >> i & 1 ? l : 0;
