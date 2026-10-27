@@ -1,6 +1,6 @@
 /* Audio tests: the VAG header and the PS-ADPCM decoder on hand-built blocks, expected values worked out by hand
-   from PCSX2's XA_decode_block, the SPU2 voices in time, and SFX.DAT access on a synthetic archive. Usage:
-   test_audio <scratch dir>.
+   from PCSX2's XA_decode_block, the SPU2 voices in time and their mix, and SFX.DAT access on a synthetic archive.
+   Usage: test_audio <scratch dir>.
    Local only, with your own disc: `test_audio retail` finds every sample of SFX.DAT in the extracted disc dir
    NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census; exits 77 without it. */
 #include <stdio.h>
@@ -254,6 +254,126 @@ static void test_spu_voice(void)
     CHECK(spu_envx(3) == 0x3800);
 }
 
+#define MIX_FRAMES 64
+
+static struct {
+    int16_t frame[MIX_FRAMES][2];
+    unsigned count;
+    unsigned tapped[2 * NW_SPU2_VOICES]; /* words per voice */
+} mix;
+
+static void mix_out(void *user, const int16_t *frames, unsigned count)
+{
+    (void)user;
+    for (unsigned i = 0; i < count && mix.count < MIX_FRAMES; i++, mix.count++) {
+        mix.frame[mix.count][0] = frames[i * 2];
+        mix.frame[mix.count][1] = frames[i * 2 + 1];
+    }
+}
+
+static void mix_tap(void *user, unsigned voice, const int16_t samples[4])
+{
+    (void)user;
+    (void)samples;
+    mix.tapped[voice]++;
+}
+
+/* Voice v (0-47) from ssa at pitch 0x1000 with volumes l and r, keyed on. */
+static void mix_voice(unsigned v, uint32_t ssa, uint16_t l, uint16_t r)
+{
+    uint16_t id = (uint16_t)((v >= NW_SPU2_VOICES) | (v % NW_SPU2_VOICES) << 1);
+    nw_spu2_set_addr(id | NW_SD_VA_SSA, ssa);
+    nw_spu2_set_param(id | NW_SD_VP_ADSR1, 0x00ff);
+    nw_spu2_set_param(id | NW_SD_VP_ADSR2, 0x1fc0);
+    nw_spu2_set_param(id | NW_SD_VP_PITCH, 0x1000);
+    nw_spu2_set_param(id | NW_SD_VP_VOLL, l);
+    nw_spu2_set_param(id | NW_SD_VP_VOLR, r);
+    nw_spu2_set_switch((uint16_t)((v >= NW_SPU2_VOICES) | NW_SD_S_KON), 1u << (v % NW_SPU2_VOICES));
+}
+
+/* sceSdInit, then the IRX's master volumes (0x3fff); the next n frames go to mix. */
+static void mix_reset(void)
+{
+    nw_spu2_init();
+    for (uint16_t core = 0; core < 2; core++) {
+        nw_spu2_set_param(core | NW_SD_P_MVOLL, 0x3fff);
+        nw_spu2_set_param(core | NW_SD_P_MVOLR, 0x3fff);
+    }
+    memset(&mix, 0, sizeof(mix));
+}
+
+static bool mix_all(int16_t l, int16_t r)
+{
+    for (unsigned i = 0; i < mix.count; i++) {
+        if (mix.frame[i][0] != l || mix.frame[i][1] != r) {
+            fprintf(stderr, "frame %u: %d %d, not %d %d\n", i, mix.frame[i][0], mix.frame[i][1], l, r);
+            return false;
+        }
+    }
+    return mix.count > 0;
+}
+
+/* The mix, worked out by hand from PCSX2's Mixer.cpp. A looping block of 4096s (nibble 1, shift 0) at pitch 0x1000
+   reads phase 0 of the gaussian table: 600 + 2870 + 608 - 1 = 4077, VOL 0x3fff (0x7ffe) makes 4076. Core 0 goes
+   through its MVOL (4075) and core 1's AVOL (4074) into core 1, which takes its MVOL (4073). */
+static void test_spu_mix(void)
+{
+    const uint32_t loud = 0x3000, quiet = 0x3010;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    vag_block_fill(block, 0, 4, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1); /* 256s: 253, then 252 */
+    nw_spu2_voice_trans(quiet, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+    nw_spu2_set_tap(mix_tap, NULL);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(40);
+    CHECK(mix_all(4073, 0));
+    CHECK(mix.tapped[0] > 0 && mix.tapped[1] == 0);
+
+    /* Core 1's voices skip core 0's MVOL and core 1's AVOL. */
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES + 5, loud, 0, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 4075));
+    CHECK(mix.tapped[NW_SPU2_VOICES + 5] > 0);
+
+    /* Core 0's dry voices clamp before its MVOL: 32765, 32764, 32762. */
+    mix_reset();
+    for (unsigned v = 0; v < 16; v++) {
+        mix_voice(v, loud, 0x3fff, 0x3fff);
+    }
+    spu_samples(40);
+    CHECK(mix_all(32762, 32762));
+
+    /* All 48 voices: 24 * 252 through core 0 (6047, 6046), plus core 1's 24 * 252 (12093). */
+    mix_reset();
+    for (unsigned v = 0; v < 2 * NW_SPU2_VOICES; v++) {
+        mix_voice(v, quiet, 0x3fff, 0x3fff);
+    }
+    spu_samples(40);
+    CHECK(mix_all(12093, 12093));
+
+    /* The gates: VMIXL off for the voice, MMIX without core 0's dry voices. */
+    mix_reset();
+    nw_spu2_set_switch(NW_SD_S_VMIXL, 0xfffffe);
+    mix_voice(0, loud, 0x3fff, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 4073));
+    mix_reset();
+    nw_spu2_set_param(NW_SD_P_MMIX, 0x0f0);
+    mix_voice(0, loud, 0x3fff, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 0));
+
+    nw_spu2_set_output(NULL, NULL);
+    nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
 static void test_sfx(const char *scratch)
 {
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
@@ -463,6 +583,7 @@ int main(int argc, char *argv[])
     test_block();
     test_pass();
     test_spu_voice();
+    test_spu_mix();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);

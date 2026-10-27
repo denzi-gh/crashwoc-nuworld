@@ -10,6 +10,13 @@
 #define NW_SPU2_TICK 768         /* IOP cycles a sample */
 #define NW_SPU2_WORD_MASK 0xfffffu /* sound RAM in 16-bit words */
 #define NW_SPU2_BLOCK_MASK 0xffff8u
+#define NW_SPU2_ALL_VOICES 0xffffffu
+#define NW_SPU2_FIFO 32
+#define NW_SPU2_BATCH 256 /* frames handed to the output at once */
+
+static const int16_t nw_spu2_gauss[256][4] = {
+#include "audio/spu2_gauss.inc"
+};
 
 /* The envelope's phases (PCSX2 V_ADSR::PHASE_*). */
 enum { NW_ADSR_STOPPED, NW_ADSR_ATTACK, NW_ADSR_DECAY, NW_ADSR_SUSTAIN, NW_ADSR_RELEASE };
@@ -27,6 +34,10 @@ typedef struct NwSpu2Voice {
     uint8_t phase;
     uint32_t counter;
     int32_t level; /* ENVX */
+    NwAdpcm adpcm;
+    bool block_ready; /* the block at NAX is in pcm */
+    int16_t pcm[NW_ADPCM_SAMPLES];
+    int16_t fifo[NW_SPU2_FIFO]; /* decoded samples by count */
 } NwSpu2Voice;
 
 typedef struct NwSpu2Core {
@@ -52,14 +63,45 @@ static struct {
 
 static uint8_t nw_spu2_mem[NW_SPU2_RAM];
 
+static struct {
+    NwSpu2Output out;
+    void *out_user;
+    NwSpu2Tap tap;
+    void *tap_user;
+    int16_t frames[NW_SPU2_BATCH * 2];
+    unsigned count;
+} nw_spu2_io;
+
 static unsigned nw_spu2_reg(uint16_t entry)
 {
     return (entry >> 8) & 0x1f;
 }
 
+/* libsd's InitVoices and InitCoreVolume: every voice dry and wet, core 0 into core 1 at full volume. */
 void nw_spu2_init(void)
 {
     memset(&spu, 0, sizeof(spu));
+    for (int c = 0; c < 2; c++) {
+        uint32_t *sw = spu.core[c].sw;
+        sw[nw_spu2_reg(NW_SD_S_VMIXL)] = sw[nw_spu2_reg(NW_SD_S_VMIXR)] = NW_SPU2_ALL_VOICES;
+        sw[nw_spu2_reg(NW_SD_S_VMIXEL)] = sw[nw_spu2_reg(NW_SD_S_VMIXER)] = NW_SPU2_ALL_VOICES;
+    }
+    spu.core[0].param[nw_spu2_reg(NW_SD_P_MMIX)] = 0xff0;
+    spu.core[1].param[nw_spu2_reg(NW_SD_P_MMIX)] = 0xffc;
+    spu.core[1].param[nw_spu2_reg(NW_SD_P_AVOLL)] = spu.core[1].param[nw_spu2_reg(NW_SD_P_AVOLR)] = 0x7fff;
+}
+
+void nw_spu2_set_output(NwSpu2Output out, void *user)
+{
+    nw_spu2_io.out = out;
+    nw_spu2_io.out_user = user;
+    nw_spu2_io.count = 0;
+}
+
+void nw_spu2_set_tap(NwSpu2Tap tap, void *user)
+{
+    nw_spu2_io.tap = tap;
+    nw_spu2_io.tap_user = user;
 }
 
 static NwSpu2Voice *nw_spu2_voice(uint16_t entry)
@@ -218,6 +260,8 @@ static void nw_spu2_keys(NwSpu2Core *c)
             v->flags = 0;
             v->next = v->start | 1;
             v->decoded = v->played = 0;
+            v->adpcm = (NwAdpcm){ 0, 0 };
+            v->block_ready = false;
         }
     }
     c->sw[nw_spu2_reg(NW_SD_S_ENDX)] &= ~c->key_on;
@@ -225,17 +269,32 @@ static void nw_spu2_keys(NwSpu2Core *c)
 }
 
 /* The decoder (PCSX2 DecodeSamples): it reads the flags of the block at NAX every sample (START latches the loop
-   address) and stays up to 16 samples ahead, a word of 4 at a time. At the end of a block END sets ENDX and jumps
-   to the loop address; without REPEAT it ends the voice, whose address goes on moving. */
+   address) and stays up to 16 samples ahead, a word of 4 at a time. A playing voice decodes the block when it reads
+   its first word, the ADPCM history going on across blocks and loops (GetNextDataBuffered). At the end of a block
+   END sets ENDX and jumps to the loop address; without REPEAT it ends the voice, whose address goes on moving. */
 static void nw_spu2_decode(NwSpu2Core *c, unsigned i)
 {
     NwSpu2Voice *v = &c->voice[i];
-    v->flags = nw_spu2_mem[(v->next & NW_SPU2_BLOCK_MASK) * 2 + 1];
+    uint32_t block = v->next & NW_SPU2_BLOCK_MASK;
+    v->flags = nw_spu2_mem[block * 2 + 1];
     if ((v->flags & NW_ADPCM_START) && !v->loop_set) {
-        v->loop = v->next & NW_SPU2_BLOCK_MASK;
+        v->loop = block;
     }
     if ((int32_t)(v->decoded - v->played) > 12) {
         return;
+    }
+    if (v->phase != NW_ADSR_STOPPED) {
+        if (!v->block_ready) {
+            nw_adpcm_block(&v->adpcm, nw_spu2_mem + block * 2, v->pcm);
+            v->block_ready = true;
+        }
+        const int16_t *s = v->pcm + ((v->next & 7) - 1) * 4;
+        for (unsigned k = 0; k < 4; k++) {
+            v->fifo[(v->decoded + k) % NW_SPU2_FIFO] = s[k];
+        }
+        if (nw_spu2_io.tap) {
+            nw_spu2_io.tap(nw_spu2_io.tap_user, (unsigned)(c - spu.core) * NW_SPU2_VOICES + i, s);
+        }
     }
     v->decoded += 4;
     v->next = (v->next + 1) & NW_SPU2_WORD_MASK;
@@ -248,6 +307,7 @@ static void nw_spu2_decode(NwSpu2Core *c, unsigned i)
             }
         }
         v->next = (v->next + 1) & NW_SPU2_WORD_MASK; /* past the header */
+        v->block_ready = false;
     }
 }
 
@@ -308,18 +368,48 @@ static bool nw_spu2_envelope(NwSpu2Voice *v)
     return v->phase <= NW_ADSR_RELEASE;
 }
 
-/* One sample of every voice (PCSX2 MixVoice without the sound): decode, envelope, then the pitch moves it on. */
-static void nw_spu2_sample(void)
+/* The 4 samples from the read position, weighted by the pitch counter's phase (GetVoiceValues). */
+static int32_t nw_spu2_interpolate(const NwSpu2Voice *v)
+{
+    const int16_t *g = nw_spu2_gauss[(v->sp & 0xff0) >> 4];
+    int32_t out = 0;
+    for (unsigned k = 0; k < 4; k++) {
+        out += (g[k] * v->fifo[(v->played + k) % NW_SPU2_FIFO]) >> 15;
+    }
+    return out;
+}
+
+/* A fixed volume register (bit 15 clear; the IRX never sweeps) as V_VolumeSlide::RegSet scales it. */
+static int32_t nw_spu2_volume(uint16_t reg)
+{
+    return (int16_t)(uint16_t)(reg << 1);
+}
+
+static int32_t nw_spu2_clamp(int32_t x)
+{
+    return x < -0x8000 ? -0x8000 : x > 0x7fff ? 0x7fff : x;
+}
+
+/* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, the envelope, the volumes, then the
+   pitch moves it on. dry gets each core's dry voices. */
+static void nw_spu2_voices(int32_t dry[2][2], bool mix)
 {
     for (int c = 0; c < 2; c++) {
-        nw_spu2_keys(&spu.core[c]);
-    }
-    for (int c = 0; c < 2; c++) {
+        NwSpu2Core *core = &spu.core[c];
         for (unsigned i = 0; i < NW_SPU2_VOICES; i++) {
-            NwSpu2Voice *v = &spu.core[c].voice[i];
-            nw_spu2_decode(&spu.core[c], i);
-            if (v->phase != NW_ADSR_STOPPED && !nw_spu2_envelope(v)) {
-                nw_spu2_stop(v);
+            NwSpu2Voice *v = &core->voice[i];
+            nw_spu2_decode(core, i);
+            if (v->phase != NW_ADSR_STOPPED) {
+                int32_t value = mix ? nw_spu2_interpolate(v) : 0;
+                if (!nw_spu2_envelope(v)) {
+                    nw_spu2_stop(v);
+                }
+                if (core->sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1) {
+                    dry[c][0] += (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
+                }
+                if (core->sw[nw_spu2_reg(NW_SD_S_VMIXR)] >> i & 1) {
+                    dry[c][1] += (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLR)])) >> 15;
+                }
             }
             uint32_t pitch = v->param[nw_spu2_reg(NW_SD_VP_PITCH)];
             v->sp += pitch < 0x3fff ? pitch : 0x3fff;
@@ -329,11 +419,63 @@ static void nw_spu2_sample(void)
     }
 }
 
+/* spu2Mix without the input, reverb and noise: the clamped dry voices go through each core's MMIX gates, core 0's
+   output through its MVOL and core 1's AVOL into core 1, core 1's through its MVOL out. */
+static void nw_spu2_mix(int32_t dry[2][2], int16_t out[2])
+{
+    int32_t ext[2] = { 0, 0 };
+    for (int c = 0; c < 2; c++) {
+        const uint16_t *p = spu.core[c].param;
+        unsigned mmix = p[nw_spu2_reg(NW_SD_P_MMIX)] & (c ? 0xfff : 0xff0);
+        for (int s = 0; s < 2; s++) {
+            int32_t td = mmix >> (11 - s) & 1 ? nw_spu2_clamp(dry[c][s]) : 0;
+            if (mmix >> (3 - s) & 1) {
+                td += ext[s];
+            }
+            int32_t master = nw_spu2_volume(p[nw_spu2_reg(s ? NW_SD_P_MVOLR : NW_SD_P_MVOLL)]);
+            int32_t v = (nw_spu2_clamp(td) * master) >> 15;
+            if (c == 0) {
+                ext[s] = (v * (int16_t)spu.core[1].param[nw_spu2_reg(s ? NW_SD_P_AVOLR : NW_SD_P_AVOLL)]) >> 15;
+            } else {
+                out[s] = (int16_t)nw_spu2_clamp(v);
+            }
+        }
+    }
+}
+
+static void nw_spu2_flush(void)
+{
+    if (nw_spu2_io.count) {
+        nw_spu2_io.out(nw_spu2_io.out_user, nw_spu2_io.frames, nw_spu2_io.count);
+        nw_spu2_io.count = 0;
+    }
+}
+
+static void nw_spu2_sample(void)
+{
+    int32_t dry[2][2] = { { 0, 0 }, { 0, 0 } };
+    bool mix = nw_spu2_io.out != NULL;
+
+    for (int c = 0; c < 2; c++) {
+        nw_spu2_keys(&spu.core[c]);
+    }
+    nw_spu2_voices(dry, mix);
+    if (mix) {
+        nw_spu2_mix(dry, nw_spu2_io.frames + nw_spu2_io.count * 2);
+        if (++nw_spu2_io.count == NW_SPU2_BATCH) {
+            nw_spu2_flush();
+        }
+    }
+}
+
 void nw_spu2_run_to(uint64_t cycle)
 {
     while (cycle >= nw_spu2_clock.sample + NW_SPU2_TICK) {
         nw_spu2_clock.sample += NW_SPU2_TICK;
         nw_spu2_sample();
+    }
+    if (nw_spu2_io.out) {
+        nw_spu2_flush();
     }
     if (cycle > nw_spu2_clock.cycle) {
         nw_spu2_clock.cycle = cycle;

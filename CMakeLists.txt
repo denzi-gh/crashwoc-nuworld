@@ -64,6 +64,7 @@ endfunction()
 
 add_executable(crashwoc-nuworld
   src/main.c
+  src/platform/audio.c
   src/platform/platform.c
   src/gfx/gl.c
   src/gfx/vu.c
