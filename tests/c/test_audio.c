@@ -1,6 +1,6 @@
 /* Audio tests: the VAG header and the PS-ADPCM decoder on hand-built blocks, expected values worked out by hand
-   from PCSX2's XA_decode_block, the SPU2 voices in time, and SFX.DAT access on a synthetic archive. Usage:
-   test_audio <scratch dir>.
+   from PCSX2's XA_decode_block, the SPU2 voices in time and their mix, and SFX.DAT access on a synthetic archive.
+   Usage: test_audio <scratch dir>.
    Local only, with your own disc: `test_audio retail` finds every sample of SFX.DAT in the extracted disc dir
    NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census; exits 77 without it. */
 #include <stdio.h>
@@ -254,6 +254,210 @@ static void test_spu_voice(void)
     CHECK(spu_envx(3) == 0x3800);
 }
 
+#define MIX_FRAMES 64
+
+static struct {
+    int16_t frame[MIX_FRAMES][2];
+    unsigned count;
+    unsigned tapped[2 * NW_SPU2_VOICES]; /* words per voice */
+    VagWalk walk[2];                     /* voices 0 and 1, once set */
+} mix;
+
+static void mix_out(void *user, const int16_t *frames, unsigned count)
+{
+    (void)user;
+    for (unsigned i = 0; i < count && mix.count < MIX_FRAMES; i++, mix.count++) {
+        mix.frame[mix.count][0] = frames[i * 2];
+        mix.frame[mix.count][1] = frames[i * 2 + 1];
+    }
+}
+
+static void mix_tap(void *user, unsigned voice, const int16_t samples[4])
+{
+    (void)user;
+    mix.tapped[voice]++;
+    if (voice < 2 && mix.walk[voice].blocks) {
+        vag_walk_word(&mix.walk[voice], samples);
+    }
+}
+
+/* Voice v (0-47) from ssa at pitch 0x1000 with volumes l and r, keyed on. */
+static void mix_voice(unsigned v, uint32_t ssa, uint16_t l, uint16_t r)
+{
+    uint16_t id = (uint16_t)((v >= NW_SPU2_VOICES) | (v % NW_SPU2_VOICES) << 1);
+    nw_spu2_set_addr(id | NW_SD_VA_SSA, ssa);
+    nw_spu2_set_param(id | NW_SD_VP_ADSR1, 0x00ff);
+    nw_spu2_set_param(id | NW_SD_VP_ADSR2, 0x1fc0);
+    nw_spu2_set_param(id | NW_SD_VP_PITCH, 0x1000);
+    nw_spu2_set_param(id | NW_SD_VP_VOLL, l);
+    nw_spu2_set_param(id | NW_SD_VP_VOLR, r);
+    nw_spu2_set_switch((uint16_t)((v >= NW_SPU2_VOICES) | NW_SD_S_KON), 1u << (v % NW_SPU2_VOICES));
+}
+
+/* sceSdInit, then the IRX's master volumes (0x3fff); the next n frames go to mix. */
+static void mix_reset(void)
+{
+    nw_spu2_init();
+    for (uint16_t core = 0; core < 2; core++) {
+        nw_spu2_set_param(core | NW_SD_P_MVOLL, 0x3fff);
+        nw_spu2_set_param(core | NW_SD_P_MVOLR, 0x3fff);
+    }
+    memset(&mix, 0, sizeof(mix));
+}
+
+/* Every frame past the attack (ENVX 0x3800, 0x7000, then 0x7fff from the third). */
+static bool mix_all(int16_t l, int16_t r)
+{
+    for (unsigned i = 2; i < mix.count; i++) {
+        if (mix.frame[i][0] != l || mix.frame[i][1] != r) {
+            fprintf(stderr, "frame %u: %d %d, not %d %d\n", i, mix.frame[i][0], mix.frame[i][1], l, r);
+            return false;
+        }
+    }
+    return mix.count > 0;
+}
+
+/* The mix, worked out by hand from PCSX2's Mixer.cpp. A looping block of 4096s (nibble 1, shift 0) at pitch 0x1000
+   reads phase 0 of the gaussian table: 600 + 2870 + 608 - 1 = 4077, ENVX 0x7fff makes 4076, VOL 0x3fff (0x7ffe)
+   4075. Core 0 goes through its MVOL (4074) and core 1's AVOL (4073) into core 1, which takes its MVOL (4072). */
+static void test_spu_mix(void)
+{
+    const uint32_t loud = 0x3000, quiet = 0x3010;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    vag_block_fill(block, 0, 4, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1); /* 256s: 253, 252, 251 */
+    nw_spu2_voice_trans(quiet, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+    nw_spu2_set_tap(mix_tap, NULL);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(40);
+    CHECK(mix_all(4072, 0));
+    CHECK(mix.tapped[0] > 0 && mix.tapped[1] == 0);
+
+    /* Core 1's voices skip core 0's MVOL and core 1's AVOL. */
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES + 5, loud, 0, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 4074));
+    CHECK(mix.tapped[NW_SPU2_VOICES + 5] > 0);
+
+    /* Core 0's dry voices clamp before its MVOL: 32765, 32764, 32762. */
+    mix_reset();
+    for (unsigned v = 0; v < 16; v++) {
+        mix_voice(v, loud, 0x3fff, 0x3fff);
+    }
+    spu_samples(40);
+    CHECK(mix_all(32762, 32762));
+
+    /* All 48 voices: 24 * 251 through core 0 (6023, 6022), plus core 1's 24 * 251 (12045). */
+    mix_reset();
+    for (unsigned v = 0; v < 2 * NW_SPU2_VOICES; v++) {
+        mix_voice(v, quiet, 0x3fff, 0x3fff);
+    }
+    spu_samples(40);
+    CHECK(mix_all(12045, 12045));
+
+    /* The gates: VMIXL off for the voice, MMIX without core 0's dry voices. */
+    mix_reset();
+    nw_spu2_set_switch(NW_SD_S_VMIXL, 0xfffffe);
+    mix_voice(0, loud, 0x3fff, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 4072));
+    mix_reset();
+    nw_spu2_set_param(NW_SD_P_MMIX, 0x0f0);
+    mix_voice(0, loud, 0x3fff, 0x3fff);
+    spu_samples(40);
+    CHECK(mix_all(0, 0));
+
+    nw_spu2_set_output(NULL, NULL);
+    nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
+/* The envelope scales the voice after its step: the attack of ADSR1 0x00ff gives ENVX 0x3800 and 0x7000 (1779,
+   3563 out of core 1), the IRX's fastest release (ADSR2 0x1fc0) 0x3fff (2034), then silence. The game's own release
+   (Release 0x10, ADSR2 0x1fd0) takes 8 every 32 samples. */
+static void test_spu_envelope(void)
+{
+    const uint32_t loud = 0x3000;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(4);
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 0);
+    spu_samples(3);
+    CHECK(mix.count == 7 && mix.frame[0][0] == 1779 && mix.frame[1][0] == 3563);
+    CHECK(mix.frame[2][0] == 4072 && mix.frame[3][0] == 4072);
+    CHECK(mix.frame[4][0] == 2034 && mix.frame[5][0] == 0 && mix.frame[6][0] == 0);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    nw_spu2_set_param(NW_SD_VP_ADSR2, 0x1fd0);
+    spu_samples(3);
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 0);
+    spu_samples(MIX_FRAMES - 3);
+    bool falling = true;
+    for (unsigned i = 3; i < MIX_FRAMES; i++) {
+        falling &= mix.frame[i][0] <= mix.frame[i - 1][0];
+    }
+    CHECK(falling && mix.frame[33][0] == 4072 && mix.frame[35][0] < 4072 && mix.frame[MIX_FRAMES - 1][0] > 4000);
+
+    nw_spu2_set_output(NULL, NULL);
+    nw_spu2_init();
+}
+
+/* Loops as the decoder plays them: START latches the loop block, END|REPEAT goes back to it with the ADPCM history
+   going on, an LSAX written after the key-on's sample wins over START, END alone ends the voice. Filters 1-3, so the
+   history shows. */
+static void test_spu_loop(void)
+{
+    const uint32_t loop = 0x4000, one_shot = 0x4100;
+    uint8_t blocks[3 * NW_ADPCM_BLOCK], ends[3 * NW_ADPCM_BLOCK];
+    int8_t n[NW_ADPCM_SAMPLES];
+
+    for (int b = 0; b < 3; b++) {
+        for (int i = 0; i < NW_ADPCM_SAMPLES; i++) {
+            n[i] = (int8_t)((i * 5 + b * 3) % 16 - 8);
+        }
+        unsigned flags = b == 1 ? NW_ADPCM_START : b == 2 ? NW_ADPCM_END | NW_ADPCM_REPEAT : 0;
+        vag_block(blocks + b * NW_ADPCM_BLOCK, b + 1, 4 + b, flags, n);
+    }
+    memcpy(ends, blocks, sizeof(ends));
+    ends[2 * NW_ADPCM_BLOCK + 1] = NW_ADPCM_END;
+    nw_spu2_voice_trans(loop, blocks, sizeof(blocks));
+    nw_spu2_voice_trans(one_shot, ends, sizeof(ends));
+    nw_spu2_set_tap(mix_tap, NULL);
+
+    mix_reset();
+    vag_walk_init(&mix.walk[0], blocks, 3, 1);
+    vag_walk_init(&mix.walk[1], blocks, 3, 2);
+    mix_voice(0, loop, 0x3fff, 0x3fff);
+    mix_voice(1, loop, 0x3fff, 0x3fff);
+    spu_samples(1);
+    nw_spu2_set_addr(1 << 1 | NW_SD_VA_LSAX, loop + 2 * NW_ADPCM_BLOCK);
+    spu_samples(400);
+    CHECK(mix.walk[0].words > 90 && mix.walk[0].bad == 0);
+    CHECK(mix.walk[1].words > 90 && mix.walk[1].bad == 0);
+
+    mix_reset();
+    vag_walk_init(&mix.walk[0], ends, 3, -1);
+    mix_voice(0, one_shot, 0x3fff, 0x3fff);
+    spu_samples(200);
+    CHECK(mix.walk[0].words == 3 * 7 && mix.walk[0].bad == 0);
+
+    nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
 static void test_sfx(const char *scratch)
 {
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
@@ -325,7 +529,7 @@ typedef struct SfxCensus {
     uint8_t *adpcm, *pieces;
     int16_t *pcm;
     uint32_t cap; /* bytes of adpcm */
-    unsigned listed, version_20, rates[3], one_shots, loops, music, music_streamed;
+    unsigned listed, version_20, rates[3], one_shots, loops, loops_played, music, music_streamed;
     unsigned filter_max, shift_max;
     uint64_t samples;
 } SfxCensus;
@@ -343,6 +547,28 @@ static bool census_grow(SfxCensus *c, uint32_t size)
     c->pcm = malloc((size_t)size / NW_ADPCM_BLOCK * NW_ADPCM_SAMPLES * sizeof(int16_t));
     c->cap = c->adpcm && c->pieces && c->pcm ? size : 0;
     return c->cap != 0;
+}
+
+/* A loop in sound RAM at pitch 0x3fff: its voice decodes it twice over, back to block 1 each time. */
+static bool retail_loop_plays(const uint8_t *adpcm, uint32_t blocks)
+{
+    const uint32_t at = 0x10000;
+    const uint64_t words = (2 * (uint64_t)blocks + 1) * 7;
+
+    if (at + blocks * NW_ADPCM_BLOCK > NW_SPU2_RAM) {
+        return false;
+    }
+    nw_spu2_voice_trans(at, adpcm, blocks * NW_ADPCM_BLOCK);
+    mix_reset();
+    nw_spu2_set_tap(mix_tap, NULL);
+    vag_walk_init(&mix.walk[0], adpcm, blocks, 1);
+    mix_voice(0, at, 0x3fff, 0x3fff);
+    nw_spu2_set_param(NW_SD_VP_PITCH, 0x3fff);
+    for (uint64_t guard = words; mix.walk[0].words < words && mix.walk[0].bad == 0 && guard; guard--) {
+        spu_samples(4);
+    }
+    nw_spu2_set_tap(NULL, NULL);
+    return mix.walk[0].bad == 0 && mix.walk[0].words >= words;
 }
 
 static void retail_sample(void *user, int index, const char *path)
@@ -383,6 +609,11 @@ static void retail_sample(void *user, int index, const char *path)
         c->one_shots++; /* the END block, then a flag 7 block */
     } else if (p.loop_start == NW_ADPCM_SAMPLES && p.samples == blocks * NW_ADPCM_SAMPLES) {
         c->loops++;
+        if (retail_loop_plays(c->adpcm, blocks)) {
+            c->loops_played++;
+        } else {
+            fprintf(stderr, "retail: %s: the voice does not loop as its blocks say\n", name);
+        }
     } else {
         fprintf(stderr, "retail: %s: pass of %u samples, loop at %d, %u blocks\n", name, p.samples, p.loop_start,
                 blocks);
@@ -425,13 +656,13 @@ static int test_retail(void)
     CHECK(nw_dat_list(&dat, retail_sample, &c));
     nw_sha256_final(&c.sha, digest);
     nw_sha256_hex(digest, hex);
-    printf("SFX.DAT: %u samples (%u v0x20), rates 22050/11025/44100 %u/%u/%u, %u one-shots, %u loops, filters <= %u, "
-           "shifts <= %u, %llu samples, %u/%u music streamed\nPCM sha256 %s\n",
-           c.listed, c.version_20, c.rates[0], c.rates[1], c.rates[2], c.one_shots, c.loops, c.filter_max,
-           c.shift_max, (unsigned long long)c.samples, c.music_streamed, c.music, hex);
+    printf("SFX.DAT: %u samples (%u v0x20), rates 22050/11025/44100 %u/%u/%u, %u one-shots, %u loops (%u played), "
+           "filters <= %u, shifts <= %u, %llu samples, %u/%u music streamed\nPCM sha256 %s\n",
+           c.listed, c.version_20, c.rates[0], c.rates[1], c.rates[2], c.one_shots, c.loops, c.loops_played,
+           c.filter_max, c.shift_max, (unsigned long long)c.samples, c.music_streamed, c.music, hex);
     CHECK(c.listed == SFX_SAMPLES && c.version_20 == SFX_SAMPLES);
     CHECK(c.rates[0] == 357 && c.rates[1] == 352 && c.rates[2] == 73);
-    CHECK(c.one_shots == 731 && c.loops == 51);
+    CHECK(c.one_shots == 731 && c.loops == 51 && c.loops_played == 51);
     CHECK(c.filter_max == 4 && c.shift_max == 12);
     CHECK(c.samples == 529663960u);
     CHECK(c.music == 84 && c.music_streamed == 84);
@@ -463,6 +694,9 @@ int main(int argc, char *argv[])
     test_block();
     test_pass();
     test_spu_voice();
+    test_spu_mix();
+    test_spu_envelope();
+    test_spu_loop();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);

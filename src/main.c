@@ -20,6 +20,7 @@
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
+#include "platform/audio.h"
 #include "platform/input.h"
 #include "port/capture.h"
 #include "port/dump.h"
@@ -502,9 +503,13 @@ static int nw_boot(const char *data_dir, int hardware_speed)
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     bool applied = settings.hardware_speed;
+    if (!nw_audio_open()) {
+        fprintf(stderr, NW_APP_NAME ": no sound: %s\n", SDL_GetError());
+    }
     nw_stub_set_continue(true);
     if (!nw_game_start(nw_game_main, 1, nw_game_argv)) {
         fprintf(stderr, NW_APP_NAME ": no game thread: %s\n", SDL_GetError());
+        nw_audio_close();
         nw_window_close(&platform);
         return 1;
     }
@@ -547,6 +552,7 @@ static int nw_boot(const char *data_dir, int hardware_speed)
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     }
     nw_input_shutdown();
+    nw_audio_close();
     nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }

@@ -33,6 +33,44 @@ static inline void vag_block_fill(uint8_t *b, int filter, int shift, unsigned fl
     vag_block(b, filter, shift, flags, n);
 }
 
+/* What a voice should decode from count blocks, 4 samples at a time: from the first on, after the last back to
+   block loop (-1: the end), the ADPCM history going on across the jump. */
+typedef struct VagWalk {
+    const uint8_t *blocks;
+    uint32_t count, at, pos;
+    int32_t loop;
+    NwAdpcm st;
+    int16_t pcm[NW_ADPCM_SAMPLES];
+    uint64_t words, bad; /* compared, and those that differ or come past the end */
+} VagWalk;
+
+static inline void vag_walk_init(VagWalk *w, const uint8_t *blocks, uint32_t count, int32_t loop)
+{
+    memset(w, 0, sizeof(*w));
+    w->blocks = blocks;
+    w->count = count;
+    w->loop = loop;
+}
+
+static inline void vag_walk_word(VagWalk *w, const int16_t s[4])
+{
+    w->words++;
+    if (w->at >= w->count) {
+        w->bad++;
+        return;
+    }
+    if (w->pos == 0) {
+        nw_adpcm_block(&w->st, w->blocks + (size_t)w->at * NW_ADPCM_BLOCK, w->pcm);
+    }
+    w->bad += memcmp(w->pcm + w->pos, s, 4 * sizeof(int16_t)) != 0;
+    if ((w->pos += 4) == NW_ADPCM_SAMPLES) {
+        w->pos = 0;
+        if (++w->at == w->count && w->loop >= 0) {
+            w->at = (uint32_t)w->loop;
+        }
+    }
+}
+
 /* Header and count blocks into out (NW_VAG_HEADER + count * 16 bytes); returns the file size. */
 static inline size_t vag_file(uint8_t *out, uint32_t rate, const uint8_t *blocks, uint32_t count)
 {

@@ -1,8 +1,8 @@
 /* The SPU2 as NUSOUND.IRX drives it through libsd: two cores of 24 voices. Register ids are libsd's: the core in
    bit 0, the voice in bits 1-5, the register in bits 8+. Voices run in time as PCSX2's SPU2 runs them (Mixer.cpp,
    ADSR.cpp): a sample every 768 IOP cycles moves each voice's address through its ADPCM blocks at its pitch,
-   follows their loop flags and steps its envelope; KON and KOFF take effect at the next sample. Nothing is decoded
-   or mixed. */
+   follows their loop flags and steps its envelope; KON and KOFF take effect at the next sample. With an output set,
+   each sample is mixed: core 0's dry voices, through its master volume, into core 1's, through its own. */
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
@@ -18,16 +18,21 @@
 #define NW_SD_VP_ADSR1 0x0300
 #define NW_SD_VP_ADSR2 0x0400
 #define NW_SD_VP_ENVX 0x0500
+#define NW_SD_P_MMIX 0x0880
 #define NW_SD_P_MVOLL 0x0980
 #define NW_SD_P_MVOLR 0x0a80
 #define NW_SD_P_EVOLL 0x0b80
 #define NW_SD_P_EVOLR 0x0c80
+#define NW_SD_P_AVOLL 0x0d80 /* core 1: core 0's output in */
+#define NW_SD_P_AVOLR 0x0e80
 
 /* sceSdSetSwitch / sceSdGetSwitch: one bit per voice */
 #define NW_SD_S_KON 0x1500
 #define NW_SD_S_KOFF 0x1600
 #define NW_SD_S_ENDX 0x1700
+#define NW_SD_S_VMIXL 0x1800 /* dry, left */
 #define NW_SD_S_VMIXEL 0x1900 /* into the reverb, left */
+#define NW_SD_S_VMIXR 0x1a00
 #define NW_SD_S_VMIXER 0x1b00
 
 /* sceSdSetAddr / sceSdGetAddr: the core's reverb work area end, then voice addresses (bit 6), in bytes */
@@ -49,8 +54,16 @@ typedef struct NwSpu2Effect {
     int feedback;
 } NwSpu2Effect;
 
-/* sceSdInit: the registers and voices; sound RAM and the clock keep theirs. */
+/* sceSdInit: the registers and voices as libsd leaves them; sound RAM, the clock and the output keep theirs. */
 void nw_spu2_init(void);
+
+/* Stereo frames (left, right) at 48 kHz, in batches as the SPU runs; NULL: nothing is mixed. */
+typedef void (*NwSpu2Output)(void *user, const int16_t *frames, unsigned count);
+void nw_spu2_set_output(NwSpu2Output out, void *user);
+
+/* Each voice's decoded samples (voice 0-47), 4 at a time in the order its decoder reads them. */
+typedef void (*NwSpu2Tap)(void *user, unsigned voice, const int16_t samples[4]);
+void nw_spu2_set_tap(NwSpu2Tap tap, void *user);
 
 /* Runs the SPU up to IOP cycle `cycle` (36.864 MHz); a cycle it has passed changes nothing. */
 void nw_spu2_run_to(uint64_t cycle);
