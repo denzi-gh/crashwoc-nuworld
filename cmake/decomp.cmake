@@ -228,7 +228,7 @@ if(NUWORLD_TESTS)
   add_test(NAME levels-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} hub
-      farm fire_fly)
+      farm fire_fly airship)
   set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
