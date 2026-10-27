@@ -224,6 +224,13 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/vu1dis.py --data-dir {root} --check --expect 16,24,44)
   set_tests_properties(vu1-disasm-retail PROPERTIES SKIP_RETURN_CODE 77)
+  # Local only: levels entered headless (--level) run with no stub hit beyond the shared ones their issues own.
+  add_test(NAME levels-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} hub
+      farm fire_fly airship space_a weath_b cold_a jungle_a castle_a s_balls
+      earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b)
+  set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
   add_executable(nuworld_test_nudat tests/c/test_nudat.c)

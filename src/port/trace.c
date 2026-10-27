@@ -6,6 +6,7 @@
 
 #include "gamelib/gcutscn.h"
 #include "nu3d/nutexanm.h"
+#include "port/level.h"
 
 #define NW_TRACE_CHANNELS 6
 
@@ -60,7 +61,8 @@ void nw_trace_sound_vblank(void)
 {
     int vblank = nuvideo_global_vbcnt;
     if (!nw_trace.synced) {
-        nw_trace.synced = cutmovie_hold == 1 && nw_trace.hold == 0 && cutmovie == 0;
+        bool held = cutmovie_hold == 1 && nw_trace.hold == 0 && cutmovie == 0;
+        nw_trace.synced = nw_level_arrival() >= 0 ? nw_level_arrived() : held;
         nw_trace.hold = cutmovie_hold;
         nw_trace.base = vblank;
         if (!nw_trace.synced) {

@@ -299,11 +299,15 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 #define NW_DUMP_MS 3600000             /* the watchdog of --dump */
+#define NW_LEVEL_CHECK_MS 600000       /* the watchdog of --boot-check with --level */
+
+static const char *nw_run_level; /* --level */
 
 /* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
    file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
-   sound module on both (at the hardware speed or with instant loads). The file system stays open for the game.
-   Returns 0, else the exit code: 2 without usable data, 1 when the image or the clock fails. */
+   sound module on both (at the hardware speed or with instant loads), --level's request. The file system stays open
+   for the game. Returns 0, else the exit code: 2 without usable data or level, 1 when the image or the clock
+   fails. */
 static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware_speed)
 {
     static NwVfs vfs;
@@ -338,6 +342,10 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     }
     nw_nusound_init(&vfs, nw_game_us);
     nw_nusound_set_hardware_speed(hardware_speed);
+    if (nw_run_level && !nw_level_start(nw_run_level)) {
+        fprintf(stderr, NW_APP_NAME ": --level %s: no such level on the disc\n", nw_run_level);
+        return 2;
+    }
     return 0;
 }
 
@@ -392,8 +400,8 @@ static void nw_print_stub_hits(const char *mode, NwGameState state)
 }
 
 /* Headless: runs the game with every stub hit logged and passed until `vblanks` vblanks after its first screen
-   swap, or with `loads`, until the game parks itself after that many background loads; then prints the stub hits
-   in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
+   swap (with --level, after its level runs), or with `loads`, until the game parks itself after that many
+   background loads; then prints the stub hits in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
    the watchdog, 2 without usable data. */
 static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMode mode, bool hardware_speed)
 {
@@ -408,11 +416,13 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMo
         return 1;
     }
     uint64_t start = SDL_GetTicks(), edge = 0, first = 0;
+    int level = nw_level_arrival();
+    uint64_t watchdog = level >= 0 ? NW_LEVEL_CHECK_MS : NW_BOOT_CHECK_MS;
     bool swapped = false;
     NwGameState state = NW_GAME_RUNNING;
-    while (state == NW_GAME_RUNNING && SDL_GetTicks() - start < NW_BOOT_CHECK_MS) {
+    while (state == NW_GAME_RUNNING && SDL_GetTicks() - start < watchdog) {
         edge = nw_game_watch_edge(edge, 100);
-        if (!swapped && nw_game_swaps() > 0) {
+        if (!swapped && (level >= 0 ? nw_level_arrived() : nw_game_swaps() > 0)) {
             swapped = true;
             first = edge;
         }
@@ -428,10 +438,12 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMo
     state = nw_game_state();
     fflush(stderr);
     if (swapped) {
-        printf("boot-check: first swap at vblank %llu, %llu frames by vblank %llu\n", (unsigned long long)first,
+        printf("boot-check: %s at vblank %llu, %llu frames by vblank %llu\n",
+               level >= 0 ? "level running" : "first swap", (unsigned long long)first,
                (unsigned long long)nw_game_swaps(), (unsigned long long)edge);
     } else {
-        printf("boot-check: no swap in %llu vblanks\n", (unsigned long long)edge);
+        printf("boot-check: %s in %llu vblanks\n", level >= 0 ? "level not running" : "no swap",
+               (unsigned long long)edge);
     }
     for (unsigned i = 0; i < ended && i < 8; i++) {
         printf("boot-check: load %u ended at vblank %llu\n", i + 1, (unsigned long long)ended_at[i]);
@@ -440,7 +452,8 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMo
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());
     } else if (!reached && state == NW_GAME_PARKED) {
-        fprintf(stderr, NW_APP_NAME ": boot-check: the watchdog stopped the game after %d ms\n", NW_BOOT_CHECK_MS);
+        fprintf(stderr, NW_APP_NAME ": boot-check: the watchdog stopped the game after %llu ms\n",
+                (unsigned long long)watchdog);
     }
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
@@ -883,7 +896,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--scene-check") == 0 || strcmp(argv[i], "--capture") == 0 ||
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
-             strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0) &&
+             strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
+             strcmp(argv[i], "--level") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -940,6 +954,8 @@ int main(int argc, char *argv[])
             poke = argv[++i];
         } else if (strcmp(argv[i], "--dump-after") == 0) {
             dump_after = argv[++i];
+        } else if (strcmp(argv[i], "--level") == 0) {
+            nw_run_level = argv[++i];
         } else if (strcmp(argv[i], "--hardware-speed") == 0) {
             const char *value = argv[++i];
             if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
