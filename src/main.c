@@ -25,6 +25,7 @@
 #include "port/capture.h"
 #include "port/dump.h"
 #include "port/game.h"
+#include "port/level.h"
 #include "port/options.h"
 #include "port/saveload.h"
 #include "port/scene.h"
@@ -500,6 +501,26 @@ static void nw_boot_audio(void *user)
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
 }
 
+/* The disc's levels; a click takes Crash there at once. */
+static void nw_boot_levels(void *user)
+{
+    static char filter[64];
+    (void)user;
+    nw_debug_filter("filter", filter, sizeof(filter));
+    nw_debug_list_begin("levels", 16);
+    for (int i = 0; i < nw_level_count(); i++) {
+        const char *name = nw_level_name(i);
+        if (name && SDL_strcasestr(name, filter) && nw_debug_selectable(name, i == nw_level_current())) {
+            nw_level_load(i);
+        }
+    }
+    nw_debug_list_end();
+    int pending = nw_level_pending();
+    if (pending >= 0) {
+        nw_debug_text("entering %s", nw_level_name(pending));
+    }
+}
+
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
    menu changes and saves, like the buses. Returns the exit code. */
@@ -521,6 +542,7 @@ static int nw_boot(const char *data_dir, int hardware_speed)
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
+    nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     bool applied = settings.hardware_speed;
     int buses[2] = { settings.master_volume, settings.voice_volume };
     nw_audio_set_buses(buses[0], buses[1]);
