@@ -2,8 +2,9 @@
    synthetic SFX.DAT and the game's clock, stepped: a vblank is sceGsSyncV, nw_game_spend_us the EE's time between
    them, and every SIF call spends its own. Usage: test_nusound <scratch dir>.
    Local only, with your own disc: `test_nusound retail` runs InitGlobalSfx on the data image and SFX.DAT of the
-   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM and plays the logos' audio stream,
-   `test_nusound retail instant` the same off the hardware speed; exits 77 without it. */
+   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM, plays the logos' audio stream, the
+   title theme in stereo and each language's voices, `test_nusound retail instant` the same off the hardware speed;
+   exits 77 without it. */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +72,7 @@ int sceGsSyncV(int mode);
 extern int nusound_irx_loaded;
 extern int Attack, Release;
 extern GameSound SfxTabGLOBAL[197];
+extern GameSound SfxTabFRONTEND[80];
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -1027,6 +1029,68 @@ static bool setup_disc(const char *scratch)
 
 /* ---- Retail (local only) ------------------------------------------------------------------------------- */
 
+/* Game.language 0-5, as the VCE_ folders name them. */
+static const char *const languages[6] = { "ENG", "FRE", "GER", "ITA", "SPA", "DUT" };
+
+/* A voice row of a sfx table for language l: VCE_<l>\..., in SFX.DAT. */
+static bool voice_row(const NwIrx *irx, const GameSound *row, int l)
+{
+    char prefix[16], name[64];
+    SDL_snprintf(prefix, sizeof(prefix), "VCE_%s\\", languages[l]);
+    SDL_snprintf(name, sizeof(name), "SFX\\%s.VAG", row->path);
+    if (SDL_strncmp(row->path, prefix, SDL_strlen(prefix)) != 0 || nw_dat_find(irx->global_dat, name) < 0) {
+        fprintf(stderr, "voice %s: not %s in SFX.DAT\n", row->path, prefix);
+        return false;
+    }
+    return true;
+}
+
+/* The voices are picked by Game.language alone: a cut movie's audio is its sfx + language * 4 (cut.c, the
+   intro/outro rows from 0xad), a hub cut's gamecut_sfx + language * 12 (the frontend table). Every one of them is
+   that language's file, and each language's INTRO1 streams on channel 4 (GameSfx's channel for cuts) as its file
+   says. */
+static void retail_languages(const NwIrx *irx)
+{
+    int rows = 0;
+    for (int l = 0; l < 6; l++) {
+        for (int k = 0; k < 4; k++) {
+            rows += voice_row(irx, &SfxTabGLOBAL[0xad + 4 * l + k], l);
+        }
+        for (int k = 0; k < 12; k++) {
+            rows += voice_row(irx, &SfxTabFRONTEND[12 * l + k], l);
+        }
+    }
+    CHECK(rows == 6 * 16);
+
+    for (int l = 0; l < 6; l++) {
+        int sfx = 0xad + 4 * l, entry = nw_dat_find(irx->global_dat, irx->ADPCM_FileNames[sfx].Filename);
+        uint32_t len = entry >= 0 ? irx->global_dat->entries[entry].size : 0;
+        uint8_t *vag = len > NW_VAG_HEADER ? SDL_malloc(len) : NULL;
+        if (!vag || !nw_dat_read(irx->global_dat, entry, 0, vag, len)) {
+            CHECK(!"the voice's file");
+            SDL_free(vag);
+            continue;
+        }
+        /* The last voice on the channel goes silent and its slot idle first (a load request the EE answers after the
+           slot took a new stream would load the old file again), so the next one decoded there is this one. */
+        SOUND_StopSound(4);
+        for (int frames = 0; frames < 50 && (irx->StreamBuffer[4].Status || irx->IOPRequestLoad == 4 ||
+                                             (int)irx->LoadFromEE == 4); frames++) {
+            frame();
+        }
+        stream_tap_start(0, 4, vag + NW_VAG_HEADER, (len - NW_VAG_HEADER) / NW_ADPCM_BLOCK - 1, -1);
+        NuSoundPlayChan(sfx, 0x3fff, 0x3fff, SfxTabGLOBAL[sfx].pitch, 4);
+        for (int frames = 0; frames < 120; frames++) {
+            frame();
+        }
+        printf("voice %s: %llu words decoded\n", irx->ADPCM_FileNames[sfx].Filename,
+               (unsigned long long)stream_tap.walk[0].words);        CHECK(irx->StreamBuffer[4].ID == SfxTabGLOBAL[sfx].id && NuSoundKeyStatus(4) == 1);
+        CHECK(stream_tap.walk[0].words > 80 * 100 && stream_tap.walk[0].bad == 0);
+        stream_tap_stop();
+        SDL_free(vag);
+    }
+}
+
 static int test_retail(bool hardware)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -1137,6 +1201,7 @@ static int test_retail(bool hardware)
     stream_tap_stop();
     SDL_free(theme[0]);
     SDL_free(theme[1]);
+    retail_languages(irx);
     return failures ? 1 : 0;
 }
 
