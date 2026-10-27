@@ -1,4 +1,5 @@
-/* settings.toml: the defaults, no file, a save read back, comments and blanks, and what the reader does not take.
+/* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, and what the
+   reader does not take.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -19,17 +20,27 @@ static char root[1100];
         } \
     } while (0)
 
+/* The defaults with root's settings.toml holding text read over them; false when it does not load. */
+static bool read_text(const char *text, NwSettings *s)
+{
+    char path[1200];
+    nw_settings_defaults(s);
+    SDL_snprintf(path, sizeof(path), "%s%s", root, NW_PATHS_SETTINGS);
+    return SDL_SaveFile(path, text, strlen(text)) && nw_settings_load(s, root);
+}
+
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
 {
-    char path[1200];
     NwSettings s;
-    nw_settings_defaults(&s);
-    SDL_snprintf(path, sizeof(path), "%s%s", root, NW_PATHS_SETTINGS);
-    if (!SDL_SaveFile(path, text, strlen(text)) || !nw_settings_load(&s, root)) {
-        return -1;
-    }
-    return s.hardware_speed;
+    return read_text(text, &s) ? s.hardware_speed : -1;
+}
+
+/* master_volume * 1000 + voice_volume; -1 when it does not load. */
+static int read_volumes(const char *text)
+{
+    NwSettings s;
+    return read_text(text, &s) ? s.master_volume * 1000 + s.voice_volume : -1;
 }
 
 int main(int argc, char *argv[])
@@ -60,6 +71,18 @@ int main(int argc, char *argv[])
     CHECK(read_speed("[game]\nhardware_speed = yes\n") == 0);
     CHECK(read_speed("[game]\nhardware_speed = true\n[game\nhardware_speed = false\n") == 1);
     CHECK(read_speed("") == 0);
+
+    nw_settings_defaults(&s);
+    CHECK(s.master_volume == 100 && s.voice_volume == 100);
+    s.master_volume = 40;
+    s.voice_volume = 7;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.master_volume == 40 && s.voice_volume == 7);
+    CHECK(read_volumes("[audio]\nmaster_volume = 55\nvoice_volume=0\n") == 55000);
+    CHECK(read_volumes("[audio]\nmaster_volume = 250\nvoice_volume = -3\n") == 100000);
+    CHECK(read_volumes("[audio]\nmaster_volume = 5x\nvoice_volume = \n") == 100100);
+    CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
     if (failures) {
         fprintf(stderr, "settings: %d checks failed\n", failures);

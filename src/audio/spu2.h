@@ -83,6 +83,10 @@ void nw_spu2_set_presets(const NwSpu2Presets *presets);
 typedef void (*NwSpu2Output)(void *user, const int16_t *frames, unsigned count);
 void nw_spu2_set_output(NwSpu2Output out, void *user);
 
+/* The port's own gain on a voice (0-47) after its envelope, 0x8000 (the default) for none. Any thread. */
+#define NW_SPU2_UNITY 0x8000
+void nw_spu2_set_gain(unsigned voice, int gain);
+
 /* Each voice's decoded samples (voice 0-47), 4 at a time in the order its decoder reads them. */
 typedef void (*NwSpu2Tap)(void *user, unsigned voice, const int16_t samples[4]);
 void nw_spu2_set_tap(NwSpu2Tap tap, void *user);

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "audio/vag.h"
 
 #define NW_SPU2_ENV_MAX 0x7fff
@@ -83,6 +85,7 @@ static struct {
 } spu;
 
 static NwSpu2Presets nw_spu2_presets;
+static SDL_AtomicInt nw_spu2_cut[2 * NW_SPU2_VOICES]; /* NW_SPU2_UNITY less the port's gain */
 
 /* How far the SPU ran, the cycle of its last sample and the samples so far (PCSX2's Cycles). */
 static struct {
@@ -135,6 +138,13 @@ void nw_spu2_set_output(NwSpu2Output out, void *user)
     nw_spu2_io.out = out;
     nw_spu2_io.out_user = user;
     nw_spu2_io.count = 0;
+}
+
+void nw_spu2_set_gain(unsigned voice, int gain)
+{
+    if (voice < 2 * NW_SPU2_VOICES) {
+        SDL_SetAtomicInt(&nw_spu2_cut[voice], NW_SPU2_UNITY - SDL_clamp(gain, 0, NW_SPU2_UNITY));
+    }
 }
 
 void nw_spu2_set_tap(NwSpu2Tap tap, void *user)
@@ -508,7 +518,11 @@ static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
                     nw_spu2_stop(v);
                 }
                 value = (value * v->level) >> 15;
-                int32_t l = (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
+                int cut = SDL_GetAtomicInt(&nw_spu2_cut[c * NW_SPU2_VOICES + i]);
+                if (cut) {
+                    value = (value * (NW_SPU2_UNITY - cut)) >> 15;
+                }
+                int32_t l =(value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
                 int32_t r = (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLR)])) >> 15;
                 dry[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1 ? l : 0;
                 dry[c][1] += sw[nw_spu2_reg(NW_SD_S_VMIXR)] >> i & 1 ? r : 0;

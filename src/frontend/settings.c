@@ -34,16 +34,32 @@ static void nw_settings_bool(const char *value, bool *out)
     }
 }
 
+/* A whole number, clamped to the volumes' 0-100. */
+static void nw_settings_volume(const char *value, int *out)
+{
+    char *end;
+    long v = SDL_strtol(value, &end, 10);
+    if (end != value && *end == '\0') {
+        *out = v < 0 ? 0 : v > 100 ? 100 : (int)v;
+    }
+}
+
 static void nw_settings_set(NwSettings *s, const char *table, const char *key, const char *value)
 {
     if (SDL_strcmp(table, "game") == 0 && SDL_strcmp(key, "hardware_speed") == 0) {
         nw_settings_bool(value, &s->hardware_speed);
+    } else if (SDL_strcmp(table, "audio") == 0 && SDL_strcmp(key, "master_volume") == 0) {
+        nw_settings_volume(value, &s->master_volume);
+    } else if (SDL_strcmp(table, "audio") == 0 && SDL_strcmp(key, "voice_volume") == 0) {
+        nw_settings_volume(value, &s->voice_volume);
     }
 }
 
 void nw_settings_defaults(NwSettings *s)
 {
     s->hardware_speed = false;
+    s->master_volume = 100;
+    s->voice_volume = 100;
 }
 
 bool nw_settings_load(NwSettings *s, const char *root)
@@ -95,8 +111,13 @@ bool nw_settings_save(const NwSettings *s, const char *root)
     int len = SDL_asprintf(&text,
                            "[game]\n"
                            "# Simulate original hardware speed: the PS2's disc and sound load times\n"
-                           "hardware_speed = %s\n",
-                           s->hardware_speed ? "true" : "false");
+                           "hardware_speed = %s\n"
+                           "\n"
+                           "[audio]\n"
+                           "# 0-100, over the game's own music and SFX volumes\n"
+                           "master_volume = %d\n"
+                           "voice_volume = %d\n",
+                           s->hardware_speed ? "true" : "false", s->master_volume, s->voice_volume);
     bool ok = path && len >= 0 && SDL_SaveFile(path, text, (size_t)len);
     SDL_free(text);
     SDL_free(path);

@@ -25,6 +25,7 @@
 #include "port/capture.h"
 #include "port/dump.h"
 #include "port/game.h"
+#include "port/options.h"
 #include "port/saveload.h"
 #include "port/scene.h"
 #include "port/trace.h"
@@ -482,9 +483,26 @@ static void nw_boot_settings(const char *data_dir, NwSettings *s, bool save)
     SDL_free(root);
 }
 
+/* The port's master and voice buses (settings.toml) around the game's own music and SFX volumes, which its options
+   menu also writes, at Done. */
+static void nw_boot_audio(void *user)
+{
+    NwSettings *s = user;
+    int music = nw_options_volume(true), sfx = nw_options_volume(false);
+
+    nw_debug_slider_int("Master", &s->master_volume, 0, 100);
+    if (nw_debug_slider_int("Music", &music, 0, 100)) {
+        nw_options_set_volume(true, music);
+    }
+    if (nw_debug_slider_int("SFX", &sfx, 0, 100)) {
+        nw_options_set_volume(false, sfx);
+    }
+    nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
+}
+
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
-   menu changes and saves. Returns the exit code. */
+   menu changes and saves, like the buses. Returns the exit code. */
 static int nw_boot(const char *data_dir, int hardware_speed)
 {
     NwSettings settings;
@@ -502,7 +520,10 @@ static int nw_boot(const char *data_dir, int hardware_speed)
         return 1;
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
+    nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     bool applied = settings.hardware_speed;
+    int buses[2] = { settings.master_volume, settings.voice_volume };
+    nw_audio_set_buses(buses[0], buses[1]);
     if (!nw_audio_open()) {
         fprintf(stderr, NW_APP_NAME ": no sound: %s\n", SDL_GetError());
     }
@@ -527,6 +548,12 @@ static int nw_boot(const char *data_dir, int hardware_speed)
         if (settings.hardware_speed != applied) {
             applied = settings.hardware_speed;
             nw_nusound_set_hardware_speed(applied);
+            nw_boot_settings(data_dir, &settings, true);
+        }
+        if (settings.master_volume != buses[0] || settings.voice_volume != buses[1]) {
+            buses[0] = settings.master_volume;
+            buses[1] = settings.voice_volume;
+            nw_audio_set_buses(buses[0], buses[1]);
             nw_boot_settings(data_dir, &settings, true);
         }
         if (SDL_GetTicks() - titled >= 500) {

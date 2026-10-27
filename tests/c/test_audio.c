@@ -375,6 +375,17 @@ static void test_spu_mix(void)
     spu_samples(40);
     CHECK(mix_all(0, 0));
 
+    /* The port's gain after the envelope: half of 4076 is 2038, through the volumes 2034; another voice's leaves
+       this one alone. */
+    mix_reset();
+    nw_spu2_set_gain(0, NW_SPU2_UNITY / 2);
+    nw_spu2_set_gain(1, 0);
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(40);
+    CHECK(mix_all(2034, 0));
+    nw_spu2_set_gain(0, NW_SPU2_UNITY);
+    nw_spu2_set_gain(1, NW_SPU2_UNITY);
+
     nw_spu2_set_output(NULL, NULL);
     nw_spu2_set_tap(NULL, NULL);
     nw_spu2_init();
