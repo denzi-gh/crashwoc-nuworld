@@ -44,6 +44,7 @@ extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
+extern struct numtl_s *NuLightAddMat;
 extern struct nucamera_s global_camera;
 extern struct nutexslot_s *D_0062EBEC;
 #define TexList D_0062EBEC
@@ -701,6 +702,87 @@ void NuRndrFootPrints(struct numtl_s *mtl, float *u, float *v)
     NuRndrStreamSetLocalMtx(rndrstream_fx);
     NuRndrStreamFxMPG(1);
     nw_rndr_quads(rndrstream_fx, vtx, (int)(vp - vtx))->alpha = 0x100 | 0x44;
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+}
+
+/* nurndr.c's; vehicle.c's trail_s and jeep.c's jeeptrail_s have its layout. */
+struct nurndrtrail_s {
+    struct nuvec_s pos1;
+    struct nuvec_s pos2;
+    int intensity;
+    int RealIntensity;
+};
+
+/* Retail's trail quads, untextured in NuLightAddMat with ALPHA_1 0x44 like the footprints: each segment between
+   two points is two ribbons, from pos1 and from pos2 a quarter of the way in, white fading to clear inwards; a
+   negative intensity draws them dark. The 0xFFFFF is retail's. */
+void NuRndrTrail(int trailpt, struct nurndrtrail_s *trail, int trailcount)
+{
+    static struct nuvtx_tc1_s vtx[2048];
+    int cnt = 0, last = -1, start = trailpt + (1 - trailcount);
+    int col = 0, lastcol, begin = 0;
+    memset(vtx, 0, sizeof(vtx));
+    for (int loop = trailpt; loop > start; loop--) {
+        int pt = loop & (trailcount - 1);
+        if (trail[pt].pos1.x == -10000.0f) {
+            last = -1;
+            continue;
+        }
+        if (last == -1) {
+            last = pt;
+            col = 0;
+            begin = 1;
+            continue;
+        }
+        int next = (loop - 1) & (trailcount - 1);
+        int next2 = (loop - 2) & (trailcount - 1);
+        lastcol = col;
+        if (trail[next].pos1.x == -10000.0f || loop - 1 <= start) {
+            col = 0;
+        } else if (trail[next2].pos1.x == -10000.0f || begin) {
+            col = ((trail[pt].intensity >> 24) / 2) << 24;
+        } else {
+            col = trail[pt].intensity;
+        }
+        begin = 0;
+        for (int side = 0; side < 2; side++, cnt += 4) {
+            const struct nuvec_s *a0 = side ? &trail[last].pos2 : &trail[last].pos1;
+            const struct nuvec_s *a1 = side ? &trail[last].pos1 : &trail[last].pos2;
+            const struct nuvec_s *b0 = side ? &trail[pt].pos2 : &trail[pt].pos1;
+            const struct nuvec_s *b1 = side ? &trail[pt].pos1 : &trail[pt].pos2;
+            vtx[cnt].pnt = *a0;
+            vtx[cnt + 1].pnt = *b0;
+            vtx[cnt + 2].pnt.x = (a1->x - a0->x) * 0.25f + a0->x;
+            vtx[cnt + 2].pnt.y = (a1->y - a0->y) * 0.25f + a0->y;
+            vtx[cnt + 2].pnt.z = (a1->z - a0->z) * 0.25f + a0->z;
+            vtx[cnt + 3].pnt.x = (b1->x - b0->x) * 0.25f + b0->x;
+            vtx[cnt + 3].pnt.y = (b1->y - b0->y) * 0.25f + b0->y;
+            vtx[cnt + 3].pnt.z = (b1->z - b0->z) * 0.25f + b0->z;
+            if (side == 0) {
+                vtx[cnt].diffuse = lastcol < 0 ? -lastcol : lastcol + 0xFFFFFF;
+                vtx[cnt + 2].diffuse = lastcol < 0 ? 0 : 0xFFFFFF;
+                vtx[cnt + 1].diffuse = col < 0 ? -col : col + 0xFFFFFF;
+                vtx[cnt + 3].diffuse = col < 0 ? 0 : 0xFFFFFF;
+            } else {
+                vtx[cnt].diffuse = lastcol < 0 ? 0xFFFFF - lastcol : lastcol;
+                vtx[cnt + 2].diffuse = lastcol < 0 ? 0xFFFFFF : 0;
+                vtx[cnt + 1].diffuse = col < 0 ? 0xFFFFFF - col : col;
+                vtx[cnt + 3].diffuse = col < 0 ? 0xFFFFFF : 0;
+            }
+        }
+        last = pt;
+    }
+    if (cnt == 0) {
+        return;
+    }
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLightAddMat);
+    NuRndrSetLocalMtx(&numtx_identity, 2);
+    NuRndrStreamSetViewMtxScissorClip(rndrstream_fx);
+    NuRndrStreamSetLocalMtx(rndrstream_fx);
+    NuRndrStreamFxMPG(1);
+    nw_rndr_quads(rndrstream_fx, vtx, cnt)->alpha = 0x100 | 0x44;
     rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
 }
 

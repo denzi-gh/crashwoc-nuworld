@@ -28,7 +28,7 @@ schema = 1
 "nucore/rnc" = { treatment = "compile" }
 
 # numath
-"numath/nuvec" = { treatment = "compile" }
+"numath/nuvec" = { treatment = "compile", override = ["NuVecNorm"] }
 "numath/nuvec4" = { treatment = "compile" }
 "numath/numtx" = { treatment = "compile" }
 "numath/nutrig" = { treatment = "compile" }
