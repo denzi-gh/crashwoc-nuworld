@@ -67,6 +67,7 @@ int SOUND_PlayStream(int stream, int bank, unsigned int channel, int left, int r
 void NuSoundUpdate(void);
 int sceGsSyncV(int mode);
 extern int nusound_irx_loaded;
+extern int Attack, Release;
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -568,6 +569,43 @@ static void test_stop_sound(void)
     CHECK(nw_spu2_get_param(1 | 7 << 1 | NW_SD_VP_ADSR2) == 0x1fc0);
 }
 
+static struct {
+    unsigned frames, loud; /* frames, and those not silent */
+} ee_mix;
+
+static void ee_mix_out(void *user, const int16_t *frames, unsigned count)
+{
+    (void)user;
+    for (unsigned i = 0; i < count; i++, ee_mix.frames++) {
+        ee_mix.loud += frames[2 * i] != 0 || frames[2 * i + 1] != 0;
+    }
+}
+
+/* Every sound gets the EE's envelope (Attack 0, Release 0x10): ADSR1 0x00ff, at full level in 3 samples, and
+   ADSR2 0x1fd0, whose slow release the IRX only uses past a stop's KOFF before it writes its fastest; so a stopped
+   voice is silent by the reply of its batch. At pitch 0x100 a.vag plays for 14 ms, so the stop ends it. */
+static void test_ee_envelope(void)
+{
+    boot_bank();
+    CHECK(Attack == 0 && Release == 0x10);
+    nw_spu2_set_output(ee_mix_out, NULL);
+    SOUND_PlaySFX(0x1000, 31, 0x3fff, 0x3fff, 0x100, Attack, Release);
+    FlushIOPCommand(0);
+    CHECK(nw_spu2_get_param(1 | 7 << 1 | NW_SD_VP_ADSR1) == 0x00ff);
+    CHECK(nw_spu2_get_param(1 | 7 << 1 | NW_SD_VP_ADSR2) == 0x1fd0);
+    nw_game_spend_us(500);
+    ee_status();
+    spu_samples(3);
+    CHECK(NuSoundKeyStatus(31) == 1 && nw_spu2_get_param(1 | 7 << 1 | NW_SD_VP_ENVX) == 0x7fff && ee_mix.loud > 0);
+    SOUND_StopSound(31);
+    ee_status();
+    ee_mix.frames = ee_mix.loud = 0;
+    nw_game_spend_us(500);
+    ee_status();
+    CHECK(NuSoundKeyStatus(31) == 0 && ee_mix.frames > 20 && ee_mix.loud == 0);
+    nw_spu2_set_output(NULL, NULL);
+}
+
 static struct nusound_filename_info_s streams[] = {
     { "SFX\\GENERIC\\A.VAG", 22050, 1, 2 }, /* a one-shot */
     { "SFX\\MUSIC\\BL.VAG", 44100, 0, 1 },  /* a loop */
@@ -1012,6 +1050,7 @@ int main(int argc, char *argv[])
     test_channel_volume();
     test_channel_pitch();
     test_stop_sound();
+    test_ee_envelope();
     test_play_stream();
     test_play_stream_instant();
     test_stream_ring();

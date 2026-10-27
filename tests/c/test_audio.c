@@ -302,9 +302,10 @@ static void mix_reset(void)
     memset(&mix, 0, sizeof(mix));
 }
 
+/* Every frame past the attack (ENVX 0x3800, 0x7000, then 0x7fff from the third). */
 static bool mix_all(int16_t l, int16_t r)
 {
-    for (unsigned i = 0; i < mix.count; i++) {
+    for (unsigned i = 2; i < mix.count; i++) {
         if (mix.frame[i][0] != l || mix.frame[i][1] != r) {
             fprintf(stderr, "frame %u: %d %d, not %d %d\n", i, mix.frame[i][0], mix.frame[i][1], l, r);
             return false;
@@ -314,8 +315,8 @@ static bool mix_all(int16_t l, int16_t r)
 }
 
 /* The mix, worked out by hand from PCSX2's Mixer.cpp. A looping block of 4096s (nibble 1, shift 0) at pitch 0x1000
-   reads phase 0 of the gaussian table: 600 + 2870 + 608 - 1 = 4077, VOL 0x3fff (0x7ffe) makes 4076. Core 0 goes
-   through its MVOL (4075) and core 1's AVOL (4074) into core 1, which takes its MVOL (4073). */
+   reads phase 0 of the gaussian table: 600 + 2870 + 608 - 1 = 4077, ENVX 0x7fff makes 4076, VOL 0x3fff (0x7ffe)
+   4075. Core 0 goes through its MVOL (4074) and core 1's AVOL (4073) into core 1, which takes its MVOL (4072). */
 static void test_spu_mix(void)
 {
     const uint32_t loud = 0x3000, quiet = 0x3010;
@@ -323,7 +324,7 @@ static void test_spu_mix(void)
 
     vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
     nw_spu2_voice_trans(loud, block, sizeof(block));
-    vag_block_fill(block, 0, 4, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1); /* 256s: 253, then 252 */
+    vag_block_fill(block, 0, 4, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1); /* 256s: 253, 252, 251 */
     nw_spu2_voice_trans(quiet, block, sizeof(block));
     nw_spu2_set_output(mix_out, NULL);
     nw_spu2_set_tap(mix_tap, NULL);
@@ -331,14 +332,14 @@ static void test_spu_mix(void)
     mix_reset();
     mix_voice(0, loud, 0x3fff, 0);
     spu_samples(40);
-    CHECK(mix_all(4073, 0));
+    CHECK(mix_all(4072, 0));
     CHECK(mix.tapped[0] > 0 && mix.tapped[1] == 0);
 
     /* Core 1's voices skip core 0's MVOL and core 1's AVOL. */
     mix_reset();
     mix_voice(NW_SPU2_VOICES + 5, loud, 0, 0x3fff);
     spu_samples(40);
-    CHECK(mix_all(0, 4075));
+    CHECK(mix_all(0, 4074));
     CHECK(mix.tapped[NW_SPU2_VOICES + 5] > 0);
 
     /* Core 0's dry voices clamp before its MVOL: 32765, 32764, 32762. */
@@ -349,20 +350,20 @@ static void test_spu_mix(void)
     spu_samples(40);
     CHECK(mix_all(32762, 32762));
 
-    /* All 48 voices: 24 * 252 through core 0 (6047, 6046), plus core 1's 24 * 252 (12093). */
+    /* All 48 voices: 24 * 251 through core 0 (6023, 6022), plus core 1's 24 * 251 (12045). */
     mix_reset();
     for (unsigned v = 0; v < 2 * NW_SPU2_VOICES; v++) {
         mix_voice(v, quiet, 0x3fff, 0x3fff);
     }
     spu_samples(40);
-    CHECK(mix_all(12093, 12093));
+    CHECK(mix_all(12045, 12045));
 
     /* The gates: VMIXL off for the voice, MMIX without core 0's dry voices. */
     mix_reset();
     nw_spu2_set_switch(NW_SD_S_VMIXL, 0xfffffe);
     mix_voice(0, loud, 0x3fff, 0x3fff);
     spu_samples(40);
-    CHECK(mix_all(0, 4073));
+    CHECK(mix_all(0, 4072));
     mix_reset();
     nw_spu2_set_param(NW_SD_P_MMIX, 0x0f0);
     mix_voice(0, loud, 0x3fff, 0x3fff);
@@ -371,6 +372,43 @@ static void test_spu_mix(void)
 
     nw_spu2_set_output(NULL, NULL);
     nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
+/* The envelope scales the voice after its step: the attack of ADSR1 0x00ff gives ENVX 0x3800 and 0x7000 (1779,
+   3563 out of core 1), the IRX's fastest release (ADSR2 0x1fc0) 0x3fff (2034), then silence. The game's own release
+   (Release 0x10, ADSR2 0x1fd0) takes 8 every 32 samples. */
+static void test_spu_envelope(void)
+{
+    const uint32_t loud = 0x3000;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(4);
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 0);
+    spu_samples(3);
+    CHECK(mix.count == 7 && mix.frame[0][0] == 1779 && mix.frame[1][0] == 3563);
+    CHECK(mix.frame[2][0] == 4072 && mix.frame[3][0] == 4072);
+    CHECK(mix.frame[4][0] == 2034 && mix.frame[5][0] == 0 && mix.frame[6][0] == 0);
+
+    mix_reset();
+    mix_voice(0, loud, 0x3fff, 0);
+    nw_spu2_set_param(NW_SD_VP_ADSR2, 0x1fd0);
+    spu_samples(3);
+    nw_spu2_set_switch(NW_SD_S_KOFF, 1u << 0);
+    spu_samples(MIX_FRAMES - 3);
+    bool falling = true;
+    for (unsigned i = 3; i < MIX_FRAMES; i++) {
+        falling &= mix.frame[i][0] <= mix.frame[i - 1][0];
+    }
+    CHECK(falling && mix.frame[33][0] == 4072 && mix.frame[35][0] < 4072 && mix.frame[MIX_FRAMES - 1][0] > 4000);
+
+    nw_spu2_set_output(NULL, NULL);
     nw_spu2_init();
 }
 
@@ -584,6 +622,7 @@ int main(int argc, char *argv[])
     test_pass();
     test_spu_voice();
     test_spu_mix();
+    test_spu_envelope();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);

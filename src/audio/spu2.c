@@ -390,8 +390,8 @@ static int32_t nw_spu2_clamp(int32_t x)
     return x < -0x8000 ? -0x8000 : x > 0x7fff ? 0x7fff : x;
 }
 
-/* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, the envelope, the volumes, then the
-   pitch moves it on. dry gets each core's dry voices. */
+/* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, scaled by the envelope after its
+   step, the volumes, then the pitch moves it on. dry gets each core's dry voices. */
 static void nw_spu2_voices(int32_t dry[2][2], bool mix)
 {
     for (int c = 0; c < 2; c++) {
@@ -404,6 +404,7 @@ static void nw_spu2_voices(int32_t dry[2][2], bool mix)
                 if (!nw_spu2_envelope(v)) {
                     nw_spu2_stop(v);
                 }
+                value = (value * v->level) >> 15;
                 if (core->sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1) {
                     dry[c][0] += (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
                 }
