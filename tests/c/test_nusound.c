@@ -614,6 +614,27 @@ static struct nusound_filename_info_s streams[] = {
     { "", 0, 0, 0 },
 };
 
+/* What one voice decodes, against the file it streams. */
+static struct {
+    unsigned voice;
+    VagWalk walk;
+} stream_tap;
+
+static void stream_tap_word(void *user, unsigned voice, const int16_t samples[4])
+{
+    (void)user;
+    if (voice == stream_tap.voice) {
+        vag_walk_word(&stream_tap.walk, samples);
+    }
+}
+
+static void stream_tap_start(unsigned voice, uint32_t count, int32_t loop)
+{
+    stream_tap.voice = voice;
+    vag_walk_init(&stream_tap.walk, big_blocks, count, loop);
+    nw_spu2_set_tap(stream_tap_word, NULL);
+}
+
 /* A game frame: a vblank of time, then NuSoundUpdate, which answers the module's load request. */
 static void frame(void)
 {
@@ -655,6 +676,7 @@ static void test_play_stream(void)
     const STREAMDATA *s0 = &irx->StreamBuffer[0];
     const uint8_t *ram = nw_spu2_ram() + 0x5010;
     bool held = false;
+    stream_tap_start(0, BIG_BLOCKS - 1, -1);
     SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     for (frames = 0; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
         frame();
@@ -686,6 +708,9 @@ static void test_play_stream(void)
     CHECK(frames == 144 && nw_spu2_get_param(NW_SD_VP_ENVX) == 0);
     frame();
     CHECK(s0->Status == 0);
+    /* The voice decoded the file through its END block, every block once, across the refill. */
+    CHECK(stream_tap.walk.words == (BIG_BLOCKS - 1) * 7 && stream_tap.walk.bad == 0);
+    nw_spu2_set_tap(NULL, NULL);
     nusound_irx_loaded = 0;
 }
 
@@ -717,7 +742,9 @@ static void test_play_stream_instant(void)
 }
 
 /* A loop longer than its buffer, on slot 0: each refill of a half carries the flags that close the ring (the second
-   half's ends on END|REPEAT), so the voice goes round the buffer, 3440 blocks at 0xeb3 (109 frames) a turn. */
+   half's ends on END|REPEAT), so the voice goes round the buffer, 3440 blocks at 0xeb3 (109 frames) a turn. The
+   file is a one-shot: at its end the read clears the END block's flags and goes on from the file's start, so the
+   voice decodes the whole file (with its last two blocks) over and over, without a gap. */
 static void test_stream_ring(void)
 {
     const NwIrx *irx = nw_nusound_irx();
@@ -728,6 +755,7 @@ static void test_stream_ring(void)
 
     nusound_irx_loaded = 1;
     boot_module(streams);
+    stream_tap_start(0, BIG_BLOCKS, 0);
     SOUND_PlayStream(4, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     for (int frames = 0; frames < 400; frames++) {
         frame();
@@ -740,6 +768,8 @@ static void test_stream_ring(void)
         }
     }
     CHECK(inside && refills == 6 && NuSoundKeyStatus(0) == 1 && s->Status == 1 && s->LoopInfo == 0);
+    CHECK(stream_tap.walk.words > 2 * BIG_BLOCKS * 7 && stream_tap.walk.bad == 0);
+    nw_spu2_set_tap(NULL, NULL);
     nusound_irx_loaded = 0;
 }
 

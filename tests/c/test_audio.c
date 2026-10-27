@@ -260,6 +260,7 @@ static struct {
     int16_t frame[MIX_FRAMES][2];
     unsigned count;
     unsigned tapped[2 * NW_SPU2_VOICES]; /* words per voice */
+    VagWalk walk[2];                     /* voices 0 and 1, once set */
 } mix;
 
 static void mix_out(void *user, const int16_t *frames, unsigned count)
@@ -274,8 +275,10 @@ static void mix_out(void *user, const int16_t *frames, unsigned count)
 static void mix_tap(void *user, unsigned voice, const int16_t samples[4])
 {
     (void)user;
-    (void)samples;
     mix.tapped[voice]++;
+    if (voice < 2 && mix.walk[voice].blocks) {
+        vag_walk_word(&mix.walk[voice], samples);
+    }
 }
 
 /* Voice v (0-47) from ssa at pitch 0x1000 with volumes l and r, keyed on. */
@@ -412,6 +415,49 @@ static void test_spu_envelope(void)
     nw_spu2_init();
 }
 
+/* Loops as the decoder plays them: START latches the loop block, END|REPEAT goes back to it with the ADPCM history
+   going on, an LSAX written after the key-on's sample wins over START, END alone ends the voice. Filters 1-3, so the
+   history shows. */
+static void test_spu_loop(void)
+{
+    const uint32_t loop = 0x4000, one_shot = 0x4100;
+    uint8_t blocks[3 * NW_ADPCM_BLOCK], ends[3 * NW_ADPCM_BLOCK];
+    int8_t n[NW_ADPCM_SAMPLES];
+
+    for (int b = 0; b < 3; b++) {
+        for (int i = 0; i < NW_ADPCM_SAMPLES; i++) {
+            n[i] = (int8_t)((i * 5 + b * 3) % 16 - 8);
+        }
+        unsigned flags = b == 1 ? NW_ADPCM_START : b == 2 ? NW_ADPCM_END | NW_ADPCM_REPEAT : 0;
+        vag_block(blocks + b * NW_ADPCM_BLOCK, b + 1, 4 + b, flags, n);
+    }
+    memcpy(ends, blocks, sizeof(ends));
+    ends[2 * NW_ADPCM_BLOCK + 1] = NW_ADPCM_END;
+    nw_spu2_voice_trans(loop, blocks, sizeof(blocks));
+    nw_spu2_voice_trans(one_shot, ends, sizeof(ends));
+    nw_spu2_set_tap(mix_tap, NULL);
+
+    mix_reset();
+    vag_walk_init(&mix.walk[0], blocks, 3, 1);
+    vag_walk_init(&mix.walk[1], blocks, 3, 2);
+    mix_voice(0, loop, 0x3fff, 0x3fff);
+    mix_voice(1, loop, 0x3fff, 0x3fff);
+    spu_samples(1);
+    nw_spu2_set_addr(1 << 1 | NW_SD_VA_LSAX, loop + 2 * NW_ADPCM_BLOCK);
+    spu_samples(400);
+    CHECK(mix.walk[0].words > 90 && mix.walk[0].bad == 0);
+    CHECK(mix.walk[1].words > 90 && mix.walk[1].bad == 0);
+
+    mix_reset();
+    vag_walk_init(&mix.walk[0], ends, 3, -1);
+    mix_voice(0, one_shot, 0x3fff, 0x3fff);
+    spu_samples(200);
+    CHECK(mix.walk[0].words == 3 * 7 && mix.walk[0].bad == 0);
+
+    nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
 static void test_sfx(const char *scratch)
 {
     static const char text[] = "a text file in SFX.DAT, longer than a VAG header of 48 bytes";
@@ -483,7 +529,7 @@ typedef struct SfxCensus {
     uint8_t *adpcm, *pieces;
     int16_t *pcm;
     uint32_t cap; /* bytes of adpcm */
-    unsigned listed, version_20, rates[3], one_shots, loops, music, music_streamed;
+    unsigned listed, version_20, rates[3], one_shots, loops, loops_played, music, music_streamed;
     unsigned filter_max, shift_max;
     uint64_t samples;
 } SfxCensus;
@@ -501,6 +547,28 @@ static bool census_grow(SfxCensus *c, uint32_t size)
     c->pcm = malloc((size_t)size / NW_ADPCM_BLOCK * NW_ADPCM_SAMPLES * sizeof(int16_t));
     c->cap = c->adpcm && c->pieces && c->pcm ? size : 0;
     return c->cap != 0;
+}
+
+/* A loop in sound RAM at pitch 0x3fff: its voice decodes it twice over, back to block 1 each time. */
+static bool retail_loop_plays(const uint8_t *adpcm, uint32_t blocks)
+{
+    const uint32_t at = 0x10000;
+    const uint64_t words = (2 * (uint64_t)blocks + 1) * 7;
+
+    if (at + blocks * NW_ADPCM_BLOCK > NW_SPU2_RAM) {
+        return false;
+    }
+    nw_spu2_voice_trans(at, adpcm, blocks * NW_ADPCM_BLOCK);
+    mix_reset();
+    nw_spu2_set_tap(mix_tap, NULL);
+    vag_walk_init(&mix.walk[0], adpcm, blocks, 1);
+    mix_voice(0, at, 0x3fff, 0x3fff);
+    nw_spu2_set_param(NW_SD_VP_PITCH, 0x3fff);
+    for (uint64_t guard = words; mix.walk[0].words < words && mix.walk[0].bad == 0 && guard; guard--) {
+        spu_samples(4);
+    }
+    nw_spu2_set_tap(NULL, NULL);
+    return mix.walk[0].bad == 0 && mix.walk[0].words >= words;
 }
 
 static void retail_sample(void *user, int index, const char *path)
@@ -541,6 +609,11 @@ static void retail_sample(void *user, int index, const char *path)
         c->one_shots++; /* the END block, then a flag 7 block */
     } else if (p.loop_start == NW_ADPCM_SAMPLES && p.samples == blocks * NW_ADPCM_SAMPLES) {
         c->loops++;
+        if (retail_loop_plays(c->adpcm, blocks)) {
+            c->loops_played++;
+        } else {
+            fprintf(stderr, "retail: %s: the voice does not loop as its blocks say\n", name);
+        }
     } else {
         fprintf(stderr, "retail: %s: pass of %u samples, loop at %d, %u blocks\n", name, p.samples, p.loop_start,
                 blocks);
@@ -583,13 +656,13 @@ static int test_retail(void)
     CHECK(nw_dat_list(&dat, retail_sample, &c));
     nw_sha256_final(&c.sha, digest);
     nw_sha256_hex(digest, hex);
-    printf("SFX.DAT: %u samples (%u v0x20), rates 22050/11025/44100 %u/%u/%u, %u one-shots, %u loops, filters <= %u, "
-           "shifts <= %u, %llu samples, %u/%u music streamed\nPCM sha256 %s\n",
-           c.listed, c.version_20, c.rates[0], c.rates[1], c.rates[2], c.one_shots, c.loops, c.filter_max,
-           c.shift_max, (unsigned long long)c.samples, c.music_streamed, c.music, hex);
+    printf("SFX.DAT: %u samples (%u v0x20), rates 22050/11025/44100 %u/%u/%u, %u one-shots, %u loops (%u played), "
+           "filters <= %u, shifts <= %u, %llu samples, %u/%u music streamed\nPCM sha256 %s\n",
+           c.listed, c.version_20, c.rates[0], c.rates[1], c.rates[2], c.one_shots, c.loops, c.loops_played,
+           c.filter_max, c.shift_max, (unsigned long long)c.samples, c.music_streamed, c.music, hex);
     CHECK(c.listed == SFX_SAMPLES && c.version_20 == SFX_SAMPLES);
     CHECK(c.rates[0] == 357 && c.rates[1] == 352 && c.rates[2] == 73);
-    CHECK(c.one_shots == 731 && c.loops == 51);
+    CHECK(c.one_shots == 731 && c.loops == 51 && c.loops_played == 51);
     CHECK(c.filter_max == 4 && c.shift_max == 12);
     CHECK(c.samples == 529663960u);
     CHECK(c.music == 84 && c.music_streamed == 84);
@@ -623,6 +696,7 @@ int main(int argc, char *argv[])
     test_spu_voice();
     test_spu_mix();
     test_spu_envelope();
+    test_spu_loop();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);
