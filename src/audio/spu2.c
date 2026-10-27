@@ -13,9 +13,31 @@
 #define NW_SPU2_ALL_VOICES 0xffffffu
 #define NW_SPU2_FIFO 32
 #define NW_SPU2_BATCH 256 /* frames handed to the output at once */
+#define NW_SPU2_FIR_TAPS 39
+#define NW_SPU2_FIR_RING 64
 
 static const int16_t nw_spu2_gauss[256][4] = {
 #include "audio/spu2_gauss.inc"
+};
+
+/* PCSX2's half-band filter around the reverb's 24 kHz (ReverbResample.cpp, its reference version); the way up
+   takes it doubled. */
+static const int16_t nw_spu2_fir[NW_SPU2_FIR_TAPS] = {
+    -1, 0, 2, 0, -10, 0, 35, 0, -103, 0, 266, 0, -616, 0, 1332, 0, -2960, 0, 10246, 16384,
+    10246, 0, -2960, 0, 1332, 0, -616, 0, 266, 0, -103, 0, 35, 0, -10, 0, 2, 0, -1,
+};
+
+/* The reverb's address registers (in words) and volumes, each in register order. */
+enum {
+    NW_REVB_APF1_SIZE, NW_REVB_APF2_SIZE, NW_REVB_SAME_L_DST, NW_REVB_SAME_R_DST, NW_REVB_COMB1_L_SRC,
+    NW_REVB_COMB1_R_SRC, NW_REVB_COMB2_L_SRC, NW_REVB_COMB2_R_SRC, NW_REVB_SAME_L_SRC, NW_REVB_SAME_R_SRC,
+    NW_REVB_DIFF_L_DST, NW_REVB_DIFF_R_DST, NW_REVB_COMB3_L_SRC, NW_REVB_COMB3_R_SRC, NW_REVB_COMB4_L_SRC,
+    NW_REVB_COMB4_R_SRC, NW_REVB_DIFF_L_SRC, NW_REVB_DIFF_R_SRC, NW_REVB_APF1_L_DST, NW_REVB_APF1_R_DST,
+    NW_REVB_APF2_L_DST, NW_REVB_APF2_R_DST, NW_REVB_ADDRS
+};
+enum {
+    NW_REVB_IIR_VOL, NW_REVB_COMB1_VOL, NW_REVB_COMB2_VOL, NW_REVB_COMB3_VOL, NW_REVB_COMB4_VOL, NW_REVB_WALL_VOL,
+    NW_REVB_APF1_VOL, NW_REVB_APF2_VOL, NW_REVB_IN_COEF_L, NW_REVB_IN_COEF_R, NW_REVB_VOLS
 };
 
 /* The envelope's phases (PCSX2 V_ADSR::PHASE_*). */
@@ -49,16 +71,24 @@ typedef struct NwSpu2Core {
     uint32_t addr[4]; /* ESA, EEA, TSA, IRQA */
     uint16_t attr[8]; /* core attributes by (entry >> 1) */
     NwSpu2Effect effect;
+    uint32_t revb_addr[NW_REVB_ADDRS];
+    int16_t revb_vol[NW_REVB_VOLS];
+    int16_t revb_down[2][2 * NW_SPU2_FIR_RING]; /* each ring twice over, so the filter reads it in one piece */
+    int16_t revb_up[2][2 * NW_SPU2_FIR_RING];
+    unsigned revb_pos;
 } NwSpu2Core;
 
 static struct {
     NwSpu2Core core[2];
 } spu;
 
-/* How far the SPU ran and the cycle of its last sample. */
+static NwSpu2Presets nw_spu2_presets;
+
+/* How far the SPU ran, the cycle of its last sample and the samples so far (PCSX2's Cycles). */
 static struct {
     uint64_t cycle;
     uint64_t sample;
+    uint32_t ticks;
 } nw_spu2_clock;
 
 static uint8_t nw_spu2_mem[NW_SPU2_RAM];
@@ -89,6 +119,15 @@ void nw_spu2_init(void)
     spu.core[0].param[nw_spu2_reg(NW_SD_P_MMIX)] = 0xff0;
     spu.core[1].param[nw_spu2_reg(NW_SD_P_MMIX)] = 0xffc;
     spu.core[1].param[nw_spu2_reg(NW_SD_P_AVOLL)] = spu.core[1].param[nw_spu2_reg(NW_SD_P_AVOLR)] = 0x7fff;
+}
+
+void nw_spu2_set_presets(const NwSpu2Presets *presets)
+{
+    if (presets) {
+        nw_spu2_presets = *presets;
+    } else {
+        memset(&nw_spu2_presets, 0, sizeof(nw_spu2_presets));
+    }
 }
 
 void nw_spu2_set_output(NwSpu2Output out, void *user)
@@ -214,9 +253,72 @@ uint16_t nw_spu2_get_core_attr(uint16_t entry)
     return spu.core[entry & 1].attr[(entry >> 1) & 7];
 }
 
+/* The work area in words: from ESA to the end of EEA's 64K words. */
+static uint32_t nw_spu2_esa(const NwSpu2Core *c)
+{
+    return (c->addr[0] >> 1) & NW_SPU2_WORD_MASK;
+}
+
+static uint32_t nw_spu2_eea(const NwSpu2Core *c)
+{
+    return ((c->addr[1] >> 17) << 16 | 0xffff) & NW_SPU2_WORD_MASK;
+}
+
+/* libsd clears a mode's area below EEA by DMA; here at once. */
+static void nw_spu2_clear_work(const NwSpu2Core *c, int mode)
+{
+    uint32_t end = nw_spu2_eea(c) + 1, words = nw_spu2_presets.size[mode] * 4;
+    if (mode != 0 && words <= end) {
+        memset(nw_spu2_mem + (end - words) * 2, 0, words * 2);
+    }
+}
+
+/* sceSdSetEffectAttr: ECHO and DELAY move six addresses by the delay and set the wall volume from the feedback,
+   the other modes keep 0 for both. Clearing goes around the register writes: the old mode's area while effects
+   were on, then the new one's. */
 void nw_spu2_set_effect_attr(int core, const NwSpu2Effect *attr)
 {
-    spu.core[core & 1].effect = *attr;
+    NwSpu2Core *c = &spu.core[core & 1];
+    unsigned mode = (unsigned)attr->mode & ~0x100u, old = (unsigned)c->effect.mode;
+    bool clear = attr->mode & 0x100;
+
+    if (mode >= NW_SPU2_REVERB_MODES) {
+        return;
+    }
+    NwSpu2Preset p = nw_spu2_presets.mode[mode];
+    bool echo = mode == 7 || mode == 8;
+    c->effect = (NwSpu2Effect){ (int)mode, attr->depth_L, attr->depth_R, echo ? attr->delay : 0,
+                                echo ? attr->feedback : 0 };
+    if (echo) {
+        uint16_t d = (uint16_t)((attr->delay + 1) << 5);
+        p.reg[10] = (uint16_t)(2 * d - p.reg[0]);
+        p.reg[11] = (uint16_t)(d - p.reg[1]);
+        p.reg[16] = (uint16_t)(p.reg[17] + d);
+        p.reg[12] = (uint16_t)(p.reg[13] + d);
+        p.reg[27] = (uint16_t)(p.reg[29] + d);
+        p.reg[26] = (uint16_t)(p.reg[28] + d);
+        p.reg[7] = (uint16_t)(attr->feedback * 258);
+    }
+    if (clear && nw_spu2_get_core_attr((uint16_t)(core | NW_SD_C_EFFECT_ENABLE))) {
+        nw_spu2_clear_work(c, (int)old);
+    }
+    c->param[nw_spu2_reg(NW_SD_P_EVOLL)] = (uint16_t)attr->depth_L;
+    c->param[nw_spu2_reg(NW_SD_P_EVOLR)] = (uint16_t)attr->depth_R;
+    for (int i = 0; i < NW_SPU2_REVERB_REGS; i++) {
+        if (p.mask && !(p.mask >> i & 1)) {
+            continue;
+        }
+        if (i < 2 || (i >= 10 && i < 30)) {
+            c->revb_addr[i < 2 ? i : i - 8] = (uint32_t)p.reg[i] << 2;
+        } else {
+            c->revb_vol[i < 10 ? i - 2 : i - 22] = (int16_t)p.reg[i];
+        }
+    }
+    uint32_t esa = nw_spu2_eea(c) + 1 - nw_spu2_presets.size[mode] * 4;
+    c->addr[0] = (esa & NW_SPU2_WORD_MASK) << 1;
+    if (clear) {
+        nw_spu2_clear_work(c, (int)mode);
+    }
 }
 
 NwSpu2Effect nw_spu2_get_effect_attr(int core)
@@ -391,11 +493,12 @@ static int32_t nw_spu2_clamp(int32_t x)
 }
 
 /* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, scaled by the envelope after its
-   step, the volumes, then the pitch moves it on. dry gets each core's dry voices. */
-static void nw_spu2_voices(int32_t dry[2][2], bool mix)
+   step, the volumes, then the pitch moves it on. dry and wet get each core's voices by their VMIX gates. */
+static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
 {
     for (int c = 0; c < 2; c++) {
         NwSpu2Core *core = &spu.core[c];
+        const uint32_t *sw = core->sw;
         for (unsigned i = 0; i < NW_SPU2_VOICES; i++) {
             NwSpu2Voice *v = &core->voice[i];
             nw_spu2_decode(core, i);
@@ -405,12 +508,12 @@ static void nw_spu2_voices(int32_t dry[2][2], bool mix)
                     nw_spu2_stop(v);
                 }
                 value = (value * v->level) >> 15;
-                if (core->sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1) {
-                    dry[c][0] += (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
-                }
-                if (core->sw[nw_spu2_reg(NW_SD_S_VMIXR)] >> i & 1) {
-                    dry[c][1] += (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLR)])) >> 15;
-                }
+                int32_t l = (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLL)])) >> 15;
+                int32_t r = (value * nw_spu2_volume(v->param[nw_spu2_reg(NW_SD_VP_VOLR)])) >> 15;
+                dry[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1 ? l : 0;
+                dry[c][1] += sw[nw_spu2_reg(NW_SD_S_VMIXR)] >> i & 1 ? r : 0;
+                wet[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXEL)] >> i & 1 ? l : 0;
+                wet[c][1] += sw[nw_spu2_reg(NW_SD_S_VMIXER)] >> i & 1 ? r : 0;
             }
             uint32_t pitch = v->param[nw_spu2_reg(NW_SD_VP_PITCH)];
             v->sp += pitch < 0x3fff ? pitch : 0x3fff;
@@ -420,21 +523,117 @@ static void nw_spu2_voices(int32_t dry[2][2], bool mix)
     }
 }
 
-/* spu2Mix without the input, reverb and noise: the clamped dry voices go through each core's MMIX gates, core 0's
-   output through its MVOL and core 1's AVOL into core 1, core 1's through its MVOL out. */
-static void nw_spu2_mix(int32_t dry[2][2], int16_t out[2])
+static int16_t nw_spu2_word(uint32_t w)
+{
+    return (int16_t)(nw_spu2_mem[w * 2] | nw_spu2_mem[w * 2 + 1] << 8);
+}
+
+static void nw_spu2_put_word(uint32_t w, int32_t x)
+{
+    x = nw_spu2_clamp(x);
+    nw_spu2_mem[w * 2] = (uint8_t)x;
+    nw_spu2_mem[w * 2 + 1] = (uint8_t)(x >> 8);
+}
+
+/* PCSX2's MUL, its 32-bit product wrapping as there. */
+static int32_t nw_spu2_mul(int32_t x, int32_t y)
+{
+    return (int32_t)((uint32_t)x * (uint32_t)y) >> 15;
+}
+
+/* A reverb address: offset words past the area's start, which moves a word every other sample (RevbGetIndexer). */
+static uint32_t nw_spu2_revb_at(const NwSpu2Core *c, uint32_t offset)
+{
+    uint32_t start = nw_spu2_esa(c), end = nw_spu2_eea(c);
+    return (start + ((nw_spu2_clock.ticks >> 1) + offset) % (end - start + 1)) & NW_SPU2_WORD_MASK;
+}
+
+static int32_t nw_spu2_filter(const int16_t *ring, unsigned pos, int scale)
+{
+    const int16_t *x = ring + ((pos - NW_SPU2_FIR_TAPS) & (NW_SPU2_FIR_RING - 1));
+    int32_t out = 0;
+    for (unsigned i = 0; i < NW_SPU2_FIR_TAPS; i++) {
+        int32_t k = nw_spu2_fir[i] * scale;
+        out += x[i] * (k > 0x7fff ? 0x7fff : k);
+    }
+    return nw_spu2_clamp(out >> 15);
+}
+
+/* One sample of a core's reverb (PCSX2 DoReverb): the input filtered down to 24 kHz, its left and right on
+   alternate samples through the work area, written back only with effects on, the output filtered back up. */
+static void nw_spu2_reverb(NwSpu2Core *c, const int32_t in[2], int32_t out[2])
+{
+    out[0] = out[1] = 0;
+    if (nw_spu2_esa(c) >= nw_spu2_eea(c)) {
+        return;
+    }
+    unsigned pos = c->revb_pos;
+    for (int s = 0; s < 2; s++) {
+        c->revb_down[s][pos] = c->revb_down[s][pos | NW_SPU2_FIR_RING] = (int16_t)nw_spu2_clamp(in[s]);
+    }
+
+    const uint32_t *a = c->revb_addr;
+    const int16_t *vol = c->revb_vol;
+    int r = nw_spu2_clock.ticks & 1;
+    uint32_t same_src = nw_spu2_revb_at(c, a[NW_REVB_SAME_L_SRC + r]);
+    uint32_t same_dst = nw_spu2_revb_at(c, a[NW_REVB_SAME_L_DST + r]);
+    uint32_t same_prv = nw_spu2_revb_at(c, a[NW_REVB_SAME_L_DST + r] - 1);
+    uint32_t diff_src = nw_spu2_revb_at(c, a[NW_REVB_DIFF_R_SRC - r]); /* the other side's */
+    uint32_t diff_dst = nw_spu2_revb_at(c, a[NW_REVB_DIFF_L_DST + r]);
+    uint32_t diff_prv = nw_spu2_revb_at(c, a[NW_REVB_DIFF_L_DST + r] - 1);
+    uint32_t apf1_dst = nw_spu2_revb_at(c, a[NW_REVB_APF1_L_DST + r]);
+    uint32_t apf1_src = nw_spu2_revb_at(c, a[NW_REVB_APF1_L_DST + r] - a[NW_REVB_APF1_SIZE]);
+    uint32_t apf2_dst = nw_spu2_revb_at(c, a[NW_REVB_APF2_L_DST + r]);
+    uint32_t apf2_src = nw_spu2_revb_at(c, a[NW_REVB_APF2_L_DST + r] - a[NW_REVB_APF2_SIZE]);
+
+    int32_t x = nw_spu2_mul(vol[NW_REVB_IN_COEF_L + r], nw_spu2_filter(c->revb_down[r], pos, 1));
+    int32_t same = nw_spu2_mul(vol[NW_REVB_IIR_VOL], x + nw_spu2_mul(vol[NW_REVB_WALL_VOL], nw_spu2_word(same_src)) -
+                                                         nw_spu2_word(same_prv)) +
+                   nw_spu2_word(same_prv);
+    int32_t diff = nw_spu2_mul(vol[NW_REVB_IIR_VOL], x + nw_spu2_mul(vol[NW_REVB_WALL_VOL], nw_spu2_word(diff_src)) -
+                                                         nw_spu2_word(diff_prv)) +
+                   nw_spu2_word(diff_prv);
+    int32_t y = nw_spu2_mul(vol[NW_REVB_COMB1_VOL], nw_spu2_word(nw_spu2_revb_at(c, a[NW_REVB_COMB1_L_SRC + r]))) +
+                nw_spu2_mul(vol[NW_REVB_COMB2_VOL], nw_spu2_word(nw_spu2_revb_at(c, a[NW_REVB_COMB2_L_SRC + r]))) +
+                nw_spu2_mul(vol[NW_REVB_COMB3_VOL], nw_spu2_word(nw_spu2_revb_at(c, a[NW_REVB_COMB3_L_SRC + r]))) +
+                nw_spu2_mul(vol[NW_REVB_COMB4_VOL], nw_spu2_word(nw_spu2_revb_at(c, a[NW_REVB_COMB4_L_SRC + r])));
+    int32_t apf1 = y - nw_spu2_mul(vol[NW_REVB_APF1_VOL], nw_spu2_word(apf1_src));
+    y = nw_spu2_word(apf1_src) + nw_spu2_mul(vol[NW_REVB_APF1_VOL], apf1);
+    int32_t apf2 = y - nw_spu2_mul(vol[NW_REVB_APF2_VOL], nw_spu2_word(apf2_src));
+    y = nw_spu2_word(apf2_src) + nw_spu2_mul(vol[NW_REVB_APF2_VOL], apf2);
+    if (c->attr[NW_SD_C_EFFECT_ENABLE >> 1]) {
+        nw_spu2_put_word(same_dst, same);
+        nw_spu2_put_word(diff_dst, diff);
+        nw_spu2_put_word(apf1_dst, apf1);
+        nw_spu2_put_word(apf2_dst, apf2);
+    }
+
+    c->revb_up[r][pos] = c->revb_up[r][pos | NW_SPU2_FIR_RING] = (int16_t)nw_spu2_clamp(y);
+    c->revb_up[!r][pos] = c->revb_up[!r][pos | NW_SPU2_FIR_RING] = 0;
+    c->revb_pos = pos = (pos + 1) & (NW_SPU2_FIR_RING - 1);
+    out[0] = nw_spu2_filter(c->revb_up[0], pos, 2);
+    out[1] = nw_spu2_filter(c->revb_up[1], pos, 2);
+}
+
+/* spu2Mix without the input and noise: each core's clamped dry and wet voices go through its MMIX gates, the wet
+   side through the reverb and EVOL onto the dry one; core 0's output through its MVOL and core 1's AVOL into core
+   1, core 1's through its MVOL out. */
+static void nw_spu2_mix(int32_t dry[2][2], int32_t wet[2][2], int16_t out[2])
 {
     int32_t ext[2] = { 0, 0 };
     for (int c = 0; c < 2; c++) {
         const uint16_t *p = spu.core[c].param;
         unsigned mmix = p[nw_spu2_reg(NW_SD_P_MMIX)] & (c ? 0xfff : 0xff0);
+        int32_t td[2], tw[2], rv[2];
         for (int s = 0; s < 2; s++) {
-            int32_t td = mmix >> (11 - s) & 1 ? nw_spu2_clamp(dry[c][s]) : 0;
-            if (mmix >> (3 - s) & 1) {
-                td += ext[s];
-            }
+            td[s] = (mmix >> (11 - s) & 1 ? nw_spu2_clamp(dry[c][s]) : 0) + (mmix >> (3 - s) & 1 ? ext[s] : 0);
+            tw[s] = (mmix >> (9 - s) & 1 ? nw_spu2_clamp(wet[c][s]) : 0) + (mmix >> (1 - s) & 1 ? ext[s] : 0);
+        }
+        nw_spu2_reverb(&spu.core[c], tw, rv);
+        for (int s = 0; s < 2; s++) {
+            int32_t fx = (rv[s] * (int16_t)p[nw_spu2_reg(s ? NW_SD_P_EVOLR : NW_SD_P_EVOLL)]) >> 15;
             int32_t master = nw_spu2_volume(p[nw_spu2_reg(s ? NW_SD_P_MVOLR : NW_SD_P_MVOLL)]);
-            int32_t v = (nw_spu2_clamp(td) * master) >> 15;
+            int32_t v = (nw_spu2_clamp(td[s] + fx) * master) >> 15;
             if (c == 0) {
                 ext[s] = (v * (int16_t)spu.core[1].param[nw_spu2_reg(s ? NW_SD_P_AVOLR : NW_SD_P_AVOLL)]) >> 15;
             } else {
@@ -454,19 +653,20 @@ static void nw_spu2_flush(void)
 
 static void nw_spu2_sample(void)
 {
-    int32_t dry[2][2] = { { 0, 0 }, { 0, 0 } };
+    int32_t dry[2][2] = { { 0, 0 }, { 0, 0 } }, wet[2][2] = { { 0, 0 }, { 0, 0 } };
     bool mix = nw_spu2_io.out != NULL;
 
     for (int c = 0; c < 2; c++) {
         nw_spu2_keys(&spu.core[c]);
     }
-    nw_spu2_voices(dry, mix);
+    nw_spu2_voices(dry, wet, mix);
     if (mix) {
-        nw_spu2_mix(dry, nw_spu2_io.frames + nw_spu2_io.count * 2);
+        nw_spu2_mix(dry, wet, nw_spu2_io.frames + nw_spu2_io.count * 2);
         if (++nw_spu2_io.count == NW_SPU2_BATCH) {
             nw_spu2_flush();
         }
     }
+    nw_spu2_clock.ticks++;
 }
 
 void nw_spu2_run_to(uint64_t cycle)

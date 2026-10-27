@@ -874,17 +874,28 @@ static void test_reverb(void)
 {
     const NwIrx *irx = nw_nusound_irx();
 
+    NwSpu2Presets presets = { 0 };
+
     nw_nusound_init(&vfs, nw_game_us);
+    presets.size[6] = 0x100;
+    presets.size[3] = 0x80;
+    presets.size[7] = 0x40;
+    nw_spu2_set_presets(&presets);
     SOUND_EnableEffects(0, 6, 0x3fff, 0x2000, 0, 0);
     SOUND_SetEffectMasterVolume(0, 0x1000, 0x0800);
     SOUND_EnableEffects(1, 3, -0x1000, 0x1000, 0x40, 0x50); /* below core 0's work area */
     FlushIOPCommand(0);
     CHECK(nw_spu2_get_addr(NW_SD_A_EEA) == 0xfffff && nw_spu2_get_addr(1 | NW_SD_A_EEA) == 0xdffff);
+    CHECK(nw_spu2_get_addr(NW_SD_A_ESA) == 0xff800 && nw_spu2_get_addr(1 | NW_SD_A_ESA) == 0xdfc00);
     CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0x1000 && nw_spu2_get_param(NW_SD_P_EVOLR) == 0x0800);
-    CHECK(nw_spu2_get_param(1 | NW_SD_P_EVOLL) == 0 && nw_spu2_get_core_attr(1 | NW_SD_C_EFFECT_ENABLE) == 1);
-    NwSpu2Effect e = nw_spu2_get_effect_attr(1);
-    CHECK(e.mode == 0x103 && e.depth_L == -0x1000 && e.depth_R == 0x1000 && e.delay == 0x40 && e.feedback == 0x50);
+    CHECK(nw_spu2_get_param(1 | NW_SD_P_EVOLL) == 0xf000 && nw_spu2_get_core_attr(1 | NW_SD_C_EFFECT_ENABLE) == 1);
+    NwSpu2Effect e = nw_spu2_get_effect_attr(1); /* delay and feedback are ECHO's and DELAY's */
+    CHECK(e.mode == 3 && e.depth_L == -0x1000 && e.depth_R == 0x1000 && e.delay == 0 && e.feedback == 0);
     CHECK(irx->CurrentReverb[0] == 6 && irx->CurrentRevDepL[0] == 0x3fff);
+    SOUND_EnableEffects(1, 7, 0, 0, 0x40, 0x50);
+    FlushIOPCommand(0);
+    e = nw_spu2_get_effect_attr(1);
+    CHECK(e.mode == 7 && e.delay == 0x40 && e.feedback == 0x50 && nw_spu2_get_addr(1 | NW_SD_A_ESA) == 0xdfe00);
 
     SOUND_SetChannelEffectOn(5);
     SOUND_SetChannelEffectOn(30); /* core 1 voice 6 */
@@ -901,7 +912,8 @@ static void test_reverb(void)
     SOUND_DisableEffects(0);
     FlushIOPCommand(0);
     CHECK(nw_spu2_get_core_attr(NW_SD_C_EFFECT_ENABLE) == 0 && irx->CurrentReverb[0] == 0);
-    CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0 && nw_spu2_get_effect_attr(0).mode == 0x100);
+    CHECK(nw_spu2_get_param(NW_SD_P_EVOLL) == 0 && nw_spu2_get_effect_attr(0).mode == 0);
+    nw_spu2_set_presets(NULL);
 }
 
 /* NuSoundKillAllAudio: shutoff seen raised, then cleared by the module's next tick; its vblank waits run on a
