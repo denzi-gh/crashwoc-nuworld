@@ -10,13 +10,15 @@
 #define NW_AUDIO_MAX_MS 250   /* past this the queue is dropped */
 #define NW_AUDIO_TRIM 0.005f  /* the most the playback rate is nudged to hold the target */
 #define NW_AUDIO_CHUNK 256
+#define NW_AUDIO_VOICE 4 /* the channel GameSfx plays voices on (gamesfx_channel) */
 
 /* The SPU runs on the game's EE threads, the device on its own; the lock lets close race the game thread. */
 static struct {
     SDL_Mutex *lock;
     SDL_AudioStream *stream; /* under lock */
+    float master;            /* under lock once there is one */
     float dc_in[2], dc_out[2];
-} nw_audio;
+} nw_audio = { .master = 1.0f };
 
 static unsigned nw_audio_queued_ms(void)
 {
@@ -87,10 +89,26 @@ bool nw_audio_open(void)
     }
     SDL_LockMutex(nw_audio.lock);
     nw_audio.stream = stream;
+    SDL_SetAudioStreamGain(stream, nw_audio.master);
     SDL_UnlockMutex(nw_audio.lock);
     SDL_ResumeAudioStreamDevice(stream);
     nw_spu2_set_output(nw_audio_out, NULL);
     return true;
+}
+
+void nw_audio_set_buses(int master, int voice)
+{
+    nw_spu2_set_gain(NW_AUDIO_VOICE, SDL_clamp(voice, 0, 100) * NW_SPU2_UNITY / 100);
+    if (nw_audio.lock) {
+        SDL_LockMutex(nw_audio.lock);
+    }
+    nw_audio.master = (float)SDL_clamp(master, 0, 100) / 100.0f;
+    if (nw_audio.stream) {
+        SDL_SetAudioStreamGain(nw_audio.stream, nw_audio.master);
+    }
+    if (nw_audio.lock) {
+        SDL_UnlockMutex(nw_audio.lock);
+    }
 }
 
 /* The game thread may still run: the output stays set and goes nowhere. */

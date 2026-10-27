@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 
 #include "audio/irx.h"
+#include "audio/libsd.h"
 #include "audio/spu2.h"
 #include "audio/vag.h"
 
@@ -90,6 +91,8 @@ void nw_nusound_init(const NwVfs *vfs, uint64_t (*now_us)(void))
     irx.LoadFromEE = NW_IRX_NO_REQUEST;
     irx.CD_IDLE = 1;
     irx.CurrentReverbAddr[0] = irx.CurrentReverbAddr[1] = NW_IRX_REVERB_END;
+    NwSpu2Presets presets;
+    nw_spu2_set_presets(vfs && nw_libsd_presets(vfs, &presets) ? &presets : NULL);
     nw_spu2_init();
 }
 
@@ -413,8 +416,9 @@ static void CheckTwoStreamsStatus(int channel1, int channel2, int Pitch)
     }
 }
 
-/* A core's reverb: its work area ends at the top unless the other core's reverb is there. EVOL starts at 0 (the EE
-   sends 0x15 after). The IRX indexes its per-core tables with the core unchecked; here only 0 and 1 are taken. */
+/* A core's reverb: its work area ends at the top unless the other core's reverb is there. EVOL goes to 0, then
+   libsd sets it to the depths. The IRX indexes its per-core tables with the core unchecked; here only 0 and 1 are
+   taken. */
 static void SOUND_EnableEffects(int core, int type, int depl, int depr, int delay, int feedback)
 {
     if (core > 1) {

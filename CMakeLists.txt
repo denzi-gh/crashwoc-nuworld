@@ -122,6 +122,7 @@ target_link_libraries(nuworld_gfx PUBLIC nuworld_vfs)
 
 # NUSOUND: the IRX's RPC side, the VAG decoder and SFX.DAT.
 add_library(nuworld_audio STATIC
+  src/audio/libsd.c
   src/audio/nusound.c
   src/audio/sfx.c
   src/audio/spu2.c

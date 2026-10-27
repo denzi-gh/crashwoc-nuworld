@@ -108,6 +108,11 @@ bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool l
     return ImGui::SliderFloat(label, value, lo, hi, "%.3g", log ? ImGuiSliderFlags_Logarithmic : 0);
 }
 
+bool nw_debug_slider_int(const char *label, int *value, int lo, int hi)
+{
+    return ImGui::SliderInt(label, value, lo, hi);
+}
+
 bool nw_debug_filter(const char *hint, char *buf, size_t size)
 {
     ImGui::PushID(hint);

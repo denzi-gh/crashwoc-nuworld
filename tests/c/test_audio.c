@@ -1,14 +1,16 @@
 /* Audio tests: the VAG header and the PS-ADPCM decoder on hand-built blocks, expected values worked out by hand
-   from PCSX2's XA_decode_block, the SPU2 voices in time and their mix, and SFX.DAT access on a synthetic archive.
-   Usage: test_audio <scratch dir>.
+   from PCSX2's XA_decode_block, the SPU2 voices in time, their mix and reverb, and SFX.DAT access on a synthetic
+   archive. Usage: test_audio <scratch dir>.
    Local only, with your own disc: `test_audio retail` finds every sample of SFX.DAT in the extracted disc dir
-   NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census; exits 77 without it. */
+   NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census, and libsd's reverb presets; exits
+   77 without it. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
+#include "audio/libsd.h"
 #include "audio/sfx.h"
 #include "audio/spu2.h"
 #include "audio/vag.h"
@@ -373,8 +375,58 @@ static void test_spu_mix(void)
     spu_samples(40);
     CHECK(mix_all(0, 0));
 
+    /* The port's gain after the envelope: half of 4076 is 2038, through the volumes 2034; another voice's leaves
+       this one alone. */
+    mix_reset();
+    nw_spu2_set_gain(0, NW_SPU2_UNITY / 2);
+    nw_spu2_set_gain(1, 0);
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(40);
+    CHECK(mix_all(2034, 0));
+    nw_spu2_set_gain(0, NW_SPU2_UNITY);
+    nw_spu2_set_gain(1, NW_SPU2_UNITY);
+
     nw_spu2_set_output(NULL, NULL);
     nw_spu2_set_tap(NULL, NULL);
+    nw_spu2_init();
+}
+
+/* Voice volumes as PCSX2's V_VolumeSlide runs them, on core 1's voice 0 at ENVX 0x7fff (4076 before VOL, VOL then
+   MVOL 0x3fff out). 15 bits sign extended invert the phase: 0x4001 is -32766, -4076 out. Bit 15 sweeps from the
+   volume it finds: 0x8000 (linear up, shift 0, step 7) adds 0x3800 a sample, 1782, 3565, then 4074 at the top;
+   0xe0c0 (-8000 as a looping sound behind the camera sends it: exponential down, shift 16) takes 8 every 32
+   samples from 0x7ffe, 4074 to 4073. */
+static void test_spu_sweep(void)
+{
+    const uint32_t loud = 0x3000;
+    const uint16_t vl = 1 | NW_SD_VP_VOLL;
+    uint8_t block[NW_ADPCM_BLOCK];
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    nw_spu2_set_output(mix_out, NULL);
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0x4001, 0);
+    spu_samples(40);
+    CHECK(mix_all(-4076, 0));
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0, 0);
+    spu_samples(4);
+    nw_spu2_set_param(vl, 0x8000);
+    spu_samples(4);
+    CHECK(mix.frame[3][0] == 0 && mix.frame[4][0] == 1782 && mix.frame[5][0] == 3565 && mix.frame[6][0] == 4074);
+    CHECK(mix.frame[7][0] == 4074 && nw_spu2_get_param(vl) == 0x8000);
+
+    mix_reset();
+    mix_voice(NW_SPU2_VOICES, loud, 0x3fff, 0);
+    spu_samples(4);
+    nw_spu2_set_param(vl, 0xe0c0);
+    spu_samples(MIX_FRAMES - 4);
+    CHECK(mix.frame[4 + 30][0] == 4074 && mix.frame[4 + 31][0] == 4073 && mix.frame[MIX_FRAMES - 1][0] == 4073);
+
+    nw_spu2_set_output(NULL, NULL);
     nw_spu2_init();
 }
 
@@ -412,6 +464,126 @@ static void test_spu_envelope(void)
     CHECK(falling && mix.frame[33][0] == 4072 && mix.frame[35][0] < 4072 && mix.frame[MIX_FRAMES - 1][0] > 4000);
 
     nw_spu2_set_output(NULL, NULL);
+    nw_spu2_init();
+}
+
+#define REVB_FRAMES 1024
+#define REVB_SIZE 0x400 /* the test presets' work area, 8-byte units */
+
+static struct {
+    int16_t frame[REVB_FRAMES][2];
+    unsigned count;
+} revb;
+
+static void revb_out(void *user, const int16_t *frames, unsigned count)
+{
+    (void)user;
+    for (unsigned i = 0; i < count && revb.count < REVB_FRAMES; i++, revb.count++) {
+        revb.frame[revb.count][0] = frames[i * 2];
+        revb.frame[revb.count][1] = frames[i * 2 + 1];
+    }
+}
+
+/* Not libsd's: mode 1 and ECHO (7) are a delay line, the input written at SAME_DST and read back by COMB1 0x40
+   words (128 samples) later on the left, then through both all-pass stages at volume 0, 4 words each. No other
+   write sweeps over a word between its write and its read. */
+static void revb_presets(NwSpu2Presets *p)
+{
+    static const uint16_t line[NW_SPU2_REVERB_REGS] = {
+        1, 1, 0x7fff, 0x7fff, 0, 0, 0, 0, 0, 0,             /* APF sizes, volumes */
+        0x20, 0x40, 0x10, 0x30, 0, 0, 0, 0, 0x3f0, 0x3f8,   /* SAME_DST, COMB1, COMB2, SAME_SRC, DIFF_DST */
+        0, 0, 0, 0, 0, 0, 0x180, 0x190, 0x1c0, 0x1d0,       /* COMB3, COMB4, DIFF_SRC, APF1_DST, APF2_DST */
+        0x7fff, 0x7fff,                                     /* IN_COEF */
+    };
+    memset(p, 0, sizeof(*p));
+    for (int m = 1; m <= 7; m += 6) {
+        p->size[m] = REVB_SIZE;
+        memcpy(p->mode[m].reg, line, sizeof(line));
+    }
+}
+
+/* Core 1's voice 0 on a block of 4096s, wet only, through mode (cleared first) at EVOL evol; n frames. */
+static void revb_play(int mode, int delay, int16_t evol, bool on, unsigned n)
+{
+    const uint32_t loud = 0x3000;
+    uint8_t block[NW_ADPCM_BLOCK];
+    NwSpu2Effect e = { mode | 0x100, evol, evol, delay, 0 };
+
+    vag_block_fill(block, 0, 0, NW_ADPCM_START | NW_ADPCM_END | NW_ADPCM_REPEAT, 1);
+    nw_spu2_voice_trans(loud, block, sizeof(block));
+    mix_reset();
+    nw_spu2_set_addr(1 | NW_SD_A_EEA, 0xfffff);
+    nw_spu2_set_effect_attr(1, &e);
+    nw_spu2_set_core_attr(1 | NW_SD_C_EFFECT_ENABLE, on);
+    nw_spu2_set_switch(1 | NW_SD_S_VMIXL, 0);
+    nw_spu2_set_switch(1 | NW_SD_S_VMIXR, 0);
+    memset(&revb, 0, sizeof(revb));
+    mix_voice(NW_SPU2_VOICES, loud, 0x3fff, 0x3fff);
+    spu_samples(n);
+}
+
+static unsigned revb_onset(int side)
+{
+    unsigned i = 0;
+    while (i < revb.count && revb.frame[i][side] == 0) {
+        i++;
+    }
+    return i;
+}
+
+static bool revb_silent(void)
+{
+    return revb.count > 0 && revb_onset(0) == revb.count && revb_onset(1) == revb.count;
+}
+
+/* The work area as libsd sets it up, and the reverb in time (PCSX2's DoReverb): silent without EVOL, without
+   effects on (nothing is written back) or without a preset; ECHO's delay moves the line by 64 words a step. */
+static void test_spu_reverb(void)
+{
+    const uint32_t esa = (0x80000 - REVB_SIZE * 4) * 2;
+    NwSpu2Presets presets;
+    uint8_t fill[0x100];
+
+    revb_presets(&presets);
+    nw_spu2_set_presets(&presets);
+    nw_spu2_set_output(revb_out, NULL);
+
+    nw_spu2_init();
+    nw_spu2_set_addr(1 | NW_SD_A_EEA, 0xfffff);
+    memset(fill, 0x55, sizeof(fill));
+    nw_spu2_voice_trans(esa - sizeof(fill), fill, sizeof(fill));
+    nw_spu2_voice_trans(0xfff00, fill, sizeof(fill));
+    nw_spu2_set_effect_attr(1, &(NwSpu2Effect){ 1, 0, 0, 0, 0 });
+    CHECK(nw_spu2_get_addr(1 | NW_SD_A_ESA) == esa && nw_spu2_ram()[0xfffff] == 0x55);
+    nw_spu2_set_effect_attr(1, &(NwSpu2Effect){ 0x101, 0, 0, 0, 0 });
+    CHECK(nw_spu2_ram()[esa - 1] == 0x55 && nw_spu2_ram()[esa] == 0 && nw_spu2_ram()[0xfffff] == 0);
+    nw_spu2_set_effect_attr(1, &(NwSpu2Effect){ 10, 0, 0, 0, 0 });
+    CHECK(nw_spu2_get_effect_attr(1).mode == 1);
+
+    revb_play(1, 0, 0, true, 400);
+    CHECK(revb_silent());
+    revb_play(1, 0, 0x7fff, false, 400);
+    CHECK(revb_silent());
+    nw_spu2_set_presets(NULL);
+    revb_play(1, 0, 0x7fff, true, 400);
+    CHECK(revb_silent());
+    nw_spu2_set_presets(&presets);
+
+    /* The line's 0x48 words are 144 samples, the filters add a few. Settled, 4075 in comes out of the down filter
+       as 4074, past IN_COEF 4073, kept by SAME (its last lap's value in the IIR term), 4072 from COMB1, 4071 up,
+       4070 past EVOL, 4069 past MVOL. */
+    revb_play(1, 0, 0x7fff, true, 400);
+    unsigned line = revb_onset(0);
+    CHECK(line >= 144 && line < 144 + NW_ADPCM_SAMPLES);
+    CHECK(revb.frame[398][0] == 4069 && revb.frame[399][0] == 4069 && revb.frame[399][1] == 4069);
+
+    revb_play(7, 1, 0x7fff, true, 800);
+    unsigned echo = revb_onset(0);
+    revb_play(7, 2, 0x7fff, true, 800);
+    CHECK(echo < line && revb_onset(0) == echo + 256);
+
+    nw_spu2_set_output(NULL, NULL);
+    nw_spu2_set_presets(NULL);
     nw_spu2_init();
 }
 
@@ -522,6 +694,7 @@ static void test_sfx(const char *scratch)
 #define SFX_SAMPLES 782
 #define SFX_STREAM_PIECE 0x6b80 /* half of a 0xD700 stream buffer */
 static const char sfx_pcm_sha256[] = "1996556c27a4a970a41a24fd457b1552fc5df4ef1eae0e0be88389fcbb59a643";
+static const char libsd_presets_sha256[] = "4c69869b4ef9cb68d8395b31124c7239f860c8471644263dccf8f1558ea1d871";
 
 typedef struct SfxCensus {
     NwDat *dat;
@@ -651,6 +824,16 @@ static int test_retail(void)
         nw_vfs_shutdown(&vfs);
         return 1;
     }
+    NwSpu2Presets presets;
+    NwSha256 sha;
+    CHECK(nw_libsd_presets(&vfs, &presets));
+    nw_sha256_init(&sha);
+    nw_sha256_update(&sha, &presets, sizeof(presets)); /* no padding, LE on x86_64 */
+    nw_sha256_final(&sha, digest);
+    nw_sha256_hex(digest, hex);
+    printf("LIBSD.IRX reverb presets sha256 %s\n", hex);
+    CHECK(strcmp(hex, libsd_presets_sha256) == 0);
+
     c.dat = &dat;
     nw_sha256_init(&c.sha);
     CHECK(nw_dat_list(&dat, retail_sample, &c));
@@ -696,7 +879,9 @@ int main(int argc, char *argv[])
     test_spu_voice();
     test_spu_mix();
     test_spu_envelope();
+    test_spu_sweep();
     test_spu_loop();
+    test_spu_reverb();
     test_sfx(scratch);
 
     nw_paths_remove_tree(scratch);

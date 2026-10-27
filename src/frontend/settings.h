@@ -7,6 +7,8 @@
 
 typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
+    int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
+    int voice_volume;    /* the voice stream (cutscenes, hints) */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

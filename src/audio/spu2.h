@@ -2,7 +2,8 @@
    bit 0, the voice in bits 1-5, the register in bits 8+. Voices run in time as PCSX2's SPU2 runs them (Mixer.cpp,
    ADSR.cpp): a sample every 768 IOP cycles moves each voice's address through its ADPCM blocks at its pitch,
    follows their loop flags and steps its envelope; KON and KOFF take effect at the next sample. With an output set,
-   each sample is mixed: core 0's dry voices, through its master volume, into core 1's, through its own. */
+   each sample is mixed: core 0's dry voices and reverb, through its master volume, into core 1's, through its own.
+   The reverb runs in sound RAM as PCSX2's does (Reverb.cpp); its registers come from libsd's presets. */
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
@@ -35,7 +36,9 @@
 #define NW_SD_S_VMIXR 0x1a00
 #define NW_SD_S_VMIXER 0x1b00
 
-/* sceSdSetAddr / sceSdGetAddr: the core's reverb work area end, then voice addresses (bit 6), in bytes */
+/* sceSdSetAddr / sceSdGetAddr: the core's reverb work area, then voice addresses (bit 6), in bytes. EEA keeps its
+   128 KB: the area ends at the last byte of it. */
+#define NW_SD_A_ESA 0x1c00
 #define NW_SD_A_EEA 0x1d00
 #define NW_SD_VA_SSA 0x2040
 #define NW_SD_VA_LSAX 0x2140
@@ -50,16 +53,39 @@ typedef struct NwSpu2Effect {
     int mode; /* SD_REV_MODE_*, 0x100: clear the work area */
     int16_t depth_L;
     int16_t depth_R;
-    int delay;
+    int delay;    /* ECHO and DELAY */
     int feedback;
 } NwSpu2Effect;
 
-/* sceSdInit: the registers and voices as libsd leaves them; sound RAM, the clock and the output keep theirs. */
+#define NW_SPU2_REVERB_MODES 10 /* SD_REV_MODE_OFF .. PIPE */
+#define NW_SPU2_REVERB_REGS 32  /* in the SPU1's order: APF sizes, volumes, addresses, IN_COEF */
+
+/* libsd's reverb table: per mode the work area in 8-byte units and the registers sceSdSetEffectAttr writes, the
+   addresses in 8-byte units; a mask bit per register, 0 for all. */
+typedef struct NwSpu2Preset {
+    uint32_t mask;
+    uint16_t reg[NW_SPU2_REVERB_REGS];
+} NwSpu2Preset;
+
+typedef struct NwSpu2Presets {
+    uint32_t size[NW_SPU2_REVERB_MODES];
+    NwSpu2Preset mode[NW_SPU2_REVERB_MODES];
+} NwSpu2Presets;
+
+/* sceSdInit: the registers and voices as libsd leaves them; sound RAM, the clock, the output and the presets keep
+   theirs. */
 void nw_spu2_init(void);
+
+/* NULL: none, every mode then has no work area and the reverb stays silent. */
+void nw_spu2_set_presets(const NwSpu2Presets *presets);
 
 /* Stereo frames (left, right) at 48 kHz, in batches as the SPU runs; NULL: nothing is mixed. */
 typedef void (*NwSpu2Output)(void *user, const int16_t *frames, unsigned count);
 void nw_spu2_set_output(NwSpu2Output out, void *user);
+
+/* The port's own gain on a voice (0-47) after its envelope, 0x8000 (the default) for none. Any thread. */
+#define NW_SPU2_UNITY 0x8000
+void nw_spu2_set_gain(unsigned voice, int gain);
 
 /* Each voice's decoded samples (voice 0-47), 4 at a time in the order its decoder reads them. */
 typedef void (*NwSpu2Tap)(void *user, unsigned voice, const int16_t samples[4]);
@@ -78,6 +104,8 @@ void nw_spu2_set_addr(uint16_t entry, uint32_t addr);
 uint32_t nw_spu2_get_addr(uint16_t entry);
 void nw_spu2_set_core_attr(uint16_t entry, uint16_t value);
 uint16_t nw_spu2_get_core_attr(uint16_t entry);
+/* As libsd: EVOL takes the depths, the reverb registers the mode's preset (ECHO and DELAY moved by delay and
+   feedback), ESA the work area below EEA; a mode past PIPE changes nothing. */
 void nw_spu2_set_effect_attr(int core, const NwSpu2Effect *attr);
 NwSpu2Effect nw_spu2_get_effect_attr(int core);
 
