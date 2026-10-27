@@ -16,6 +16,7 @@
 #include "audio/nusound.h"
 #include "audio/spu2.h"
 #include "data/image.h"
+#include "game/sfx.h"
 #include "nusound/nusound.h"
 #include "platform/paths.h"
 #include "port/game.h"
@@ -59,6 +60,7 @@ void SOUND_AllChannelEffectsOn(int core);
 void SOUND_AllChannelEffectsOff(int core);
 void NuSoundKillAllAudio(void);
 void NuSoundPlayChan(int sfx, int left, int right, int pitch, int channel);
+void NuSoundPlayStereo(int sfx_left, int sfx_right, int left, int right, int pitch);
 void InitGlobalSfx(void);
 void NuFileInitEx(int deviceid, int rebootiop);
 void NuPs2InitIOP(void);
@@ -68,6 +70,7 @@ void NuSoundUpdate(void);
 int sceGsSyncV(int mode);
 extern int nusound_irx_loaded;
 extern int Attack, Release;
+extern GameSound SfxTabGLOBAL[197];
 extern volatile int sbuff2[128];
 
 static int failures;
@@ -614,25 +617,34 @@ static struct nusound_filename_info_s streams[] = {
     { "", 0, 0, 0 },
 };
 
-/* What one voice decodes, against the file it streams. */
+/* What up to two voices decode, each against the file it streams. */
 static struct {
-    unsigned voice;
-    VagWalk walk;
+    unsigned voice[2];
+    VagWalk walk[2];
 } stream_tap;
 
 static void stream_tap_word(void *user, unsigned voice, const int16_t samples[4])
 {
     (void)user;
-    if (voice == stream_tap.voice) {
-        vag_walk_word(&stream_tap.walk, samples);
+    for (int i = 0; i < 2; i++) {
+        if (stream_tap.walk[i].blocks && voice == stream_tap.voice[i]) {
+            vag_walk_word(&stream_tap.walk[i], samples);
+        }
     }
 }
 
-static void stream_tap_start(unsigned voice, uint32_t count, int32_t loop)
+/* Walk i follows voice (0-47) through count blocks, back to block loop (-1: none). */
+static void stream_tap_start(int i, unsigned voice, const uint8_t *blocks, uint32_t count, int32_t loop)
 {
-    stream_tap.voice = voice;
-    vag_walk_init(&stream_tap.walk, big_blocks, count, loop);
+    stream_tap.voice[i] = voice;
+    vag_walk_init(&stream_tap.walk[i], blocks, count, loop);
     nw_spu2_set_tap(stream_tap_word, NULL);
+}
+
+static void stream_tap_stop(void)
+{
+    nw_spu2_set_tap(NULL, NULL);
+    memset(&stream_tap, 0, sizeof(stream_tap));
 }
 
 /* A game frame: a vblank of time, then NuSoundUpdate, which answers the module's load request. */
@@ -676,7 +688,7 @@ static void test_play_stream(void)
     const STREAMDATA *s0 = &irx->StreamBuffer[0];
     const uint8_t *ram = nw_spu2_ram() + 0x5010;
     bool held = false;
-    stream_tap_start(0, BIG_BLOCKS - 1, -1);
+    stream_tap_start(0, 0, big_blocks, BIG_BLOCKS - 1, -1);
     SOUND_PlayStream(3, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     for (frames = 0; frames < 50 && NuSoundKeyStatus(0) != 1; frames++) {
         frame();
@@ -709,8 +721,8 @@ static void test_play_stream(void)
     frame();
     CHECK(s0->Status == 0);
     /* The voice decoded the file through its END block, every block once, across the refill. */
-    CHECK(stream_tap.walk.words == (BIG_BLOCKS - 1) * 7 && stream_tap.walk.bad == 0);
-    nw_spu2_set_tap(NULL, NULL);
+    CHECK(stream_tap.walk[0].words == (BIG_BLOCKS - 1) * 7 && stream_tap.walk[0].bad == 0);
+    stream_tap_stop();
     nusound_irx_loaded = 0;
 }
 
@@ -755,7 +767,7 @@ static void test_stream_ring(void)
 
     nusound_irx_loaded = 1;
     boot_module(streams);
-    stream_tap_start(0, BIG_BLOCKS, 0);
+    stream_tap_start(0, 0, big_blocks, BIG_BLOCKS, 0);
     SOUND_PlayStream(4, 0, 0, 0x3fff, 0, 1, 2, 0, 0x10);
     for (int frames = 0; frames < 400; frames++) {
         frame();
@@ -768,8 +780,8 @@ static void test_stream_ring(void)
         }
     }
     CHECK(inside && refills == 6 && NuSoundKeyStatus(0) == 1 && s->Status == 1 && s->LoopInfo == 0);
-    CHECK(stream_tap.walk.words > 2 * BIG_BLOCKS * 7 && stream_tap.walk.bad == 0);
-    nw_spu2_set_tap(NULL, NULL);
+    CHECK(stream_tap.walk[0].words > 2 * BIG_BLOCKS * 7 && stream_tap.walk[0].bad == 0);
+    stream_tap_stop();
     nusound_irx_loaded = 0;
 }
 
@@ -802,6 +814,57 @@ static void test_stereo(void)
     frame();
     frame();
     CHECK(irx->StereoStarted == 0 && nw_spu2_get_param(0 | NW_SD_VP_PITCH) == 0);
+    nusound_irx_loaded = 0;
+}
+
+/* The frames once both stereo voices move: the IRX sets the pitch between the SPU's runs, so a batch has one. */
+static struct {
+    unsigned frames, same, loud;
+} stereo_mix;
+
+static void stereo_out(void *user, const int16_t *frames, unsigned count)
+{
+    (void)user;
+    if (!nw_spu2_get_param(NW_SD_VP_PITCH) || !nw_spu2_get_param(1 << 1 | NW_SD_VP_PITCH)) {
+        return;
+    }
+    for (unsigned i = 0; i < count; i++, stereo_mix.frames++) {
+        stereo_mix.same += frames[2 * i] == frames[2 * i + 1];
+        stereo_mix.loud += frames[2 * i] != 0;
+    }
+}
+
+/* Music as NuSoundPlayStereo plays it, with the same file on both sides: channel 0 only left, channel 1 only right,
+   released at once, so from then on every frame is the same left and right and both voices decode the file in step.
+   GameAudioUpdate's volumes (SOUND_SetChannelVolume 0 left, 1 right) reach the mix. */
+static void test_stereo_music(void)
+{
+    nusound_irx_loaded = 1;
+    boot_module(streams);
+    memset(&stereo_mix, 0, sizeof(stereo_mix));
+    nw_spu2_set_output(stereo_out, NULL);
+    stream_tap_start(0, 0, big_blocks, BIG_BLOCKS, 0);
+    stream_tap_start(1, 1, big_blocks, BIG_BLOCKS, 0);
+    SOUND_PlayStream(4, 0, 0, 0x1bff, 0, 0, 2, 0, 0x10);
+    SOUND_PlayStream(4, 1, 1, 0, 0x1bff, 0, 2, 0, 0x10);
+    SOUND_CheckAndStartStereo(0, 1, 0xeb3);
+    for (int frames = 0; frames < 250; frames++) {
+        frame();
+    }
+    /* Past a turn of the ring and the file's end; big.vag's blocks are mostly zero nibbles. */
+    CHECK(stereo_mix.frames > 190 * 960 && stereo_mix.same == stereo_mix.frames);
+    CHECK(stereo_mix.loud > stereo_mix.frames / 10);
+    CHECK(stream_tap.walk[0].words == stream_tap.walk[1].words && stream_tap.walk[0].words > BIG_BLOCKS * 7);
+    CHECK(stream_tap.walk[0].bad == 0 && stream_tap.walk[1].bad == 0);
+
+    SOUND_SetChannelVolume(0, 0, 0);
+    SOUND_SetChannelVolume(1, 0, 0);
+    frame();
+    memset(&stereo_mix, 0, sizeof(stereo_mix));
+    frame();
+    CHECK(stereo_mix.frames > 0 && stereo_mix.loud == 0);
+    stream_tap_stop();
+    nw_spu2_set_output(NULL, NULL);
     nusound_irx_loaded = 0;
 }
 
@@ -1043,6 +1106,37 @@ static int test_retail(bool hardware)
     }
     printf("logos stream: played out %d frames after its key-on\n", frames - keyed);
     CHECK(frames - keyed == 1812);
+
+    /* GameMusic's title theme at full music volume: THEMEL and THEMER (sfx 0xaa, 0xab) as a stereo pair on channels
+       0 and 1, panned hard left and right, released together at the table's pitch (0xeb3, 44100 Hz). Each voice
+       decodes its own file, in step with the other. */
+    uint8_t *theme[2] = { NULL, NULL };
+    for (int i = 0; i < 2; i++) {
+        const char *name = irx->ADPCM_FileNames[0xaa + i].Filename;
+        int entry = nw_dat_find(irx->global_dat, name);
+        uint32_t len = entry >= 0 ? irx->global_dat->entries[entry].size : 0;
+        theme[i] = len > NW_VAG_HEADER ? SDL_malloc(len) : NULL;
+        CHECK(SDL_strstr(name, i ? "THEMER" : "THEMEL") && theme[i] &&
+              nw_dat_read(irx->global_dat, entry, 0, theme[i], len));
+        if (theme[i]) {
+            stream_tap_start(i, (unsigned)i, theme[i] + NW_VAG_HEADER, (len - NW_VAG_HEADER) / NW_ADPCM_BLOCK, 0);
+        }
+    }
+    NuSoundPlayStereo(0xaa, 0xab, 0x1bff, 0x1bff, SfxTabGLOBAL[0xaa].pitch);
+    for (frames = 0; frames < 300; frames++) {
+        frame();
+    }
+    printf("theme: %llu and %llu words decoded\n", (unsigned long long)stream_tap.walk[0].words,
+           (unsigned long long)stream_tap.walk[1].words);
+    CHECK(irx->StereoStarted == 0 && nw_spu2_get_param(NW_SD_VP_PITCH) == 0xeb3);
+    CHECK(nw_spu2_get_param(1 << 1 | NW_SD_VP_PITCH) == 0xeb3);
+    CHECK(nw_spu2_get_param(NW_SD_VP_VOLL) == 0x1bff && nw_spu2_get_param(NW_SD_VP_VOLR) == 0);
+    CHECK(nw_spu2_get_param(1 << 1 | NW_SD_VP_VOLL) == 0 && nw_spu2_get_param(1 << 1 | NW_SD_VP_VOLR) == 0x1bff);
+    CHECK(stream_tap.walk[0].words == stream_tap.walk[1].words && stream_tap.walk[0].words > 200 * 220);
+    CHECK(stream_tap.walk[0].bad == 0 && stream_tap.walk[1].bad == 0);
+    stream_tap_stop();
+    SDL_free(theme[0]);
+    SDL_free(theme[1]);
     return failures ? 1 : 0;
 }
 
@@ -1087,6 +1181,7 @@ int main(int argc, char *argv[])
     test_stop_stream();
     test_pause();
     test_stereo();
+    test_stereo_music();
     test_reverb();
     test_kill_all();
     nw_nusound_init(NULL, NULL);
