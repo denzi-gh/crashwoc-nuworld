@@ -628,6 +628,8 @@ class Scanner:
                     externs[c.spelling].append(c)
                     continue
                 walk(c, in_main)
+                if in_main and c.get_definition() not in (None, c):
+                    continue                # a tentative definition of an object defined later
                 if in_main:
                     size, _align, need = self.need(c.type)
                     if size is None:
