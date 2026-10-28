@@ -448,6 +448,10 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMo
     for (unsigned i = 0; i < ended && i < 8; i++) {
         printf("boot-check: load %u ended at vblank %llu\n", i + 1, (unsigned long long)ended_at[i]);
     }
+    const NwLevelArrival *arrivals;
+    for (int i = 0, n = nw_level_arrivals(&arrivals); i < n; i++) {
+        printf("boot-check: level %d ran with %zu scene GPU objects alive\n", arrivals[i].level, arrivals[i].gpu);
+    }
     nw_print_stub_hits("boot-check", state);
     if (state == NW_GAME_FATAL) {
         fprintf(stderr, NW_APP_NAME ": %s\n", nw_game_error());

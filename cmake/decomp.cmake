@@ -231,6 +231,12 @@ if(NUWORLD_TESTS)
       farm fire_fly airship space_a weath_b cold_a jungle_a castle_a s_balls
       earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b garden water)
   set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+  # Local only: title, intro, hub, a level and the hub again keep as many scene GPU objects alive at both hubs.
+  add_test(NAME scene-free-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} --vblanks 100
+      intro,farm,hub)
+  set_tests_properties(scene-free-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
   add_executable(nuworld_test_nudat tests/c/test_nudat.c)

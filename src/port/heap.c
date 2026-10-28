@@ -46,6 +46,7 @@ static size_t nw_heap_nlive, nw_heap_cap;
 static const NwHeapRec **nw_heap_index; /* every live record in host address order, rebuilt when stale */
 static size_t nw_heap_nindex;
 static bool nw_heap_stale = true;
+static size_t nw_heap_ngpu;
 
 static _Noreturn void nw_heap_oom(void)
 {
@@ -130,6 +131,7 @@ void nw_heap_side_gpu(NwHeapSide *side, NwGpuOp free, void *obj)
         side->gpucap = n;
     }
     side->gpu[side->ngpu++] = (struct NwHeapGpu){ free, obj };
+    nw_heap_ngpu++;
 }
 
 static void nw_heap_side_free(size_t i)
@@ -145,6 +147,7 @@ static void nw_heap_side_free(size_t i)
     SDL_free(side->recs);
     SDL_free(side->holes);
     SDL_free(side->gpu);
+    nw_heap_ngpu -= side->ngpu;
     SDL_free(side);
     nw_heap_live[i] = nw_heap_live[--nw_heap_nlive];
     nw_heap_stale = true;
@@ -285,4 +288,9 @@ size_t nw_heap_sides(size_t *bytes)
         *bytes = total;
     }
     return nw_heap_nlive;
+}
+
+size_t nw_heap_gpu(void)
+{
+    return nw_heap_ngpu;
 }

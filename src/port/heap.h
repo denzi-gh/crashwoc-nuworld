@@ -53,5 +53,7 @@ const NwHeapRec *nw_heap_find(const void *p);
 
 /* The loads whose records are alive, and their host bytes. */
 size_t nw_heap_sides(size_t *bytes);
+/* The GPU objects of the live loads. */
+size_t nw_heap_gpu(void);
 
 #endif
