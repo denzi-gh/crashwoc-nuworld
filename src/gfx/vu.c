@@ -439,6 +439,8 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
         { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
         { "vu_load_fx2_mpg", NW_VU_TRICU }, /* its triangles at MSCAL 0x306: vertex colour, unlit */
+        { "vu_load_water_mpg", NW_VU_WATER },
+        { "vu_load_wateruv_mpg", NW_VU_WATERUV },
         { "vu_load_glass_mpg", NW_VU_TRIGLASS },
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {

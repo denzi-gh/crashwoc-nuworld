@@ -88,7 +88,7 @@ schema = 1
 "nu3d/nutexanm" = { treatment = "compile" }
 "nu3d/nufpatch" = { treatment = "dead" }
 "nu3d/nutexcmp" = { treatment = "dead" }
-"nu3d/nuwater" = { treatment = "compile" }
+"nu3d/nuwater" = { treatment = "compile", override = ["animateWater", "animateWaterTables"] }
 "nu3d/bitconv" = { treatment = "compile" }
 
 # nups2
