@@ -105,7 +105,8 @@ static int loader_seeds(const char *dir)
         vag_block_fill(blocks + i * NW_ADPCM_BLOCK, i % 5, 3, i == 3 ? NW_ADPCM_END : 0, i - 2);
     }
     seed("vag", LOAD_VAG, NULL, 0, vag, vag_file(vag, 22050, blocks, 4));
-    static const char settings[] = "[game]\nhardware_speed = true\n[audio]\nmaster_volume = 80\nvoice_volume = 0\n";
+    static const char settings[] = "[video]\naspect = \"21:9\"\nhud = edges\n[game]\nhardware_speed = true\n[audio]\n"
+                                   "master_volume = 80\nvoice_volume = 0\n";
     seed("settings", LOAD_SETTINGS, NULL, 0, settings, sizeof(settings) - 1);
     return 0;
 }

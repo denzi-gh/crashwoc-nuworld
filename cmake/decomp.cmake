@@ -137,7 +137,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
-  src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
+  src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c src/port/wide.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
@@ -278,6 +278,13 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_heap PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_heap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME heap COMMAND nuworld_test_heap)
+  # The widescreen view's frame width, camera aspect and factors for each picture aspect.
+  add_executable(nuworld_test_wide tests/c/test_wide.c)
+  target_include_directories(nuworld_test_wide PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_wide PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_wide PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_wide PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME wide COMMAND nuworld_test_wide)
   # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
   add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
   target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)

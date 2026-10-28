@@ -1,0 +1,2 @@
+# Run inside Linux containers from the Windows runner's checkout.
+.github/ci/* text eol=lf
