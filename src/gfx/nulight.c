@@ -9,6 +9,7 @@
 #include "nu3d/nurndr.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
+#include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
 
@@ -26,6 +27,10 @@ extern struct numtl_s *NuLgtBackBuff;
 extern int HazeColour;
 extern float Hazeampx;
 extern float Hazeampy;
+extern int NuLightHazePolyCnt;
+extern void *NuLightHazePolymtl;
+extern float NuLightHazePolyus[4];
+extern float NuLightHazePolyvs[4];
 extern struct rndrstream_s *rndrstream_3d;
 extern struct rndrstream_s *rndrstream_3d_u;
 extern u8 *rndrstream_free;
@@ -42,9 +47,21 @@ int NuRndrBeginSceneEx(int target, int zbuffer, int halfoffset);
 void NuRndrEndSceneEx(int flags);
 void NuLightHaze(int z, int paused);
 void NuLightPolyHaze(int paused);
+void NuVec4MtxTransformVU0(struct nuvec4_s *dst, struct nuvec4_s *src, struct numtx_s *mtx);
+void NuVec4ScaleXYZVU0(struct nuvec4_s *dst, struct nuvec4_s *src, float scale);
 
-/* The fog's depth CLUT of this frame: NuLgtHSurf[4]'s alpha, which the haze composite reads back. */
+/* nulight.c's; NuLightAddHazePoly fills them. */
+struct nulgtpolyhaze_s {
+    struct nuvec_s pos;
+    float size;
+    float rot;
+};
+extern struct nulgtpolyhaze_s NuLgtPolyHazeData[32];
+
+/* The fog's depth CLUT of this frame: NuLgtHSurf[4]'s alpha, which the haze composite reads back unless the haze
+   polys drew their masks over it this frame. */
 static NwZClut nw_lgt_fog;
+static bool nw_lgt_polyhaze;
 
 /* rndrstream_3d_u with mtl, as retail starts each pass's packets. */
 static void nw_lgt_stream(struct numtl_s *mtl)
@@ -154,9 +171,94 @@ void NuLightHaze(int z, int paused)
         nw_lgt_stream(NuLgtSurf[12]);
         NwCmd *c = nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, PS2_REZ_H << 4, uv, colour, z);
         c->alpha = 0x100 | 0x44;
-        *nw_rndr_zclut(c) = nw_lgt_fog;
+        if (!nw_lgt_polyhaze) {
+            *nw_rndr_zclut(c) = nw_lgt_fog;
+        }
         rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
         NuRndrEndSceneEx(0);
+    }
+    txupload_on = 1;
+}
+
+/* The haze polys (the candles' flames, LDATA flags 0x10): the warped copy into NuLgtHSurf[4] with alpha 0, then
+   each poly from its point up by rot, size wide at its distance, in NuLightHazePolymtl under ALPHA 0x48 with colour
+   0 and alpha 0xA0, which leaves the copy and writes the texture's shape as its alpha where the poly is in front of
+   the frame's Z; that blended over the frame (ALPHA 0x44). Retail drops a poly with a corner behind w 0.2 or off
+   the GS area. */
+void NuLightPolyHaze(int paused)
+{
+    struct nuvec4_s pnts[6];
+    float ratiox, ratioy;
+    nw_lgt_polyhaze = false;
+    if (!NuLightHazePolyCnt) {
+        return;
+    }
+    txupload_on = 0;
+    if (NuRndrBeginSceneEx(NuLgtHSurf[4], -2, 0)) {
+        static NwVuSpriteVertex q[32][4];
+        nw_lgt_stream(NuLgtBackBuff);
+        nw_lgt_haze_copy(0);
+        txupload_on = 1;
+        NuRndrStreamAddMtl(rndrstream_3d, NuLightHazePolymtl);
+        txupload_on = 0;
+        struct numtx_s *vpcs = NuCameraGetVPCSMtx();
+        NuCameraGetClippingRatios(&ratiox, &ratioy);
+        struct nuviewport_s *vp = NuVpGetCurrentViewport();
+        ratiox *= 2.0f;
+        int n = 0;
+        for (int i = 0; i < NuLightHazePolyCnt && i < 32; i++) {
+            const struct nulgtpolyhaze_s *h = &NuLgtPolyHazeData[i];
+            pnts[4] = (struct nuvec4_s){ h->pos.x, h->pos.y + h->rot, h->pos.z, 1.0f };
+            NuVec4MtxTransformVU0(&pnts[4], &pnts[4], vpcs);
+            pnts[5] = (struct nuvec4_s){ h->pos.x, h->pos.y, h->pos.z, 1.0f };
+            NuVec4MtxTransformVU0(&pnts[5], &pnts[5], vpcs);
+            if (!(pnts[4].w > 0.2f && pnts[5].w > 0.2f)) {
+                continue;
+            }
+            NuVec4ScaleXYZVU0(&pnts[4], &pnts[4], 1.0f / pnts[4].w);
+            NuVec4ScaleXYZVU0(&pnts[5], &pnts[5], 1.0f / pnts[5].w);
+            float scale = (float)vp->width / (pnts[4].w * ratiox);
+            for (int k = 0; k < 4; k++) {
+                pnts[k] = pnts[4 + (k >> 1)];
+                pnts[k].x += k & 1 ? h->size * scale : -h->size * scale;
+            }
+            if (!(pnts[0].x > 0.0f && pnts[1].x < 65535.0f && pnts[0].y > 0.0f && pnts[2].y < 65535.0f)) {
+                continue;
+            }
+            for (int k = 0; k < 4; k++) {
+                memset(&q[n][k], 0, sizeof(q[n][k]));
+                q[n][k].pos[0] = (float)(int)pnts[k].x;
+                q[n][k].pos[1] = (float)(int)pnts[k].y;
+                q[n][k].pos[2] = (float)(int)pnts[k].z;
+                q[n][k].pos[3] = 1.0f;
+                q[n][k].tex[0] = NuLightHazePolyus[k] * 4096.0f;
+                q[n][k].tex[1] = NuLightHazePolyvs[k] * 4096.0f;
+                q[n][k].col[3] = 0xA0;
+            }
+            n++;
+        }
+        NwVuSpriteVertex *v;
+        nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)n * 6, &v)->alpha = 0x100 | 0x48;
+        for (int i = 0; i < n; i++) {
+            v = nw_rndr_quad(v, q[i]);
+        }
+        nw_lgt_polyhaze = true;
+        rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
+        NuRndrEndSceneEx(0);
+    }
+    if (!paused) {
+        nw_lgt_haze_step();
+    }
+    if (NuRndrBeginSceneEx(-1, -2, 0)) {
+        const float uv[4] = { 0.0f, 0.0f, 639.5f / 1024.0f, ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
+        nw_lgt_stream(NuLgtSurf[12]);
+        nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, PS2_REZ_H << 4, uv, (int)0x80808080, 0x1FFFFFF)->alpha =
+            0x100 | 0x44;
+        rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
+        NuRndrEndSceneEx(0);
+    }
+    if (!paused) {
+        NuLightHazePolyCnt = 0;
     }
     txupload_on = 1;
 }

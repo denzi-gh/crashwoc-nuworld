@@ -18,7 +18,6 @@ SHARED = {
     "NuPs2ChangeTexPal": "#61",
     "NuLgtArcLaserDraw": "#61",
     "NuRndrFxCode": "#61",
-    "NuLightPolyHaze": "#61",
     "NuRndrWater": "#62",
 }
 

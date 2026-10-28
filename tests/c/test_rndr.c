@@ -23,7 +23,6 @@
 #include "nups2/nups2types.h"
 
 #include "gsc_builder.h"
-#include "port/stub.h"
 
 extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[],
     vu_load_fx2_mpg[];
@@ -85,6 +84,9 @@ extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
 void NuLightFog(float near, float far, int colour, int blur, int haze_colour);
 void NuLightFogDraw(int paused);
+void NuLigthSetPolyHazeMat(void *mtl, float *u, float *v);
+void NuLightAddHazePoly(struct nuvec_s *pos, float size, float rot);
+extern int NuLightHazePolyCnt;
 extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff;
 
 static int failures;
@@ -1042,7 +1044,6 @@ static void test_fog(void)
     NuMtlUpdate(NuLgtBackAlphaBuff);
     NuMtlUpdate(NuLgtBackBuff);
     Hazetab[3][4].u = 5;
-    nw_stub_set_continue(true); /* the haze poly pass it ends with */
     NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0x30808080);
     NuLightFogDraw(0);
     CHECK(Hazetab[3][4].x == 5);
@@ -1082,7 +1083,49 @@ static void test_fog(void)
         CHECK(p->verts[haze->first].col[3] == 0x18 && p->verts[haze->first].pos[2] == p->verts[fog->first].pos[2]);
         CHECK(memcmp(p->zcluts[haze->zclut - 1].clut, p->zcluts[fog->zclut - 1].clut, 1024) == 0);
     }
-    nw_stub_set_continue(false);
+    NuRndrSwapStreamBuffers();
+}
+
+/* A haze poly in view: the warped copy with alpha 0, the poly as a quad of whole GS units in its material under
+   ALPHA 0x48 with alpha 0xA0 and its UV box, the composite in NuLgtSurf[12] in front of everything; the haze after it
+   reads the masks' alpha, not the fog's, and the polys are gone once drawn. */
+static void test_polyhaze(void)
+{
+    float u[2] = { 0.25f, 0.5f }, v[2] = { 0.0f, 1.0f };
+    struct nuvec_s pos = { 0.0f, 0.0f, 10.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuLigthSetPolyHazeMat(mtl, u, v);
+    NuLightAddHazePoly(&pos, 0.6f, 1.2f);
+    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0x30808080);
+    NuLightFogDraw(0);
+    CHECK(NuLightHazePolyCnt == 0);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *poly = NULL, *copy = NULL, *comp = NULL, *haze = NULL;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        if (c->op != NW_CMD_VERTS) {
+            continue;
+        }
+        poly = c->material == mtl ? c : poly;
+        copy = c->material == NuLgtBackBuff && !copy ? c : copy;
+        comp = c->material == NuLgtSurf[12] && !comp ? c : comp;
+        haze = c->material == NuLgtSurf[12] && comp != c ? c : haze;
+    }
+    CHECK(poly && poly->mode == NW_VERTS_GS && poly->alpha == (0x100 | 0x48) && poly->count == 6);
+    CHECK(copy && p->verts[copy->first].col[3] == 0);
+    CHECK(comp && comp->alpha == (0x100 | 0x44) && !comp->zclut && p->verts[comp->first].pos[2] == (float)0x7FFFFF);
+    CHECK(haze && !haze->zclut);
+    if (poly && poly->count == 6) {
+        static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+        for (int k = 0; k < 6; k++) {
+            const NwVuSpriteVertex *q = &p->verts[poly->first + k];
+            CHECK(q->col[3] == 0xA0 && q->col[0] == 0 && q->pos[0] == SDL_floorf(q->pos[0]));
+            CHECK(q->tex[0] == u[corner[k] & 1] * 4096.0f && q->tex[1] == v[corner[k] >> 1] * 4096.0f);
+        }
+        CHECK(p->verts[poly->first].pos[0] < p->verts[poly->first + 1].pos[0]);
+        CHECK(p->verts[poly->first].pos[1] < p->verts[poly->first + 2].pos[1]);
+    }
     NuRndrSwapStreamBuffers();
 }
 
@@ -1118,6 +1161,7 @@ int main(void)
     test_particles();
     test_clouds();
     test_fog();
+    test_polyhaze();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }
