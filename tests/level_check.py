@@ -13,7 +13,7 @@ VBLANKS = 1500
 STUB = re.compile(r"^\s*\d+ (stub|near) +(\S+) +(\S+) +0x[0-9a-f]+ +\d+$")
 RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
 
-# Stubs every level reaches through NuRndrFx and the spot lights; their issues own them.
+# Stubs every level reaches through NuRndrFx; their issues own them.
 SHARED = {
     "NuRndrWater": "#62",
 }

@@ -631,7 +631,11 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     NwMtlPass pass[2];
     glBindVertexArray(nw_be.verts_vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);
-    if (c->stencil) {
+    if (c->stencil == NW_STENCIL_SHADOWED) {
+        glEnable(GL_STENCIL_TEST);
+        glStencilFunc(GL_LEQUAL, 0x80, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    } else if (c->stencil) {
         glEnable(GL_STENCIL_TEST);
         glStencilFunc(GL_ALWAYS, 0, 0xFF);
         glStencilOp(GL_KEEP, GL_KEEP, c->stencil > 0 ? GL_INCR_WRAP : GL_DECR_WRAP);
@@ -646,6 +650,26 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
         nw_vu_pass(program, &m, &pass[k]);
         glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
     }
+    glDisable(GL_STENCIL_TEST);
+}
+
+/* Retail's NuLgtHSurf[1], the back buffer's Z squeezed to width pixels as the volumes' viewport is, into the target's
+   own Z; and the stencil the volumes count in at 0x7F, as retail's sprites of 0x7F start its colour. */
+static void nw_be_volumes(const NwCmd *c)
+{
+    NwBeSurf *back = NULL, *s = nw_be.target;
+    for (uint32_t i = 0; i < nw_be.nsurf && !back; i++) {
+        back = nw_be.surf[i].addr == NW_SURF_BACK ? &nw_be.surf[i] : NULL;
+    }
+    if (back && back != s) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+        glBlitFramebuffer(0, back->th - nw_be.shown_h, nw_be.shown_w, back->th, 0, s->th - nw_be.height,
+                          c->volumes.width, s->th, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    }
+    glStencilMask(0xFF);
+    glClearStencil(0x7F);
+    glClear(GL_STENCIL_BUFFER_BIT);
 }
 
 /* A particle group, a quad of each particle: its corners in GS units before the divide, its texel coordinates in
@@ -852,6 +876,9 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_PARTICLES:
             nw_be_particles(p, c);
+            break;
+        case NW_CMD_VOLUMES:
+            nw_be_volumes(c);
             break;
         }
     }

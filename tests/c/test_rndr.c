@@ -80,6 +80,7 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
                       float **dwa);
 u32 *NuRndrCreateBlendShapeDeformerWeightsArray(u32 count);
 extern u8 *rndrstream_free;
+extern struct rndrstream_s *rndrstream_3d;
 extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
 void NuLightFog(float near, float far, int colour, int blur, int haze_colour);
@@ -107,7 +108,7 @@ void NuRndrShadowPols(struct numtx_s *mtx, struct nurndrshadface_s *face, struct
 u32 *NuRndrShadowLightFan(void);
 extern struct nuvec_s curlight;
 extern int NuLightSpotCnt, NuLightOldSpotCnt;
-extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2;
+extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2, *NuLgtGreyNZMat;
 
 static int failures;
 
@@ -865,8 +866,10 @@ static void test_fx_quads(void)
 }
 
 /* The hub's part of the volume shadows: the light's fan of unit directions square to it, the stencil's full-screen
-   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) and drawing nothing, and an
-   hgobj's joint shadows stored under the joint's matrix times wm. */
+   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) with no volumes in it: the
+   stencil's start squeezing Z to 256 pixels, the mask cleared then grey where shadowed over those 256, and ten
+   columns of the frame taking it off by ALPHA 0x42 in NuLgtSurf[2], 0.4 of the texture across; and an hgobj's joint
+   shadows stored under the joint's matrix times wm. */
 static void test_shadows(void)
 {
     struct nuvec_s dir = { 1.0f, 0.0f, 0.0f }, pos = { 0.0f, 0.0f, 0.0f };
@@ -876,7 +879,11 @@ static void test_shadows(void)
         CHECK(SDL_fabsf(lightfan[i].x) < 1e-3f && SDL_fabsf(len - 1.0f) < 1e-3f);
     }
     NuLightAddMat2 = NuMtlCreate(1);
+    NuLgtGreyNZMat = NuMtlCreate(1);
+    NuLgtSurf[2] = NuMtlCreate(1);
     NuMtlUpdate(NuLightAddMat2);
+    NuMtlUpdate(NuLgtGreyNZMat);
+    NuMtlUpdate(NuLgtSurf[2]);
     NuRndrShadMaskCount = 0;
     shadstorecnt = 2;
     NuRndrShadowStencil(0, &pos);
@@ -886,9 +893,24 @@ static void test_shadows(void)
     NuRndrShadow(0);
     CHECK(shadstorecnt == 2);
     testflipold = 1;
+    rndrstream_3d = rndrstream_3d_u; /* as the light passes before it in NuRndrFx leave it */
     NuRndrShadow(0);
-    NuRndrEndScene();
-    CHECK(shadstorecnt == 0 && nw_rndr_packet()->ncmds == 0);
+    CHECK(shadstorecnt == 0);
+    const NwPacket *p = nw_rndr_packet();
+    uint32_t volumes = 0, mask = 0, cols = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        volumes += c->op == NW_CMD_VOLUMES && c->volumes.width == 256;
+        mask += c->op == NW_CMD_VERTS && c->material == NuLgtGreyNZMat && c->count == 24 &&
+                c->stencil == (mask ? NW_STENCIL_SHADOWED : 0);
+        if (c->op == NW_CMD_VERTS && c->material == NuLgtSurf[2]) {
+            const NwVuSpriteVertex *v = &p->verts[c->first];
+            CHECK(v[0].col[0] == 0x20 && v[0].col[3] == 0x80 && v[0].pos[2] == 0.0f);
+            CHECK(SDL_fabsf(v[1].tex[0] - (float)(cols + 1) * 0.025f * 4096.0f) < 1e-2f);
+            cols++;
+        }
+    }
+    CHECK(volumes == 1 && mask == 2 && cols == 10);
     NuRndrSwapStreamBuffers();
 
     struct NUCYLINDER_s cyl;

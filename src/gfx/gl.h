@@ -116,6 +116,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a)) \
     X(void, glStencilFunc, (GLenum func, GLint ref, GLuint mask)) \
     X(void, glStencilOp, (GLenum sfail, GLenum dpfail, GLenum dppass)) \
+    X(void, glStencilMask, (GLuint mask)) \
+    X(void, glClearStencil, (GLint s)) \
     X(void, glBlendFuncSeparate, (GLenum srgb, GLenum drgb, GLenum salpha, GLenum dalpha)) \
     X(void, glBlendEquationSeparate, (GLenum rgb, GLenum alpha)) \
     X(void, glPolygonMode, (GLenum face, GLenum mode)) \
@@ -196,6 +198,8 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glColorMask nw_glColorMask
 #define glStencilFunc nw_glStencilFunc
 #define glStencilOp nw_glStencilOp
+#define glStencilMask nw_glStencilMask
+#define glClearStencil nw_glClearStencil
 #define glBlendFuncSeparate nw_glBlendFuncSeparate
 #define glBlendEquationSeparate nw_glBlendEquationSeparate
 #define glPolygonMode nw_glPolygonMode

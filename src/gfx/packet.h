@@ -56,6 +56,7 @@ typedef enum NwCmdOp {
     NW_CMD_SKIN,    /* a skin geom under the local matrix and its joint palette */
     NW_CMD_VERTS,   /* triangles of vertices made this frame, in NwPacket.verts */
     NW_CMD_PARTICLES, /* particles under the local matrix, as the ptl program draws them from their effect list */
+    NW_CMD_VOLUMES, /* the volume shadows' start on the target: the back buffer's Z, squeezed, and the stencil 0x7F */
 } NwCmdOp;
 
 /* What an effect list unpacks to VU 0x3C-0xBF for the ptl program: the gravity and the time, the corners' texel
@@ -146,7 +147,8 @@ typedef struct NwCmd {
             bool exact;                 /* VERTS: the GS blend in the program over a copy of the target, for As past
                                            0x80 or an ALPHA GL has no blend for (triangles that do not overlap) */
             int8_t stencil;             /* VERTS: a shadow volume's +1 or -1, counted into the stencil alone where
-                                           the triangles pass the Z test; 0 none */
+                                           the triangles pass the Z test; NW_STENCIL_SHADOWED: drawn only where the
+                                           count is 0x80 or more; 0 none */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {
@@ -160,6 +162,9 @@ typedef struct NwCmd {
             uint8_t mask; /* 1 colour, 2 Z */
         } clear;
         struct {
+            int32_t width; /* the pixels the target's Z takes the back buffer's width in */
+        } volumes;
+        struct {
             NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere; tcc false: PSMCT24,
                                      whose alpha the draws leave */
             int32_t width, height; /* the target's pixels (nurndr_pixel_width, height) */
@@ -167,6 +172,8 @@ typedef struct NwCmd {
         } target;
     };
 } NwCmd;
+
+#define NW_STENCIL_SHADOWED 2
 
 typedef struct NwPacket {
     uint64_t seq;  /* 1 for the first published packet */

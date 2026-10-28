@@ -16,11 +16,14 @@
 #include "nu3d/nutex.h"
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
+#include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
 
 int NuPs2ScreenSwap(int vsync);
 void NuCameraSet(struct nucamera_s *cam);
+void NuRndrSetRTarget(struct rndrstream_s *stream, int target);
+void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer);
 void NuPs2DisableAutoScreenSwap(void);
 void NuFntInit(void);
 int Ps2TxValToPowerOfTwo(int value);
@@ -48,6 +51,12 @@ extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern struct numtl_s *NuLightAddMat;
 extern struct numtl_s *NuLightAddMat2;
+extern struct numtl_s *NuLgtGreyNZMat;
+extern struct numtl_s *NuLgtSurf[18];
+extern int NuLgtHSurf[18];
+extern u32 curlightcol;
+extern struct nuvec_s NuRndrShadBox[2];
+extern int txupload_on;
 extern struct nucamera_s global_camera;
 extern struct nutexslot_s *D_0062EBEC;
 #define TexList D_0062EBEC
@@ -88,6 +97,7 @@ struct nuvec_s lightfan[9];
 struct nurndrshadstore_s shadstore[256];
 static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
 struct debdma_s *testforcepart; /* an effect list over every particle group's; NULL in retail */
+float testmultl = 4.0f;         /* the volume shadows' light's length over NuRndrShadowStencil's */
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -201,14 +211,76 @@ u32 *NuRndrShadowLightFan(void)
     return NULL;
 }
 
-/* Level 0xC's volume shadows (nurndr_shadowson): the port draws neither the volumes nor their composite yet (#61). */
+/* Level 0xC's volume shadows (nurndr_shadowson). Retail counts the volumes in NuLgtHSurf[2]'s colour from 0x7F with
+   its clamp off, against NuLgtHSurf[1]'s Z, keeps each channel's top bit (FBMSK 0x808080) by writing 0 over the
+   rest, and takes curlightcol's 0x20 off the frame by that mask, stretched back from 0.4 of the width (ALPHA 0x42);
+   here the count is the stencil's (NW_CMD_VOLUMES, the volumes' +1 and -1) and the mask grey where it is 0x80 or
+   more. */
 void NuRndrShadow(int mode)
 {
+    struct nuvec_s light = curlight;
+    NwVuSpriteVertex *v;
     (void)mode;
     if ((testflipold & 4) || shadstorecnt == 0) {
         return;
     }
-    NuRndrShadowStack(&curlight);
+    NuRndrStreamLink(rndrstream_system);
+    NuRndrSetRTarget(rndrstream_system, NuLgtHSurf[2]);
+    NuRndrSetZBuffer(rndrstream_system, NuLgtHSurf[1]);
+    rndrstream_free = vpDmaTag_Next(rndrstream_system->ptr.u8, 0);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
+    txupload_on = 0;
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
+    nw_rndr_cmd(rndrstream_fx, NW_CMD_VOLUMES)->volumes.width = 4096 >> 4;
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    light.x *= testmultl;
+    light.y *= testmultl;
+    light.z *= testmultl;
+    NuRndrShadowStack(&light);
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
+    static const float none[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for (int shadowed = 0; shadowed < 2; shadowed++) {
+        NwCmd *c = nw_rndr_verts(rndrstream_fx, NW_VERTS_GS, 4 * 6, &v);
+        c->stencil = (int8_t)(shadowed ? NW_STENCIL_SHADOWED : 0);
+        for (int i = 0; i < 4; i++) {
+            v = nw_rndr_rect3d_quad(v, (i << 10) - 8, -8, 0x400, PS2_REZ_H << 4, none,
+                                    shadowed ? (int)0x80808080 : 0, 0xFFFFFF);
+        }
+    }
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    NuRndrStreamFlush();
+
+    NuRndrStreamLink(rndrstream_system);
+    NuRndrSetRTarget(rndrstream_system, -1);
+    NuRndrSetZBuffer(rndrstream_system, -2);
+    rndrstream_free = vpDmaTag_Next(rndrstream_system->ptr.u8, 0);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
+    NuRndrStreamLink(rndrstream_3d);
+    NuRndrStreamSetMisc(rndrstream_3d);
+    NuRndrStreamAddMtl(rndrstream_3d, NuLgtSurf[2]);
+    for (int i = (int)NuRndrShadBox[0].x >> 10; i < ((int)NuRndrShadBox[1].x + 0x3FF) >> 10; i++) {
+        int x[2] = { i << 10, (i + 1) << 10 };
+        if ((float)x[0] < NuRndrShadBox[0].x) {
+            x[0] = (int)NuRndrShadBox[0].x;
+        }
+        if (NuRndrShadBox[1].x < (float)x[1]) {
+            x[1] = (int)NuRndrShadBox[1].x;
+        }
+        int y0 = (int)NuRndrShadBox[0].y, y1 = (int)NuRndrShadBox[1].y;
+        const float uv[4] = { (float)x[0] * 0.0009765625f * 25.6f / NuPower2(PS2_REZ_W),
+                              NuRndrShadBox[0].y / (float)(NuPower2(PS2_REZ_H) << 4),
+                              (float)x[1] * 0.0009765625f * 25.6f / NuPower2(PS2_REZ_W),
+                              NuRndrShadBox[1].y / (float)(NuPower2(PS2_REZ_H) << 4) };
+        nw_rndr_rect3d(rndrstream_3d, x[0] - 8, y0 - 8, x[1] - x[0], y1 - y0, uv, (int)curlightcol, 0);
+    }
+    rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
+    NuRndrStreamFlush();
 }
 
 /* The store's volumes along the light (fx2's programs, src/gfx/fx2.c) in NuLightAddMat2 under the identity, in a
@@ -284,19 +356,15 @@ void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
 }
 
 /* The draws after the last target's test and write the back buffer's Z (-2) when the target is its size; the port
-   gives other targets a Z of their own. A render target's Z (zbuffer > 0) is not drawn. */
+   gives other targets a Z of their own, which a render target as the Z buffer (zbuffer > 0) stands for: only the
+   volume shadows draw under one, NuLgtHSurf[1], which NW_CMD_VOLUMES fills. */
 void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer)
 {
-    static bool reported;
     (void)stream;
     nw_zbuffer = zbuffer;
     if (nw_target) {
         nw_target->target.zback = zbuffer == -2;
         nw_target = NULL;
-    }
-    if (zbuffer > 0 && !reported) {
-        reported = true;
-        fprintf(stderr, NW_APP_NAME ": a render target's Z buffer is not drawn\n");
     }
 }
 
