@@ -92,7 +92,7 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          test "$(./build/release/crashwoc-nuworld --version)" = "CrashWOC: NuWorld 0.1.0"
+          test "$(./build/release/crashwoc-nuworld --version)" = "CrashWOC: NuWorld 0.7.0"
       - name: Check default data folder
         run: |
           data_home="$(mktemp -d)"
@@ -186,7 +186,7 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.1.0"
+          test "$(./build/release/crashwoc-nuworld.exe --version)" = "CrashWOC: NuWorld 0.7.0"
       - name: Check the data image, the scenes and the boot without data
         run: |
           for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
