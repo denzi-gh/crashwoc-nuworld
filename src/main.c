@@ -674,16 +674,25 @@ static float nw_boot_aspect(NwPlatform *p, float aspect)
     return aspect;
 }
 
-/* settings.toml's picture aspect, which the game takes at its next start. */
+/* settings.toml's picture aspect and HUD reach, which the game takes at its next start. */
 static void nw_boot_video(void *user)
 {
     static const float aspects[] = { 0.0f, 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 21.0f / 9.0f, 32.0f / 9.0f };
+    static const struct {
+        const char *label;
+        float hud;
+    } huds[] = { { "HUD at the edges", 0.0f }, { "HUD inside 16:9", 16.0f / 9.0f }, { "HUD inside 4:3", 4.0f / 3.0f } };
     NwSettings *s = user;
     char name[16];
     for (size_t i = 0; i < SDL_arraysize(aspects); i++) {
         if (nw_debug_selectable(nw_settings_aspect_name(aspects[i], name, sizeof(name)),
                                 SDL_fabsf(s->aspect - aspects[i]) < 0.001f)) {
             s->aspect = aspects[i];
+        }
+    }
+    for (size_t i = 0; i < SDL_arraysize(huds); i++) {
+        if (nw_debug_selectable(huds[i].label, SDL_fabsf(s->hud - huds[i].hud) < 0.001f)) {
+            s->hud = huds[i].hud;
         }
     }
     nw_debug_text("frame %d px wide now; a change applies at the next start", nw_wide_width());
@@ -715,9 +724,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_debug_panel("Video", "Aspect", nw_boot_video, &settings, false);
-    nw_wide_set(nw_boot_aspect(&platform, settings.aspect));
+    nw_wide_set(nw_boot_aspect(&platform, settings.aspect), settings.hud);
     bool applied = settings.hardware_speed;
-    float picture = settings.aspect;
+    float picture[2] = { settings.aspect, settings.hud };
     int buses[2] = { settings.master_volume, settings.voice_volume };
     nw_audio_set_buses(buses[0], buses[1]);
     if (!nw_audio_open()) {
@@ -746,8 +755,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             nw_nusound_set_hardware_speed(applied);
             nw_boot_settings(data_dir, &settings, true);
         }
-        if (settings.aspect != picture) {
-            picture = settings.aspect;
+        if (settings.aspect != picture[0] || settings.hud != picture[1]) {
+            picture[0] = settings.aspect;
+            picture[1] = settings.hud;
             nw_boot_settings(data_dir, &settings, true);
         }
         if (settings.master_volume != buses[0] || settings.voice_volume != buses[1]) {
@@ -1182,7 +1192,7 @@ int main(int argc, char *argv[])
             return 2;
         }
         if (aspect > 0.0f) {
-            nw_wide_set(aspect);
+            nw_wide_set(aspect, 16.0f / 9.0f);
         }
         if (capture) {
             return nw_capture(data_dir, capture, capture_dir, speed > 0);

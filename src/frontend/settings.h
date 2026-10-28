@@ -10,6 +10,7 @@ typedef struct NwSettings {
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
     float aspect;        /* [video]: the picture's width over its height, 0 = the display's */
+    float hud;           /* the widest width over height the HUD spreads to, 0 = the picture's edges */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);
@@ -18,6 +19,10 @@ void nw_settings_defaults(NwSettings *s);
 bool nw_settings_aspect(const char *value, float *out);
 /* The aspect's name: auto, one of 4:3 16:9 16:10 21:9 32:9, else its ratio. */
 const char *nw_settings_aspect_name(float aspect, char *buf, int size);
+/* The HUD's reach as settings.toml writes it: "edges" (0) or an aspect, quoted or not; false when it is neither. */
+bool nw_settings_hud(const char *value, float *out);
+/* Its name: edges, else as nw_settings_aspect_name. */
+const char *nw_settings_hud_name(float hud, char *buf, int size);
 /* Root's settings.toml over s when there is one; false with an SDL error when it is there but cannot be read. */
 bool nw_settings_load(NwSettings *s, const char *root);
 /* Writes every setting to root's settings.toml; false with an SDL error. */

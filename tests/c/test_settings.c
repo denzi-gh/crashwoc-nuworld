@@ -1,5 +1,5 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   forms, and what the reader does not take.
+   and the HUD's forms, and what the reader does not take.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -105,6 +105,15 @@ int main(int argc, char *argv[])
     CHECK(nw_settings_load(&s, root) && SDL_fabsf(s.aspect - 32.0f / 9.0f) < 1e-6f);
     CHECK(read_text("[video]\naspect = 16:10 # unquoted\n", &s) && SDL_fabsf(s.aspect - 1.6f) < 1e-6f);
     CHECK(read_text("[video]\naspect = \"square\"\n", &s) && s.aspect == 0.0f);
+    CHECK(s.hud == 16.0f / 9.0f);
+    CHECK(nw_settings_hud("edges", &a) && a == 0.0f && nw_settings_hud("\"4:3\"", &a) &&
+          SDL_fabsf(a - 4.0f / 3.0f) < 1e-6f);
+    CHECK(!nw_settings_hud("auto", &a) && !nw_settings_hud("left", &a) && SDL_fabsf(a - 4.0f / 3.0f) < 1e-6f);
+    CHECK(SDL_strcmp(nw_settings_hud_name(0.0f, name, sizeof(name)), "edges") == 0);
+    s.hud = 0.0f;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.hud == 0.0f);
 
     if (failures) {
         fprintf(stderr, "settings: %d checks failed\n", failures);

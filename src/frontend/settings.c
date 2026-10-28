@@ -97,10 +97,31 @@ const char *nw_settings_aspect_name(float aspect, char *buf, int size)
     return buf;
 }
 
+bool nw_settings_hud(const char *value, float *out)
+{
+    float hud;
+    if (SDL_strcmp(value, "edges") == 0 || SDL_strcmp(value, "\"edges\"") == 0) {
+        *out = 0.0f;
+        return true;
+    }
+    if (!nw_settings_aspect(value, &hud) || hud == 0.0f) {
+        return false;
+    }
+    *out = hud;
+    return true;
+}
+
+const char *nw_settings_hud_name(float hud, char *buf, int size)
+{
+    return hud <= 0.0f ? "edges" : nw_settings_aspect_name(hud, buf, size);
+}
+
 static void nw_settings_set(NwSettings *s, const char *table, const char *key, const char *value)
 {
     if (SDL_strcmp(table, "video") == 0 && SDL_strcmp(key, "aspect") == 0) {
         nw_settings_aspect(value, &s->aspect);
+    } else if (SDL_strcmp(table, "video") == 0 && SDL_strcmp(key, "hud") == 0) {
+        nw_settings_hud(value, &s->hud);
     } else if (SDL_strcmp(table, "game") == 0 && SDL_strcmp(key, "hardware_speed") == 0) {
         nw_settings_bool(value, &s->hardware_speed);
     } else if (SDL_strcmp(table, "audio") == 0 && SDL_strcmp(key, "master_volume") == 0) {
@@ -116,6 +137,7 @@ void nw_settings_defaults(NwSettings *s)
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;
+    s->hud = 16.0f / 9.0f;
 }
 
 bool nw_settings_load(NwSettings *s, const char *root)
@@ -163,11 +185,13 @@ bool nw_settings_load(NwSettings *s, const char *root)
 
 bool nw_settings_save(const NwSettings *s, const char *root)
 {
-    char *path = nw_settings_path(root), *text = NULL, aspect[16];
+    char *path = nw_settings_path(root), *text = NULL, aspect[16], hud[16];
     int len = SDL_asprintf(&text,
                            "[video]\n"
                            "# auto (the display's), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's picture\n"
                            "aspect = \"%s\"\n"
+                           "# How far out the HUD goes: edges, or an aspect it stays inside, centred\n"
+                           "hud = \"%s\"\n"
                            "\n"
                            "[game]\n"
                            "# Simulate original hardware speed: the PS2's disc and sound load times\n"
@@ -178,7 +202,7 @@ bool nw_settings_save(const NwSettings *s, const char *root)
                            "master_volume = %d\n"
                            "voice_volume = %d\n",
                            nw_settings_aspect_name(s->aspect, aspect, sizeof(aspect)),
-                           s->hardware_speed ? "true" : "false", s->master_volume, s->voice_volume);
+                           nw_settings_hud_name(s->hud, hud, sizeof(hud)), s->hardware_speed ? "true" : "false", s->master_volume, s->voice_volume);
     bool ok = path && len >= 0 && SDL_SaveFile(path, text, (size_t)len);
     SDL_free(text);
     SDL_free(path);
