@@ -19,6 +19,8 @@ void nw_level_load(int level);
    title's menu, whose movies lead to the hub. Once the last runs, the trace (port/trace.h) numbers vblanks from
    there. */
 bool nw_level_start(const char *names);
+/* The route's last level, -1 for none. */
+int nw_level_final(void);
 /* The level the run is on its way to, -1 for none. */
 int nw_level_arrival(void);
 /* The run's last level has been entered and runs: loaded, faded in, its arrival cut skipped. */

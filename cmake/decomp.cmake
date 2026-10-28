@@ -135,7 +135,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/hle/eefloat.c src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c
   src/hle/nuvecvu0.c src/port/fptrap.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c
   src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
-  src/port/nuhgobj.c src/port/level.c src/port/options.c
+  src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
   src/platform/highheap.c
@@ -235,17 +235,25 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/gsc_hash.py --data-dir {root} --compare $<TARGET_FILE:crashwoc-nuworld>)
   set_tests_properties(scene-hashes-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  # Local only: every disc file and .DAT entry decoded by --check-disc / --check-scenes and by the crashwoc tooling
+  # and WrathSDK ($CRASHWOC_TOOLING, $WRATHSDK; skipped without them).
+  add_test(NAME disc-decode-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/disc_check.py --data-dir {root} --compare $<TARGET_FILE:crashwoc-nuworld>)
+  set_tests_properties(disc-decode-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
   # Local only: the VU1 microcode of the imported boot ELF decodes and maps completely.
   add_test(NAME vu1-disasm-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/vu1dis.py --data-dir {root} --check --expect 16,24,44)
   set_tests_properties(vu1-disasm-retail PROPERTIES SKIP_RETURN_CODE 77)
-  # Local only: levels entered headless (--level) run with no stub hit beyond the shared ones their issues own.
+  # Local only: every gameplay level (LData 0-34, 36, 37; not the title, game over and credits) entered headless
+  # (--level) runs with no stub hit.
   add_test(NAME levels-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
-      ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} hub
-      farm fire_fly airship space_a weath_b cold_a jungle_a castle_a s_balls
-      earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b garden water)
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} -j 8
+      cold_a volcano water west_a earth avalanch coral snow jungle snow_b castle jungle_a garden farm toonarmy
+      fire_r castle_a castle_c fire_fly western droid earth_b fire_b water_b weath_b space_b space_a cast_bug west_b
+      cold_b weather ballsof s_balls space_r seashell airship hub)
   set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
   # Local only: title, intro, hub, a level and the hub again keep as many scene GPU objects alive at both hubs.
   add_test(NAME scene-free-retail

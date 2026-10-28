@@ -1,11 +1,12 @@
-/* The pad shim under the decomp's NuPs2OpenPad / NuPs2ReadPad, and a virtual SDL gamepad and the keyboard as the
-   pad. */
+/* The pad shim under the decomp's NuPs2OpenPad / NuPs2ReadPad, a virtual SDL gamepad and the keyboard as the pad,
+   and the pad scripts (port/padscript.h). */
 #include <stdio.h>
 
 #include <SDL3/SDL.h>
 
 #include "nups2/ps2ctl.h"
 #include "platform/input.h"
+#include "port/padscript.h"
 
 static int failures;
 
@@ -139,11 +140,49 @@ static void test_keyboard(void)
     CHECK(in.lx == 0xC0);
 }
 
+/* --pad-script without --level: the steps loop from the first read; a recording plays once, then the pad idles. */
+static void test_script(void)
+{
+    struct nupadframe_s f;
+    CHECK(!nw_pad_script_read(&f));
+    CHECK(!nw_pad_script_parse("x cross\n"));
+    CHECK(!nw_pad_script_parse("1 jump\n"));
+    CHECK(!nw_pad_script_parse("1 cross 1 2 3\n"));
+    CHECK(!nw_pad_script_parse("# nothing\n"));
+
+    CHECK(nw_pad_script_parse("2 cross|L2 255 0 # comment\n\n1 -\n"));
+    for (int i = 0; i < 2; i++) {
+        CHECK(nw_pad_script_read(&f));
+        CHECK(f.buttons_hi == 0xFF && f.buttons_lo == (uint8_t)~(NW_PAD_CROSS | NW_PAD_L2));
+        CHECK(f.l_alg_x == 0xFF && f.l_alg_y == 0x00 && f.r_alg_x == 0x80 && f.r_algpad_d == 0xFF);
+        CHECK(f.l2_alg == 0xFF && f.r2_alg == 0);
+    }
+    CHECK(nw_pad_script_read(&f) && f.buttons_hi == 0xFF && f.buttons_lo == 0xFF && f.l_alg_x == 0x80);
+    CHECK(nw_pad_script_read(&f) && f.buttons_lo == (uint8_t)~(NW_PAD_CROSS | NW_PAD_L2));
+
+    /* struct nupadrec_s: frame, mode, nframes, maxframes, then the frames; SavePadRecord writes two past nframes. */
+    uint8_t rec[0x10 + 4 * sizeof(struct nupadframe_s)] = { 0 };
+    rec[8] = 2;
+    struct nupadframe_s *frames = (struct nupadframe_s *)(rec + 0x10);
+    frames[0] = (struct nupadframe_s){ .read_id = 0x79, .buttons_hi = 0xEF, .buttons_lo = 0xBF, .l_alg_x = 0x10 };
+    frames[1] = (struct nupadframe_s){ .read_id = 0x79, .buttons_hi = 0, .buttons_lo = 0 };
+    CHECK(!nw_pad_script_recording(rec, 0x0C));
+    CHECK(nw_pad_script_recording(rec, sizeof(rec)));
+    CHECK(nw_pad_script_read(&f) && f.buttons_hi == 0xEF && f.buttons_lo == 0xBF && f.l_alg_x == 0x10);
+    CHECK(nw_pad_script_read(&f) && f.buttons_hi == 0xFF && f.buttons_lo == 0xFF && f.l_alg_x == 0x80);
+    CHECK(nw_pad_script_read(&f) && f.buttons_hi == 0xFF && f.buttons_lo == 0xFF);
+    rec[8] = 9;
+    CHECK(!nw_pad_script_recording(rec, sizeof(rec)));
+    nw_pad_script_stop();
+    CHECK(!nw_pad_script_read(&f));
+}
+
 int main(void)
 {
     test_shim();
     test_gamepad();
     test_keyboard();
+    test_script();
     if (failures) {
         fprintf(stderr, "test_pad: %d check(s) failed\n", failures);
         return 1;
