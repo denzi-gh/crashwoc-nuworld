@@ -109,6 +109,8 @@ u32 *NuRndrShadowLightFan(void);
 extern struct nuvec_s curlight;
 extern int NuLightSpotCnt, NuLightOldSpotCnt;
 extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2, *NuLgtGreyNZMat;
+void GlassGivenMaterial(struct numtl_s *mtl);
+extern char vu_load_glass_mpg[];
 
 static int failures;
 
@@ -731,6 +733,32 @@ static void test_xuv(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* GlassGivenMaterial's material draws through the glass package under the fx matrix, with its VU 0x14-0x15 block:
+   the texcoords of the frame's corner, the strength, the texcoords per GS unit and the far edge's. */
+static void test_glass(void)
+{
+    struct numtl_s *m = NuMtlCreate(1);
+    GlassGivenMaterial(m);
+    CHECK(m->rs.mpg == (unsigned char *)vu_load_glass_mpg && (m->rs.attr & 0x43) == 0x40);
+    struct numtx_s fxm;
+    set_mtx(&fxm, 0.5f, 0.25f, 0.75f, 0.0f);
+    NuRndrSetFxMtx(&fxm);
+    mark(&m->rs, 92);
+    NuRndrEndScene();
+    NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take();
+    const NwCmd *c = p ? marked(p, 92) : NULL;
+    CHECK(c && c->light != NW_LIGHT_NONE && c->mtl < p->nmtls);
+    if (c && c->light != NW_LIGHT_NONE && c->mtl < p->nmtls) {
+        const float *vu = p->mtls[c->mtl].vu;
+        CHECK(memcmp(p->lights[c->light].uv, &fxm, sizeof(fxm)) == 0);
+        CHECK(vu[0] == (320.0f * 16.0f - 32768.0f) / 16384.0f && vu[1] == (256.0f * 16.0f - 32768.0f) / 8192.0f);
+        CHECK(vu[2] == 0.0625f && vu[4] == 1.0f / 16384.0f && vu[5] == 1.0f / 8192.0f);
+        CHECK(vu[6] == 639.0f / 1024.0f && vu[7] == 511.0f / 512.0f);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 /* The crate explosion's quad: the corners turned, placed and through the camera's VPCS matrix to whole GS units, a
    VERTS strip in the material's stream; a point out of view draws nothing. */
 static void test_crate_quad(void)
@@ -1340,6 +1368,7 @@ int main(void)
     test_render_target();
     test_hgobj();
     test_xuv();
+    test_glass();
     test_crate_quad();
     test_rope();
     test_fx_quads();

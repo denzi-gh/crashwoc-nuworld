@@ -581,7 +581,7 @@ static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 }
 
 /* What vu1init leaves for a draw: the local times screen matrix, and the stream's block at VU 0x0C, the lights or for
-   the xuv programs the UV matrix; and where the target's pixels are in GS coordinates, the GS pixel at
+   the xuv and glass programs the UV matrix; and where the target's pixels are in GS coordinates, the GS pixel at
    12.4 (x, y) from XYOFFSET being GL's (x, th - 1 - y) about its centre. */
 static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program, NwVuObject *o)
 {
@@ -593,7 +593,8 @@ static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program,
     o->frag[1] = -16.0f;
     o->frag[2] = (float)v->xyoffset[0] - 8.0f;
     o->frag[3] = (float)(nw_be.target->th * 16 + v->xyoffset[1]) - 8.0f;
-    if (c->light != NW_LIGHT_NONE && (program == NW_VU_TRIXUV || program == NW_VU_SKINXUV)) {
+    if (c->light != NW_LIGHT_NONE && (program == NW_VU_TRIXUV || program == NW_VU_SKINXUV ||
+                                      program == NW_VU_TRIGLASS || program == NW_VU_SKNGLASS)) {
         nw_vu1init_uv(o, c->local, &p->lights[c->light]);
     } else if (c->light != NW_LIGHT_NONE) {
         nw_vu1init_lights(o, c->local, &p->lights[c->light]);

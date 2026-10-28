@@ -439,6 +439,7 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
         { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
         { "vu_load_fx2_mpg", NW_VU_TRICU }, /* its triangles at MSCAL 0x306: vertex colour, unlit */
+        { "vu_load_glass_mpg", NW_VU_TRIGLASS },
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {
         if (strcmp(package, map[i].name) == 0) {
@@ -452,6 +453,9 @@ NwVuProgram nw_vu_skin_program(const char *package)
 {
     if (package && strcmp(package, "vu_load_tri_mpg") == 0) {
         return NW_VU_SKIN;
+    }
+    if (package && strcmp(package, "vu_load_glass_mpg") == 0) {
+        return NW_VU_SKNGLASS;
     }
     return package && strcmp(package, "vu_load_xformuv_mpg") == 0 ? NW_VU_SKINXUV : NW_VU_PROGRAMS;
 }

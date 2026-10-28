@@ -97,8 +97,8 @@ bool nw_vu_init(void);
 void nw_vu_shutdown(void);
 /* The program of a microcode package name. */
 NwVuProgram nw_vu_program(const char *package);
-/* The program a package's MSCAL 0x302 runs: skin in tri, skinxuv in xformuv; NW_VU_PROGRAMS for the others, whose
-   entry draws nothing (tric, tricu, trica) or falls into the triangle program (tricdv). */
+/* The program a package's MSCAL 0x302 runs: skin in tri, skinxuv in xformuv, sknglass in glass; NW_VU_PROGRAMS for
+   the others, whose entry draws nothing (tric, tricu, trica) or falls into the triangle program (tricdv). */
 NwVuProgram nw_vu_skin_program(const char *package);
 /* A skin draw's palette and blend-shape weights in the packet's texture buffers (units 3 and 4), its geom's deltas
    on unit 5. */
