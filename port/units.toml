@@ -64,7 +64,8 @@ schema = 1
     "NuRndrShadowStencil", "NuRndrShadowDirCol", "RotateCyl", "DeRotateVectorAngles", "NuRndrFog*", "NuRndrLine3dDbg*",
     "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"] }
 "nu3d/nufont" = { treatment = "compile" }
-"nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
+"nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw",
+    "NuLgtArcLaserDraw", "NuLightProcessSpot"] }
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix

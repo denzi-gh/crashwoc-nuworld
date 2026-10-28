@@ -48,7 +48,7 @@ static struct {
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
-static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL };
+static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL, NULL };
 
 bool nw_backend_save(const char *path)
 {
@@ -356,6 +356,19 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
     return &tex;
 }
 
+/* The target as a texture a draw blends over, copied. */
+static const NwVuTexture *nw_be_dst(void)
+{
+    static NwVuTexture tex;
+    NwBeSurf *s = nw_be.target;
+    nw_be_surf_make(&nw_be.copy, 0, s->tw, s->th);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
+    glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    tex = (NwVuTexture){ nw_be.copy.tex, 0, true, true };
+    return &tex;
+}
+
 /* A depth CLUT for a draw on the target: its Z copied, as a texture cannot be both, and the entries uploaded. */
 static const NwVuZClut *nw_be_zclut(const NwZClut *z)
 {
@@ -378,7 +391,7 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, z->clut);
     glActiveTexture(GL_TEXTURE0);
     vz = (NwVuZClut){ nw_be.zcopy.depth, nw_be.zclut, z->shift, z->base, z->far, z->near,
-                      { z->clear, z->clear_z[0], z->clear_z[1] }, z->alpha };
+                      { z->spot ? 2u : z->clear ? 1u : 0u, z->clear_z[0], z->clear_z[1] }, z->alpha };
     return &vz;
 }
 
@@ -605,6 +618,9 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     }
     if (c->zclut && c->zclut <= p->nzcluts) {
         m.zclut = nw_be_zclut(&p->zcluts[c->zclut - 1]);
+    }
+    if (c->exact) {
+        m.dst = nw_be_dst();
     }
     NwVuTexture clut;
     if (c->clut && c->clut->gl.clut && m.tex && m.tex->clut) {

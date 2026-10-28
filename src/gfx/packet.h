@@ -76,13 +76,19 @@ typedef struct NwPtl {
 /* A CLUT that a VERTS command looks up by the GS Z under each pixel instead of a texture, as retail's fog and spot
    lights read the Z buffer back byte by byte: entry (Z >> shift) & 0xFF over 256 entries from Z = base, entry far
    below them and near above. Seashell's NuLightFogClear then gives the alpha 0x80 where it is under 0x80 and Z is at
-   most clear[0], and 0 where it is 0x80 or more and Z is at least clear[1]. With alpha, the entry's alpha replaces
-   the texture's alone, as the haze reads the fog's alpha back with the frame. */
+   most clear_z[0], and 0 where it is 0x80 or more and Z is at least clear_z[1]. A spot light's (NwZClut.spot)
+   clears its texel instead where the alpha is 0x80 or more and Z is at most clear_z[0] (0: none), or at least
+   clear_z[1] (0: none). far and near may also be NW_ZCLUT_ZERO, a clear texel, or NW_ZCLUT_WRAP, the entry of Z
+   wrapped as the rest. With alpha, the entry's alpha replaces the texture's alone, as the haze reads the fog's alpha
+   back with the frame. */
+#define NW_ZCLUT_ZERO 0x100u
+#define NW_ZCLUT_WRAP 0x200u
+
 typedef struct NwZClut {
     uint32_t clut[256];
     uint32_t shift, base;
     uint32_t far, near;
-    bool clear;
+    bool clear, spot;
     uint32_t clear_z[2];
     bool alpha;
 } NwZClut;
@@ -137,6 +143,8 @@ typedef struct NwCmd {
             uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
             const NwGpuTex *clut;       /* VERTS: a CLUT over the material texture's, NULL none */
             uint32_t zclut;             /* VERTS: 1 + its depth CLUT in NwPacket.zcluts, 0 none */
+            bool exact;                 /* VERTS: the GS blend in the program over a copy of the target, for As past
+                                           0x80 or an ALPHA GL has no blend for (triangles that do not overlap) */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {

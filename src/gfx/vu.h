@@ -64,7 +64,8 @@ typedef struct NwVuTexture {
 } NwVuTexture;
 
 /* A depth CLUT (NwZClut) the programs read in place of the texture, or of its alpha alone: the target's Z as a
-   depth texture, the CLUT (256x1 RGBA8UI), and the lookup; clear: NuLightFogClear on, then its two Z. */
+   depth texture, the CLUT (256x1 RGBA8UI), and the lookup; clear: 0 none, 1 NuLightFogClear's, 2 a spot light's,
+   then its two Z. */
 typedef struct NwVuZClut {
     unsigned int depth, clut;
     uint32_t shift, base, far, near;
@@ -72,14 +73,16 @@ typedef struct NwVuZClut {
     bool alpha;
 } NwVuZClut;
 
-/* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state, and a
-   depth CLUT over the texture (NULL: none). */
+/* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state, a depth
+   CLUT over the texture (NULL: none), and a copy of the target to blend over in the program as the GS does (NULL:
+   GL's blend). */
 typedef struct NwVuMaterial {
     float diffuse[4];
     float uvoff[4]; /* VU 0x14 u, v; the STROW row u, v (x4096) when the geom unpacks its texcoords under STMOD 1 */
     const NwVuTexture *tex;
     NwMtlState state;
     const NwVuZClut *zclut;
+    const NwVuTexture *dst;
 } NwVuMaterial;
 
 bool nw_vu_init(void);

@@ -92,6 +92,11 @@ void NuLgtArcLaser(int type, struct nuvec_s *start, struct nuvec_s *end, struct 
                    float sizewob, float wobspeed, int colour);
 void NuLgtArcLaserDraw(int paused);
 extern int NuLgtArcLaserCnt, NuLgtArcLaserOldCnt;
+void NuLightAddSpot(struct nuvec_s *pos, float size, unsigned int colour, int mode);
+void NuLightAddSpotXSpanFade(struct nuvec_s *pos, float size, float brightness, int colour, int mode, int xspan,
+                             int fade);
+void NuLightProcessSpot(int mode);
+extern int NuLightSpotCnt, NuLightOldSpotCnt;
 extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff;
 
 static int failures;
@@ -1171,6 +1176,48 @@ static void test_arclaser(void)
     }
 }
 
+/* A glow (mode 0) and a light in the dark (mode 1, xspan 0x20): each a fan of 64 triangles in NuLgtSurf[9], the GS
+   blend in the program (ALPHA 0x41, 0x09), its centre in grey with the spot's alpha and its rim in grey with none
+   (xspan's), over a spot depth CLUT whose unlit entries are xspan as alpha; mode 1 adds the ring out to the screen's
+   edges, 128 triangles, in front of everything. */
+static void test_spot(void)
+{
+    struct nuvec_s pos = { 0.0f, 0.0f, 10.0f };
+    NuLightAddSpot(&pos, 1.5f, 0xFF200020, 0);
+    NuLightAddSpotXSpanFade(&pos, 1.5f, 1.0f, (int)0xFF000000, 1, 0x20, 1);
+    NuLightProcessSpot(0);
+    CHECK(NuLightSpotCnt == 0 && NuLightOldSpotCnt == 2);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *fan[3] = { NULL, NULL, NULL };
+    int n = 0;
+    for (uint32_t i = 0; i < p->ncmds && n < 3; i++) {
+        if (p->cmds[i].op == NW_CMD_VERTS && p->cmds[i].material == NuLgtSurf[9]) {
+            fan[n++] = &p->cmds[i];
+        }
+    }
+    CHECK(n == 3);
+    if (n == 3) {
+        static const uint16_t alpha[3] = { 0x141, 0x109, 0x109 };
+        static const uint32_t count[3] = { 64 * 3, 64 * 3, 128 * 3 };
+        for (int k = 0; k < 3; k++) {
+            CHECK(fan[k]->mode == NW_VERTS_GS && fan[k]->exact && fan[k]->alpha == alpha[k]);
+            CHECK(fan[k]->count == count[k] && fan[k]->zclut && p->zcluts[fan[k]->zclut - 1].spot);
+        }
+        const NwVuSpriteVertex *v = &p->verts[fan[0]->first];
+        CHECK(v[0].col[0] == 0x80 && v[0].col[3] == 0xFF && v[1].col[0] == 0x80 && v[1].col[3] == 0);
+        CHECK(v[0].pos[0] == v[3].pos[0] && v[2].pos[0] == v[4].pos[0]);
+        v = &p->verts[fan[1]->first];
+        CHECK(v[0].col[3] == 0xDF && v[1].col[3] == 0x20 && v[0].pos[2] == (float)0x7FFFFF);
+        const NwZClut *z = &p->zcluts[fan[1]->zclut - 1];
+        uint32_t unlit = 0;
+        for (int i = 0; i < 256; i++) {
+            unlit += z->clut[i] == 0x20000000;
+        }
+        CHECK(unlit > 0);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1205,6 +1252,7 @@ int main(void)
     test_fog();
     test_polyhaze();
     test_arclaser();
+    test_spot();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

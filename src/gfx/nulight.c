@@ -39,6 +39,8 @@ extern int NuLgtArcLaserCnt;
 extern int NuLgtArcLaserOldCnt;
 extern int NuLgtArcLaserFrame;
 extern int NuLgtSeed;
+extern int NuLightSpotCnt;
+extern int NuLightOldSpotCnt;
 extern void *NuLightHazePolymtl;
 extern float NuLightHazePolyus[4];
 extern float NuLightHazePolyvs[4];
@@ -60,7 +62,21 @@ void NuLightHaze(int z, int paused);
 void NuLightPolyHaze(int paused);
 void NuVec4MtxTransformVU0(struct nuvec4_s *dst, struct nuvec4_s *src, struct numtx_s *mtx);
 void NuVec4ScaleXYZVU0(struct nuvec4_s *dst, struct nuvec4_s *src, float scale);
+void NuVec4ScaleVU0(struct nuvec4_s *dst, struct nuvec4_s *src, float scale);
 f32 NuFsqrt(f32 x);
+
+/* nulight.c's; NuLightAddSpot and NuLightAddSpotXSpanFade fill them. */
+struct nulgtspot_s {
+    struct nuvec_s pos;
+    float size;
+    u32 colour;
+    u32 mode;
+    float brightness;
+    u8 xspan;
+    u8 fade;
+    char pad[2];
+};
+extern struct nulgtspot_s NuLightSpots[8];
 
 /* nulight.c's; NuLgtArcLaser fills them. */
 struct nulgtarclaser_s {
@@ -358,6 +374,267 @@ void NuLgtArcLaserDraw(int paused)
     if (!paused) {
         NuLgtArcLaserFrame++;
     }
+}
+
+/* A spot fan's vertex: x and y over w, held to the GS area, at z, in colour. */
+static void nw_lgt_spot_vertex(NwVuSpriteVertex *v, float x, float y, float z, u32 colour)
+{
+    x = x < 0.0f ? 0.0f : x > 65535.0f ? 65535.0f : x;
+    y = y < 0.0f ? 0.0f : y > 65535.0f ? 65535.0f : y;
+    int iz = (int)z;
+    memset(v, 0, sizeof(*v));
+    v->pos[0] = (float)(int)x;
+    v->pos[1] = (float)(int)y;
+    v->pos[2] = (float)(iz < 0 ? 0 : iz > 0x7FFFFF ? 0x7FFFFF : iz);
+    v->pos[3] = 1.0f;
+    memcpy(v->col, &colour, 4);
+}
+
+/* Mode 1's outer ring: rim vertex i held out to the screen's edge on its side (an octant of (i + 16) & 63). */
+static void nw_lgt_spot_edge(int i, NwVuSpriteVertex *v)
+{
+    int o = (i + 16) & 0x3F;
+    if ((o <= 8 || o >= 56) && v->pos[1] > 28672.0f) {
+        v->pos[1] = 28672.0f;
+    }
+    if (o >= 8 && o <= 24 && v->pos[0] < 38912.0f) {
+        v->pos[0] = 38912.0f;
+    }
+    if (o >= 24 && o <= 40 && v->pos[1] < 36864.0f) {
+        v->pos[1] = 36864.0f;
+    }
+    if (o >= 40 && o <= 56 && v->pos[0] > 26624.0f) {
+        v->pos[0] = 26624.0f;
+    }
+}
+
+/* The spot lights (NuLightAddSpot): each a glow about its point, size * 1.2 deep, in front of the frame's Z there,
+   by a CLUT of the GS Z from its far side to its near side (squared, then eased back past 192, a cosine ramp of
+   its alpha; xspan dims the colour and adds itself to every entry's alpha). Retail reads the CLUT through the Z
+   buffer's bytes into NuLgtHSurf[4] in the spot's screen box, clears entries of 0x80 or more behind fogz (the
+   first over 0x40) and, fading, in front of where it eases back, and draws NuLgtSurf[9] of it as a fan of 64
+   triangles over the spot at its near Z; a depth CLUT does the reading here, the GS blend in the program. Mode 0
+   adds (Cd - Cs) * As to the frame, 2 adds Cs * As; 1 multiplies the frame by As and adds Cs, over the whole
+   screen with a ring out to its edges, a light in the dark. mode 1 replays the last frame's spots (paused). */
+void NuLightProcessSpot(int mode)
+{
+    struct nuvec4_s pnts[8];
+    struct nuvec_s vecs[4];
+    u32 clut[256];
+    struct numtx_s *pcs = NuCameraGetPCSMtx();
+    struct numtx_s *scale = NuCameraGetScalingMtx();
+    struct numtx_s *proj = NuCameraGetProjectionMtx();
+    struct numtx_s *view = NuCameraGetViewMtx();
+    float zoffset = proj->_22 * scale->_22 + scale->_32;
+    float zscale = proj->_32 * scale->_22;
+    txupload_on = 0;
+    if (mode) {
+        NuLightSpotCnt = NuLightOldSpotCnt;
+    }
+    for (int spot = 0; spot < NuLightSpotCnt; spot++) {
+        struct nulgtspot_s *s = &NuLightSpots[spot];
+        float f = 1.0f;
+        pnts[2] = (struct nuvec4_s){ s->pos.x, s->pos.y, s->pos.z, f };
+        NuVec4MtxTransformVU0(&pnts[7], &pnts[2], view);
+        float depth = pnts[7].z + s->size * 1.2f;
+        if (!(depth > f)) {
+            continue;
+        }
+        if (pnts[7].z < f) {
+            f = (depth - f) / (s->size * 1.2f);
+            s->size *= f;
+            s->colour = (s->colour & 0xFFFFFF) + ((u32)(int)((float)(s->colour >> 24) * f) << 24);
+            pnts[7].z = 1.0f;
+        }
+        vecs[1] = (struct nuvec_s){ pnts[7].x, pnts[7].y, pnts[7].z + s->size * 1.2f };
+        pnts[2] = (struct nuvec4_s){ vecs[1].x, vecs[1].y, vecs[1].z, 1.0f };
+        NuVec4MtxTransformVU0(&pnts[2], &pnts[2], pcs);
+        NuVec4ScaleXYZVU0(&pnts[2], &pnts[2], 1.0f / pnts[2].w);
+        float far = pnts[7].z + s->size * 1.2f;
+        NuVec4MtxTransformVU0(&pnts[1], &pnts[7], pcs);
+        pnts[0].x = pnts[1].x - s->size * 8192.0f;
+        pnts[0].z = pnts[1].x + s->size * 8192.0f;
+        pnts[0].y = pnts[1].y - s->size * 4096.0f;
+        pnts[0].w = pnts[1].y + s->size * 4096.0f;
+        NuVec4ScaleVU0(&pnts[0], &pnts[0], 1.0f / pnts[1].w);
+        if (!(pnts[0].x < (float)(0x8000 + (nurndr_pixel_width << 3)) &&
+              pnts[0].z > (float)(0x8000 - (nurndr_pixel_width << 3)) &&
+              pnts[0].y < (float)(0x8000 + (nurndr_pixel_height << 3)) &&
+              pnts[0].w > (float)(0x8000 - (nurndr_pixel_height << 3)))) {
+            continue;
+        }
+        int xs = (int)((pnts[0].x - 32768.0f) / 16.0f + (float)(nurndr_pixel_width >> 1));
+        int ys = (int)((pnts[0].y - 32768.0f) / 16.0f + (float)(nurndr_pixel_height >> 1));
+        int xe = (int)((pnts[0].z - 32768.0f) / 16.0f + (float)(nurndr_pixel_width >> 1));
+        int ye = (int)((pnts[0].w - 32768.0f) / 16.0f + (float)(nurndr_pixel_height >> 1));
+        xe = xe > nurndr_pixel_width ? nurndr_pixel_width : xe;
+        xs = (xs < 0 ? 0 : xs) & 0xFFF8;
+        xe = (xe + 7) & 0xFFF8;
+        ys = ys < 0 ? 0 : ys;
+        ye = ye > nurndr_pixel_height ? nurndr_pixel_height : ye;
+        if (s->mode == 1) {
+            xs = ys = 0;
+            xe = (nurndr_pixel_width + 7) & 0xFFF8;
+            ye = nurndr_pixel_height;
+        }
+        if (xs >= xe || ys >= ye) {
+            continue;
+        }
+        vecs[2] = (struct nuvec_s){ pnts[7].x, pnts[7].y, pnts[7].z };
+        float near;
+        if (pnts[7].z - s->size * 1.2f < 1.0f) {
+            near = 16777215.0f;
+            vecs[3].z = 1.0f;
+        } else {
+            near = 0.0f;
+            vecs[3].z = pnts[7].z - s->size * 1.2f;
+        }
+        pnts[1] = (struct nuvec4_s){ pnts[7].x, pnts[7].y, vecs[3].z, 1.0f };
+        NuVec4MtxTransformVU0(&pnts[1], &pnts[1], pcs);
+        NuVec4ScaleXYZVU0(&pnts[0], &pnts[1], 1.0f / pnts[1].w);
+        if (near == 0.0f) {
+            near = pnts[0].z;
+        }
+        int shift;
+        if (pnts[0].w <= 0.0f || pnts[0].z < 0.0f) {
+            shift = 16;
+        } else {
+            float range = (float)((((int)pnts[0].z + 0xFFFF) & 0xFF0000) - ((int)pnts[2].z & 0xFF0000)) / 256.0f;
+            shift = range >= 256.0f ? NuRndrTopBit[(int)(range / 256.0f)] + 9 : NuRndrTopBit[(int)range] + 1;
+        }
+        float zbase = (float)(((int)pnts[2].z >> shift) << shift) - zoffset;
+        int count = (int)(pnts[0].z - zbase - zoffset);
+        count = ((count + (1 << shift) - 1) >> shift) + 8;
+        if (count > 256) {
+            count = 256;
+        }
+        int top = (int)pnts[2].z >> 16;
+        if (top > 256) {
+            top = 256;
+        }
+        if (shift < 9) {
+            shift = 8;
+        }
+        float fogscale = 256.0f / (s->size * 1.2f * 2.0f);
+        int val = ((int)pnts[2].z >> shift) & 0xFF;
+        float fogz = 0.0f;
+        u32 fogcol, alpha, add;
+        if (s->xspan) {
+            u32 k = 0x80u - s->xspan;
+            fogcol = ((((s->colour & 0xFF0000) * k) >> 7) & 0xFF0000) + ((((s->colour & 0xFF00) * k) >> 7) & 0xFF00) +
+                     (((s->colour & 0xFF) * k) >> 7);
+            alpha = ((s->colour >> 24) * k) << 5;
+            add = (u32)s->xspan << 24;
+        } else {
+            add = 0;
+            fogcol = s->colour & 0xFFFFFF;
+            alpha = (s->colour >> 24) << 12;
+        }
+        int last = -1, i;
+        for (i = 0; i < count; i++) {
+            float fog = zscale / (zbase + (float)(i << shift));
+            fog = (far - fog) * fogscale;
+            fog = fog * fog / 1024.0f + fog * 0.75f;
+            if (fog >= 192.0f) {
+                fog = (255.0f - fog) * 2.0f;
+                if (fog < 63.0f && fog > 52.0f) {
+                    last = i;
+                }
+            } else {
+                fog *= 2.0f / 3.0f;
+            }
+            if (fog < 0.0f) {
+                fog = 0.0f;
+            }
+            fog = (1.0f - NuTrigTable[(int)(fog * 256.0f + 16384.0f) & 0xFFFF]) * 64.0f;
+            int a = (int)(fog * 32.0f);
+            if (a < 0) {
+                a = 0;
+            }
+            clut[(i + val) & 0xFF] = fogcol + ((alpha * (u32)a) & 0xFF000000) + add;
+            if (fogz == 0.0f && clut[(i + val) & 0xFF] > 0x40000000) {
+                fogz = zbase + zoffset + (float)(i << shift);
+            }
+        }
+        for (; i < 256; i++) {
+            clut[(i + val) & 0xFF] = add;
+        }
+        if (last > -1) {
+            last = (int)(zbase + zoffset + (float)(last << shift));
+        }
+        NwZClut z;
+        memset(&z, 0, sizeof(z));
+        memcpy(z.clut, clut, sizeof(clut));
+        z.shift = (uint32_t)shift;
+        z.spot = true;
+        if (shift >= 9) {
+            z.base = (uint32_t)top << 16;
+            z.far = z.near = (uint32_t)val;
+        } else {
+            /* retail clears the spot's box behind its far side instead (NuLgtGreyMat) */
+            z.base = (int)pnts[2].z < 0 ? 0 : (uint32_t)(int)pnts[2].z + 1;
+            z.far = NW_ZCLUT_ZERO;
+            z.near = NW_ZCLUT_WRAP;
+        }
+        if (fogz != 0.0f) {
+            z.clear_z[0] = (uint32_t)(int)fogz;
+            z.clear_z[1] = s->fade && last >= 0 ? (uint32_t)last : 0;
+        }
+        if (!NuRndrBeginSceneEx(-1, -2, 0)) {
+            continue;
+        }
+        nw_lgt_stream(NuLgtSurf[9]);
+        int alpha_reg = s->mode == 1 ? 0x09 : s->mode == 2 ? 0x48 : 0x41;
+        u32 c0 = 0xFF, c1 = 0x80, c2 = 0;
+        if (s->mode == 1) {
+            if (s->xspan) {
+                c0 = 0xFFu - s->xspan < 0x80 ? 0x80 : 0xFFu - s->xspan;
+                c2 = s->xspan;
+            }
+            near = 33554432.0f;
+        }
+        pnts[1] = (struct nuvec4_s){ vecs[2].x, vecs[2].y, vecs[2].z, 1.0f };
+        NuVec4MtxTransformVU0(&pnts[1], &pnts[1], pcs);
+        float invw = 1.0f / pnts[1].w;
+        NwVuSpriteVertex centre, rim[65], *v;
+        nw_lgt_spot_vertex(&centre, pnts[1].x * invw, pnts[1].y * invw, near, 0x808080 | c0 << 24);
+        for (i = 0; i < 65; i++) {
+            float x = pnts[1].x + NuTrigTable[((i << 10) + 0x4000) & 0xFFFF] * 8192.0f * s->size * s->brightness;
+            float y = pnts[1].y + NuTrigTable[(i << 10) & 0xFFFF] * 4096.0f * s->size;
+            nw_lgt_spot_vertex(&rim[i], x * invw, y * invw, near, c1 | c1 << 8 | c1 << 16 | c2 << 24);
+        }
+        NwCmd *c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, 64 * 3, &v);
+        c->alpha = (uint16_t)(0x100 | alpha_reg);
+        c->exact = true;
+        *nw_rndr_zclut(c) = z;
+        for (i = 0; i < 64; i++) {
+            *v++ = centre;
+            *v++ = rim[i];
+            *v++ = rim[i + 1];
+        }
+        if (s->mode == 1) {
+            NwVuSpriteVertex strip[130];
+            for (i = 0; i < 65; i++) {
+                strip[i * 2] = rim[i];
+                strip[i * 2 + 1] = rim[i];
+                nw_lgt_spot_edge(i, &strip[i * 2 + 1]);
+            }
+            c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, 128 * 3, &v);
+            c->alpha = (uint16_t)(0x100 | alpha_reg);
+            c->exact = true;
+            *nw_rndr_zclut(c) = z;
+            for (i = 0; i < 128; i++) {
+                *v++ = strip[i];
+                *v++ = strip[i + 1];
+                *v++ = strip[i + 2];
+            }
+        }
+        rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
+        NuRndrEndSceneEx(0);
+    }
+    txupload_on = 1;
+    NuLightOldSpotCnt = NuLightSpotCnt;
+    NuLightSpotCnt = 0;
 }
 
 /* The haze polys (the candles' flames, LDATA flags 0x10): the warped copy into NuLgtHSurf[4] with alpha 0, then

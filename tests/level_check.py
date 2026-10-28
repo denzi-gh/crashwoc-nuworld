@@ -15,7 +15,6 @@ RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
 
 # Stubs every level reaches through NuRndrFx and the spot lights; their issues own them.
 SHARED = {
-    "NuPs2ChangeTexPal": "#61",
     "NuRndrFxCode": "#61",
     "NuRndrWater": "#62",
 }
