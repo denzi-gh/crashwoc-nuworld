@@ -126,6 +126,24 @@ int main(void)
     nw_heap_side_own(nw_heap_side(), heap + 2048, heap + 2112);
     CHECK(take_frees(NULL) == 0);
 
+    /* The free waits for the frames that may draw the load: those published and the one being built when a later
+       load took its range. The renderer drawing the last one again (a long load) keeps it; its upload goes first. */
+    int mesh;
+    NwHeapSide *drawn = nw_heap_side();
+    nw_heap_side_gpu(drawn, NW_GPU_FREE_MESH, &mesh);
+    nw_gpu_queue(NW_GPU_UPLOAD_MESH, &mesh);
+    nw_heap_side_own(drawn, heap, heap + 64);
+    uint64_t seq = nw_packet_publish(1);
+    nw_heap_side_own(nw_heap_side(), heap, heap + 64);
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0;
+    CHECK(nw_gpu_take(seq, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_UPLOAD_MESH);
+    CHECK(nw_gpu_take(seq, &jobs, &cap) == 0);
+    CHECK(nw_gpu_take(nw_packet_publish(2), &jobs, &cap) == 0);
+    CHECK(nw_gpu_take(nw_packet_publish(3), &jobs, &cap) == 1 && jobs[0].op == NW_GPU_FREE_MESH &&
+          jobs[0].obj == &mesh);
+    SDL_free(jobs);
+
     printf("%s\n", failures ? "FAILED" : "heap: all checks passed");
     return failures ? 1 : 0;
 }
