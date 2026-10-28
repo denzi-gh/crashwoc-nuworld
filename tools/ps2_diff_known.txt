@@ -8,4 +8,3 @@
 ^nuvideo_global_vbcnt\.  # vblanks since boot; the trace counts from the title cut
 ^struct NUGCUTSCENE_s\.base  # file-to-heap delta of host addresses
 ^(buffer_start|buffer_freeptr|buffer_tmpptr|buffer_endptr|readfile_base|gscene)\.  # nugscn loader statics the port's loader replaces
-^NuTrigTable\.  # EE float rounding (#91): NuTrigInit's table

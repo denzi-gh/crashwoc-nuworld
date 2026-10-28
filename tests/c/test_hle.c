@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL3/SDL_stdinc.h>
+
 #include "hle/eefloat.h"
 #include "nu3d/nuanim.h"
 #include "nu3d/nustream.h"
@@ -45,6 +47,7 @@ void *vpDmaTag_RepointCopy(void *packet, void *tag, uint32_t addr);
 void *vpDmaTag_Close(void *packet);
 
 extern u8 *rndrstream_free;
+extern f32 NuTrigTable[65536];
 
 static struct numtx_s ident = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
@@ -304,6 +307,12 @@ static void test_eefloat(void)
     CHECK(nw_ee_mul(FLT_MIN, 0.5) == 0.0 && nw_ee_in(0x1p-130f) == 0.0);
 }
 
+/* The CRC of retail's table, read from a PCSX2 state. */
+static void test_trig(void)
+{
+    CHECK(SDL_crc32(0, NuTrigTable, sizeof(NuTrigTable)) == 0x2ec7ec5a);
+}
+
 static void test_anim_curve(void)
 {
     struct nuanimkey_s keys[2] = { { 1.0f, INFINITY, 0.5f, 7.0f }, { 1.0f, 1.0f, 0.0f, 9.0f } };
@@ -326,6 +335,7 @@ int main(void)
     test_stream_link();
     test_copy();
     test_eefloat();
+    test_trig();
     test_anim_curve();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
