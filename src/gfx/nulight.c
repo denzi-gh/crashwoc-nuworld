@@ -51,6 +51,7 @@ extern u8 *rndrstream_free;
 extern int txupload_on;
 extern int nurndr_pixel_width;
 extern int nurndr_pixel_height;
+extern int PS2_REZ_W;
 extern int PS2_REZ_H;
 extern int PS2_VCNTR_X;
 extern int PS2_VCNTR_Y;
@@ -152,41 +153,45 @@ static void nw_lgt_corner(NwVuSpriteVertex *v, int x, int y, float s, float t, u
 /* The haze passes' copy of the frame (NuLgtBackBuff) into the current target, in grey with alpha a, at z 0xFFFFFF:
    a strip of quads per column of 64 pixels, rows of 16, each corner moved by Hazetab's phase (Hazeampx, Hazeampy
    in 1/16 pixels, less half a pixel) over the frame's texel there; then retail's undistorted strips over the left
-   and right four pixels and the top and bottom three rows. */
+   and right four pixels and the top and bottom three rows. A frame wider than retail's 640 pixels takes Hazetab's
+   20 columns mirrored, so that neighbouring strips still share their corners. */
 static void nw_lgt_haze_copy(u32 a)
 {
-    const float p2h = (float)NuPower2(PS2_REZ_H);
-    const int rows = NuPower2(PS2_REZ_H) >> 4;
+    const float p2h = (float)NuPower2(PS2_REZ_H), p2w = (float)NuPower2(PS2_REZ_W);
+    const int rows = NuPower2(PS2_REZ_H) >> 4, cols = (PS2_REZ_W + 63) >> 6;
     const u32 colour = 0x808080 | a << 24;
     const int xoffset = (PS2_VCNTR_X - (nurndr_pixel_width >> 1)) << 4;
     const int yoffset = (PS2_VCNTR_Y - (nurndr_pixel_height >> 1)) << 4;
     NwVuSpriteVertex q[4], *v;
-    nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)(10 * rows + 4) * 6, &v);
-    for (int i = 0; i < 10; i++) {
+    nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)(cols * rows + 4) * 6, &v);
+    for (int i = 0; i < cols; i++) {
         for (int j = 0; j < rows; j++) {
             for (int k = 0; k < 4; k++) {
-                const struct nurndrscreenvtx_s *h = &Hazetab[j + (k >> 1)][i + (k & 1)];
+                const int col = (i + (k & 1)) % 40;
+                const struct nurndrscreenvtx_s *h = &Hazetab[j + (k >> 1)][col <= 20 ? col : 40 - col];
                 int dx = (int)(NuTrigTable[h->x & 0xFFFF] * Hazeampx) - 8;
                 int dy = (int)(NuTrigTable[(h->y + 0x4000) & 0xFFFF] * Hazeampy) - 8;
                 nw_lgt_corner(&q[k], ((i + (k & 1)) << 10) + dx + xoffset, ((j + (k >> 1)) << 8) + dy + yoffset,
-                              (float)(i + (k & 1)) * 64.0f / 1024.0f, (float)((j + (k >> 1)) << 4) / p2h, colour);
+                              (float)(i + (k & 1)) * 64.0f / p2w, (float)((j + (k >> 1)) << 4) / p2h, colour);
             }
             v = nw_rndr_quad(v, q);
         }
     }
-    const int h = PS2_REZ_H << 4, bottom = (PS2_REZ_H - 3) << 4;
+    const int h = PS2_REZ_H << 4, bottom = (PS2_REZ_H - 3) << 4, w = PS2_REZ_W << 4;
+    const float sr = ((float)PS2_REZ_W - 0.5f) / p2w;
     const float vb = ((float)PS2_REZ_H - 0.5f) / p2h;
     const struct {
         int x[4], y[4];
         float s[4], t[4];
     } strips[4] = {
-        { { 0, 0x40, 0, 0x40 }, { 0, 0, h, h }, { 0.0f, 3.5f / 1024.0f, 0.0f, 3.5f / 1024.0f },
+        { { 0, 0x40, 0, 0x40 }, { 0, 0, h, h }, { 0.0f, 3.5f / p2w, 0.0f, 3.5f / p2w },
           { 0.0f, 0.0f, vb, vb } },
-        { { 0x27C0, 0x2800, 0x27C0, 0x2800 }, { 0, 0, h, h },
-          { 636.0f / 1024.0f, 639.5f / 1024.0f, 636.0f / 1024.0f, 639.0f / 1024.0f }, { 0.0f, 0.0f, vb, vb } },
-        { { 0, 0x2800, 0, 0x2800 }, { 0, 0, 0x30, 0x30 }, { 0.0f, 639.5f / 1024.0f, 0.0f, 639.5f / 1024.0f },
+        { { w - 0x40, w, w - 0x40, w }, { 0, 0, h, h },
+          { (float)(PS2_REZ_W - 4) / p2w, sr, (float)(PS2_REZ_W - 4) / p2w, (float)(PS2_REZ_W - 1) / p2w },
+          { 0.0f, 0.0f, vb, vb } },
+        { { 0, w, 0, w }, { 0, 0, 0x30, 0x30 }, { 0.0f, sr, 0.0f, sr },
           { 0.5f / p2h, 0.5f / p2h, 2.5f / p2h, 2.5f / p2h } },
-        { { 0, 0x2800, 0, 0x2800 }, { bottom, bottom, h, h }, { 0.0f, 639.5f / 1024.0f, 0.0f, 639.5f / 1024.0f },
+        { { 0, w, 0, w }, { bottom, bottom, h, h }, { 0.0f, sr, 0.0f, sr },
           { (float)(PS2_REZ_H - 3) / p2h, (float)(PS2_REZ_H - 3) / p2h, vb, vb } },
     };
     for (int s = 0; s < 4; s++) {
@@ -229,9 +234,10 @@ void NuLightHaze(int z, int paused)
         nw_lgt_haze_step();
     }
     if (NuRndrBeginSceneEx(-1, -2, 0)) {
-        const float uv[4] = { 0.0f, 0.0f, 639.5f / 1024.0f, ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
+        const float uv[4] = { 0.0f, 0.0f, ((float)PS2_REZ_W - 0.5f) / NuPower2(PS2_REZ_W),
+                              ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
         nw_lgt_stream(NuLgtSurf[12]);
-        NwCmd *c = nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, PS2_REZ_H << 4, uv, colour, z);
+        NwCmd *c = nw_rndr_rect3d(rndrstream_3d, -8, -8, PS2_REZ_W << 4, PS2_REZ_H << 4, uv, colour, z);
         c->alpha = 0x100 | 0x44;
         if (!nw_lgt_polyhaze) {
             *nw_rndr_zclut(c) = nw_lgt_fog;
@@ -306,9 +312,9 @@ void NuLgtArcLaserDraw(int paused)
         NuVec4ScaleXYZVU0(&pnts[4], &pnts[4], 1.0f / pnts[4].w);
         NuVec4MtxTransformVU0(&pnts[5], &pnts[7], vpcs);
         NuVec4ScaleXYZVU0(&pnts[5], &pnts[5], 1.0f / pnts[5].w);
-        struct nuvec_s norm = { (pnts[5].y - pnts[4].y) * (640.0f / 224.0f), pnts[4].x - pnts[5].x, 0.0f };
+        struct nuvec_s norm = { (pnts[5].y - pnts[4].y) * ((float)PS2_REZ_W / 224.0f), pnts[4].x - pnts[5].x, 0.0f };
         NuVecNorm(&norm, &norm);
-        norm.x *= l->sizew * (640.0f * 2000.0f / 224.0f);
+        norm.x *= l->sizew * ((float)PS2_REZ_W * 2000.0f / 224.0f);
         norm.y *= l->sizew * 2000.0f;
         pnts[7].x -= pnts[6].x;
         pnts[7].y -= pnts[6].y;
@@ -725,9 +731,10 @@ void NuLightPolyHaze(int paused)
         nw_lgt_haze_step();
     }
     if (NuRndrBeginSceneEx(-1, -2, 0)) {
-        const float uv[4] = { 0.0f, 0.0f, 639.5f / 1024.0f, ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
+        const float uv[4] = { 0.0f, 0.0f, ((float)PS2_REZ_W - 0.5f) / NuPower2(PS2_REZ_W),
+                              ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
         nw_lgt_stream(NuLgtSurf[12]);
-        nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, PS2_REZ_H << 4, uv, (int)0x80808080, 0x1FFFFFF)->alpha =
+        nw_rndr_rect3d(rndrstream_3d, -8, -8, PS2_REZ_W << 4, PS2_REZ_H << 4, uv, (int)0x80808080, 0x1FFFFFF)->alpha =
             0x100 | 0x44;
         rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
         NuRndrEndSceneEx(0);
@@ -811,10 +818,12 @@ void NuLightFogDraw(int paused)
         if (NuRndrBeginSceneEx(-1, -2, 0)) {
             NwVuSpriteVertex *v;
             nw_lgt_stream(NuLgtSurf[9]);
-            NwCmd *c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, 10 * 6, &v);
+            const int cols = (PS2_REZ_W + 63) >> 6;
+            const float p2w = (float)NuPower2(PS2_REZ_W);
+            NwCmd *c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)cols * 6, &v);
             c->alpha = 0x100 | 0x44;
-            for (i = 0; i < 10; i++) {
-                const float uv[4] = { (float)i * 64.0f / 1024.0f, 0.0f, ((float)i * 64.0f + 64.0f) / 1024.0f,
+            for (i = 0; i < cols; i++) {
+                const float uv[4] = { (float)i * 64.0f / p2w, 0.0f, ((float)i * 64.0f + 64.0f) / p2w,
                                       ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
                 v = nw_rndr_rect3d_quad(v, (i << 10) - 8, (ys << 4) - 8, 0x400, ye << 4, uv,
                                         (int)(((NuRndrFogCol & 0xFE000000) >> 1) | 0x808080), (int)znear);
@@ -828,14 +837,16 @@ void NuLightFogDraw(int paused)
         if (NuRndrFogBlur && NuRndrBeginSceneEx(-1, -2, 0)) {
             nw_lgt_stream(NuLgtBackAlphaBuff);
             float v1 = (float)PS2_REZ_H / NuPower2(PS2_REZ_H);
-            for (i = 0; i <= 9; i++) {
-                const float a[4] = { ((float)i * 64.0f + 2.0f) / 1024.0f, 0.0f,
-                                     ((float)i * 64.0f + 62.0f + 2.0f) / 1024.0f, v1 };
-                const float b[4] = { ((float)i * 64.0f + 64.0f) / 1024.0f, 0.0f,
-                                     ((float)i * 64.0f + 64.0f + 2.0f) / 1024.0f, v1 };
+            const int cols = (PS2_REZ_W + 63) >> 6;
+            const float p2w = (float)NuPower2(PS2_REZ_W);
+            for (i = 0; i < cols; i++) {
+                const float a[4] = { ((float)i * 64.0f + 2.0f) / p2w, 0.0f,
+                                     ((float)i * 64.0f + 62.0f + 2.0f) / p2w, v1 };
+                const float b[4] = { ((float)i * 64.0f + 64.0f) / p2w, 0.0f,
+                                     ((float)i * 64.0f + 64.0f + 2.0f) / p2w, v1 };
                 nw_rndr_rect3d(rndrstream_3d, (i << 10) - 8, (ys << 4) - 8, 0x3E0, ye << 4, a,
                                NuRndrFogBlur + 0x808080, (int)znear)->alpha = 0x100 | 0x54;
-                if (i < 9) {
+                if (i < cols - 1) {
                     nw_rndr_rect3d(rndrstream_3d, (i << 10) + 0x3D8, (ys << 4) - 8, 0x20, ye << 4, b,
                                    NuRndrFogBlur + 0x808080, (int)znear)->alpha = 0x100 | 0x54;
                 }

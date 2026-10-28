@@ -16,6 +16,7 @@
 #include "nucore/nuerror.h"
 #include "numath/numtx.h"
 #include "numath/nuvec.h"
+#include "nu_port.h"
 #include "port/capture.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
@@ -658,12 +659,13 @@ int NuRndrSetFxMtx(struct numtx_s *mtx)
     return 1;
 }
 
-/* VU 0x16, which faceinit and faceon read: the camera's yaw for facey, the viewport's size for faceon. */
+/* VU 0x16, which faceinit and faceon read: the camera's yaw for facey, the viewport's size for faceon, its width
+   as retail's 4:3 one (nw_wide) so that a wider view keeps the sprites' shape. */
 void FaceYDirStream(int angle)
 {
     struct nuviewport_s *vp = NuVpGetCurrentViewport();
     nw_view.faceon[0] = NuTrigTable[(u16)(angle + 0x4000)];
-    nw_view.faceon[1] = vp->width * 9.765625146e-05f;
+    nw_view.faceon[1] = vp->width / nw_wide.k * 9.765625146e-05f;
     nw_view.faceon[2] = -NuTrigTable[(u16)angle];
     nw_view.faceon[3] = vp->height * 0.0002790178696f;
     nw_view_snap = NULL;
