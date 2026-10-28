@@ -67,7 +67,7 @@ static void nw_video_set(const NwSettings *s)
 
 static void nw_video_render(const NwSettings *s)
 {
-    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale });
+    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -128,8 +128,13 @@ static void nw_video_panel(void *user)
     static const char *const vsyncs[NW_VSYNC_MODES] = { "Off", "On", "Adaptive" };
     static const char *const scales[NW_BACKEND_SCALE_MAX + 1] = { "auto", "1x (PS2)", "2x", "3x", "4x",
                                                                   "5x", "6x", "7x", "8x" };
+    static const int samples[] = { 0, 2, 4, 8 };
+    static const char *const msaas[] = { "Off", "2x", "4x", "8x" };
     NwSettings *s = user;
-    int window = s->window, vsync = s->vsync, scale = s->scale;
+    int window = s->window, vsync = s->vsync, scale = s->scale, msaa = 0;
+    while (msaa < 3 && samples[msaa + 1] <= s->msaa) {
+        msaa++;
+    }
     int aspect = nw_video_index(s->aspect, aspects, (int)SDL_arraysize(aspects));
     int hud = nw_video_index(s->hud, huds, (int)SDL_arraysize(huds));
     if (nw_debug_combo("Window", &window, windows, NW_WINDOW_MODES)) {
@@ -147,6 +152,12 @@ static void nw_video_panel(void *user)
     }
     if (s->scale != nw_backend_scale()) {
         nw_debug_text("drawn at %dx", nw_backend_scale());
+    }
+    if (nw_debug_combo("MSAA", &msaa, msaas, (int)SDL_arraysize(msaas))) {
+        s->msaa = samples[msaa];
+    }
+    if (s->msaa != nw_backend_msaa()) {
+        nw_debug_text("drawn with %d samples", nw_backend_msaa());
     }
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
@@ -202,7 +213,7 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale) {
+    if (s->scale != was->scale || s->msaa != was->msaa) {
         nw_video_render(s);
     }
     if (s->window == was->window && s->resolution.w == was->resolution.w && s->resolution.h == was->resolution.h) {

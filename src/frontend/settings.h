@@ -18,6 +18,7 @@ typedef struct NwSettings {
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
     NwVsync vsync;
     int scale; /* the internal resolution, NwRenderOptions' */
+    int msaa;
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

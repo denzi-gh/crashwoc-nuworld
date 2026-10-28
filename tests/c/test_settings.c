@@ -175,6 +175,9 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.scale == 4);
 
+    CHECK(read_text("[video]\nmsaa = 4\n", &s) && s.msaa == 4);
+    CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
+
     /* A resolution: auto or WxH. */
     NwResolution res = { 1, 1 };
     CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);

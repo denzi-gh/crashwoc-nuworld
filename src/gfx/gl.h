@@ -95,6 +95,8 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COLOR_ATTACHMENT0 0x8CE0
 #define GL_DEPTH_STENCIL_ATTACHMENT 0x821A
 #define GL_FRAMEBUFFER 0x8D40
+#define GL_RENDERBUFFER 0x8D41
+#define GL_MAX_SAMPLES 0x8D57
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
@@ -179,6 +181,13 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
     X(void, glFramebufferTexture2D, \
         (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level)) \
+    X(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers)) \
+    X(void, glDeleteRenderbuffers, (GLsizei n, const GLuint *renderbuffers)) \
+    X(void, glBindRenderbuffer, (GLenum target, GLuint renderbuffer)) \
+    X(void, glRenderbufferStorageMultisample, \
+        (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height)) \
+    X(void, glFramebufferRenderbuffer, \
+        (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
     X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
 
@@ -259,6 +268,11 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindFramebuffer nw_glBindFramebuffer
 #define glCheckFramebufferStatus nw_glCheckFramebufferStatus
 #define glFramebufferTexture2D nw_glFramebufferTexture2D
+#define glGenRenderbuffers nw_glGenRenderbuffers
+#define glDeleteRenderbuffers nw_glDeleteRenderbuffers
+#define glBindRenderbuffer nw_glBindRenderbuffer
+#define glRenderbufferStorageMultisample nw_glRenderbufferStorageMultisample
+#define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
 #define glBlitFramebuffer nw_glBlitFramebuffer
 
 /* Loads every function in NW_GL_FUNCTIONS; needs a current GL context. */

@@ -11,6 +11,7 @@
 
 typedef struct NwRenderOptions {
     int scale; /* every surface's pixels across a GS pixel, 1-NW_BACKEND_SCALE_MAX; 0 = auto: the shown height */
+    int msaa;  /* samples of the back buffer and the targets under its Z: 0 off, 2, 4 or 8, at most the GPU's */
 } NwRenderOptions;
 
 bool nw_backend_init(void);
@@ -19,6 +20,8 @@ void nw_backend_shutdown(void);
 void nw_backend_set_options(const NwRenderOptions *o);
 /* The scale the last frame was drawn at. */
 int nw_backend_scale(void);
+/* Its MSAA samples, 0 without. */
+int nw_backend_msaa(void);
 /* Runs the GPU jobs due, draws the newest packet (or the last one again) and shows it in a width x height window;
    returns the packet drawn, NULL before the first. */
 const NwPacket *nw_backend_frame(int width, int height);

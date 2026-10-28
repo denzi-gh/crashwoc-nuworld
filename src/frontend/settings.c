@@ -182,6 +182,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .names = nw_settings_vsyncs, .help = "off, on, or adaptive (a late frame shows at once; on where unsupported)" },
     { .table = "video", .name = "scale", .kind = NW_SETTING_INT, NW_FIELD(scale), .lo = 0, .hi = NW_BACKEND_SCALE_MAX,
       .zero = "auto", .help = "internal resolution: auto (the screen's or more) or 1-8 times the PS2's" },
+    { .table = "video", .name = "msaa", .kind = NW_SETTING_INT, NW_FIELD(msaa), .lo = 0, .hi = 16,
+      .help = "multisampling: 0 (off), 2, 4 or 8 samples, at most the GPU's" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
       .help = "auto (the screen's or window's shape), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's" },
@@ -206,6 +208,7 @@ void nw_settings_defaults(NwSettings *s)
     s->resolution = (NwResolution){ 0, 0 };
     s->vsync = NW_VSYNC_ON;
     s->scale = 0;
+    s->msaa = 0;
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)
