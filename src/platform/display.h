@@ -1,4 +1,5 @@
-/* The window on its display: windowed or fullscreen, its size or the display's mode. Main thread. */
+/* The window on its display: windowed or fullscreen, its size or the display's mode, the swap interval. Main
+   thread. */
 #ifndef NUWORLD_PLATFORM_DISPLAY_H
 #define NUWORLD_PLATFORM_DISPLAY_H
 
@@ -12,6 +13,13 @@ typedef enum NwWindowMode {
     NW_WINDOW_FULLSCREEN, /* exclusive: the display takes the window's mode */
     NW_WINDOW_MODES
 } NwWindowMode;
+
+typedef enum NwVsync {
+    NW_VSYNC_OFF,
+    NW_VSYNC_ON,
+    NW_VSYNC_ADAPTIVE, /* late frames swap at once */
+    NW_VSYNC_MODES
+} NwVsync;
 
 typedef struct NwResolution {
     int w, h; /* pixels; 0 x 0 = auto */
@@ -27,5 +35,7 @@ const SDL_DisplayMode *nw_display_pick(SDL_DisplayMode *const *modes, int count,
 int nw_display_sizes(SDL_Window *window, NwWindowMode mode, NwResolution *sizes, int max);
 /* What fullscreen at res shows: the mode's pixels, the desktop's for auto or borderless. */
 NwResolution nw_display_fullscreen(SDL_Window *window, NwWindowMode mode, NwResolution res);
+/* The current GL context's swap interval; returns the one in effect: adaptive falls back to on. */
+NwVsync nw_display_set_vsync(NwVsync vsync);
 
 #endif

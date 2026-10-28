@@ -15,6 +15,7 @@ typedef struct NwSettings {
     float hud;           /* the widest width over height the HUD spreads to, 0 = the picture's edges */
     NwWindowMode window;
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
+    NwVsync vsync;
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

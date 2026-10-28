@@ -14,6 +14,7 @@ static struct {
     NwSettings *settings;
     NwWindowMode fullscreen; /* where F11 goes from windowed */
     NwResolution asked;      /* the window size the port set last, which no drag made */
+    NwVsync vsync;           /* in effect */
 } nw_video;
 
 static bool nw_video_near(NwResolution a, NwResolution b)
@@ -64,6 +65,15 @@ static void nw_video_set(const NwSettings *s)
     }
 }
 
+static void nw_video_vsync(NwVsync vsync)
+{
+    static const char *const names[NW_VSYNC_MODES] = { "off", "on", "adaptive" };
+    nw_video.vsync = nw_display_set_vsync(vsync);
+    if (nw_video.vsync != vsync) {
+        fprintf(stderr, NW_APP_NAME ": vsync %s is not supported, it is %s\n", names[vsync], names[nw_video.vsync]);
+    }
+}
+
 /* The index of value in values, -1 when it is none of them. */
 static int nw_video_index(float value, const float *values, int count)
 {
@@ -110,14 +120,21 @@ static void nw_video_panel(void *user)
     static const char *const aspect_names[] = { "auto", "4:3", "16:9", "16:10", "21:9", "32:9" };
     static const float huds[] = { 0.0f, 16.0f / 9.0f, 4.0f / 3.0f };
     static const char *const hud_names[] = { "at the edges", "inside 16:9", "inside 4:3" };
+    static const char *const vsyncs[NW_VSYNC_MODES] = { "Off", "On", "Adaptive" };
     NwSettings *s = user;
-    int window = s->window;
+    int window = s->window, vsync = s->vsync;
     int aspect = nw_video_index(s->aspect, aspects, (int)SDL_arraysize(aspects));
     int hud = nw_video_index(s->hud, huds, (int)SDL_arraysize(huds));
     if (nw_debug_combo("Window", &window, windows, NW_WINDOW_MODES)) {
         s->window = window;
     }
     nw_video_resolution(s);
+    if (nw_debug_combo("VSync", &vsync, vsyncs, NW_VSYNC_MODES)) {
+        s->vsync = vsync;
+    }
+    if (nw_video.vsync != s->vsync) {
+        nw_debug_text("not supported here: %s", vsyncs[nw_video.vsync]);
+    }
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
     }
@@ -147,6 +164,7 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     if (s->window != NW_WINDOW_WINDOWED || s->resolution.w > 0) {
         nw_video_set(s);
     }
+    nw_video_vsync(s->vsync);
     return aspect;
 }
 
@@ -167,6 +185,9 @@ void nw_video_event(const SDL_Event *e)
 
 void nw_video_apply(const NwSettings *s, const NwSettings *was)
 {
+    if (s->vsync != was->vsync) {
+        nw_video_vsync(s->vsync);
+    }
     if (s->window == was->window && s->resolution.w == was->resolution.w && s->resolution.h == was->resolution.h) {
         return;
     }

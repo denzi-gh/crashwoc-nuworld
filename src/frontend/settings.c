@@ -166,7 +166,9 @@ static const char *nw_settings_hud_format(const void *field, char *buf, int size
 }
 
 static const char *const nw_settings_windows[NW_WINDOW_MODES] = { "windowed", "borderless", "fullscreen" };
-_Static_assert(sizeof(NwWindowMode) == sizeof(int), "NW_SETTING_ENUM fields are int-sized");
+static const char *const nw_settings_vsyncs[NW_VSYNC_MODES] = { "off", "on", "adaptive" };
+_Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(int),
+               "NW_SETTING_ENUM fields are int-sized");
 
 static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
@@ -175,6 +177,8 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "resolution", .kind = NW_SETTING_TEXT, NW_FIELD(resolution),
       .parse = nw_settings_resolution_parse, .format = nw_settings_resolution_format,
       .help = "auto or WxH pixels: the window's size, or fullscreen the display's mode (auto: the desktop's)" },
+    { .table = "video", .name = "vsync", .kind = NW_SETTING_ENUM, NW_FIELD(vsync), .hi = NW_VSYNC_MODES,
+      .names = nw_settings_vsyncs, .help = "off, on, or adaptive (a late frame shows at once; on where unsupported)" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
       .help = "auto (the screen's or window's shape), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's" },
@@ -197,6 +201,7 @@ void nw_settings_defaults(NwSettings *s)
     s->hud = 16.0f / 9.0f;
     s->window = NW_WINDOW_WINDOWED;
     s->resolution = (NwResolution){ 0, 0 };
+    s->vsync = NW_VSYNC_ON;
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)

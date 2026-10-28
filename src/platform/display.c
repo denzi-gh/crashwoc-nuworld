@@ -91,6 +91,17 @@ int nw_display_sizes(SDL_Window *window, NwWindowMode mode, NwResolution *sizes,
     return n;
 }
 
+NwVsync nw_display_set_vsync(NwVsync vsync)
+{
+    static const int intervals[NW_VSYNC_MODES] = { 0, 1, -1 };
+    int interval = 1;
+    if (!SDL_GL_SetSwapInterval(intervals[vsync]) && vsync == NW_VSYNC_ADAPTIVE) {
+        SDL_GL_SetSwapInterval(1);
+    }
+    SDL_GL_GetSwapInterval(&interval);
+    return interval < 0 ? NW_VSYNC_ADAPTIVE : interval ? NW_VSYNC_ON : NW_VSYNC_OFF;
+}
+
 NwResolution nw_display_fullscreen(SDL_Window *window, NwWindowMode mode, NwResolution res)
 {
     SDL_DisplayMode m;

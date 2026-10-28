@@ -156,6 +156,9 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.window == NW_WINDOW_FULLSCREEN);
 
+    CHECK(read_text("[video]\nvsync = \"adaptive\"\n", &s) && s.vsync == NW_VSYNC_ADAPTIVE);
+    CHECK(read_text("[video]\nvsync = true\n", &s) && s.vsync == NW_VSYNC_ON);
+
     /* A resolution: auto or WxH. */
     NwResolution res = { 1, 1 };
     CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);
