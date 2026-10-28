@@ -109,6 +109,24 @@ u32 *NuRndrShadowLightFan(void);
 extern struct nuvec_s curlight;
 extern int NuLightSpotCnt, NuLightOldSpotCnt;
 extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2, *NuLgtGreyNZMat;
+void GlassGivenMaterial(struct numtl_s *mtl);
+extern char vu_load_glass_mpg[];
+struct waterTableEntry_s {
+    struct nuvec4_s wave[32];
+    float fx1, fx4;
+};
+void animateWater(float scale, float time);
+void animateWaterTables(float scale, float time);
+void NuRndrWater(void);
+void NuRandSeed(unsigned int seed);
+float NuRandFloat(void);
+extern int nwater_mtl, nwater_tables, water_mtl_tables[8];
+extern struct numtl_s *water_mtls[8], *NuLightAddMat;
+extern struct waterTableEntry_s water_table[8];
+extern float NuRndrWaterLevel;
+extern u32 NuRndrWaterTint;
+extern int NuLgtHSurf[18];
+extern float NuTrigTable[];
 
 static int failures;
 
@@ -406,7 +424,7 @@ static void test_animate(void)
         CHECK(k >= 0 && k < 3 && c->mtl < p->nmtls);
         if (k >= 0 && k < 3 && c->mtl < p->nmtls) {
             const NwMtlSnap *s = &p->mtls[c->mtl];
-            CHECK(s->uvoff[0] == m[k]->vuattr.f32[0] && s->uvoff[1] == m[k]->vuattr.f32[1]);
+            CHECK(memcmp(s->vu, m[k]->vuattr.f32, sizeof(s->vu)) == 0);
             CHECK(s->row[0] == m[k]->vuattr.s32[9] && s->row[1] == m[k]->vuattr.s32[10]);
         }
     }
@@ -728,6 +746,32 @@ static void test_xuv(void)
         CHECK(m[3][0] == 0.5f && m[3][1] == 0.5f && m[3][2] == 0.0f && m[3][3] == 1.0f && m[0][3] == 0.0f);
     }
     CHECK(k && k->nweights == 2 && p->weights[k->weights] == 0.25f && p->weights[k->weights + 1] == 0.5f);
+    NuRndrSwapStreamBuffers();
+}
+
+/* GlassGivenMaterial's material draws through the glass package under the fx matrix, with its VU 0x14-0x15 block:
+   the texcoords of the frame's corner, the strength, the texcoords per GS unit and the far edge's. */
+static void test_glass(void)
+{
+    struct numtl_s *m = NuMtlCreate(1);
+    GlassGivenMaterial(m);
+    CHECK(m->rs.mpg == (unsigned char *)vu_load_glass_mpg && (m->rs.attr & 0x43) == 0x40);
+    struct numtx_s fxm;
+    set_mtx(&fxm, 0.5f, 0.25f, 0.75f, 0.0f);
+    NuRndrSetFxMtx(&fxm);
+    mark(&m->rs, 92);
+    NuRndrEndScene();
+    NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take();
+    const NwCmd *c = p ? marked(p, 92) : NULL;
+    CHECK(c && c->light != NW_LIGHT_NONE && c->mtl < p->nmtls);
+    if (c && c->light != NW_LIGHT_NONE && c->mtl < p->nmtls) {
+        const float *vu = p->mtls[c->mtl].vu;
+        CHECK(memcmp(p->lights[c->light].uv, &fxm, sizeof(fxm)) == 0);
+        CHECK(vu[0] == (320.0f * 16.0f - 32768.0f) / 16384.0f && vu[1] == (256.0f * 16.0f - 32768.0f) / 8192.0f);
+        CHECK(vu[2] == 0.0625f && vu[4] == 1.0f / 16384.0f && vu[5] == 1.0f / 8192.0f);
+        CHECK(vu[6] == 639.0f / 1024.0f && vu[7] == 511.0f / 512.0f);
+    }
     NuRndrSwapStreamBuffers();
 }
 
@@ -1315,6 +1359,89 @@ static void test_fx2_volumes(void)
     NuRndrStreamFxMPG(0);
 }
 
+/* The WAVES command of the material whose stream the packet took, NULL for none. */
+static const NwWaves *water_waves(const NwPacket *p, const struct numtl_s *m)
+{
+    for (uint32_t i = 0; p && i < p->ncmds; i++) {
+        if (p->cmds[i].op == NW_CMD_WAVES && p->cmds[i].material == m && p->cmds[i].first < p->nwaves) {
+            return &p->waves[p->cmds[i].first];
+        }
+    }
+    return NULL;
+}
+
+/* animateWater's table at the head of each water material's stream from retail's NuRandSeed(0x11) draws, a speed
+   then a phase per axis: with the camera unturned a texcoord offset is half its lift along x and 0 along y.
+   animateWaterTables keeps the table of each (fx1, fx4) pair in water_table. NuRndrWater draws nothing above the
+   water line; below it the frame warped into NuLgtHSurf[4] in 10 x 14 cells, then that in the tint over the frame,
+   and the line is gone. */
+static void test_water(void)
+{
+    struct numtl_s *m = NuMtlCreate(1);
+    NuMtlUpdate(m);
+    m->fx1.f32 = 1.0f;
+    m->fx4.f32 = 0.5f;
+    water_mtls[0] = m;
+    nwater_mtl = 1;
+    global_camera.mtx = numtx_identity;
+    NuRandSeed(0x11);
+    float speed = NuRandFloat() * 0.4f + 0.8f, phase = NuRandFloat() * 6.284f;
+    float lift = NuTrigTable[(u16)(int32_t)((7.0f * speed + phase) * 10430.378f)] * 0.05f;
+    for (int tables = 0; tables < 2; tables++) {
+        if (tables) {
+            nwater_tables = 1;
+            water_mtl_tables[0] = 0;
+            animateWaterTables(0.1f, 7.0f);
+            CHECK(water_table[0].wave[0].w == lift);
+        } else {
+            animateWater(0.1f, 7.0f);
+        }
+        NuRndrEndScene();
+        NuRndrVu1Draw();
+        const NwWaves *w = water_waves(nw_packet_take(), m);
+        CHECK(w && w->wave[0][3] == lift);
+        for (int j = 0; w && j < 32; j++) {
+            CHECK(w->wave[j][2] == 1.0f && SDL_fabsf(w->wave[j][3]) <= 0.05f);
+            CHECK(SDL_fabsf(w->wave[j][0] - 0.5f * w->wave[j][3]) < 1e-6f && SDL_fabsf(w->wave[j][1]) < 1e-6f);
+        }
+        NuRndrSwapStreamBuffers();
+    }
+    nwater_mtl = nwater_tables = 0;
+
+    NuLightAddMat = NuMtlCreate(1);
+    NuLgtSurf[12] = NuMtlCreate(1);
+    NuLgtSurf[15] = NuMtlCreate(1);
+    NuLgtBackBuff = NuMtlCreate(1);
+    NuMtlUpdate(NuLightAddMat);
+    NuMtlUpdate(NuLgtSurf[12]);
+    NuMtlUpdate(NuLgtSurf[15]);
+    NuMtlUpdate(NuLgtBackBuff);
+    rndrstream_3d = rndrstream_3d_u;
+    NuRndrWaterLevel = -10000.0f;
+    NuRndrWater();
+    CHECK(nw_rndr_packet()->ncmds == 0);
+    NuRndrWaterLevel = 1000.0f;
+    NuRndrWaterTint = 0x40102030;
+    watertab[2][3].u = 7;
+    NuRndrWater();
+    CHECK(NuRndrWaterLevel == -10000.0f && watertab[2][3].x == 7);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *copy = NULL, *tint = NULL;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        copy = c->op == NW_CMD_VERTS && c->material == NuLgtBackBuff ? c : copy;
+        tint = c->op == NW_CMD_VERTS && (c->material == NuLgtSurf[12] || c->material == NuLgtSurf[15]) ? c : tint;
+    }
+    CHECK(copy && copy->mode == NW_VERTS_GS && copy->count == 10 * 14 * 6);
+    CHECK(tint && tint->count == 6 && tint > copy);
+    if (tint) {
+        uint32_t col;
+        memcpy(&col, p->verts[tint->first].col, 4);
+        CHECK(col == 0x40102030);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1340,6 +1467,7 @@ int main(void)
     test_render_target();
     test_hgobj();
     test_xuv();
+    test_glass();
     test_crate_quad();
     test_rope();
     test_fx_quads();
@@ -1351,6 +1479,7 @@ int main(void)
     test_arclaser();
     test_spot();
     test_fx2_volumes();
+    test_water();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

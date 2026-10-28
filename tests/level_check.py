@@ -1,6 +1,6 @@
 """Levels entered headless (local only; run_local.py passes the data root): each runs on the stepped clock with
 instant loads for VBLANKS vblanks after it runs (--level), and passes when it got there, the game thread parked
-and every stub it hit is one of SHARED. Near-match hits are listed, not failed.
+and it hit no stub. Near-match hits are listed, not failed.
 
     run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] <level> ...
 """
@@ -13,18 +13,13 @@ VBLANKS = 1500
 STUB = re.compile(r"^\s*\d+ (stub|near) +(\S+) +(\S+) +0x[0-9a-f]+ +\d+$")
 RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
 
-# Stubs every level reaches through NuRndrFx; their issues own them.
-SHARED = {
-    "NuRndrWater": "#62",
-}
-
 
 def check(exe: str, root: str, level: str, vblanks: int) -> bool:
     out = subprocess.run([exe, "--data-dir", root, "--stepped", "--hardware-speed", "off", "--boot-check",
                           str(vblanks), "--level", level], capture_output=True, text=True)
     lines = out.stdout.splitlines()
     hits = [m.groups() for line in lines if (m := STUB.match(line))]
-    stubs = [name for kind, _unit, name in hits if kind == "stub" and name not in SHARED]
+    stubs = [name for kind, _unit, name in hits if kind == "stub"]
     near = [name for kind, _unit, name in hits if kind == "near"]
     running = any(RUNNING.match(line) for line in lines)
     ok = out.returncode == 0 and running and not stubs

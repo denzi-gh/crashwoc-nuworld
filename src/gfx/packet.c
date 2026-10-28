@@ -146,6 +146,15 @@ NwZClut *nw_packet_zclut(NwPacket *p, uint32_t *index)
     return &p->zcluts[p->nzcluts++];
 }
 
+NwWaves *nw_packet_waves(NwPacket *p, uint32_t *index)
+{
+    if (!nw_packet_grow((void **)&p->waves, &p->wavecap, p->nwaves, sizeof(*p->waves))) {
+        return NULL;
+    }
+    *index = p->nwaves;
+    return &p->waves[p->nwaves++];
+}
+
 void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
@@ -161,6 +170,7 @@ void nw_packet_reset(NwPacket *p)
     p->nptllists = 0;
     p->nptls = 0;
     p->nzcluts = 0;
+    p->nwaves = 0;
 }
 
 NwPacket *nw_packet_building(void)

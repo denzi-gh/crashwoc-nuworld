@@ -11,7 +11,7 @@
 
 /* Row-major PS2 matrices uploaded as they are: GL reads them transposed, which makes u_lv * v the VU's v x LV. */
 static const char nw_vu_vs[] =
-    "#if PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_nrm;\n"
     "layout(location = 2) in vec2 a_uv;\n"
@@ -39,12 +39,15 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_uvoff;\n" /* VU 0x14 u, v; the STROW row u, v (x4096) the texcoords add under STMOD 1 */
     "uniform vec4 u_sprite;\n"
     "uniform vec4 u_uv[4];\n" /* the xuv programs' VF24-27 */
+    "uniform vec4 u_vu[2];\n" /* VU 0x14-0x15 */
     "#if PROGRAM == PTL\n"
     "uniform uvec4 u_ptl[132];\n" /* VU 0x3C-0xBF */
+    "#elif PROGRAM == WATER || PROGRAM == WATERUV\n"
+    "uniform vec4 u_wave[32];\n" /* VU 0x1B2-0x1D1 */
     "#endif\n"
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
-    "#if PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
     "vec3 row(uint joint, int r)\n"
     "{\n"
     "    return texelFetch(u_pool, u_joints + int(joint) * 4 + r).xyz;\n"
@@ -94,11 +97,11 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "    v_uv = a_tex.xy;\n"
     "    v_col = a_col;\n"
-    "#elif PROGRAM == SKIN || PROGRAM == SKINXUV\n"
+    "#elif PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
     /* skinmod.vsm first: each delta of a shape with a weight moves the point. Then skin.vsm: the weights (not
        normalised) sum the point under each of its joints' palette matrices, the normal turns under the heaviest joint
        alone. skin lights the material diffuse, with no vertex colour; skinxuv (as trixuv) takes the material colour
-       unlit and its texcoords from the normal. */
+       unlit and its texcoords from the normal; sknglass (as triglass) those times VU 0x14.z. */
     "    vec3 q = a_pos;\n"
     "    for (uint k = 0u; k < a_nrmjoint.y && u_blend.y > 0; k++) {\n"
     "        vec4 d = texelFetch(u_deltas, int(a_delta + k));\n"
@@ -122,13 +125,34 @@ static const char nw_vu_vs[] =
     "#else\n"
     "    v_col = u_diffuse;\n"
     "    v_uv = vec2(dot(u_uv[0].xyz, n), dot(u_uv[1].xyz, n)) + u_uv[3].xy;\n"
+    "#if PROGRAM == SKNGLASS\n"
+    "    v_uv *= u_vu[0].z;\n"
     "#endif\n"
-    "#elif PROGRAM == TRIXUV\n"
-    /* trixuv.vsm: the material colour unlit, the texcoords the normal in the UV matrix (specular, environment). */
+    "#endif\n"
+    /* water.vsm, wateruv.vsm: the wave a vertex picks by its normal's y (VU 0x1B2 + (y & 31)) lifts it along the local
+       y by its w and moves its texcoords by its x and y, the wave in camera space, times VU 0x14.z. water takes the
+       material colour and the frame copy at the vertex's pixel (in the fragment program); wateruv its vertex colour
+       and its own texcoords. */
+    "#elif PROGRAM == WATER || PROGRAM == WATERUV\n"
+    "    vec4 wave = u_wave[int(a_tex.z) & 31];\n"
+    "    gl_Position = u_lv * vec4(a_pos.x, a_pos.y + wave.w, a_pos.z, 1.0);\n"
+    "    v_uv = wave.xy * u_vu[0].z;\n"
+    "#if PROGRAM == WATER\n"
+    "    v_col = u_diffuse;\n"
+    "#else\n"
+    "    v_uv += (a_tex.xy + u_uvoff.zw) / 4096.0;\n"
+    "    v_col = a_col;\n"
+    "#endif\n"
+    "#elif PROGRAM == TRIXUV || PROGRAM == TRIGLASS\n"
+    /* trixuv.vsm: the material colour unlit, the texcoords the normal in the UV matrix (specular, environment).
+       triglass.vsm: those times VU 0x14.z, to which the fragment program adds the frame copy at the vertex's pixel. */
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
     "    v_col = u_diffuse;\n"
     "    v_uv = vec2(dot(u_uv[0].xyz, n), dot(u_uv[1].xyz, n)) + u_uv[3].xy;\n"
+    "#if PROGRAM == TRIGLASS\n"
+    "    v_uv *= u_vu[0].z;\n"
+    "#endif\n"
     "#else\n"
     "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
     "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
@@ -168,6 +192,8 @@ static const char nw_vu_fs[] =
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
     "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
+    "uniform vec4 u_vu[2];\n"   /* VU 0x14-0x15 */
+    "uniform vec4 u_frag;\n"    /* the pixel's GS coordinates */
     "out vec4 o_col;\n"
     "ivec2 tex_size(int lod)\n"
     "{\n"
@@ -256,8 +282,21 @@ static const char nw_vu_fs[] =
     "void main()\n"
     "{\n"
     "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
+    /* water, triglass and sknglass add the GS coordinates times VU 0x15.xy to the texcoords, offset to the frame's
+       corner (water from its size in VU 0x15.zw, the glass by VU 0x14.xy), and clamp them below its far edge. The VU
+       does this per vertex; per pixel it holds where the GPU's clipping makes vertices the VU's clipper would not. */
+    "#if PROGRAM == WATER || PROGRAM == TRIGLASS || PROGRAM == SKNGLASS\n"
+    "    vec2 gs = gl_FragCoord.xy * u_frag.xy + u_frag.zw;\n"
+    "#if PROGRAM == WATER\n"
+    "    vec2 st = min((gs + u_vu[1].zw * 8.0 - 32768.0) * u_vu[1].xy + v_uv, (u_vu[1].zw - 1.0) * u_vu[1].xy * 16.0);\n"
+    "#else\n"
+    "    vec2 st = min(gs * u_vu[1].xy + u_vu[0].xy + v_uv, u_vu[1].zw);\n"
+    "#endif\n"
+    "#else\n"
+    "    vec2 st = v_uv;\n"
+    "#endif\n"
     "    if (u_texmode.x != 0) {\n"
-    "        vec4 t = u_texmode.x == 4 ? zclut() : floor(sample_gs(v_uv));\n"
+    "        vec4 t = u_texmode.x == 4 ? zclut() : floor(sample_gs(st));\n"
     "        if (u_zalpha != 0) {\n"
     "            t.a = zclut().a;\n"
     "        }\n"
@@ -283,13 +322,14 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear, zalpha, gsblend;
+        uv, ptl, zclut, zclear, zalpha, gsblend, vu, frag, wave;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
-    static const char *const names[NW_VU_PROGRAMS] = { "TRIC", "TRICU", "TRICA", "TRICDV", "FACEON", "FACEY", "SKIN",
-                                                       "TRIXUV", "SKINXUV", "PTL" };
+    static const char *const names[NW_VU_PROGRAMS] = { "TRIC",    "TRICU", "TRICA", "TRICDV",  "FACEON",
+                                                       "FACEY",   "SKIN",  "TRIXUV", "SKINXUV", "PTL",
+                                                       "WATER", "WATERUV", "TRIGLASS", "SKNGLASS" };
     char head[512];
     int n = SDL_snprintf(head, sizeof(head), "#version 330 core\n");
     for (int i = 0; i < NW_VU_PROGRAMS; i++) {
@@ -353,6 +393,9 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].zclear = glGetUniformLocation(p, "u_zclear");
     nw_vu[program].zalpha = glGetUniformLocation(p, "u_zalpha");
     nw_vu[program].gsblend = glGetUniformLocation(p, "u_gsblend");
+    nw_vu[program].vu = glGetUniformLocation(p, "u_vu");
+    nw_vu[program].frag = glGetUniformLocation(p, "u_frag");
+    nw_vu[program].wave = glGetUniformLocation(p, "u_wave");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -396,6 +439,9 @@ NwVuProgram nw_vu_program(const char *package)
         { "vu_load_tricdv_mpg", NW_VU_TRICDV },
         { "vu_load_xformuv_mpg", NW_VU_TRIXUV },
         { "vu_load_fx2_mpg", NW_VU_TRICU }, /* its triangles at MSCAL 0x306: vertex colour, unlit */
+        { "vu_load_water_mpg", NW_VU_WATER },
+        { "vu_load_wateruv_mpg", NW_VU_WATERUV },
+        { "vu_load_glass_mpg", NW_VU_TRIGLASS },
     };
     for (size_t i = 0; package && i < SDL_arraysize(map); i++) {
         if (strcmp(package, map[i].name) == 0) {
@@ -410,6 +456,9 @@ NwVuProgram nw_vu_skin_program(const char *package)
     if (package && strcmp(package, "vu_load_tri_mpg") == 0) {
         return NW_VU_SKIN;
     }
+    if (package && strcmp(package, "vu_load_glass_mpg") == 0) {
+        return NW_VU_SKNGLASS;
+    }
     return package && strcmp(package, "vu_load_xformuv_mpg") == 0 ? NW_VU_SKINXUV : NW_VU_PROGRAMS;
 }
 
@@ -417,6 +466,14 @@ void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t
 {
     glUniform1i(nw_vu[program].joints, (GLint)joints * 4);
     glUniform2i(nw_vu[program].blend, (GLint)weights, (GLint)nweights);
+}
+
+void nw_vu_waves(const float waves[32][4])
+{
+    for (int program = NW_VU_WATER; program <= NW_VU_WATERUV; program++) {
+        glUseProgram(nw_vu[program].prog);
+        glUniform4fv(nw_vu[program].wave, 32, waves[0]);
+    }
 }
 
 void nw_vu_ptl(const uint32_t image[132][4])
@@ -435,6 +492,8 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
     glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     glUniform4fv(nw_vu[program].uv, 4, o->uv[0]);
+    glUniform4fv(nw_vu[program].vu, 2, m->vu);
+    glUniform4fv(nw_vu[program].frag, 1, o->frag);
     const NwVuZClut *z = m->zclut;
     bool zonly = z && !z->alpha;
     bool textured = !zonly && m->tex && m->tex->index;

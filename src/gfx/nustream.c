@@ -210,6 +210,15 @@ NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, 
     return &r->cmd;
 }
 
+NwWaves *nw_rndr_waves(struct rndrstream_s *stream)
+{
+    NwRecord *r = nw_rndr_record(NW_CMD_WAVES, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
+    NwWaves *w = nw_rndr_alloc(sizeof(*w));
+    r->waves = w;
+    nw_rndr_push(stream, r);
+    return w;
+}
+
 NwZClut *nw_rndr_zclut(NwCmd *c)
 {
     NwRecord *r = (NwRecord *)c;
@@ -331,6 +340,12 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
                 memcpy(ptls, r->ptls, r->cmd.count * sizeof(*ptls));
             } else if (r->ptllist) {
                 c->count = 0;
+            }
+            NwWaves *waves = r->waves ? nw_packet_waves(nw_packet_building(), &c->first) : NULL;
+            if (waves) {
+                *waves = *r->waves;
+            } else if (r->waves) {
+                c->first = UINT32_MAX;
             }
             NwJointSnap *j = (NwJointSnap *)r->joints;
             if (j && j->n && j->frame != nw_frame + 1) {
@@ -479,7 +494,7 @@ static void nw_rndr_snap(NwPacket *p)
             nw_snap_key[h] = m;
             s->gs = sb->gs;
             memcpy(s->diffuse, sb->diffuse, sizeof(s->diffuse));
-            memcpy(s->uvoff, sb->vuattr, sizeof(s->uvoff));
+            memcpy(s->vu, sb->vuattr, sizeof(s->vu));
             memcpy(s->row, sb->vuattr + 9, sizeof(s->row));
             s->tex = nw_rndr_texture(m->tid);
             s->surf = nw_ps2tx_surf(m->tid);

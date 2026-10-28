@@ -75,6 +75,13 @@ extern struct nurndrfoot_s NuRndrFootData[];
 extern int shadstorecnt;
 extern struct nuvec_s curlight;
 extern float NuTrigTable[];
+extern float NuRndrWaterLevel;
+extern u32 NuRndrWaterTint;
+extern struct numtl_s *NuLgtBackBuff;
+extern struct rndrstream_s *rndrstream_3d_u;
+
+void NuVec4MtxTransformVU0(struct nuvec4_s *dst, struct nuvec4_s *src, struct numtx_s *mtx);
+void NuVec4ScaleVU0(struct nuvec4_s *dst, struct nuvec4_s *src, float scale);
 void *vpDmaTag_Next(void *packet, uint32_t addr);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
@@ -98,6 +105,8 @@ struct nurndrshadstore_s shadstore[256];
 static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
 struct debdma_s *testforcepart; /* an effect list over every particle group's; NULL in retail */
 float testmultl = 4.0f;         /* the volume shadows' light's length over NuRndrShadowStencil's */
+float waveampx = 64.0f;         /* NuRndrWater's cell corners' sway, 1/16 pixels */
+float waveampy = 32.0f;
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -281,6 +290,138 @@ void NuRndrShadow(int mode)
     }
     rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
     NuRndrStreamFlush();
+}
+
+/* A vertex of NuRndrWater's DIRECT packets: GS (x, y) at z (the port's GS Z stops at 2^23 - 1), s, t, colour. */
+static void nw_water_vertex(NwVuSpriteVertex *v, int x, int y, int z, float s, float t, u32 colour)
+{
+    memset(v, 0, sizeof(*v));
+    v->pos[0] = (float)x;
+    v->pos[1] = (float)y;
+    v->pos[2] = (float)(z > 0x7FFFFF ? 0x7FFFFF : z);
+    v->pos[3] = 1.0f;
+    v->tex[0] = s * 4096.0f;
+    v->tex[1] = t * 4096.0f;
+    memcpy(v->col, &colour, 4);
+}
+
+static void nw_water_stream(struct numtl_s *mtl)
+{
+    rndrstream_3d = rndrstream_3d_u;
+    rndrstream_3d->mtl = 0;
+    rndrstream_3d->tid = 0;
+    NuRndrStreamLink(rndrstream_3d);
+    NuRndrStreamSetMisc(rndrstream_3d);
+    NuRndrStreamAddMtl(rndrstream_3d, mtl);
+}
+
+static void nw_water_target(int target)
+{
+    NuRndrStreamLink(rndrstream_system);
+    NuRndrSetRTarget(rndrstream_system, target);
+    NuRndrSetZBuffer(rndrstream_system, -2);
+    rndrstream_free = vpDmaTag_Next(rndrstream_system->ptr.u8, 0);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
+}
+
+/* The view from under the water at NuRndrWaterLevel. Only NuRndrWaterLevelTint sets the level, which nothing calls,
+   so this runs at most once, from the level's 0 in .sdata, if the camera starts below 0.5. Where the water line
+   crosses the screen at the near plane and 0.1 beyond, an alpha ramp from 0 to 0x80 between them, 0x80 below
+   (NuLightAddMat, DIRECT strips, when the lower point is on screen); the frame (NuLgtBackBuff) copied into
+   NuLgtHSurf[4] in 10 x 14 cells of 64 x 16 pixels whose corners watertab's phases move by waveampx, waveampy (in
+   1/16 pixels, less half a pixel); then that over the frame in NuRndrWaterTint, through NuLgtSurf[12] (after the
+   ramp) or [15]. */
+void NuRndrWater(void)
+{
+    struct nuvec4_s nearpnt, farpnt;
+    NwVuSpriteVertex q[4], *v;
+
+    if (NuRndrWaterLevel > -10000.0f && NuRndrWaterLevel > global_camera.mtx._31 - 0.5f) {
+        struct numtx_s *pcs = NuCameraGetPCSMtx();
+        int ang = NuAtan2D(global_camera.mtx._11, global_camera.mtx._21);
+        nearpnt.x = 0.0f;
+        nearpnt.y = ((NuRndrWaterLevel - global_camera.mtx._31) -
+                     global_camera.nearclip * NuTrigTable[(ang + 0x4000) & 0xFFFF]) /
+                    NuTrigTable[ang & 0xFFFF];
+        nearpnt.z = global_camera.nearclip;
+        nearpnt.w = 1.0f;
+        NuVec4MtxTransformVU0(&nearpnt, &nearpnt, pcs);
+        NuVec4ScaleVU0(&nearpnt, &nearpnt, 1.0f / nearpnt.w);
+        if (nearpnt.y < 34944.0f) {
+            farpnt.x = 0.0f;
+            farpnt.y = ((NuRndrWaterLevel - global_camera.mtx._31) -
+                        (global_camera.nearclip + 0.1f) * NuTrigTable[(ang + 0x4000) & 0xFFFF]) /
+                       NuTrigTable[ang & 0xFFFF];
+            farpnt.z = global_camera.nearclip + 0.1f;
+            farpnt.w = 1.0f;
+            NuVec4MtxTransformVU0(&farpnt, &farpnt, pcs);
+            NuVec4ScaleVU0(&farpnt, &farpnt, 1.0f / farpnt.w);
+            if (farpnt.y < nearpnt.y) {
+                farpnt.x = nearpnt.y;
+                nearpnt.y = farpnt.y;
+                farpnt.y = farpnt.x;
+            }
+            if (farpnt.y > 30720.0f) {
+                nw_water_target(-1);
+                nw_water_stream(NuLightAddMat);
+                bool ramp = farpnt.y > nearpnt.y;
+                nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, ramp ? 12 : 6, &v);
+                const int ys[3] = { (int)nearpnt.y, (int)farpnt.y, 0x8800 };
+                for (int k = ramp ? 0 : 1; k < 2; k++) {
+                    for (int c = 0; c < 4; c++) {
+                        nw_water_vertex(&q[c], c & 1 ? 0x9408 : 0x6BF8, ys[k + (c >> 1)], 0xFFFFFF, 0.0f, 0.0f,
+                                        k + (c >> 1) ? 0x80000000u : 0);
+                    }
+                    v = nw_rndr_quad(v, q);
+                }
+                rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
+                rndrstream_3d = rndrstream_3d_u;
+                rndrstream_3d->mtl = 0;
+                rndrstream_3d->tid = 0;
+                NuRndrStreamFlush();
+            }
+            nw_water_target(NuLgtHSurf[4]);
+            NuRndrStreamLink(rndrstream_3d);
+            NuRndrStreamSetMisc(rndrstream_3d);
+            NuRndrStreamAddMtl(rndrstream_3d, NuLgtBackBuff);
+            const int xoffset = (PS2_VCNTR_X - (nurndr_pixel_width >> 1)) << 4;
+            const int yoffset = (PS2_VCNTR_Y - (nurndr_pixel_height >> 1)) << 4;
+            nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, 10 * 14 * 6, &v);
+            for (int i = 0; i < 10; i++) {
+                for (int j = 0; j < 14; j++) {
+                    for (int k = 0; k < 4; k++) {
+                        const struct nurndrscreenvtx_s *w = &watertab[j + (k >> 1)][i + (k & 1)];
+                        int dx = (int)(NuTrigTable[w->x & 0xFFFF] * waveampx) - 8;
+                        int dy = (int)(NuTrigTable[(w->y + 0x4000) & 0xFFFF] * waveampy) - 8;
+                        nw_water_vertex(&q[k], ((i + (k & 1)) << 10) + dx + xoffset,
+                                        ((j + (k >> 1)) << 8) + dy + yoffset, 0xFFFFFF,
+                                        (float)(i + (k & 1)) * 64.0f / 1024.0f,
+                                        (float)((j + (k >> 1)) << 4) / 256.0f, 0x80808080u);
+                    }
+                    v = nw_rndr_quad(v, q);
+                }
+            }
+            rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
+            NuRndrStreamFlush();
+            for (int i = 0; i < 21; i++) {
+                for (int j = 0; j < 15; j++) {
+                    watertab[j][i].x += watertab[j][i].u;
+                    watertab[j][i].y += watertab[j][i].v;
+                }
+            }
+            nw_water_target(-1);
+            NuRndrStreamLink(rndrstream_3d);
+            NuRndrStreamSetMisc(rndrstream_3d);
+            NuRndrStreamAddMtl(rndrstream_3d, farpnt.y > 30720.0f ? NuLgtSurf[12] : NuLgtSurf[15]);
+            const float uv[4] = { 0.00390625f, 0.015625f, 0.62109375f, 0.859375f };
+            nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, nurndr_pixel_height << 4, uv, (int)NuRndrWaterTint,
+                           0x1FFFFFF);
+            rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
+            NuRndrStreamFlush();
+        }
+        NuRndrWaterLevel = -10000.0f;
+    }
 }
 
 /* The store's volumes along the light (fx2's programs, src/gfx/fx2.c) in NuLightAddMat2 under the identity, in a

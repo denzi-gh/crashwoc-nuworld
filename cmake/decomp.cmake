@@ -131,7 +131,7 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # not resolve, and for the executable the link is what proves the closure.
 # Never build it with LTO: the data image defines the roots as raw bytes.
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.c src/gfx/nurndr.c src/gfx/nustream.c
-  src/gfx/numtl.c src/gfx/nutex.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
+  src/gfx/numtl.c src/gfx/nutex.c src/gfx/nuwater.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
   src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c
@@ -229,7 +229,7 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} hub
       farm fire_fly airship space_a weath_b cold_a jungle_a castle_a s_balls
-      earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b garden)
+      earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b garden water)
   set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
