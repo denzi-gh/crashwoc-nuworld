@@ -87,6 +87,11 @@ void NuLightFogDraw(int paused);
 void NuLigthSetPolyHazeMat(void *mtl, float *u, float *v);
 void NuLightAddHazePoly(struct nuvec_s *pos, float size, float rot);
 extern int NuLightHazePolyCnt;
+void NuLgtSetArcMat(void *material, float u0, float v0, float u1, float v1);
+void NuLgtArcLaser(int type, struct nuvec_s *start, struct nuvec_s *end, struct nuvec_s *mid, float sizew, float sizel,
+                   float sizewob, float wobspeed, int colour);
+void NuLgtArcLaserDraw(int paused);
+extern int NuLgtArcLaserCnt, NuLgtArcLaserOldCnt;
 extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff;
 
 static int failures;
@@ -1129,6 +1134,43 @@ static void test_polyhaze(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* An arc laser two units long in segments of a half: one VERTS strip of four quads in GS coordinates in the arc
+   material, each new left and right corner then the last segment's, the laser's colour, U from U1 back to U0 along
+   a segment and V0 on the left, V1 on the right; paused, the same laser again. */
+static void test_arclaser(void)
+{
+    struct nuvec_s start = { -1.0f, 0.0f, 10.0f }, end = { 1.0f, 0.0f, 10.0f }, mid = { 0.0f, 1.0f, 0.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuLgtSetArcMat(mtl, 0.0f, 0.25f, 0.5f, 0.75f);
+    for (int paused = 0; paused < 2; paused++) {
+        if (!paused) {
+            NuLgtArcLaser(0, &start, &end, &mid, 0.1f, 0.5f, 0.0f, 0.3f, (int)0x80402010);
+        }
+        NuLgtArcLaserDraw(paused);
+        CHECK(NuLgtArcLaserCnt == 0 && NuLgtArcLaserOldCnt == 1);
+        const NwPacket *p = nw_rndr_packet();
+        const NwCmd *c = NULL;
+        for (uint32_t i = 0; i < p->ncmds; i++) {
+            c = p->cmds[i].op == NW_CMD_VERTS && p->cmds[i].material == mtl ? &p->cmds[i] : c;
+        }
+        CHECK(c && c->mode == NW_VERTS_GS && c->count == 4 * 6);
+        if (c && c->count == 4 * 6) {
+            static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+            for (int k = 0; k < 6; k++) {
+                const NwVuSpriteVertex *v = &p->verts[c->first + k];
+                CHECK(v->col[0] == 0x10 && v->col[1] == 0x20 && v->col[2] == 0x40 && v->col[3] == 0x80);
+                CHECK(v->tex[0] == (corner[k] & 1 ? 0.5f : 0.0f) * 4096.0f);
+                CHECK(v->tex[1] == (corner[k] & 2 ? 0.75f : 0.25f) * 4096.0f);
+                CHECK(v->pos[0] == SDL_floorf(v->pos[0]) && v->pos[3] == 1.0f);
+            }
+            const NwVuSpriteVertex *v = &p->verts[c->first];
+            CHECK(v[1].pos[0] != v[0].pos[0] && v[7].pos[0] == v[0].pos[0] && v[11].pos[0] == v[2].pos[0]);
+        }
+        NuRndrSwapStreamBuffers();
+    }
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1162,6 +1204,7 @@ int main(void)
     test_clouds();
     test_fog();
     test_polyhaze();
+    test_arclaser();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

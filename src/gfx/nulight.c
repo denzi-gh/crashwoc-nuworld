@@ -1,6 +1,7 @@
 /* nu3d/nulight's effect draws (port/units.toml overrides): retail's tables and passes, their GS packets as VERTS
    records; where retail reads the Z buffer back byte by byte through palette render targets, a depth CLUT
    (NwZClut) reads the GS Z under each pixel instead. */
+#include <math.h>
 #include <string.h>
 
 #include "gfx/rndr.h"
@@ -12,6 +13,7 @@
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
+#include "numath/nuvec.h"
 
 extern int NuRndrFogClear;
 extern float NuRndrFogNear;
@@ -28,6 +30,15 @@ extern int HazeColour;
 extern float Hazeampx;
 extern float Hazeampy;
 extern int NuLightHazePolyCnt;
+extern void *NuLgtArcMtl;
+extern float NuLgtArcU0;
+extern float NuLgtArcV0;
+extern float NuLgtArcU1;
+extern float NuLgtArcV1;
+extern int NuLgtArcLaserCnt;
+extern int NuLgtArcLaserOldCnt;
+extern int NuLgtArcLaserFrame;
+extern int NuLgtSeed;
 extern void *NuLightHazePolymtl;
 extern float NuLightHazePolyus[4];
 extern float NuLightHazePolyvs[4];
@@ -49,6 +60,23 @@ void NuLightHaze(int z, int paused);
 void NuLightPolyHaze(int paused);
 void NuVec4MtxTransformVU0(struct nuvec4_s *dst, struct nuvec4_s *src, struct numtx_s *mtx);
 void NuVec4ScaleXYZVU0(struct nuvec4_s *dst, struct nuvec4_s *src, float scale);
+f32 NuFsqrt(f32 x);
+
+/* nulight.c's; NuLgtArcLaser fills them. */
+struct nulgtarclaser_s {
+    struct nuvec_s start;
+    struct nuvec_s end;
+    struct nuvec_s mid;
+    float sizew;
+    float sizel;
+    float sizewob;
+    float wobspeed;
+    char type;
+    char pad[3];
+    u8 rgba[4];
+    int seed;
+};
+extern struct nulgtarclaser_s NuLgtArcLaserData[16];
 
 /* nulight.c's; NuLightAddHazePoly fills them. */
 struct nulgtpolyhaze_s {
@@ -178,6 +206,158 @@ void NuLightHaze(int z, int paused)
         NuRndrEndSceneEx(0);
     }
     txupload_on = 1;
+}
+
+/* A point on the line from p by d * t, bowed by mid along sin(t * pi), through the VPCS matrix and divided;
+   returns 1 / w. */
+static float nw_lgt_arc_point(struct nuvec4_s *out, const struct nuvec4_s *p, const struct nuvec4_s *d,
+                              const struct nuvec4_s *mid, float t, bool bow, struct numtx_s *vpcs)
+{
+    float sine = bow ? NuTrigTable[(u16)(t * 32768.0f)] : 0.0f;
+    out->x = p->x + d->x * t + mid->x * sine;
+    out->y = p->y + d->y * t + mid->y * sine;
+    out->z = p->z + d->z * t + mid->z * sine;
+    out->w = 1.0f;
+    NuVec4MtxTransformVU0(out, out, vpcs);
+    float scale = 1.0f / out->w;
+    NuVec4ScaleXYZVU0(out, out, scale);
+    return scale;
+}
+
+/* The arc lasers (NuLgtArcLaser): each from start to end, cut where it nears the camera (w 0.5), in screen-space
+   ribbons sizew wide of segments sizel long, bowed by mid at wobspeed and jittered across by sizewob from NuLgtSeed
+   (but the last), in NuLgtArcMtl's UV box, as retail's DIRECT GIF strips of four vertices; a segment wholly off one
+   side of the guard band is dropped (its triangles left degenerate). Paused, the last frame's lasers again. */
+void NuLgtArcLaserDraw(int paused)
+{
+    struct nuvec4_s pnts[11];
+    const float v[4] = { NuLgtArcV0, NuLgtArcV0, NuLgtArcV1, NuLgtArcV1 };
+    if (paused) {
+        NuLgtArcLaserCnt = NuLgtArcLaserOldCnt;
+    }
+    if (!NuLgtArcMtl || !NuLgtArcLaserCnt) {
+        NuLgtArcLaserOldCnt = 0;
+        return;
+    }
+    struct numtx_s *vpcs = NuCameraGetVPCSMtx();
+    if (!NuRndrBeginSceneEx(-1, -2, 0)) {
+        return;
+    }
+    nw_lgt_stream(NuLgtArcMtl);
+    for (int id = 0; id < NuLgtArcLaserCnt; id++) {
+        struct nulgtarclaser_s *l = &NuLgtArcLaserData[id];
+        pnts[4] = (struct nuvec4_s){ l->start.x, l->start.y, l->start.z, 1.0f };
+        NuVec4MtxTransformVU0(&pnts[4], &pnts[4], vpcs);
+        pnts[5] = (struct nuvec4_s){ l->end.x, l->end.y, l->end.z, 1.0f };
+        NuVec4MtxTransformVU0(&pnts[5], &pnts[5], vpcs);
+        if (!(0.5f <= pnts[4].w) && !(0.5f <= pnts[5].w)) {
+            continue;
+        }
+        if (pnts[4].w < 0.5f) {
+            float t = (pnts[5].w - 0.5f) / (pnts[5].w - pnts[4].w);
+            pnts[6] = (struct nuvec4_s){ l->end.x + (l->start.x - l->end.x) * t, l->end.y + (l->start.y - l->end.y) * t,
+                                         l->end.z + (l->start.z - l->end.z) * t, 1.0f };
+        } else {
+            pnts[6] = (struct nuvec4_s){ l->start.x, l->start.y, l->start.z, 1.0f };
+        }
+        if (pnts[5].w < 0.5f) {
+            float t = (pnts[4].w - 0.5f) / (pnts[4].w - pnts[5].w);
+            pnts[7] = (struct nuvec4_s){ l->start.x + (l->end.x - l->start.x) * t,
+                                         l->start.y + (l->end.y - l->start.y) * t,
+                                         l->start.z + (l->end.z - l->start.z) * t, 1.0f };
+        } else {
+            pnts[7] = (struct nuvec4_s){ l->end.x, l->end.y, l->end.z, 1.0f };
+        }
+        NuVec4MtxTransformVU0(&pnts[4], &pnts[6], vpcs);
+        NuVec4ScaleXYZVU0(&pnts[4], &pnts[4], 1.0f / pnts[4].w);
+        NuVec4MtxTransformVU0(&pnts[5], &pnts[7], vpcs);
+        NuVec4ScaleXYZVU0(&pnts[5], &pnts[5], 1.0f / pnts[5].w);
+        struct nuvec_s norm = { (pnts[5].y - pnts[4].y) * (640.0f / 224.0f), pnts[4].x - pnts[5].x, 0.0f };
+        NuVecNorm(&norm, &norm);
+        norm.x *= l->sizew * (640.0f * 2000.0f / 224.0f);
+        norm.y *= l->sizew * 2000.0f;
+        pnts[7].x -= pnts[6].x;
+        pnts[7].y -= pnts[6].y;
+        pnts[7].z -= pnts[6].z;
+        pnts[7].w -= pnts[6].w;
+        float step = sqrtf(pnts[7].x * pnts[7].x + pnts[7].y * pnts[7].y + pnts[7].z * pnts[7].z);
+        if (!(0.0f < step)) {
+            continue;
+        }
+        pnts[10] = (struct nuvec4_s){ l->mid.x, l->mid.y, l->mid.z, 0.0f };
+        float scale = pnts[10].x * pnts[10].x + pnts[10].y * pnts[10].y + pnts[10].z * pnts[10].z;
+        if (scale > 0.0f) {
+            scale = l->wobspeed / NuFsqrt(scale);
+        }
+        pnts[10].x *= scale;
+        pnts[10].y *= scale;
+        pnts[10].z *= scale;
+        NuLgtSeed = l->seed;
+        step = l->sizel / step;
+        if (step > 1.0f) {
+            step = 1.0f;
+        }
+        float u[4] = { NuLgtArcU0, NuLgtArcU1, NuLgtArcU0, NuLgtArcU1 };
+        scale = nw_lgt_arc_point(&pnts[4], &pnts[6], &pnts[7], &pnts[10], 0.0f, false, vpcs);
+        pnts[1] = (struct nuvec4_s){ pnts[4].x - norm.x * scale, pnts[4].y - norm.y * scale, pnts[4].z, 0.0f };
+        pnts[3] = (struct nuvec4_s){ pnts[4].x + norm.x * scale, pnts[4].y + norm.y * scale, pnts[4].z, 0.0f };
+        int n = 0;
+        for (float lp = 0.0f; lp < 1.0f; lp += step) {
+            n++;
+        }
+        NwVuSpriteVertex *v6, q[4];
+        nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)n * 6, &v6);
+        NwVuSpriteVertex *first = v6;
+        for (float lp = 0.0f; lp < 1.0f; lp += step) {
+            float next = lp + step;
+            if (next >= 1.0f) {
+                scale = nw_lgt_arc_point(&pnts[5], &pnts[6], &pnts[7], &pnts[10], 1.0f, false, vpcs);
+                u[0] = u[2] = NuLgtArcU1 + (NuLgtArcU0 - NuLgtArcU1) * (1.0f - lp) / step;
+            } else {
+                scale = nw_lgt_arc_point(&pnts[5], &pnts[6], &pnts[7], &pnts[10], next, true, vpcs);
+            }
+            float rx = 0.0f, ry = 0.0f;
+            if (lp < 1.0f - step * 1.5f && NuLgtSeed) {
+                int seed = NuLgtSeed * 0x24CD + 1;
+                NuLgtSeed = seed & 0xFFFF;
+                ry = (float)((u8)seed - 0x80);
+                rx = norm.x * ry * l->sizewob * scale;
+                ry = norm.y * ry * l->sizewob * scale;
+            }
+            pnts[0] = (struct nuvec4_s){ pnts[5].x - norm.x * scale + rx, pnts[5].y - norm.y * scale + ry, pnts[5].z,
+                                         0.0f };
+            pnts[2] = (struct nuvec4_s){ pnts[5].x + norm.x * scale + rx, pnts[5].y + norm.y * scale + ry, pnts[5].z,
+                                         0.0f };
+            if ((!(pnts[0].x < 24576.0f) || !(pnts[1].x < 24576.0f)) &&
+                (!(pnts[0].x > 40960.0f) || !(pnts[1].x > 40960.0f)) &&
+                (!(pnts[0].y < 30208.0f) || !(pnts[1].y < 30208.0f)) &&
+                (!(pnts[0].y > 35328.0f) || !(pnts[1].y > 35328.0f))) {
+                for (int k = 0; k < 4; k++) {
+                    memset(&q[k], 0, sizeof(q[k]));
+                    q[k].pos[0] = (float)(int)pnts[k].x;
+                    q[k].pos[1] = (float)(int)pnts[k].y;
+                    q[k].pos[2] = (float)(int)pnts[k].z;
+                    q[k].pos[3] = 1.0f;
+                    q[k].tex[0] = u[k] * 4096.0f;
+                    q[k].tex[1] = v[k] * 4096.0f;
+                    memcpy(q[k].col, l->rgba, 4);
+                }
+                v6 = nw_rndr_quad(v6, q);
+            }
+            pnts[1] = pnts[0];
+            pnts[3] = pnts[2];
+        }
+        while (v6 < first + n * 6) {
+            memset(v6++, 0, sizeof(*v6));
+        }
+    }
+    rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
+    NuRndrEndSceneEx(0);
+    NuLgtArcLaserOldCnt = NuLgtArcLaserCnt;
+    NuLgtArcLaserCnt = 0;
+    if (!paused) {
+        NuLgtArcLaserFrame++;
+    }
 }
 
 /* The haze polys (the candles' flames, LDATA flags 0x10): the warped copy into NuLgtHSurf[4] with alpha 0, then
