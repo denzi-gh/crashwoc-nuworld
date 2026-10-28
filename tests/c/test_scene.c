@@ -115,8 +115,8 @@ static bool same_vertices(const NwVifMesh *m, uint32_t first, const VifVtx *v, c
     for (uint32_t i = 0; i < n; i++) {
         const NwVifVertex *d = &m->verts[first + i];
         uint32_t w = packed ? 0 : (vif_fbits(v[i].nx) & 0xFFFF0000u) | (adc[i] ? 0x8001u : 0);
-        int16_t tex[4] = { (int16_t)(v[i].u * 4096.0f), (int16_t)(v[i].v * 4096.0f),
-                           fast ? 0 : (int16_t)(v[i].ny * 4096.0f), fast ? 0 : (int16_t)(v[i].nz * 4096.0f) };
+        int16_t tex[4] = { (int16_t)(int32_t)(v[i].u * 4096.0f), (int16_t)(int32_t)(v[i].v * 4096.0f),
+                           fast ? 0 : (int16_t)(int32_t)(v[i].ny * 4096.0f), fast ? 0 : (int16_t)(int32_t)(v[i].nz * 4096.0f) };
         if (d->pos[0] != v[i].x || d->pos[1] != v[i].y || d->pos[2] != v[i].z || vif_fbits(d->pos[3]) != w ||
             memcmp(d->tex, tex, sizeof(tex)) != 0 || memcmp(d->col, v[i].rgba, 4) != 0) {
             fprintf(stderr, "vertex %u differs\n", first + i);
@@ -211,6 +211,7 @@ static void test_packed(void)
     vif_end(&b, 0);
     NwVifMesh m = { 0 };
     CHECK_FAILS(decode(&m, &b), "texcoords under STMOD 0 and 1 in one geom");
+    nw_vif_free(&m);
     vif_free(&b);
 }
 

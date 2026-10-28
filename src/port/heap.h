@@ -1,10 +1,12 @@
 /* The game's heaps (the superbuffer and the buffers carved from it) for the port's loaders (src/port/heap.c): a heap
-   holds what retail puts there, so retail's budgets and layout hold; a load's host records live beside it, owned by
-   the heap range the load took, until a later load writes over that range. */
+   holds what retail puts there, so retail's budgets and layout hold; a load's host records and GPU objects live
+   beside it, owned by the heap range the load took, until a later load writes over that range. */
 #ifndef NUWORLD_PORT_HEAP_H
 #define NUWORLD_PORT_HEAP_H
 
 #include <stddef.h>
+
+#include "gfx/packet.h"
 
 typedef struct NwHeapSide NwHeapSide;
 
@@ -23,8 +25,13 @@ void *nw_heap_side_new(NwHeapSide *side, size_t size, size_t align);
 /* The same for the host record of retail's record at the heap address at. */
 void *nw_heap_side_at(NwHeapSide *side, size_t size, size_t align, const void *at);
 
+/* A GPU object of side's load, freed with its records by the job free (after the frames that draw it). */
+void nw_heap_side_gpu(NwHeapSide *side, NwGpuOp free, void *obj);
+
 /* side owns [lo, hi) of a game heap; the records of every other load whose range it overlaps are freed. */
 void nw_heap_side_own(NwHeapSide *side, const void *lo, const void *hi);
+/* Frees the load whose record holds host now, as a later load over its range would. */
+void nw_heap_release(const void *host);
 
 /* The decomp's NW_SUPERBUFFER_ALLOC (nu_port.h): the superbuffer at retail's address modulo 0x1000. */
 void *nw_superbuffer_alloc(int size, char *file, int line);
@@ -46,5 +53,7 @@ const NwHeapRec *nw_heap_find(const void *p);
 
 /* The loads whose records are alive, and their host bytes. */
 size_t nw_heap_sides(size_t *bytes);
+/* The GPU objects of the live loads. */
+size_t nw_heap_gpu(void);
 
 #endif

@@ -1,7 +1,20 @@
 #include <float.h>
 #include <math.h>
 
+#include "hle/eefloat.h"
+#include "numath/nutrig.h"
 #include "numath/nuvec.h"
+#include "port/nw_newlib.h"
+
+extern f32 NuTrigTable[65536];
+
+/* nutrig.c's with the EE's multiply, which rounds toward zero; sin is the decomp's newlib, as retail's. */
+void NuTrigInit(void)
+{
+    for (s32 i = 0; i < 0x10000; i++) {
+        NuTrigTable[i] = (f32)sin(nw_ee_mul(i, 0.0000958738f));
+    }
+}
 
 float NuFsqrt(float x)
 {

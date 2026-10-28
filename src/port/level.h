@@ -4,6 +4,7 @@
 #define NUWORLD_PORT_LEVEL_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 int nw_level_count(void);
 /* The English name, NULL for a level the disc lacks. */
@@ -14,12 +15,21 @@ int nw_level_pending(void);
 void nw_level_load(int level);
 
 /* --level: the run's level, by LData index or its file's name ("farm"), asked for at once; false when the disc lacks
-   it. Once it runs, the trace (port/trace.h) numbers vblanks from there. */
-bool nw_level_start(const char *name);
-/* The run's level, -1 for none. */
+   it. A comma-separated route asks for each next level once the one before runs; "intro" first is NEW GAME on the
+   title's menu, whose movies lead to the hub. Once the last runs, the trace (port/trace.h) numbers vblanks from
+   there. */
+bool nw_level_start(const char *names);
+/* The level the run is on its way to, -1 for none. */
 int nw_level_arrival(void);
-/* The run's level has been entered and runs: loaded, faded in, its arrival cut skipped. */
+/* The run's last level has been entered and runs: loaded, faded in, its arrival cut skipped. */
 bool nw_level_arrived(void);
+
+typedef struct NwLevelArrival {
+    int level;
+    size_t gpu; /* the scene GPU objects alive (src/port/heap.h) when it ran */
+} NwLevelArrival;
+/* The route's levels that ran so far, in order. */
+int nw_level_arrivals(const NwLevelArrival **out);
 
 /* The game thread, at each swap. */
 void nw_level_poll(void);

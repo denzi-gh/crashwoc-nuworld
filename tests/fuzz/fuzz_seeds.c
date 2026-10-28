@@ -1,22 +1,31 @@
 /* Seed corpus for nuworld_fuzz_vfs from the synthetic test builders (no game data): the disc as .iso, raw
    Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, .DAT archives, .gsc geoms, save documents
-   and a PS2 memory card. Each seed is the reader byte of fuzz_vfs.c and its input.
-   Usage: fuzz_seeds <corpus dir>. */
+   and a PS2 memory card. Each seed is the reader byte of fuzz_vfs.c and its input. With a second folder, the seeds
+   of fuzz_loaders.c there: a scene, a character, a cutscene, an anim, a shadow set, a terrain, a .vag, settings.
+   Usage: fuzz_seeds <corpus dir> [<loaders corpus dir>]. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
+#include "ani_builder.h"
+#include "cut_builder.h"
 #include "dat_builder.h"
 #include "disc_builder.h"
+#include "ghg_builder.h"
 #include "mc_builder.h"
 #include "rnc2_fixture.inc"
 #include "save/savecodec.h"
 #include "save/savestore.h"
+#include "shd_builder.h"
+#include "ter_builder.h"
+#include "vag_builder.h"
 #include "vif_builder.h"
 
 enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD };
+/* fuzz_loaders.c's */
+enum { LOAD_GSC, LOAD_GHG, LOAD_CUT, LOAD_ANI, LOAD_SHD, LOAD_TER, LOAD_VIEWER, LOAD_VAG = 11, LOAD_SETTINGS };
 
 static const char *corpus;
 
@@ -28,8 +37,12 @@ static void seed(const char *name, uint8_t reader, const void *head, size_t head
     size_t size = 1 + head_size + body_size;
     uint8_t *data = malloc(size);
     data[0] = reader;
-    memcpy(data + 1, head, head_size);
-    memcpy(data + 1 + head_size, body, body_size);
+    if (head_size) {
+        memcpy(data + 1, head, head_size);
+    }
+    if (body_size) {
+        memcpy(data + 1 + head_size, body, body_size);
+    }
     SDL_snprintf(path, sizeof(path), "%s/%s", corpus, name);
     if (!SDL_SaveFile(path, data, size)) {
         fprintf(stderr, "cannot write %s: %s\n", path, SDL_GetError());
@@ -54,10 +67,53 @@ static void seed_spec(const char *name, Image *img, const Spec *spec)
     seed(name, FUZZ_DISC, NULL, 0, img->data, img->size);
 }
 
+static int loader_seeds(const char *dir)
+{
+    GscBuild b;
+    corpus = dir;
+    if (!SDL_CreateDirectory(corpus)) {
+        fprintf(stderr, "%s: %s\n", corpus, SDL_GetError());
+        return 1;
+    }
+    GscScene scene;
+    gsc_build_scene(&b, &scene);
+    seed("scene", LOAD_GSC, NULL, 0, b.buf, b.len);
+    seed("viewer", LOAD_VIEWER, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    GhgFile ghg;
+    ghg_build(&b, &ghg);
+    seed("character", LOAD_GHG, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    CutFile cut;
+    cut_build(&b, &cut);
+    seed("cutscene", LOAD_CUT, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    AniFile ani;
+    ani_build(&b, &ani);
+    seed("anim", LOAD_ANI, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    ShdFile shd;
+    shd_build(&b, &shd);
+    seed("shadows", LOAD_SHD, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    TerFile ter;
+    ter_build(&b, &ter);
+    seed("terrain", LOAD_TER, NULL, 0, b.buf, b.len);
+    gsc_free(&b);
+    static uint8_t blocks[4 * NW_ADPCM_BLOCK], vag[48 + sizeof(blocks)];
+    for (int i = 0; i < 4; i++) {
+        vag_block_fill(blocks + i * NW_ADPCM_BLOCK, i % 5, 3, i == 3 ? NW_ADPCM_END : 0, i - 2);
+    }
+    seed("vag", LOAD_VAG, NULL, 0, vag, vag_file(vag, 22050, blocks, 4));
+    static const char settings[] = "[game]\nhardware_speed = true\n[audio]\nmaster_volume = 80\nvoice_volume = 0\n";
+    seed("settings", LOAD_SETTINGS, NULL, 0, settings, sizeof(settings) - 1);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: fuzz_seeds <corpus dir>\n");
+    if (argc != 2 && argc != 3) {
+        fprintf(stderr, "usage: fuzz_seeds <corpus dir> [<loaders corpus dir>]\n");
         return 2;
     }
     corpus = argv[1];
@@ -162,5 +218,5 @@ int main(int argc, char *argv[])
     uint8_t *image = mcb_image(&card, false, &size);
     seed("card", FUZZ_CARD, NULL, 0, image, size);
     free(image);
-    return 0;
+    return argc == 3 ? loader_seeds(argv[2]) : 0;
 }

@@ -1,5 +1,6 @@
 /* The .cut loader override (src/port/gcutscn.c) on a synthetic file; locally on every .cut of the imported disc.
    Usage: test_nucut <scratch dir> | retail. */
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -43,6 +44,10 @@ static char ghg_buffer[4 << 20];
         } \
     } while (0)
 
+/* The hermite reads whose value overflows in IEEE float, as the EE's float gives them. */
+static float overflowed[8];
+static unsigned noverflowed;
+
 /* Curve i at frame t, false if the keys it reads leave the image. A frame before the curve's first key reads the
    16 bytes before its keys, as on the PS2: *before counts those. */
 static bool eval2(const char *file, size_t size, struct nuanimdata2_s *data, int i, float t, float *val,
@@ -71,6 +76,17 @@ static bool eval2(const char *file, size_t size, struct nuanimdata2_s *data, int
         return false;
     }
     *val = NuAnimCurve2CalcVal(&data->curves[i], &at, type);
+    if (type == 1) {
+        /* In double, so a sweep with NUWORLD_FP_TRAPS does not stop here: a slope times the keys' interval. */
+        const struct nuanimkey2_s *kp = (const struct nuanimkey2_s *)k, *np = kp + 1;
+        double dt = (double)np->time - kp->time;
+        if (fabs(kp->slope * dt) > FLT_MAX || fabs(np->slope * dt) > FLT_MAX) {
+            if (noverflowed < SDL_arraysize(overflowed)) {
+                overflowed[noverflowed] = *val;
+            }
+            noverflowed++;
+        }
+    }
     return true;
 }
 
@@ -424,8 +440,9 @@ static int retail_main(int argc, char **argv)
 }
 
 /* Every .cut loads to the pinned counts, every keyed curve reads keys inside its file at every frame, no anim is
-   shared (retail would relocate it twice), and the joint anims cover their characters' joints. The 5 non-finite
-   values: ICEBERG's joint anim before its first key, where the slope read is the exporter's FLT_MAX padding. */
+   shared (retail would relocate it twice), and the joint anims cover their characters' joints. ICEBERG's joint anim
+   reads the exporter's FLT_MAX padding as a slope before its first key (frames 1-5): IEEE float overflows to inf,
+   the EE saturates. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -450,7 +467,9 @@ static int test_retail(void)
     CHECK(state == NW_GAME_RETURNED && retail.files == 18 && retail.bad == 0);
     CHECK(retail.cams == 70 && retail.locators == 128 && retail.types == 40 && retail.rigids == 178);
     CHECK(retail.chars == 67 && retail.anims == 385 && retail.keyed == 4284 && retail.states == 107);
-    CHECK(retail.before == 4823 && retail.nonfinite == 5 && retail.joints == 5);
+    CHECK(retail.before == 4823 && retail.nonfinite == 0 && retail.joints == 5 && noverflowed == 5);
+    CHECK(overflowed[0] == 0x1.e5cabap+86f && overflowed[1] == 0x1.e5cabap+87f && overflowed[2] == 0x1.6c580ap+88f &&
+          overflowed[3] == 0x1.e5cabap+88f && overflowed[4] == 0x1.2f9eb2p+89f);
     return failures ? 1 : 0;
 }
 

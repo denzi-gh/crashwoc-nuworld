@@ -54,13 +54,6 @@ static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
 static NwHeapSide *gscene_side; /* the scene being loaded */
 
-/* The GPU objects of the scenes loaded so far, and the job that frees each. */
-static struct {
-    void *obj;
-    NwGpuOp free;
-} *nw_gscn_gpu;
-static uint32_t nw_gscn_ngpu, nw_gscn_gpucap;
-
 /* Carves size bytes off the scene load buffer. */
 static void *GScnBufferAlloc(size_t size, size_t align)
 {
@@ -100,23 +93,13 @@ static char *nw_gscn_rel(char *field)
     return off ? field + off : 0;
 }
 
-/* A decoded geom queued for the GPU, or a fatal error. */
+/* A decoded geom queued for the GPU, owned by the scene's heap range, or a fatal error. */
 static void *nw_gscn_gpu_add(void *obj, bool ok, NwGpuOp upload, NwGpuOp free)
 {
     if (!ok) {
         NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": %s", gsc_load_context.filename, SDL_GetError());
     }
-    if (nw_gscn_ngpu == nw_gscn_gpucap) {
-        uint32_t n = nw_gscn_gpucap ? nw_gscn_gpucap * 2 : 1024;
-        void *grown = SDL_realloc(nw_gscn_gpu, n * sizeof(*nw_gscn_gpu));
-        if (!grown) {
-            NuErrorProlog(nugscn_srcfile, 0xB95)("out of memory for the geom meshes");
-        }
-        nw_gscn_gpu = grown;
-        nw_gscn_gpucap = n;
-    }
-    nw_gscn_gpu[nw_gscn_ngpu].obj = obj;
-    nw_gscn_gpu[nw_gscn_ngpu++].free = free;
+    nw_heap_side_gpu(gscene_side, free, obj);
     nw_gpu_queue(upload, obj);
     return obj;
 }
@@ -138,16 +121,6 @@ static NwGpuSprites *nw_gscn_sprites(void *stream, int size)
     return nw_gscn_gpu_add(sprites, ok, NW_GPU_UPLOAD_SPRITES, NW_GPU_FREE_SPRITES);
 }
 
-void nw_gscn_free_meshes(void)
-{
-    for (uint32_t i = 0; i < nw_gscn_ngpu; i++) {
-        nw_gpu_queue(nw_gscn_gpu[i].free, nw_gscn_gpu[i].obj);
-    }
-    SDL_free(nw_gscn_gpu);
-    nw_gscn_gpu = NULL;
-    nw_gscn_ngpu = nw_gscn_gpucap = 0;
-}
-
 /* nu3d/nucvtgeo (port/units.toml override): a geom's mesh is its scene's or its hgobj's, freed with them. */
 void NuPs2DestroyRenderStream(struct nugobj_s *gobj)
 {
@@ -160,7 +133,7 @@ void nw_gscn_remove(struct nugscn_s *scene)
     for (int i = 0; i < scene->numtid; i++) {
         nw_rndr_texture_free(scene->tids[i]);
     }
-    nw_gscn_free_meshes();
+    nw_heap_release(scene);
 }
 
 struct nugscn_s *NuGScnLoadFix(void);

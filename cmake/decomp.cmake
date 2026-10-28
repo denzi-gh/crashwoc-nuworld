@@ -132,11 +132,13 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Never build it with LTO: the data image defines the roots as raw bytes.
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.c src/gfx/nurndr.c src/gfx/nustream.c
   src/gfx/numtl.c src/gfx/nutex.c src/gfx/nuwater.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
-  src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c src/port/game.c
-  src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
+  src/hle/eefloat.c src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c
+  src/hle/nuvecvu0.c src/port/fptrap.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c
+  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
+  src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
@@ -152,6 +154,20 @@ target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuwo
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
 target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
+
+if(NUWORLD_FUZZ)
+  # The game's loaders and the port's decoders under libFuzzer (tests/fuzz/fuzz_loaders.c).
+  add_executable(nuworld_fuzz_loaders tests/fuzz/fuzz_loaders.c)
+  target_include_directories(nuworld_fuzz_loaders PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_definitions(nuworld_fuzz_loaders PRIVATE NW_HOST)
+  target_compile_options(nuworld_fuzz_loaders PRIVATE -Wall -Wextra -fsanitize=fuzzer)
+  target_link_options(nuworld_fuzz_loaders PRIVATE -fsanitize=fuzzer)
+  target_link_libraries(nuworld_fuzz_loaders PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game> nuworld_frontend)
+  if(NUWORLD_TESTS)
+    add_test(NAME fuzz_loaders COMMAND nuworld_fuzz_loaders -runs=0 -detect_leaks=0 ${nw_fuzz_loader_seeds})
+    set_tests_properties(fuzz_loaders PROPERTIES FIXTURES_REQUIRED fuzz_corpus)
+  endif()
+endif()
 
 if(NUWORLD_TESTS)
   # Building it proves the mirror layouts (_Static_asserts); running it checks the bitfields.
@@ -231,6 +247,12 @@ if(NUWORLD_TESTS)
       farm fire_fly airship space_a weath_b cold_a jungle_a castle_a s_balls
       earth_b west_a fire_b avalanch jungle toonarmy castle_c ballsof snow_b garden water)
   set_tests_properties(levels-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+  # Local only: title, intro, hub, a level and the hub again keep as many scene GPU objects alive at both hubs.
+  add_test(NAME scene-free-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tests/level_check.py $<TARGET_FILE:crashwoc-nuworld> {root} --vblanks 100
+      intro,farm,hub)
+  set_tests_properties(scene-free-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
 
   # The NuDat override under the kept nufile layer; nudat-retail is local only (NUWORLD_TEST_DATA).
   add_executable(nuworld_test_nudat tests/c/test_nudat.c)
@@ -248,6 +270,18 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_heap PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_heap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME heap COMMAND nuworld_test_heap)
+  # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
+  add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
+  target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_fptrap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME fp-traps COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=1
+    PASS_REGULAR_EXPRESSION "fp trap: invalid operation at .*nuworld_test_fptrap")
+  add_test(NAME fp-traps-off COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps-off PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=0)
+  add_test(NAME fp-traps-all COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps-all PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=all
+    PASS_REGULAR_EXPRESSION "fp trap: invalid operation at .*fptrap: the game thread returned")
 
   # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts. nugscn-retail
   # checks the animation library of every .gsc of NUWORLD_TEST_DATA.

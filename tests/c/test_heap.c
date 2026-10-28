@@ -2,9 +2,20 @@
    theirs; loads beside them, such as the loading screen's in the superbuffer's last 1 MB, leave them. */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "port/heap.h"
+/* After it: windows.h defines near and far. */
+#ifdef NW_HIGH_HEAP
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
+#endif
 
 static int failures;
 static char heap[4096];
@@ -31,6 +42,18 @@ static void count_hole(const void *at, size_t size, const char *why, void *user)
 {
     (void)at, (void)size, (void)why;
     ++*(unsigned *)user;
+}
+
+/* The frees queued so far, as the render thread takes them once every fence has passed. */
+static uint32_t take_frees(const void *objs[4])
+{
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; objs && i < n && i < 4; i++) {
+        objs[i] = jobs[i].obj;
+    }
+    SDL_free(jobs);
+    return n;
 }
 
 int main(void)
@@ -93,6 +116,58 @@ int main(void)
     holes = 0;
     nw_heap_each_hole(count_hole, &holes);
     CHECK(holes == 0);
+
+    /* A load's GPU objects are freed with its records, once: by a load over its range, or by its release. */
+    NwHeapSide *scene = nw_heap_side();
+    nw_heap_side_gpu(scene, NW_GPU_FREE_MESH, heap + 1);
+    nw_heap_side_gpu(scene, NW_GPU_FREE_SPRITES, heap + 2);
+    nw_heap_side_own(scene, heap, heap + 64);
+    CHECK(take_frees(NULL) == 0);
+    nw_heap_side_own(nw_heap_side(), heap, heap + 32);
+    const void *freed[4];
+    CHECK(take_frees(freed) == 2 && freed[0] == heap + 1 && freed[1] == heap + 2);
+    NwHeapSide *viewed = nw_heap_side();
+    nw_heap_side_gpu(viewed, NW_GPU_FREE_MESH, heap + 3);
+    char *sc = nw_heap_side_new(viewed, 16, 8);
+    nw_heap_side_own(viewed, heap + 2048, heap + 2112);
+    nw_heap_release(sc + 4);
+    CHECK(take_frees(freed) == 1 && freed[0] == heap + 3 && nw_heap_find(sc) == NULL);
+    nw_heap_side_own(nw_heap_side(), heap + 2048, heap + 2112);
+    CHECK(take_frees(NULL) == 0);
+
+    /* The free waits for the frames that may draw the load: those published and the one being built when a later
+       load took its range. The renderer drawing the last one again (a long load) keeps it; its upload goes first. */
+    int mesh;
+    NwHeapSide *drawn = nw_heap_side();
+    nw_heap_side_gpu(drawn, NW_GPU_FREE_MESH, &mesh);
+    nw_gpu_queue(NW_GPU_UPLOAD_MESH, &mesh);
+    nw_heap_side_own(drawn, heap, heap + 64);
+    uint64_t seq = nw_packet_publish(1);
+    nw_heap_side_own(nw_heap_side(), heap, heap + 64);
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0;
+    CHECK(nw_gpu_take(seq, &jobs, &cap) == 1 && jobs[0].op == NW_GPU_UPLOAD_MESH);
+    CHECK(nw_gpu_take(seq, &jobs, &cap) == 0);
+    CHECK(nw_gpu_take(nw_packet_publish(2), &jobs, &cap) == 0);
+    CHECK(nw_gpu_take(nw_packet_publish(3), &jobs, &cap) == 1 && jobs[0].op == NW_GPU_FREE_MESH &&
+          jobs[0].obj == &mesh);
+    SDL_free(jobs);
+
+#ifdef NW_HIGH_HEAP
+    /* Debug builds: every allocation lies above 4 GB, the superbuffer's size included. */
+    void *small = malloc(16), *large = malloc(0x1201000), *sdl = SDL_malloc(64);
+    CHECK((uintptr_t)small >> 32 && (uintptr_t)large >> 32 && (uintptr_t)sdl >> 32 && (uintptr_t)heap >> 32);
+    /* Not by chance: the address space below is taken. */
+#ifdef _WIN32
+    CHECK(VirtualAlloc((void *)0x10000000, 0x10000, MEM_RESERVE, PAGE_NOACCESS) == NULL);
+#else
+    CHECK(mmap((void *)0x10000000, 0x10000, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) ==
+          MAP_FAILED);
+#endif
+    free(small);
+    free(large);
+    SDL_free(sdl);
+#endif
 
     printf("%s\n", failures ? "FAILED" : "heap: all checks passed");
     return failures ? 1 : 0;

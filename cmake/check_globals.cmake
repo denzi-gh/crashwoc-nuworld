@@ -8,7 +8,7 @@ endif()
 string(REPLACE "\r" "" out "${out}")
 string(REPLACE "\n" ";" lines "${out}")
 
-# "<name> <type> ..." per symbol; weak symbols and MinGW's .refptr COMDATs may repeat.
+# "<name> <type> ..." per symbol; weak symbols, MinGW's .refptr COMDATs and ASan's per-object symbols may repeat.
 set(names)
 foreach(line IN LISTS lines)
   if(NOT line MATCHES "^([^ ]+) ([A-Za-z]) ")
@@ -16,7 +16,7 @@ foreach(line IN LISTS lines)
   endif()
   set(name ${CMAKE_MATCH_1})
   set(type ${CMAKE_MATCH_2})
-  if(NOT type MATCHES "^[WwVv]$" AND NOT name MATCHES "^\\.refptr\\.")
+  if(NOT type MATCHES "^[WwVv]$" AND NOT name MATCHES "^\\.refptr\\." AND NOT name MATCHES "^_+asan_")
     list(APPEND names ${name})
   endif()
 endforeach()

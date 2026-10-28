@@ -1,6 +1,7 @@
 """Levels entered headless (local only; run_local.py passes the data root): each runs on the stepped clock with
 instant loads for VBLANKS vblanks after it runs (--level), and passes when it got there, the game thread parked
-and it hit no stub. Near-match hits are listed, not failed.
+and it hit no stub. Near-match hits are listed, not failed. A route ("intro,farm,hub") passes when every leg ran and
+a level that runs twice has as many scene GPU objects alive both times.
 
     run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] <level> ...
 """
@@ -12,6 +13,7 @@ import sys
 VBLANKS = 1500
 STUB = re.compile(r"^\s*\d+ (stub|near) +(\S+) +(\S+) +0x[0-9a-f]+ +\d+$")
 RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
+ARRIVAL = re.compile(r"^boot-check: level (\d+) ran with (\d+) scene GPU objects alive$")
 
 
 def check(exe: str, root: str, level: str, vblanks: int) -> bool:
@@ -22,9 +24,16 @@ def check(exe: str, root: str, level: str, vblanks: int) -> bool:
     stubs = [name for kind, _unit, name in hits if kind == "stub"]
     near = [name for kind, _unit, name in hits if kind == "near"]
     running = any(RUNNING.match(line) for line in lines)
-    ok = out.returncode == 0 and running and not stubs
+    arrivals = [(int(m[1]), int(m[2])) for line in lines if (m := ARRIVAL.match(line))]
+    gpu: dict[int, set[int]] = {}
+    for at, n in arrivals:
+        gpu.setdefault(at, set()).add(n)
+    flat = len(arrivals) == level.count(",") + 1 and all(len(n) == 1 for n in gpu.values())
+    ok = out.returncode == 0 and running and not stubs and flat
+    counts = " ".join(f"{at}:{n}" for at, n in arrivals)
     print(f"{level}: {'ok' if ok else 'FAILED'} (exit {out.returncode}{'' if running else ', never ran'})"
-          f"{', stubs ' + ' '.join(stubs) if stubs else ''}{', near ' + ' '.join(near) if near else ''}")
+          f"{', stubs ' + ' '.join(stubs) if stubs else ''}{', near ' + ' '.join(near) if near else ''}"
+          f"{', scene GPU objects ' + counts if ',' in level or not flat else ''}")
     if not ok:
         print(out.stderr[-2000:], end="")
     return ok

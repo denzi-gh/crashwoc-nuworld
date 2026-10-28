@@ -200,6 +200,28 @@ static int count_mtls(void)
     return n;
 }
 
+/* Runs the queued GPU jobs as the render thread would (their frees free the objects); ops counts them per op. */
+static uint32_t drain_gpu(uint32_t ops[NW_GPU_FREE_HOST + 1])
+{
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; i < n; i++) {
+        if (ops) {
+            ops[jobs[i].op]++;
+        }
+        if (jobs[i].op == NW_GPU_FREE_MESH) {
+            nw_vif_free(&((NwGpuMesh *)jobs[i].obj)->mesh);
+        } else if (jobs[i].op == NW_GPU_FREE_SPRITES) {
+            nw_vif_sprites_free(&((NwGpuSprites *)jobs[i].obj)->sprites);
+        }
+        if (jobs[i].op >= NW_GPU_FREE_MESH && jobs[i].op != NW_GPU_FREE_TEX) {
+            SDL_free(jobs[i].obj);
+        }
+    }
+    SDL_free(jobs);
+    return n;
+}
+
 static void test_load(const char *scratch)
 {
     char *root = NULL, *disc = NULL, *path = NULL;
@@ -243,13 +265,25 @@ static void test_load(const char *scratch)
         }
         CHECK(count_mtls() == mtls);
     }
-    NwGpuJob *jobs = NULL;
-    uint32_t cap = 0, uploads = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
-    for (uint32_t i = 0; i < n; i++) {
-        uploads += jobs[i].op < NW_GPU_FREE_MESH;
+    uint32_t ops[NW_GPU_FREE_HOST + 1] = { 0 }, n = drain_gpu(ops), uploads = 0;
+    for (int op = 0; op < NW_GPU_FREE_MESH; op++) {
+        uploads += ops[op];
     }
     CHECK(n > 0 && uploads * 2 == n);
-    SDL_free(jobs);
+    /* Five times with no remove, as the game drops a scene by reusing its buffer (ResetSuperBuffer) after a level
+       init: each load frees the one before. */
+    for (int pass = 0; pass < 5; pass++) {
+        char *buf = scene_buffer + 3;
+        NuTexInit();
+        NuMtlInit();
+        NuRndrInitWorld();
+        CHECK(NuGScnRead(&buf, end, "test.gsc") != NULL);
+    }
+    SDL_memset(ops, 0, sizeof(ops));
+    drain_gpu(ops);
+    uint32_t made = ops[NW_GPU_UPLOAD_MESH] + ops[NW_GPU_UPLOAD_SPRITES];
+    uint32_t freed = ops[NW_GPU_FREE_MESH] + ops[NW_GPU_FREE_SPRITES];
+    CHECK(made > 0 && made % 5 == 0 && freed == made / 5 * 4);
 
     nw_shim_file_init(NULL);
     nw_vfs_shutdown(&vfs);
@@ -263,22 +297,6 @@ static NwVfs retail_vfs;
 static AnimStats retail = ANIM_STATS_INIT;
 static unsigned retail_scenes, retail_alib;
 
-static void drain_gpu(void)
-{
-    NwGpuJob *jobs = NULL;
-    uint32_t cap = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
-    for (uint32_t i = 0; i < n; i++) {
-        if (jobs[i].op == NW_GPU_FREE_MESH) {
-            nw_vif_free(&((NwGpuMesh *)jobs[i].obj)->mesh);
-        } else if (jobs[i].op == NW_GPU_FREE_SPRITES) {
-            nw_vif_sprites_free(&((NwGpuSprites *)jobs[i].obj)->sprites);
-        }
-        if (jobs[i].op >= NW_GPU_FREE_MESH && jobs[i].op != NW_GPU_FREE_TEX) {
-            SDL_free(jobs[i].obj);
-        }
-    }
-    SDL_free(jobs);
-}
 
 /* On the game thread: a load error is fatal there. The anims are the ones the instances play (NuGScnUpdate); the
    bit counts they need come from the .cut and .ani loaders in the game. INTRO/FINAL and TITLES/TITLESPL are
@@ -330,7 +348,7 @@ static int retail_main(int argc, char **argv)
         retail_alib += sc->instanimdata != NULL;
         anim_add(&retail, &st);
         nw_gscn_remove(sc);
-        drain_gpu();
+        drain_gpu(NULL);
     }
     SDL_free(buffer);
     return 0;

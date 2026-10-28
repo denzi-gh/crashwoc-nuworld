@@ -59,6 +59,8 @@ const char *nw_game_error(void);
 uint64_t nw_game_yield(bool wait_edge);
 /* The game cannot go on (the message is printed): parks for good. */
 _Noreturn void nw_game_fatal(const char *message);
+/* Fuzzers: called with the message first; it may longjmp out of the load that failed. */
+void nw_game_on_fatal(void (*fn)(const char *message));
 /* NuPs2ScreenSwap swapped a frame. */
 void nw_game_swap(void);
 /* A new host thread of an EE thread: the EE FPU's float mode. */

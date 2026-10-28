@@ -31,7 +31,7 @@ schema = 1
 "numath/nuvec" = { treatment = "compile", override = ["NuVecNorm"] }
 "numath/nuvec4" = { treatment = "compile" }
 "numath/numtx" = { treatment = "compile" }
-"numath/nutrig" = { treatment = "compile" }
+"numath/nutrig" = { treatment = "compile", override = ["NuTrigInit"] }
 "numath/nufloat" = { treatment = "compile" }
 "numath/nuquat" = { treatment = "compile" }
 "numath/nuplane" = { treatment = "compile" }
@@ -67,8 +67,10 @@ schema = 1
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw",
     "NuLgtArcLaserDraw", "NuLightProcessSpot", "NuLightFxSetup"] }
-# The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
-"nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs"] }
+# The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad; the curve evaluators in
+# the EE's float by src/hle/nuanim.c
+"nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs",
+    "NuAnimCurveCalcVal2", "NuAnimCurve2CalcVal"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
 "nu3d/nugscn" = { treatment = "compile", override = ["NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",

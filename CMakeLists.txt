@@ -16,7 +16,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned release" OFF)
 option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 option(NUWORLD_DECOMP "Generate and compile the decomp units (needs Python 3.11+ with libclang)" ON)
-option(NUWORLD_FUZZ "Build the libFuzzer target for the VFS readers (clang, ASan and UBSan)" OFF)
+option(NUWORLD_FUZZ "Build the libFuzzer targets for the VFS readers and the loaders (clang on Linux)" OFF)
+option(NUWORLD_SANITIZE "Build the port, the decomp and the tests with ASan and UBSan (clang)" OFF)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -31,6 +32,18 @@ else()
     GIT_SHALLOW TRUE
     SYSTEM)
   FetchContent_MakeAvailable(SDL3)
+endif()
+
+# After SDL: everything from here on, the decomp included; with libFuzzer's coverage for the fuzz targets.
+if(NUWORLD_FUZZ)
+  add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+if(NUWORLD_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+else()
+  # Debug builds allocate nothing below 4 GB (src/platform/highheap.c); ASan keeps its own layout.
+  add_compile_definitions($<$<CONFIG:Debug>:NW_HIGH_HEAP>)
 endif()
 
 # Dear ImGui with its SDL3 and OpenGL 3 backends (the GL backend has its own loader).
@@ -198,7 +211,8 @@ if(NUWORLD_FUZZ)
   if(NUWORLD_TESTS)
     # Every seed once through the instrumented readers.
     set(nw_fuzz_seeds ${CMAKE_CURRENT_BINARY_DIR}/fuzz-seeds)
-    add_test(NAME fuzz_seeds COMMAND nuworld_fuzz_seeds ${nw_fuzz_seeds})
+    set(nw_fuzz_loader_seeds ${CMAKE_CURRENT_BINARY_DIR}/fuzz-seeds-loaders)
+    add_test(NAME fuzz_seeds COMMAND nuworld_fuzz_seeds ${nw_fuzz_seeds} ${nw_fuzz_loader_seeds})
     set_tests_properties(fuzz_seeds PROPERTIES FIXTURES_SETUP fuzz_corpus)
     add_test(NAME fuzz_vfs COMMAND nuworld_fuzz_vfs -runs=0 ${nw_fuzz_seeds})
     set_tests_properties(fuzz_vfs PROPERTIES FIXTURES_REQUIRED fuzz_corpus)
