@@ -12,6 +12,7 @@
 typedef struct NwRenderOptions {
     int scale; /* every surface's pixels across a GS pixel, 1-NW_BACKEND_SCALE_MAX; 0 = auto: the shown height */
     int msaa;  /* samples of the back buffer and the targets under its Z: 0 off, 2, 4 or 8, at most the GPU's */
+    NwTexFilter filter;
 } NwRenderOptions;
 
 bool nw_backend_init(void);

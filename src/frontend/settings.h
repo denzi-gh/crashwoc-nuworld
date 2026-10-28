@@ -19,6 +19,7 @@ typedef struct NwSettings {
     NwVsync vsync;
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
+    NwTexFilter filter;
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

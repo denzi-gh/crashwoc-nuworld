@@ -67,7 +67,7 @@ static void nw_video_set(const NwSettings *s)
 
 static void nw_video_render(const NwSettings *s)
 {
-    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa });
+    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -130,8 +130,9 @@ static void nw_video_panel(void *user)
                                                                   "5x", "6x", "7x", "8x" };
     static const int samples[] = { 0, 2, 4, 8 };
     static const char *const msaas[] = { "Off", "2x", "4x", "8x" };
+    static const char *const filters[NW_FILTERS] = { "Retail", "Nearest", "Bilinear" };
     NwSettings *s = user;
-    int window = s->window, vsync = s->vsync, scale = s->scale, msaa = 0;
+    int window = s->window, vsync = s->vsync, scale = s->scale, msaa = 0, filter = s->filter;
     while (msaa < 3 && samples[msaa + 1] <= s->msaa) {
         msaa++;
     }
@@ -158,6 +159,9 @@ static void nw_video_panel(void *user)
     }
     if (s->msaa != nw_backend_msaa()) {
         nw_debug_text("drawn with %d samples", nw_backend_msaa());
+    }
+    if (nw_debug_combo("Texture filter", &filter, filters, NW_FILTERS)) {
+        s->filter = filter;
     }
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
@@ -213,7 +217,7 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale || s->msaa != was->msaa) {
+    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter) {
         nw_video_render(s);
     }
     if (s->window == was->window && s->resolution.w == was->resolution.w && s->resolution.h == was->resolution.h) {

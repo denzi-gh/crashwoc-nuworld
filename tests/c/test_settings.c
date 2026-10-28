@@ -178,6 +178,8 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nmsaa = 4\n", &s) && s.msaa == 4);
     CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
 
+    CHECK(read_text("[video]\nfilter = \"bilinear\"\n", &s) && s.filter == NW_FILTER_BILINEAR);
+
     /* A resolution: auto or WxH. */
     NwResolution res = { 1, 1 };
     CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);

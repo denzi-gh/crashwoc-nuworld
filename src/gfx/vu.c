@@ -189,6 +189,7 @@ static const char nw_vu_fs[] =
     "uniform ivec4 u_gsblend;\n"   /* ALPHA's A, B, C, D; -1: GL's blend */
     "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface, 4 depth CLUT; MMAG; CLAMP u, v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
+    "uniform int u_filter;\n"    /* NwTexFilter */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
     "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
@@ -228,14 +229,18 @@ static const char nw_vu_fs[] =
     "    return mix(mix(texel(i, lod), texel(i + ivec2(1, 0), lod), f.x),\n"
     "               mix(texel(i + ivec2(0, 1), lod), texel(i + 1, lod), f.x), f.y);\n"
     "}\n"
+    "bool bilerp(bool gs)\n"
+    "{\n"
+    "    return u_filter == 0 || u_texmode.x >= 3 ? gs : u_filter == 2;\n"
+    "}\n"
     /* TEX1 with LCM 0: LOD = log2(1/Q) << L + K; MMAG up to LOD 0, MMIN past it. */
     "vec4 sample_gs(vec2 uv)\n"
     "{\n"
     "    float lod = log2(1.0 / gl_FragCoord.w) * float(1 << u_texlod.z) + float(u_texlod.w) / 16.0;\n"
     "    if (lod <= 0.0 || u_texlod.x < 2) {\n"
-    "        return sample_level(uv, 0, (lod <= 0.0 ? u_texmode.y : u_texlod.x) == 1);\n"
+    "        return sample_level(uv, 0, bilerp((lod <= 0.0 ? u_texmode.y : u_texlod.x) == 1));\n"
     "    }\n"
-    "    bool bilinear = u_texlod.x >= 4;\n"
+    "    bool bilinear = bilerp(u_texlod.x >= 4);\n"
     "    lod = min(lod, float(u_texlod.y));\n"
     "    if (u_texlod.x == 3 || u_texlod.x == 5) {\n"
     "        int l0 = int(lod);\n"
@@ -326,8 +331,9 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear, zalpha, gsblend, vu, frag, wave;
+        uv, ptl, zclut, zclear, zalpha, gsblend, vu, frag, wave, filter;
 } nw_vu[NW_VU_PROGRAMS];
+static NwTexFilter nw_vu_filter_mode;
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
@@ -400,6 +406,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].vu = glGetUniformLocation(p, "u_vu");
     nw_vu[program].frag = glGetUniformLocation(p, "u_frag");
     nw_vu[program].wave = glGetUniformLocation(p, "u_wave");
+    nw_vu[program].filter = glGetUniformLocation(p, "u_filter");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -504,6 +511,7 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4i(nw_vu[program].texmode, zonly ? 4 : textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0,
                 m->state.mmag, m->state.wms == 1, m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
+    glUniform1i(nw_vu[program].filter, (GLint)nw_vu_filter_mode);
     glUniform1i(nw_vu[program].tcc, z || (textured && m->tex->tcc));
     glUniform1i(nw_vu[program].zalpha, z && z->alpha);
     if (z) {
@@ -559,6 +567,11 @@ static bool nw_vu_alpha = true;
 void nw_vu_alpha_writes(bool on)
 {
     nw_vu_alpha = on;
+}
+
+void nw_vu_filter(NwTexFilter filter)
+{
+    nw_vu_filter_mode = filter;
 }
 
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass)

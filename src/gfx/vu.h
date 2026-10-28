@@ -9,6 +9,14 @@
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 
+/* How game textures are filtered; render targets and depth CLUTs keep the GS's. */
+typedef enum NwTexFilter {
+    NW_FILTER_RETAIL, /* the GS's, per material: TEX1 MMAG and MMIN */
+    NW_FILTER_NEAREST,
+    NW_FILTER_BILINEAR,
+    NW_FILTERS
+} NwTexFilter;
+
 /* The triangle packages' per-vertex programs (tri runs the same code as tric), the sprite programs they jump to for
    face-on geoms, the skin programs of tri, xformuv and glass (MSCAL 0x302), and ptl's particles. water, wateruv,
    triglass and sknglass read the frame copied into a texture at the pixel each vertex lands on. */
@@ -122,6 +130,8 @@ void nw_vu1init_uv(NwVuObject *o, const float local[16], const NwLights *l);
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
 /* Whether the target keeps the alpha the passes write (a PSMCT24 frame does not). */
 void nw_vu_alpha_writes(bool on);
+/* The filter the next draws take. */
+void nw_vu_filter(NwTexFilter filter);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass);
 /* Uploads t with its mip levels. */

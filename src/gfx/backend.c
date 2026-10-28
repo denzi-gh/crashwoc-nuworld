@@ -1052,6 +1052,7 @@ static int nw_be_log2(int n)
 void nw_backend_set_options(const NwRenderOptions *o)
 {
     nw_be.opts = *o;
+    nw_vu_filter(o->filter);
 }
 
 int nw_backend_scale(void)
