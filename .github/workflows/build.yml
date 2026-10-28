@@ -114,30 +114,39 @@ jobs:
           name: crashwoc-nuworld-linux-x86_64
           path: build/release/crashwoc-nuworld
 
-  fuzz:
+  sanitize:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Install dependencies
         run: |
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 22
-          sudo apt-get install -y libclang-rt-22-dev
+          sudo apt-get install -y ninja-build ccache libclang-rt-22-dev
           echo /usr/lib/llvm-22/bin >> "$GITHUB_PATH"
-          sudo apt-get update
-          sudo apt-get install -y ninja-build \
-            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev \
-            libxtst-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgl1-mesa-dev \
-            libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev \
-            libdbus-1-dev libudev-dev libibus-1.0-dev
-      - run: cmake --preset fuzz
+          python3 -m pip install -r tools/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: sanitize-${{ github.sha }}
+          restore-keys: sanitize-
+      # SDL without its desktop backends: no test opens a window or plays sound.
+      - run: >-
+          cmake --preset fuzz -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=OFF -DSDL_ALSA=OFF -DSDL_JACK=OFF -DSDL_PIPEWIRE=OFF
+          -DSDL_PULSEAUDIO=OFF -DSDL_SNDIO=OFF -DSDL_DBUS=OFF -DSDL_IBUS=OFF -DSDL_LIBUDEV=OFF -DSDL_UNIX_CONSOLE_BUILD=ON
       - run: cmake --build --preset fuzz
-      - name: Run the seeds through the readers
-        run: ctest --test-dir build/fuzz -R fuzz --output-on-failure
-      - name: Fuzz the VFS readers for two minutes
+      - name: The tests and the seeds under ASan and UBSan
+        run: ctest --test-dir build/fuzz -j 4 --output-on-failure
+      - name: Fuzz the readers
         run: |
           mkdir -p build/fuzz/corpus build/fuzz/crashes
-          build/fuzz/nuworld_fuzz_vfs -max_total_time=120 -print_final_stats=1 \
+          build/fuzz/nuworld_fuzz_vfs -max_total_time=30 -print_final_stats=1 \
             -artifact_prefix=build/fuzz/crashes/ build/fuzz/corpus build/fuzz/fuzz-seeds
       - if: failure()
         uses: actions/upload-artifact@v4

@@ -17,6 +17,7 @@ option(NUWORLD_SYSTEM_SDL3 "Use an installed SDL3 instead of building the pinned
 option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 option(NUWORLD_DECOMP "Generate and compile the decomp units (needs Python 3.11+ with libclang)" ON)
 option(NUWORLD_FUZZ "Build the libFuzzer target for the VFS readers (clang, ASan and UBSan)" OFF)
+option(NUWORLD_SANITIZE "Build the port, the decomp and the tests with ASan and UBSan (clang)" OFF)
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -31,6 +32,12 @@ else()
     GIT_SHALLOW TRUE
     SYSTEM)
   FetchContent_MakeAvailable(SDL3)
+endif()
+
+# After SDL: everything from here on, the decomp included.
+if(NUWORLD_SANITIZE)
+  add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
 endif()
 
 # Dear ImGui with its SDL3 and OpenGL 3 backends (the GL backend has its own loader).

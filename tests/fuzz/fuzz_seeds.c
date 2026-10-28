@@ -28,8 +28,12 @@ static void seed(const char *name, uint8_t reader, const void *head, size_t head
     size_t size = 1 + head_size + body_size;
     uint8_t *data = malloc(size);
     data[0] = reader;
-    memcpy(data + 1, head, head_size);
-    memcpy(data + 1 + head_size, body, body_size);
+    if (head_size) {
+        memcpy(data + 1, head, head_size);
+    }
+    if (body_size) {
+        memcpy(data + 1 + head_size, body, body_size);
+    }
     SDL_snprintf(path, sizeof(path), "%s/%s", corpus, name);
     if (!SDL_SaveFile(path, data, size)) {
         fprintf(stderr, "cannot write %s: %s\n", path, SDL_GetError());

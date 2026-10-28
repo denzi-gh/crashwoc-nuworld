@@ -172,11 +172,11 @@ static void vif_batch(VifBuild *b, const VifVtx *v, const bool *adc, uint32_t n,
     }
     vif_word(b, n << 16 | (flags & VIF_FAST_UV ? 0x65008004 : 0x6D008004));
     for (uint32_t i = 0; i < n; i++) {
-        vif_half(b, (uint16_t)(int16_t)(v[i].u * 4096.0f));
-        vif_half(b, (uint16_t)(int16_t)(v[i].v * 4096.0f));
+        vif_half(b, (uint16_t)(int32_t)(v[i].u * 4096.0f));
+        vif_half(b, (uint16_t)(int32_t)(v[i].v * 4096.0f));
         if (!(flags & VIF_FAST_UV)) {
-            vif_half(b, (uint16_t)(int16_t)(v[i].ny * 4096.0f));
-            vif_half(b, (uint16_t)(int16_t)(v[i].nz * 4096.0f));
+            vif_half(b, (uint16_t)(int32_t)(v[i].ny * 4096.0f));
+            vif_half(b, (uint16_t)(int32_t)(v[i].nz * 4096.0f));
         }
     }
     if (flags & VIF_UV_ROW) {

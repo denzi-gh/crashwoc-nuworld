@@ -190,7 +190,8 @@ unsigned nw_ee_terminated(uint64_t *at, unsigned max)
     return n;
 }
 
-static int SDLCALL nw_ee_host_run(void *arg)
+/* Retail's thread functions take no argument (BGLoadSfxFn); the call passes one, as the EE kernel does. */
+__attribute__((no_sanitize("function"))) static int SDLCALL nw_ee_host_run(void *arg)
 {
     NwEeThread *t = arg;
     int self = (int)(t - nw_ee.threads);

@@ -55,6 +55,16 @@ static inline double nw_ee_mul(double a, double b)
     return nw_ee_round(a * b, 0.0);
 }
 
+/* By zero (or a denormal) the largest value, with the operands' signs combined; 0 / 0 too. */
+static inline double nw_ee_div(double a, double b)
+{
+    if (fabs(b) < FLT_MIN) {
+        return signbit(a) != signbit(b) ? -NW_EE_MAX : NW_EE_MAX;
+    }
+    double q = a / b;
+    return nw_ee_round(q, fma(-q, b, a) / b);
+}
+
 /* The host float nearest the EE's: past FLT_MAX, FLT_MAX. */
 static inline float nw_ee_out(double v)
 {

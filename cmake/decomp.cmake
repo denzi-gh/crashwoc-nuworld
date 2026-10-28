@@ -132,8 +132,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 # Never build it with LTO: the data image defines the roots as raw bytes.
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.c src/gfx/nurndr.c src/gfx/nustream.c
   src/gfx/numtl.c src/gfx/nutex.c src/gfx/nuwater.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
-  src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c src/hle/nuvecvu0.c
-  src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
+  src/hle/eefloat.c src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c
+  src/hle/nuvecvu0.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
