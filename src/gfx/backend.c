@@ -631,6 +631,17 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     NwMtlPass pass[2];
     glBindVertexArray(nw_be.verts_vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);
+    if (c->stencil) {
+        glEnable(GL_STENCIL_TEST);
+        glStencilFunc(GL_ALWAYS, 0, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, c->stencil > 0 ? GL_INCR_WRAP : GL_DECR_WRAP);
+        nw_vu_pass(program, &m, &pass[0]);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_FALSE);
+        glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
+        glDisable(GL_STENCIL_TEST);
+        return;
+    }
     for (uint32_t k = 0; k < n; k++) {
         nw_vu_pass(program, &m, &pass[k]);
         glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);

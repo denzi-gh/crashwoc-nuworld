@@ -14,11 +14,13 @@
 #include "nu3d/nustream.h"
 #include "gamelib/debris.h"
 #include "nu3d/nutex.h"
+#include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
 
 int NuPs2ScreenSwap(int vsync);
+void NuCameraSet(struct nucamera_s *cam);
 void NuPs2DisableAutoScreenSwap(void);
 void NuFntInit(void);
 int Ps2TxValToPowerOfTwo(int value);
@@ -45,6 +47,7 @@ extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern struct numtl_s *NuLightAddMat;
+extern struct numtl_s *NuLightAddMat2;
 extern struct nucamera_s global_camera;
 extern struct nutexslot_s *D_0062EBEC;
 #define TexList D_0062EBEC
@@ -67,6 +70,11 @@ void *vpDmaTag_Next(void *packet, uint32_t addr);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
 void NuRndrShadowStack(struct nuvec_s *light);
+struct nurndrshadface_s;
+void NuRndrShadowCylinderCap(struct numtx_s *mtx, struct NUCYLINDER_s *cyl, int count, struct nuvec_s *light);
+void NuRndrShadowEllipse(struct numtx_s *mtx, struct NUELLIPSOID_s *ellipse, int count, struct nuvec_s *light);
+void NuRndrShadowPols(struct numtx_s *mtx, struct nurndrshadface_s *face, struct nurndrshadface_s *vtx,
+                      struct nuvec_s *light);
 void RotateCyl(struct nuvec_s *v, float xang, float yang);
 void DeRotateVectorAngles(struct nuvec_s *dir, float *xang, float *yang);
 
@@ -178,7 +186,8 @@ void NuRndrInitEx(int streamsize)
     }
 }
 
-/* The volume shadows' fan of eight directions about the light; their DMA packet the port has none of (#61). */
+/* The volume shadows' fan of eight directions about the light, which ShadElp reads (src/gfx/fx2.c); retail also
+   packs them into its DMA packet. */
 u32 *NuRndrShadowLightFan(void)
 {
     struct nuvec_s angles;
@@ -202,15 +211,37 @@ void NuRndrShadow(int mode)
     NuRndrShadowStack(&curlight);
 }
 
-/* Empties the store as retail does once the volumes are drawn. */
+/* The store's volumes along the light (fx2's programs, src/gfx/fx2.c) in NuLightAddMat2 under the identity, in a
+   viewport 4096 / 16 pixels wide, which squeezes them to 0.4 of the frame; then the store is empty. */
 void NuRndrShadowStack(struct nuvec_s *light)
 {
-    static bool reported;
-    (void)light;
-    if (!reported) {
-        reported = true;
-        fprintf(stderr, NW_APP_NAME ": the volume shadows are not drawn\n");
+    NuVpSetSize(4096.0f, (float)(PS2_REZ_H << 4));
+    NuCameraSet(&global_camera);
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLightAddMat2);
+    NuRndrSetLocalMtx(&numtx_identity, 2);
+    NuRndrStreamSetViewMtxScissorClip(rndrstream_fx);
+    NuRndrStreamSetLocalMtx(rndrstream_fx);
+    NuRndrStreamFxMPG(1);
+    for (int i = 0; i < shadstorecnt; i++) {
+        struct nurndrshadstore_s *store = &shadstore[i];
+        if (store->shadow.ncylinders) {
+            NuRndrShadowCylinderCap(&store->mtx, store->shadow.cylinders, store->shadow.ncylinders, light);
+        }
+        if (store->shadow.nellipsoids) {
+            NuRndrShadowEllipse(&store->mtx, store->shadow.ellipsoids, store->shadow.nellipsoids, light);
+        }
+        struct NUSHADOWMESH_s *mesh = store->shadow.shadow_meshes;
+        if (mesh) {
+            NuRndrShadowPols(&store->mtx, (struct nurndrshadface_s *)mesh->normals,
+                             (struct nurndrshadface_s *)mesh->verts, light);
+        }
     }
+    NuRndrStreamFxMPG(0);
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    NuVpSetSize((float)(PS2_REZ_W << 4), (float)(PS2_REZ_H << 4));
+    NuCameraSet(&global_camera);
     shadstorecnt = 0;
 }
 

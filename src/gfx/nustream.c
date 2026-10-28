@@ -27,7 +27,6 @@ void *NuMemAllocFn(int size, char *file, int line);
 extern volatile int nuvideo_global_vbcnt;
 extern float NuTrigTable[];
 extern u8 *rndrstream_free;
-extern struct rndrstream_s *rndrstream_3d_u;
 extern struct rndrstream_s *rndrstream_2d;
 extern struct rndrstream_s *rndrstream_fx;
 extern char vu_load_faceon_mpg[], vu_load_tricu_mpg[], vu_load_tric_mpg[], vu_load_ptl_mpg[], vu_load_fx_mpg[],
@@ -36,6 +35,7 @@ extern struct nucamera_s global_camera;
 extern struct numtx_s numtx_identity;
 
 struct rndrstream_s *rndrstream_system;
+struct rndrstream_s *rndrstream_3d_u;
 struct rndrstream_s *rndrstream_mtl_sort;
 struct rndrstream_s *rndrstream_faceon;
 struct rndrstream_s *rndrstream_3d_l;

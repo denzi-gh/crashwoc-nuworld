@@ -145,6 +145,8 @@ typedef struct NwCmd {
             uint32_t zclut;             /* VERTS: 1 + its depth CLUT in NwPacket.zcluts, 0 none */
             bool exact;                 /* VERTS: the GS blend in the program over a copy of the target, for As past
                                            0x80 or an ALPHA GL has no blend for (triangles that do not overlap) */
+            int8_t stencil;             /* VERTS: a shadow volume's +1 or -1, counted into the stencil alone where
+                                           the triangles pass the Z test; 0 none */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {

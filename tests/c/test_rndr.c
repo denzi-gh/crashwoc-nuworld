@@ -96,8 +96,18 @@ void NuLightAddSpot(struct nuvec_s *pos, float size, unsigned int colour, int mo
 void NuLightAddSpotXSpanFade(struct nuvec_s *pos, float size, float brightness, int colour, int mode, int xspan,
                              int fade);
 void NuLightProcessSpot(int mode);
+struct nurndrshadface_s {
+    struct nuvec_s v;
+    int count;
+};
+void NuRndrShadowCylinderCap(struct numtx_s *mtx, struct NUCYLINDER_s *cyl, int count, struct nuvec_s *light);
+void NuRndrShadowEllipse(struct numtx_s *mtx, struct NUELLIPSOID_s *ellipse, int count, struct nuvec_s *light);
+void NuRndrShadowPols(struct numtx_s *mtx, struct nurndrshadface_s *face, struct nurndrshadface_s *vtx,
+                      struct nuvec_s *light);
+u32 *NuRndrShadowLightFan(void);
+extern struct nuvec_s curlight;
 extern int NuLightSpotCnt, NuLightOldSpotCnt;
-extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff;
+extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2;
 
 static int failures;
 
@@ -865,6 +875,8 @@ static void test_shadows(void)
         float len = lightfan[i].x * lightfan[i].x + lightfan[i].y * lightfan[i].y + lightfan[i].z * lightfan[i].z;
         CHECK(SDL_fabsf(lightfan[i].x) < 1e-3f && SDL_fabsf(len - 1.0f) < 1e-3f);
     }
+    NuLightAddMat2 = NuMtlCreate(1);
+    NuMtlUpdate(NuLightAddMat2);
     NuRndrShadMaskCount = 0;
     shadstorecnt = 2;
     NuRndrShadowStencil(0, &pos);
@@ -1218,6 +1230,69 @@ static void test_spot(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* The vertices of the volume records (+1 and -1 into the stencil) one fx2 program made, and how many lie on the unit
+   sphere or one light away from it. */
+static uint32_t volume_verts(const struct nuvec_s *light, uint32_t *on, uint32_t *moved)
+{
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    uint32_t n = 0;
+    *on = *moved = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        if (c->op != NW_CMD_VERTS || !c->stencil) {
+            continue;
+        }
+        n += c->count;
+        for (uint32_t k = 0; k < c->count; k++) {
+            const NwVuSpriteVertex *v = &p->verts[c->first + k];
+            CHECK(v->col[3] == 0x80 && v->col[0] == (c->stencil > 0 ? 1 : 0xFF) && c->mode == NW_VERTS_TRIS);
+            float x = v->pos[0], y = v->pos[1], z = v->pos[2];
+            *on += SDL_fabsf(x * x + y * y + z * z - 1.0f) < 1e-3f;
+            x -= light->x;
+            y -= light->y;
+            z -= light->z;
+            *moved += SDL_fabsf(x * x + y * y + z * z - 1.0f) < 1e-3f;
+        }
+    }
+    NuRndrSwapStreamBuffers();
+    return n;
+}
+
+/* fx2's volumes: a unit ellipsoid's fan of 9 points about the light (8 quads, 6 cap triangles) on the sphere and
+   moved by the light; a plain cylinder's rectangle (4 quads, 2 cap triangles); a shadow mesh's face against the light
+   by more than 2 closed into 3 quads with no cap, and a face that is not skipped with its points. */
+static void test_fx2_volumes(void)
+{
+    struct numtx_s id;
+    struct nuvec_s light = { 2.0f, -0.2f, 0.0f };
+    uint32_t on, moved;
+    NuMtxSetIdentity(&id);
+    curlight = light;
+    NuRndrShadowLightFan();
+    struct NUELLIPSOID_s e = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+    NuRndrStreamFxMPG(1);
+    NuRndrShadowEllipse(&id, &e, 1, &light);
+    CHECK(volume_verts(&light, &on, &moved) == 8 * 6 + 6 * 3 && on == 8 * 3 + 6 * 3 && moved == 8 * 3);
+
+    struct NUCYLINDER_s cyl;
+    memset(&cyl, 0, sizeof(cyl));
+    cyl.y_axis = (struct nuvec_s){ 0.0f, 1.0f, 0.0f };
+    cyl.x_axis = (struct nuvec4_s){ 0.5f, 0.0f, 0.0f, 0.0f };
+    cyl.z_axis = (struct nuvec4_s){ 0.0f, 0.0f, 0.5f, 0.0f };
+    NuRndrShadowCylinderCap(&id, &cyl, 1, &light);
+    CHECK(volume_verts(&light, &on, &moved) == 4 * 6 + 2 * 3);
+
+    struct nurndrshadface_s faces[2] = { { { -1.0f, 0.0f, 0.0f }, 3 }, { { 1.0f, 0.0f, 0.0f }, 3 } };
+    struct nurndrshadface_s pts[6] = { { { 0.0f, 1.0f, 0.0f }, 2 }, { { 0.0f, 0.0f, 1.0f }, 0 },
+                                       { { 0.0f, -1.0f, 0.0f }, 0 }, { { 1.0f, 0.0f, 0.0f }, 0 },
+                                       { { 1.0f, 0.0f, 0.0f }, 0 }, { { 1.0f, 0.0f, 0.0f }, 0 } };
+    struct nuvec_s far = { 3.0f, 0.0f, 0.0f };
+    NuRndrShadowPols(&id, faces, pts, &far);
+    CHECK(volume_verts(&far, &on, &moved) == 3 * 6 && on == 3 * 3 && moved == 3 * 3);
+    NuRndrStreamFxMPG(0);
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1253,6 +1328,7 @@ int main(void)
     test_polyhaze();
     test_arclaser();
     test_spot();
+    test_fx2_volumes();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

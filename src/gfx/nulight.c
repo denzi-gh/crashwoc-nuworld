@@ -10,6 +10,7 @@
 #include "nu3d/nurndr.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
+#include "nu3d/nutex.h"
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
@@ -116,6 +117,23 @@ static void nw_lgt_stream(struct numtl_s *mtl)
     NuRndrStreamLink(rndrstream_3d);
     NuRndrStreamSetMisc(rndrstream_3d);
     NuRndrStreamAddMtl(rndrstream_3d, mtl);
+}
+
+/* Each frame's GS memory for the light passes: the temporary surfaces and the views that alias them (NuLgtSurf[5],
+   [9], [12] and [15] are NuLgtHSurf[4]). Retail also copies the Z buffer into NuLgtHSurf[1], [8] and [7] there, and
+   splits its bytes through the fx microcode's sprite programs (NuRndrFxCode), for the passes that read Z back; the
+   depth CLUTs read the frame's Z instead. */
+void NuLightFxSetup(void)
+{
+    static const int8_t clones[12][2] = { { 3, 1 }, { 6, 1 }, { 8, 1 },  { 13, 1 }, { 17, 1 }, { 7, 2 },
+                                          { 11, 2 }, { 14, 2 }, { 5, 4 }, { 9, 4 },  { 12, 4 }, { 15, 4 } };
+    NuTexFlushTemp();
+    NuTexAssignTempAddr(NuLgtHSurf[1]);
+    NuTexAssignTempAddr(NuLgtHSurf[4]);
+    NuTexAssignTempAddr(NuLgtHSurf[2]);
+    for (int i = 0; i < 12; i++) {
+        NuTexCloneTempAddr(NuLgtSurf[clones[i][0]]->tid, NuLgtSurf[clones[i][1]]->tid);
+    }
 }
 
 /* A corner of a DIRECT GIF packet: GS coordinates, s and t (Q 1), the colour. */
