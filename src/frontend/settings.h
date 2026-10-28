@@ -11,9 +11,10 @@ typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
-    float aspect;        /* [video]: the picture's width over its height, 0 = the display's */
+    float aspect;        /* [video]: the picture's width over its height, 0 = the screen's or window's */
     float hud;           /* the widest width over height the HUD spreads to, 0 = the picture's edges */
     NwWindowMode window;
+    NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);
@@ -27,6 +28,9 @@ const char *nw_settings_aspect_name(float aspect, char *buf, int size);
 bool nw_settings_hud(const char *value, float *out);
 /* Its name: edges, else as nw_settings_aspect_name. */
 const char *nw_settings_hud_name(float hud, char *buf, int size);
+/* A resolution as settings.toml writes it: "auto" (0 x 0) or "WxH" in pixels; false when it is neither. */
+bool nw_settings_resolution(const char *value, NwResolution *out);
+const char *nw_settings_resolution_name(NwResolution res, char *buf, int size);
 /* Root's settings.toml over s when there is one. False with an SDL error when it cannot be read, or when it is not
    TOML: it is then moved to settings.toml.corrupt and s keeps its values. */
 bool nw_settings_load(NwSettings *s, const char *root);

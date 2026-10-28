@@ -156,10 +156,26 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.window == NW_WINDOW_FULLSCREEN);
 
+    /* A resolution: auto or WxH. */
+    NwResolution res = { 1, 1 };
+    CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);
+    CHECK(nw_settings_resolution("2560x1440", &res) && res.w == 2560 && res.h == 1440);
+    CHECK(!nw_settings_resolution("1920", &res) && !nw_settings_resolution("1920x", &res) &&
+          !nw_settings_resolution("x1080", &res) && !nw_settings_resolution("0x1080", &res) &&
+          !nw_settings_resolution("1920x1080p", &res) && !nw_settings_resolution("99999x1080", &res) &&
+          res.w == 2560 && res.h == 1440);
+    CHECK(SDL_strcmp(nw_settings_resolution_name((NwResolution){ 0, 0 }, name, sizeof(name)), "auto") == 0);
+    CHECK(SDL_strcmp(nw_settings_resolution_name(res, name, sizeof(name)), "2560x1440") == 0);
+    CHECK(read_text("[video]\nresolution = \"1280x800\"\n", &s) && s.resolution.w == 1280 &&
+          s.resolution.h == 800);
+    CHECK(read_text("[video]\nresolution = \"big\"\n", &s) && s.resolution.w == 0);
+
     /* A save keeps what it does not know, writes the keys' help first and leaves no .tmp. */
     NwSettings t;
     nw_settings_defaults(&t);
-    CHECK(nw_settings_equal(&s, &s) && !nw_settings_equal(&s, &t));
+    s = t;
+    s.resolution.h = 1;
+    CHECK(nw_settings_equal(&t, &t) && !nw_settings_equal(&s, &t));
     CHECK(read_text("[video]\nfov = 90\naspect = \"4:3\"\n\n[mods.example]\nenabled = true\n", &s));
     s.aspect = 0.0f;
     CHECK(nw_settings_save(&s, root) && !exists(NW_PATHS_SETTINGS ".tmp"));

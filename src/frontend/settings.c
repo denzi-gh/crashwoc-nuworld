@@ -106,6 +106,45 @@ const char *nw_settings_hud_name(float hud, char *buf, int size)
     return hud <= 0.0f ? "edges" : nw_settings_aspect_name(hud, buf, size);
 }
 
+bool nw_settings_resolution(const char *value, NwResolution *out)
+{
+    char *end;
+    if (SDL_strcmp(value, "auto") == 0) {
+        *out = (NwResolution){ 0, 0 };
+        return true;
+    }
+    long w = SDL_strtol(value, &end, 10);
+    if (end == value || *end != 'x') {
+        return false;
+    }
+    const char *num = end + 1;
+    long h = SDL_strtol(num, &end, 10);
+    if (end == num || *end != '\0' || w <= 0 || h <= 0 || w > 16384 || h > 16384) {
+        return false;
+    }
+    *out = (NwResolution){ (int)w, (int)h };
+    return true;
+}
+
+const char *nw_settings_resolution_name(NwResolution res, char *buf, int size)
+{
+    if (res.w <= 0 || res.h <= 0) {
+        return "auto";
+    }
+    SDL_snprintf(buf, size, "%dx%d", res.w, res.h);
+    return buf;
+}
+
+static bool nw_settings_resolution_parse(const char *text, void *field)
+{
+    return nw_settings_resolution(text, field);
+}
+
+static const char *nw_settings_resolution_format(const void *field, char *buf, int size)
+{
+    return nw_settings_resolution_name(*(const NwResolution *)field, buf, size);
+}
+
 static bool nw_settings_aspect_parse(const char *text, void *field)
 {
     return nw_settings_aspect(text, field);
@@ -133,9 +172,12 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
       .names = nw_settings_windows,
       .help = "windowed, borderless (fullscreen at the desktop's resolution) or fullscreen (exclusive)" },
+    { .table = "video", .name = "resolution", .kind = NW_SETTING_TEXT, NW_FIELD(resolution),
+      .parse = nw_settings_resolution_parse, .format = nw_settings_resolution_format,
+      .help = "auto or WxH pixels: the window's size, or fullscreen the display's mode (auto: the desktop's)" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
-      .help = "auto (the display's), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's picture" },
+      .help = "auto (the screen's or window's shape), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's" },
     { .table = "video", .name = "hud", .kind = NW_SETTING_TEXT, NW_FIELD(hud), .parse = nw_settings_hud_parse,
       .format = nw_settings_hud_format, .help = "how far out the HUD goes: edges, or an aspect it stays inside, centred" },
     { .table = "game", .name = "hardware_speed", .kind = NW_SETTING_BOOL, NW_FIELD(hardware_speed),
@@ -154,6 +196,7 @@ void nw_settings_defaults(NwSettings *s)
     s->aspect = 0.0f;
     s->hud = 16.0f / 9.0f;
     s->window = NW_WINDOW_WINDOWED;
+    s->resolution = (NwResolution){ 0, 0 };
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)

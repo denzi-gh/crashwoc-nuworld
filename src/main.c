@@ -698,6 +698,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                 running = false;
             }
             nw_input_event(&event);
+            nw_video_event(&event);
         }
         nw_input_poll(!nw_debug_wants_keyboard());
         if (!nw_settings_equal(&settings, &applied)) {
