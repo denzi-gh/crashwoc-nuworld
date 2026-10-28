@@ -1,6 +1,7 @@
 #include "port/wide.h"
 
 #include <math.h>
+#include <stddef.h>
 
 #include "nu_port.h"
 #include "gamelib/terrain.h"
