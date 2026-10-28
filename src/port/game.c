@@ -231,8 +231,18 @@ uint64_t nw_game_yield(bool wait_edge)
     return edges;
 }
 
+static void (*nw_game_fatal_hook)(const char *message);
+
+void nw_game_on_fatal(void (*fn)(const char *message))
+{
+    nw_game_fatal_hook = fn;
+}
+
 void nw_game_fatal(const char *message)
 {
+    if (nw_game_fatal_hook) {
+        nw_game_fatal_hook(message);
+    }
     SDL_strlcpy(nw_game.error, message, sizeof(nw_game.error));
     nw_game_park(NW_GAME_FATAL);
 }

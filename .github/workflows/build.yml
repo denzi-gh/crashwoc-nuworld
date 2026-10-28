@@ -146,8 +146,12 @@ jobs:
       - name: Fuzz the readers
         run: |
           mkdir -p build/fuzz/corpus build/fuzz/crashes
-          build/fuzz/nuworld_fuzz_vfs -max_total_time=30 -print_final_stats=1 \
+          build/fuzz/nuworld_fuzz_vfs -max_total_time=25 -print_final_stats=1 \
             -artifact_prefix=build/fuzz/crashes/ build/fuzz/corpus build/fuzz/fuzz-seeds
+          # A rejected file is a fatal error the harness returns from: what the load held leaks, as in retail.
+          mkdir -p build/fuzz/corpus-loaders
+          build/fuzz/nuworld_fuzz_loaders -max_total_time=25 -print_final_stats=1 -detect_leaks=0 -close_fd_mask=1 \
+            -artifact_prefix=build/fuzz/crashes/ build/fuzz/corpus-loaders build/fuzz/fuzz-seeds-loaders
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

@@ -155,6 +155,20 @@ target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuwo
 target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
+if(NUWORLD_FUZZ)
+  # The game's loaders and the port's decoders under libFuzzer (tests/fuzz/fuzz_loaders.c).
+  add_executable(nuworld_fuzz_loaders tests/fuzz/fuzz_loaders.c)
+  target_include_directories(nuworld_fuzz_loaders PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_definitions(nuworld_fuzz_loaders PRIVATE NW_HOST)
+  target_compile_options(nuworld_fuzz_loaders PRIVATE -Wall -Wextra -fsanitize=fuzzer)
+  target_link_options(nuworld_fuzz_loaders PRIVATE -fsanitize=fuzzer)
+  target_link_libraries(nuworld_fuzz_loaders PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game> nuworld_frontend)
+  if(NUWORLD_TESTS)
+    add_test(NAME fuzz_loaders COMMAND nuworld_fuzz_loaders -runs=0 -detect_leaks=0 ${nw_fuzz_loader_seeds})
+    set_tests_properties(fuzz_loaders PROPERTIES FIXTURES_REQUIRED fuzz_corpus)
+  endif()
+endif()
+
 if(NUWORLD_TESTS)
   # Building it proves the mirror layouts (_Static_asserts); running it checks the bitfields.
   add_executable(nuworld_test_ps2types tests/c/test_ps2types.c)
