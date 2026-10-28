@@ -32,6 +32,7 @@
 #include "port/scene.h"
 #include "port/trace.h"
 #include "shim/shim.h"
+#include "vfs/dat.h"
 #include "vfs/sha256.h"
 #include "vfs/vfs.h"
 #endif
@@ -214,7 +215,27 @@ static int nw_check_data(const char *data_dir)
 /* The decomp's RNC unpacker (NuFileLoadBuffer's). */
 void NuPPUnpack(unsigned char *src, unsigned char *out);
 
-/* A .gsc of the imported disc, unpacked when it is RNC-packed; NULL with SDL_GetError() otherwise. */
+/* data (n bytes, taken over) unpacked when it is RNC-packed; NULL with SDL_GetError() for a bad header. */
+static uint8_t *nw_unpack_rnc(uint8_t *data, size_t n, size_t *size)
+{
+    if (n >= 18 && memcmp(data, "RNC\x02", 4) == 0) {
+        uint32_t unpacked = (uint32_t)data[4] << 24 | data[5] << 16 | data[6] << 8 | data[7];
+        uint32_t packed = (uint32_t)data[8] << 24 | data[9] << 16 | data[10] << 8 | data[11];
+        uint8_t *out = packed <= n - 18 && unpacked <= (64u << 20) ? SDL_malloc(unpacked + 1) : NULL;
+        if (out) {
+            NuPPUnpack(data, out);
+        } else {
+            SDL_SetError("RNC header of %u bytes for %u", packed, unpacked);
+        }
+        SDL_free(data);
+        data = out;
+        n = unpacked;
+    }
+    *size = n;
+    return data;
+}
+
+/* A file of the imported disc, unpacked when it is RNC-packed; NULL with SDL_GetError() otherwise. */
 static uint8_t *nw_read_scene(const NwVfs *vfs, const NwManifestEntry *e, size_t *size)
 {
     char path[NW_VFS_PATH_MAX];
@@ -232,21 +253,102 @@ static uint8_t *nw_read_scene(const NwVfs *vfs, const NwManifestEntry *e, size_t
         SDL_SetError("missing or not the size the manifest lists (run --verify)");
         return NULL;
     }
-    if (n >= 18 && memcmp(data, "RNC\x02", 4) == 0) {
-        uint32_t unpacked = (uint32_t)data[4] << 24 | data[5] << 16 | data[6] << 8 | data[7];
-        uint32_t packed = (uint32_t)data[8] << 24 | data[9] << 16 | data[10] << 8 | data[11];
-        uint8_t *out = packed <= n - 18 && unpacked <= (64u << 20) ? SDL_malloc(unpacked + 1) : NULL;
-        if (out) {
-            NuPPUnpack(data, out);
+    return nw_unpack_rnc(data, (size_t)n, size);
+}
+
+static void nw_check_disc_line(const char *kind, const char *archive, const char *path, const void *data, size_t size)
+{
+    uint8_t digest[NW_SHA256_SIZE];
+    char hex[NW_SHA256_HEX];
+    nw_sha256(data, size, digest);
+    nw_sha256_hex(digest, hex);
+    printf("%s %s%s%s size=%zu sha256=%s\n", kind, archive ? archive : "", archive ? ":" : "", path, size, hex);
+}
+
+static void nw_check_dat_path(void *user, int index, const char *path)
+{
+    char **paths = user;
+    paths[index] = SDL_strdup(path);
+}
+
+/* Every entry of a .DAT archive, in entry order, unpacked as NuDat loads it; the count, -1 when one fails. */
+static int nw_check_dat(const NwVfs *vfs, const char *archive)
+{
+    char game_path[NW_VFS_PATH_MAX];
+    SDL_snprintf(game_path, sizeof(game_path), "cdrom0:\\%s;1", archive);
+    NwDat dat;
+    if (!nw_dat_open(&dat, vfs, game_path)) {
+        fprintf(stderr, NW_APP_NAME ": %s: %s\n", archive, SDL_GetError());
+        return -1;
+    }
+    char **paths = SDL_calloc(dat.count + 1, sizeof(*paths));
+    bool ok = paths && nw_dat_list(&dat, nw_check_dat_path, paths);
+    for (uint32_t i = 0; ok && i < dat.count; i++) {
+        const NwDatEntry *e = &dat.entries[i];
+        size_t size = e->size;
+        uint8_t *data = nw_dat_load(&dat, (int)i);
+        if (data && (e->flags & NW_DAT_PACKED)) {
+            data = nw_unpack_rnc(data, e->size, &size);
+        }
+        ok = data && paths[i] && (!(e->flags & NW_DAT_PACKED) || size == e->unpacked_size);
+        if (ok) {
+            nw_check_disc_line("DAT", archive, paths[i], data, size);
         } else {
-            SDL_SetError("RNC header of %u bytes for %u", packed, unpacked);
+            fflush(stdout);
+            fprintf(stderr, NW_APP_NAME ": %s entry %u: %s\n", archive, i,
+                    paths[i] ? "not unpacked to its listed size" : "not in the path tree");
         }
         SDL_free(data);
-        data = out;
-        n = unpacked;
     }
-    *size = (size_t)n;
-    return data;
+    int count = ok ? (int)dat.count : -1;
+    for (uint32_t i = 0; paths && i < dat.count; i++) {
+        SDL_free(paths[i]);
+    }
+    SDL_free(paths);
+    nw_dat_close(&dat);
+    return count;
+}
+
+/* Every file of the imported disc (RNC-unpacked) and every entry of its .DAT archives as "FILE|DAT <path> size=<n>
+   sha256=<hex>" lines (tools/disc_check.py makes the same from the crashwoc tooling); exits 0, 1, or 2 without the
+   disc. */
+static int nw_check_disc(const char *data_dir)
+{
+    NwVfs vfs;
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_extract_has_disc(root) || !nw_vfs_init(&vfs, root)) {
+        fprintf(stderr, NW_APP_NAME ": no imported disc (run --import)\n");
+        SDL_free(root);
+        return 2;
+    }
+    unsigned files = 0, entries = 0, failed = 0;
+    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
+        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+        if (e->flags & NW_MANIFEST_SKIP) {
+            continue;
+        }
+        size_t size = 0, len = strlen(e->path);
+        uint8_t *data = nw_read_scene(&vfs, e, &size);
+        bool read = data != NULL;
+        files++;
+        if (read) {
+            nw_check_disc_line("FILE", NULL, e->path, data, size);
+        } else {
+            failed++;
+            fflush(stdout);
+            fprintf(stderr, NW_APP_NAME ": %s: %s\n", e->path, SDL_GetError());
+        }
+        SDL_free(data);
+        if (read && len >= 4 && SDL_strcasecmp(e->path + len - 4, ".DAT") == 0) {
+            int n = nw_check_dat(&vfs, e->path);
+            failed += n < 0;
+            entries += n > 0 ? (unsigned)n : 0;
+        }
+    }
+    printf("TOTAL files=%u entries=%u failed=%u\n", files, entries, failed);
+    nw_vfs_shutdown(&vfs);
+    SDL_free(root);
+    return failed ? 1 : 0;
 }
 
 /* Every .gsc of the imported disc through the NU20 reader and the VIF decoder; exits 0, 1, or 2 without the disc. */
@@ -890,7 +992,7 @@ int main(int argc, char *argv[])
     const char *poke = NULL;                         /* --poke <vblank:symbol=value,...> */
     const char *dump_after = NULL;                   /* --dump-after <symbol=value> */
     bool dump_heap = true;
-    bool verify = false, setup = false, check_data = false, check_scenes = false, boot = false;
+    bool verify = false, setup = false, check_data = false, check_scenes = false, check_disc = false, boot = false;
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
     int boot_loads = 0; /* --loads: background loads instead of vblanks */
@@ -928,6 +1030,8 @@ int main(int argc, char *argv[])
             check_data = true;
         } else if (strcmp(argv[i], "--check-scenes") == 0) {
             check_scenes = true;
+        } else if (strcmp(argv[i], "--check-disc") == 0) {
+            check_disc = true;
         } else if (strcmp(argv[i], "--scene") == 0) {
             scene = i + 1 < argc && argv[i + 1][0] != '-' ? argv[++i] : "";
         } else if (strcmp(argv[i], "--scene-check") == 0) {
@@ -991,10 +1095,13 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || scene || scene_check || boot || boot_check || capture || dump) {
+    if (check_data || check_scenes || check_disc || scene || scene_check || boot || boot_check || capture || dump) {
 #ifdef NW_WITH_GAME
         if (check_scenes) {
             return nw_check_scenes(data_dir);
+        }
+        if (check_disc) {
+            return nw_check_disc(data_dir);
         }
         if (scene_check) {
             return nw_scene_check(argv[0], data_dir, scene_check);

@@ -235,6 +235,12 @@ if(NUWORLD_TESTS)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/gsc_hash.py --data-dir {root} --compare $<TARGET_FILE:crashwoc-nuworld>)
   set_tests_properties(scene-hashes-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
+  # Local only: every disc file and .DAT entry decoded by --check-disc / --check-scenes and by the crashwoc tooling
+  # and WrathSDK ($CRASHWOC_TOOLING, $WRATHSDK; skipped without them).
+  add_test(NAME disc-decode-retail
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/disc_check.py --data-dir {root} --compare $<TARGET_FILE:crashwoc-nuworld>)
+  set_tests_properties(disc-decode-retail PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 1800)
   # Local only: the VU1 microcode of the imported boot ELF decodes and maps completely.
   add_test(NAME vu1-disasm-retail
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_local.py ${Python3_EXECUTABLE}
