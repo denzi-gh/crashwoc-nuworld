@@ -15,7 +15,8 @@ typedef struct AnimStats {
     unsigned anims, chunks, sets, curves, keys;
     int minsets;                      /* the fewest curves in a set: the appliers read set[0..8] unchecked */
     unsigned before, past, nonfinite; /* reads before a curve's first key, past its last; inf or NaN values */
-    unsigned bad;                     /* reads outside the file */
+    unsigned infdt;                   /* reads of a 1/0 dtime (two keys on one frame) that give the key's value */
+    unsigned bad;                    /* reads outside the file */
 } AnimStats;
 
 #define ANIM_STATS_INIT { .minsets = 127 }
@@ -31,14 +32,16 @@ static void anim_add(AnimStats *to, const AnimStats *from)
     to->before += from->before;
     to->past += from->past;
     to->nonfinite += from->nonfinite;
+    to->infdt += from->infdt;
     to->bad += from->bad;
 }
 
 static void anim_print(const char *what, const AnimStats *st)
 {
-    printf("%s anims=%u chunks=%u sets=%u curves=%u keys=%u minsets=%d before=%u past=%u nonfinite=%u bad=%u\n",
+    printf("%s anims=%u chunks=%u sets=%u curves=%u keys=%u minsets=%d before=%u past=%u nonfinite=%u infdt=%u "
+           "bad=%u\n",
            what, st->anims, st->chunks, st->sets, st->curves, st->keys, st->minsets, st->before, st->past,
-           st->nonfinite, st->bad);
+           st->nonfinite, st->infdt, st->bad);
 }
 
 /* Counts data into st, then evaluates every curve at every frame once the keys it reads are known to lie in
@@ -90,7 +93,9 @@ static void anim_check(AnimStats *st, const char *path, const char *lo, const ch
                     }
                     continue;
                 }
-                st->nonfinite += !isfinite(NuAnimCurveCalcVal2(c, &at));
+                float v = NuAnimCurveCalcVal2(c, &at);
+                st->nonfinite += !isfinite(v);
+                st->infdt += !(c->flags & 1) && isinf(c->animkeys[ix].dtime) && v == c->animkeys[ix].d;
             }
         }
     }

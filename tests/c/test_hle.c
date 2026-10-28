@@ -1,8 +1,11 @@
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "hle/eefloat.h"
+#include "nu3d/nuanim.h"
 #include "nu3d/nustream.h"
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
@@ -289,6 +292,28 @@ static void test_copy(void)
     }
 }
 
+static void test_eefloat(void)
+{
+    double inf = nw_ee_in(INFINITY);
+    CHECK(inf == 0x1p128 && nw_ee_mul(0.0, inf) == 0.0 && nw_ee_in(-INFINITY) == -0x1p128);
+    CHECK(nw_ee_mul(FLT_MAX, 2.0) == NW_EE_MAX && nw_ee_add(-NW_EE_MAX, -inf) == -NW_EE_MAX);
+    CHECK(nw_ee_out(NW_EE_MAX) == FLT_MAX && nw_ee_out(-inf) == -FLT_MAX);
+    /* Toward zero where the nearest is a step up, also below a power of two. */
+    CHECK(nw_ee_mul(1 + 0x1p-12, 1 + 0x3p-12) == 1 + 0x1p-10 + 0x1p-23);
+    CHECK(nw_ee_add(1.0, -0x1p-40) == 1 - 0x1p-24 && nw_ee_add(1.0, 0x1p-40) == 1.0);
+    CHECK(nw_ee_mul(FLT_MIN, 0.5) == 0.0 && nw_ee_in(0x1p-130f) == 0.0);
+}
+
+static void test_anim_curve(void)
+{
+    struct nuanimkey_s keys[2] = { { 1.0f, INFINITY, 0.5f, 7.0f }, { 1.0f, 1.0f, 0.0f, 9.0f } };
+    struct nuanimcurve_s curve = { .mask.bits = 3, .animkeys = keys, .numkeys = 2 };
+    struct nuanimtime_s at = { .time = 1.0f, .time_mask = 1 };
+    CHECK(NuAnimCurveCalcVal2(&curve, &at) == 7.0f);
+    at.time = 1.5f;
+    CHECK(isfinite(NuAnimCurveCalcVal2(&curve, &at)));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -300,6 +325,8 @@ int main(void)
     test_dma();
     test_stream_link();
     test_copy();
+    test_eefloat();
+    test_anim_curve();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

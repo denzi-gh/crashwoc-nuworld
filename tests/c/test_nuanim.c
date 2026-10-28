@@ -245,9 +245,9 @@ static int retail_main(int argc, char **argv)
 }
 
 /* Every .ani and .bsa loads to the pinned counts, every curve reads keys inside its file at every frame, every .ani
-   set has the nine curves the joint appliers read, and the bgload falls fit their buffer. The 5 non-finite values:
-   coco's slamland and flckhair have two keys on one frame, whose dtime the exporter wrote as 1/0, an inf on the host
-   and a finite maximum on the EE FPU. */
+   set has the nine curves the joint appliers read, and the bgload falls fit their buffer. Coco's slamland and
+   flckhair have two keys on one frame, whose dtime the exporter wrote as 1/0: finite on the EE FPU, so the 5 reads
+   of it give the key's value. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -271,9 +271,9 @@ static int test_retail(void)
     const AnimStats *a = &retail.ani, *b = &retail.bsa;
     CHECK(state == NW_GAME_RETURNED && retail.bad == 0 && a->bad == 0 && b->bad == 0 && retail.other == 17);
     CHECK(a->anims == 509 && a->chunks == 1370 && a->sets == 45128 && a->curves == 44848 && a->keys == 495592);
-    CHECK(a->minsets == 9 && a->before == 0 && a->past == 69 && a->nonfinite == 5);
+    CHECK(a->minsets == 9 && a->before == 0 && a->past == 69 && a->nonfinite == 0 && a->infdt == 5);
     CHECK(b->anims == 203 && b->chunks == 705 && b->sets == 705 && b->curves == 3092 && b->keys == 22159);
-    CHECK(b->minsets == 1 && b->before == 0 && b->past == 0 && b->nonfinite == 0);
+    CHECK(b->minsets == 1 && b->before == 0 && b->past == 0 && b->nonfinite == 0 && b->infdt == 0);
     return failures ? 1 : 0;
 }
 
