@@ -507,10 +507,11 @@ void NuPs2GetViewport(struct nuviewport_s *vp)
     vp->zmax = 0.0f;
 }
 
-/* What is left of the GS's 4 MB after the frame, display and Z buffers. */
+/* What is left of the GS's 4 MB after the frame, display and Z buffers: retail's 640-wide ones, so a wider frame
+   (port/wide.h) leaves the game the VRAM it plans its textures in. */
 void ps2videoGetFreeMem(int *pages, int *bytes)
 {
-    int used = (PS2_REZ_W * PS2_REZ_H * 3 + 63) / 64;
+    int used = (640 * PS2_REZ_H * 3 + 63) / 64;
     if (pages) {
         *pages = used;
     }

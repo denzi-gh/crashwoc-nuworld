@@ -941,12 +941,16 @@ const NwPacket *nw_backend_frame(int width, int height)
         glDepthMask(GL_TRUE);
     }
 
-    /* The PS2 shows its frame at 4:3 whatever its pixel size. */
+    /* The PS2 shows a 640-wide frame at 4:3 whatever its height; a wider one (port/wide.h) keeps those pixels' shape.
+       Within 1% of the window's aspect it fills the window. */
+    float aspect = 4.0f / 3.0f * (float)bw / 640.0f;
     int w = width, h = height;
-    if (w * 3 > h * 4) {
-        w = h * 4 / 3;
-    } else {
-        h = w * 3 / 4;
+    if (h > 0 && SDL_fabsf((float)w / (float)h - aspect) > 0.01f * aspect) {
+        if ((float)w > (float)h * aspect) {
+            w = (int)((float)h * aspect + 0.5f);
+        } else {
+            h = (int)((float)w / aspect + 0.5f);
+        }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width, height);

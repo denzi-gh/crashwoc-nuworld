@@ -1,6 +1,7 @@
 /* nu3d/nurndr, which the port overrides whole (port/units.toml): the scene bracket and the draws, as records in
    the streams (src/gfx/nustream.c) instead of DMA packets. Every other NuRndr* is a stub, and their hits are the
    renderer's worklist. */
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -243,7 +244,7 @@ void NuRndrShadow(int mode)
     NuRndrStreamLink(rndrstream_fx);
     NuRndrStreamSetMisc(rndrstream_fx);
     NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
-    nw_rndr_cmd(rndrstream_fx, NW_CMD_VOLUMES)->volumes.width = 4096 >> 4;
+    nw_rndr_cmd(rndrstream_fx, NW_CMD_VOLUMES)->volumes.width = (int)ceilf((float)PS2_REZ_W * 0.4f);
     rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
     light.x *= testmultl;
     light.y *= testmultl;
@@ -254,9 +255,10 @@ void NuRndrShadow(int mode)
     NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
     static const float none[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     for (int shadowed = 0; shadowed < 2; shadowed++) {
-        NwCmd *c = nw_rndr_verts(rndrstream_fx, NW_VERTS_GS, 4 * 6, &v);
+        const int cols = ((int)ceilf((float)PS2_REZ_W * 0.4f) + 63) >> 6;
+        NwCmd *c = nw_rndr_verts(rndrstream_fx, NW_VERTS_GS, (uint32_t)cols * 6, &v);
         c->stencil = (int8_t)(shadowed ? NW_STENCIL_SHADOWED : 0);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < cols; i++) {
             v = nw_rndr_rect3d_quad(v, (i << 10) - 8, -8, 0x400, PS2_REZ_H << 4, none,
                                     shadowed ? (int)0x80808080 : 0, 0xFFFFFF);
         }
@@ -370,7 +372,9 @@ void NuRndrWater(void)
                 const int ys[3] = { (int)nearpnt.y, (int)farpnt.y, 0x8800 };
                 for (int k = ramp ? 0 : 1; k < 2; k++) {
                     for (int c = 0; c < 4; c++) {
-                        nw_water_vertex(&q[c], c & 1 ? 0x9408 : 0x6BF8, ys[k + (c >> 1)], 0xFFFFFF, 0.0f, 0.0f,
+                        nw_water_vertex(&q[c], c & 1 ? ((0x800 + (PS2_REZ_W >> 1)) << 4) + 8
+                                                     : ((0x800 - (PS2_REZ_W >> 1)) << 4) - 8,
+                                        ys[k + (c >> 1)], 0xFFFFFF, 0.0f, 0.0f,
                                         k + (c >> 1) ? 0x80000000u : 0);
                     }
                     v = nw_rndr_quad(v, q);
@@ -387,16 +391,19 @@ void NuRndrWater(void)
             NuRndrStreamAddMtl(rndrstream_3d, NuLgtBackBuff);
             const int xoffset = (PS2_VCNTR_X - (nurndr_pixel_width >> 1)) << 4;
             const int yoffset = (PS2_VCNTR_Y - (nurndr_pixel_height >> 1)) << 4;
-            nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, 10 * 14 * 6, &v);
-            for (int i = 0; i < 10; i++) {
+            const int cols = (PS2_REZ_W + 63) >> 6;
+            const float p2w = (float)NuPower2(PS2_REZ_W);
+            nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)cols * 14 * 6, &v);
+            for (int i = 0; i < cols; i++) {
                 for (int j = 0; j < 14; j++) {
                     for (int k = 0; k < 4; k++) {
-                        const struct nurndrscreenvtx_s *w = &watertab[j + (k >> 1)][i + (k & 1)];
+                        const int col = (i + (k & 1)) % 40;
+                        const struct nurndrscreenvtx_s *w = &watertab[j + (k >> 1)][col <= 20 ? col : 40 - col];
                         int dx = (int)(NuTrigTable[w->x & 0xFFFF] * waveampx) - 8;
                         int dy = (int)(NuTrigTable[(w->y + 0x4000) & 0xFFFF] * waveampy) - 8;
                         nw_water_vertex(&q[k], ((i + (k & 1)) << 10) + dx + xoffset,
                                         ((j + (k >> 1)) << 8) + dy + yoffset, 0xFFFFFF,
-                                        (float)(i + (k & 1)) * 64.0f / 1024.0f,
+                                        (float)(i + (k & 1)) * 64.0f / p2w,
                                         (float)((j + (k >> 1)) << 4) / 256.0f, 0x80808080u);
                     }
                     v = nw_rndr_quad(v, q);
@@ -414,8 +421,9 @@ void NuRndrWater(void)
             NuRndrStreamLink(rndrstream_3d);
             NuRndrStreamSetMisc(rndrstream_3d);
             NuRndrStreamAddMtl(rndrstream_3d, farpnt.y > 30720.0f ? NuLgtSurf[12] : NuLgtSurf[15]);
-            const float uv[4] = { 0.00390625f, 0.015625f, 0.62109375f, 0.859375f };
-            nw_rndr_rect3d(rndrstream_3d, -8, -8, 0x2800, nurndr_pixel_height << 4, uv, (int)NuRndrWaterTint,
+            const float uv[4] = { 4.0f / NuPower2(PS2_REZ_W), 0.015625f,
+                                  (float)(PS2_REZ_W - 4) / NuPower2(PS2_REZ_W), 0.859375f };
+            nw_rndr_rect3d(rndrstream_3d, -8, -8, PS2_REZ_W << 4, nurndr_pixel_height << 4, uv, (int)NuRndrWaterTint,
                            0x1FFFFFF);
             rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
             NuRndrStreamFlush();
@@ -425,10 +433,10 @@ void NuRndrWater(void)
 }
 
 /* The store's volumes along the light (fx2's programs, src/gfx/fx2.c) in NuLightAddMat2 under the identity, in a
-   viewport 4096 / 16 pixels wide, which squeezes them to 0.4 of the frame; then the store is empty. */
+   viewport 0.4 of the frame's width (4096 / 16 pixels at 640), which squeezes them; then the store is empty. */
 void NuRndrShadowStack(struct nuvec_s *light)
 {
-    NuVpSetSize(4096.0f, (float)(PS2_REZ_H << 4));
+    NuVpSetSize((float)(PS2_REZ_W << 4) * 0.4f, (float)(PS2_REZ_H << 4));
     NuCameraSet(&global_camera);
     NuRndrStreamLink(rndrstream_fx);
     NuRndrStreamSetMisc(rndrstream_fx);
@@ -564,10 +572,12 @@ static void nw_rndr_rect(int x, int y, int width, int height, int colour, struct
     memcpy(c->rect.rgba, &colour, 4);
 }
 
+/* A rect short of the screen's width is laid out on retail's 640-wide screen, at a wider one's centre. */
 void NuRndrRect2di(int x, int y, int width, int height, int colour, struct numtl_s *mtl)
 {
     static const float st[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
-    nw_rndr_rect(x, y, width, height, colour, mtl, st, PS2_REZ_W, PS2_REZ_H);
+    nw_rndr_rect(x, y, width, height, colour, mtl, st, x <= 0 && x + width >= PS2_REZ_W << 4 ? PS2_REZ_W : 640,
+                 PS2_REZ_H);
 }
 
 /* Centred on the render target, where NuRndrRect2di centres on the screen. */

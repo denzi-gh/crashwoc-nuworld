@@ -9,5 +9,6 @@ schema = 1
 [owned]
 "_gp" = "EE linker symbol: bgload passes &_gp as the loader thread's gp register; the host never reads it"
 "_impure_ptr" = "newlib reent block (src/shim/libc.c): retail impure_data holds an SDK code pointer (_cleanup_r)"
+"nw_wide" = "the widescreen view (src/port/wide.c) the NW_WIDE seams read; retail has none"
 
 [conflicts]
