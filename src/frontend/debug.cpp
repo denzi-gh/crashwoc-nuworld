@@ -113,6 +113,11 @@ bool nw_debug_slider_int(const char *label, int *value, int lo, int hi)
     return ImGui::SliderInt(label, value, lo, hi);
 }
 
+bool nw_debug_combo(const char *label, int *index, const char *const *items, int count)
+{
+    return ImGui::Combo(label, index, items, count);
+}
+
 bool nw_debug_filter(const char *hint, char *buf, size_t size)
 {
     ImGui::PushID(hint);

@@ -17,6 +17,7 @@
 #include "data/image.h"
 #include "frontend/debug.h"
 #include "frontend/settings.h"
+#include "frontend/video.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -404,6 +405,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 #define NW_DUMP_MS 3600000             /* the watchdog of --dump */
 #define NW_LEVEL_CHECK_MS 600000       /* the watchdog of --boot-check with --level */
+#define NW_SETTINGS_SAVE_MS 1000       /* how long settings stay unchanged before they are saved */
 
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
@@ -647,57 +649,6 @@ static void nw_boot_levels(void *user)
     }
 }
 
-/* The picture's aspect: settings.toml's, or the display's for auto; the window takes it at the height it opened with,
-   narrower where it would not fit the display. */
-static float nw_boot_aspect(NwPlatform *p, float aspect)
-{
-    SDL_DisplayID display = SDL_GetDisplayForWindow(p->window);
-    const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(display);
-    if (aspect <= 0.0f) {
-        aspect = mode && mode->h > 0 ? (float)mode->w / (float)mode->h : 16.0f / 9.0f;
-    }
-    if (aspect < NW_WIDE_MIN) {
-        aspect = NW_WIDE_MIN;
-    } else if (aspect > NW_WIDE_MAX) {
-        aspect = NW_WIDE_MAX;
-    }
-    int w, h;
-    SDL_Rect usable;
-    SDL_GetWindowSize(p->window, &w, &h);
-    w = (int)((float)h * aspect + 0.5f);
-    if (SDL_GetDisplayUsableBounds(display, &usable) && w > usable.w * 9 / 10) {
-        w = usable.w * 9 / 10;
-        h = (int)((float)w / aspect + 0.5f);
-    }
-    SDL_SetWindowSize(p->window, w, h);
-    SDL_SetWindowPosition(p->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-    return aspect;
-}
-
-/* settings.toml's picture aspect and HUD reach, which the game takes at its next start. */
-static void nw_boot_video(void *user)
-{
-    static const float aspects[] = { 0.0f, 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 21.0f / 9.0f, 32.0f / 9.0f };
-    static const struct {
-        const char *label;
-        float hud;
-    } huds[] = { { "HUD at the edges", 0.0f }, { "HUD inside 16:9", 16.0f / 9.0f }, { "HUD inside 4:3", 4.0f / 3.0f } };
-    NwSettings *s = user;
-    char name[16];
-    for (size_t i = 0; i < SDL_arraysize(aspects); i++) {
-        if (nw_debug_selectable(nw_settings_aspect_name(aspects[i], name, sizeof(name)),
-                                SDL_fabsf(s->aspect - aspects[i]) < 0.001f)) {
-            s->aspect = aspects[i];
-        }
-    }
-    for (size_t i = 0; i < SDL_arraysize(huds); i++) {
-        if (nw_debug_selectable(huds[i].label, SDL_fabsf(s->hud - huds[i].hud) < 0.001f)) {
-            s->hud = huds[i].hud;
-        }
-    }
-    nw_debug_text("frame %d px wide now; a change applies at the next start", nw_wide_width());
-}
-
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
    menu changes and saves, like the buses; aspect -1 likewise. Returns the exit code. */
@@ -723,12 +674,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
-    nw_debug_panel("Video", "Aspect", nw_boot_video, &settings, false);
-    nw_wide_set(nw_boot_aspect(&platform, settings.aspect), settings.hud);
-    bool applied = settings.hardware_speed;
-    float picture[2] = { settings.aspect, settings.hud };
-    int buses[2] = { settings.master_volume, settings.voice_volume };
-    nw_audio_set_buses(buses[0], buses[1]);
+    nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
+    NwSettings applied = settings;
+    bool unsaved = false;
+    uint64_t changed = 0; /* when the settings last changed */
+    nw_audio_set_buses(settings.master_volume, settings.voice_volume);
     if (!nw_audio_open()) {
         fprintf(stderr, NW_APP_NAME ": no sound: %s\n", SDL_GetError());
     }
@@ -748,23 +698,22 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                 running = false;
             }
             nw_input_event(&event);
+            nw_video_event(&event);
         }
         nw_input_poll(!nw_debug_wants_keyboard());
-        if (settings.hardware_speed != applied) {
-            applied = settings.hardware_speed;
-            nw_nusound_set_hardware_speed(applied);
-            nw_boot_settings(data_dir, &settings, true);
+        if (!nw_settings_equal(&settings, &applied)) {
+            if (settings.hardware_speed != applied.hardware_speed) {
+                nw_nusound_set_hardware_speed(settings.hardware_speed);
+            }
+            nw_audio_set_buses(settings.master_volume, settings.voice_volume);
+            nw_video_apply(&settings, &applied);
+            applied = settings;
+            unsaved = true;
+            changed = SDL_GetTicks();
         }
-        if (settings.aspect != picture[0] || settings.hud != picture[1]) {
-            picture[0] = settings.aspect;
-            picture[1] = settings.hud;
+        if (unsaved && SDL_GetTicks() - changed >= NW_SETTINGS_SAVE_MS) {
             nw_boot_settings(data_dir, &settings, true);
-        }
-        if (settings.master_volume != buses[0] || settings.voice_volume != buses[1]) {
-            buses[0] = settings.master_volume;
-            buses[1] = settings.voice_volume;
-            nw_audio_set_buses(buses[0], buses[1]);
-            nw_boot_settings(data_dir, &settings, true);
+            unsaved = false;
         }
         if (SDL_GetTicks() - titled >= 500) {
             char title[160];
@@ -780,6 +729,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_backend_frame(width, height);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
+    }
+    if (unsaved) {
+        nw_boot_settings(data_dir, &settings, true);
     }
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();

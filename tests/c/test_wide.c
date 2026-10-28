@@ -1,12 +1,17 @@
 /* src/port/wide.c: retail untouched, the frame width and camera aspect for each picture aspect, the HUD's reach
-   and anchors, the draw radii, the clamps. */
+   and anchors, the draw radii, the clamps; a request taken once at a frame's end outside a load, with the frame, main's
+   widths and the viewport. */
 #include <math.h>
 #include <stdio.h>
 
 #include "nu_port.h"
+#include "nu3d/nuvport.h"
 #include "port/wide.h"
 
 extern float WUMPAOBJSX, WUMPATXTSX, LIVESOBJSX, CRATEOBJSX;
+extern int PS2_VCNTR_X, PS2_REZ_W;
+extern int SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
+extern volatile int bgload_complete;
 
 static int failures;
 
@@ -55,6 +60,29 @@ int main(void)
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f);
     nw_wide_set(0.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide_width() == 640 && near(WUMPAOBJSX, -0.8f) && near(LIVESOBJSX, 0.53f));
+
+    struct nuviewport_s *vp = NuVpGetCurrentViewport();
+    PS2_VCNTR_X = 0x800;
+    PS2_REZ_W = SWIDTH = MAXVPSIZEX = 640;
+    MAXVPSIZEY = 512;
+    bgload_complete = 0;
+    nw_wide_request(16.0f / 9.0f, 0.0f);
+    nw_wide_poll();
+    CHECK(nw_wide.width == 640 && PS2_REZ_W == 640);
+    bgload_complete = 1;
+    nw_wide_poll();
+    CHECK(nw_wide.width == 854 && nw_wide_width() == 854 && PS2_REZ_W == 854 && SWIDTH == 854 && MAXVPSIZEX == 854);
+    CHECK(vp->width == 854 << 4 && vp->height == 512 << 3 && vp->x == (0x800 - 427) << 4);
+    CHECK(near(WUMPAOBJSX, -0.8f - 214.0f / 640.0f));
+    nw_wide_request(4.0f / 3.0f, 0.0f);
+    nw_wide_request(4.0f / 3.0f, 16.0f / 9.0f);
+    nw_wide_poll();
+    CHECK(nw_wide.width == 640 && PS2_REZ_W == 640 && vp->width == 640 << 4 && vp->x == (0x800 - 320) << 4);
+    CHECK(near(WUMPAOBJSX, -0.8f) && near(LIVESOBJSX, 0.53f));
+    nw_wide_set(16.0f / 9.0f, 16.0f / 9.0f);
+    nw_wide_poll();
+    CHECK(nw_wide.width == 854 && PS2_REZ_W == 640);
+    nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
 
     if (failures) {
         fprintf(stderr, "wide: %d checks failed\n", failures);

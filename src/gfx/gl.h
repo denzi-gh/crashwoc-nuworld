@@ -52,6 +52,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_DECR_WRAP 0x8508
 #define GL_BLEND 0x0BE2
 #define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_MAX_TEXTURE_SIZE 0x0D33
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
@@ -94,6 +95,8 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COLOR_ATTACHMENT0 0x8CE0
 #define GL_DEPTH_STENCIL_ATTACHMENT 0x821A
 #define GL_FRAMEBUFFER 0x8D40
+#define GL_RENDERBUFFER 0x8D41
+#define GL_MAX_SAMPLES 0x8D57
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
@@ -109,6 +112,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glScissor, (GLint x, GLint y, GLsizei w, GLsizei h)) \
     X(void, glClearDepth, (GLdouble depth)) \
     X(const GLubyte *, glGetString, (GLenum name)) \
+    X(void, glGetIntegerv, (GLenum pname, GLint *data)) \
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
     X(void, glDepthFunc, (GLenum func)) \
@@ -128,6 +132,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glBindTexture, (GLenum target, GLuint texture)) \
     X(void, glActiveTexture, (GLenum texture)) \
     X(void, glTexParameteri, (GLenum target, GLenum pname, GLint param)) \
+    X(void, glGenerateMipmap, (GLenum target)) \
     X(void, glTexImage2D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
         GLint border, GLenum format, GLenum type, const void *pixels)) \
     X(void, glTexSubImage2D, (GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, \
@@ -176,6 +181,13 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
     X(void, glFramebufferTexture2D, \
         (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level)) \
+    X(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers)) \
+    X(void, glDeleteRenderbuffers, (GLsizei n, const GLuint *renderbuffers)) \
+    X(void, glBindRenderbuffer, (GLenum target, GLuint renderbuffer)) \
+    X(void, glRenderbufferStorageMultisample, \
+        (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height)) \
+    X(void, glFramebufferRenderbuffer, \
+        (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
     X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
 
@@ -191,6 +203,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glScissor nw_glScissor
 #define glClearDepth nw_glClearDepth
 #define glGetString nw_glGetString
+#define glGetIntegerv nw_glGetIntegerv
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable
 #define glDepthFunc nw_glDepthFunc
@@ -210,6 +223,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindTexture nw_glBindTexture
 #define glActiveTexture nw_glActiveTexture
 #define glTexParameteri nw_glTexParameteri
+#define glGenerateMipmap nw_glGenerateMipmap
 #define glTexImage2D nw_glTexImage2D
 #define glTexSubImage2D nw_glTexSubImage2D
 #define glGenBuffers nw_glGenBuffers
@@ -254,6 +268,11 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindFramebuffer nw_glBindFramebuffer
 #define glCheckFramebufferStatus nw_glCheckFramebufferStatus
 #define glFramebufferTexture2D nw_glFramebufferTexture2D
+#define glGenRenderbuffers nw_glGenRenderbuffers
+#define glDeleteRenderbuffers nw_glDeleteRenderbuffers
+#define glBindRenderbuffer nw_glBindRenderbuffer
+#define glRenderbufferStorageMultisample nw_glRenderbufferStorageMultisample
+#define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
 #define glBlitFramebuffer nw_glBlitFramebuffer
 
 /* Loads every function in NW_GL_FUNCTIONS; needs a current GL context. */

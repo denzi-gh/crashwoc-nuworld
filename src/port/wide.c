@@ -2,17 +2,32 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <string.h>
+
+#include <SDL3/SDL.h>
 
 #include "nu_port.h"
 #include "gamelib/terrain.h"
+#include "gfx/rndr.h"
+#include "nu3d/nucamera.h"
 #include "nu3d/nugscn.h"
+#include "nu3d/numtl.h"
 #include "nu3d/nuvport.h"
+#include "numath/nutrig.h"
 
-extern int PS2_VCNTR_X;
+extern int PS2_VCNTR_X, PS2_REZ_W;
 extern TerrainSetType *CurTerr;
 extern struct nugscn_s *world_scene[32];
+extern s32 SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
+extern struct nucamera_s *pNuCam;
+extern volatile s32 bgload_complete;
+extern char vu_load_glass_mpg[], vu_load_water_mpg[], vu_load_wateruv_mpg[];
 
 struct nw_wide_s nw_wide = { .k = 1.0f, .aspect = 0.75f, .width = 640, .hud = 1.0f, .draw = 1.0f, .draw2 = 1.0f };
+
+static SDL_AtomicInt nw_wide_shown = { 640 }; /* nw_wide.width for other threads */
+static SDL_AtomicInt nw_wide_asked;           /* a request waits */
+static SDL_AtomicInt nw_wide_asks[2];         /* its aspect and HUD reach, as float bits */
 
 /* game/panel's HUD anchors in panel x (-1 to 1 spans retail's 4:3 picture) and the side they keep to. The pause
    screen's (PAUSEPANELX) stay: it is drawn in retail's 4:3 area (nw_wide_vp). */
@@ -49,11 +64,65 @@ void nw_wide_set(float aspect, float hud)
     float draw = sqrtf(1.0f + zx * zx) / sqrtf(1.0f + zx0 * zx0);
     nw_wide = (struct nw_wide_s){ .k = k, .aspect = 0.75f / k, .width = width, .hud = h, .draw = draw,
                                   .draw2 = draw * draw, .pvs_all = width > 640 };
+    SDL_SetAtomicInt(&nw_wide_shown, width);
 }
 
 int nw_wide_width(void)
 {
-    return nw_wide.width;
+    return SDL_GetAtomicInt(&nw_wide_shown);
+}
+
+void nw_wide_request(float aspect, float hud)
+{
+    int bits[2];
+    memcpy(&bits[0], &aspect, sizeof(bits[0]));
+    memcpy(&bits[1], &hud, sizeof(bits[1]));
+    SDL_SetAtomicInt(&nw_wide_asks[0], bits[0]);
+    SDL_SetAtomicInt(&nw_wide_asks[1], bits[1]);
+    SDL_SetAtomicInt(&nw_wide_asked, 1);
+}
+
+/* For a frame now nw_wide.width wide, from was: main's SWIDTH, MAXVPSIZEX and video size, the camera's aspect and
+   MaxVP's viewport; the level's frame-sized targets and the VU words InitGlass, GlassGivenMaterial and the water
+   materials took from the width, as they compute them. */
+static void nw_wide_frame(int was)
+{
+    int w = nw_wide.width;
+    PS2_REZ_W = SWIDTH = MAXVPSIZEX = w;
+    if (pNuCam) {
+        pNuCam->aspect = nw_wide.aspect;
+    }
+    NuVpSetSize((float)(MAXVPSIZEX << 4), (float)(MAXVPSIZEY << 3));
+    nw_wide_vp(0);
+    if (w == was) {
+        return;
+    }
+    nw_ps2tx_frame_width(was, w);
+    const unsigned char *glass = (unsigned char *)vu_load_glass_mpg, *water = (unsigned char *)vu_load_water_mpg,
+                        *wateruv = (unsigned char *)vu_load_wateruv_mpg;
+    for (struct numtl_s *m = NuMtlIterate(1); m; m = NuMtlIterate(0)) {
+        if (m->rs.mpg == glass) {
+            m->vuattr.f32[0] = ((w * 0.5f) * 16.0 - 32768.0) / (NuPower2(w) * 16.0);
+            m->vuattr.f32[4] = 1.0 / (NuPower2(w) * 16.0);
+            m->vuattr.f32[6] = (w - 1.0f) / NuPower2(w);
+        } else if (m->rs.mpg == water || m->rs.mpg == wateruv) {
+            m->vuattr.mtx44->_10 = 1.0 / (NuPower2(w) * 16.0);
+            m->vuattr.mtx44->_12 = w;
+        }
+    }
+}
+
+void nw_wide_poll(void)
+{
+    if (!bgload_complete || !SDL_CompareAndSwapAtomicInt(&nw_wide_asked, 1, 0)) {
+        return;
+    }
+    int bits[2] = { SDL_GetAtomicInt(&nw_wide_asks[0]), SDL_GetAtomicInt(&nw_wide_asks[1]) };
+    float ask[2];
+    memcpy(ask, bits, sizeof(ask));
+    int was = nw_wide.width;
+    nw_wide_set(ask[0], ask[1]);
+    nw_wide_frame(was);
 }
 
 /* While the pause screen shrinks the game's view (paused 1-25), its origin moves from the frame's left edge to retail's
@@ -61,9 +130,6 @@ int nw_wide_width(void)
 void nw_wide_vp(int paused)
 {
     struct nuviewport_s *vp = NuVpGetCurrentViewport();
-    if (nw_wide.width == 640) {
-        return;
-    }
     NuVpSetPosition((float)(((PS2_VCNTR_X - (nw_wide.width >> 1)) << 4) + ((nw_wide.width - 640) << 3) * paused / 25),
                     (float)vp->y);
 }

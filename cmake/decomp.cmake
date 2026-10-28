@@ -152,7 +152,7 @@ target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audi
   nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
-target_sources(crashwoc-nuworld PRIVATE src/gfx/backend.c src/gfx/view.c src/platform/input.c)
+target_sources(crashwoc-nuworld PRIVATE src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
 if(NUWORLD_FUZZ)

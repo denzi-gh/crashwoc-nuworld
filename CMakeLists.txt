@@ -78,6 +78,7 @@ endfunction()
 add_executable(crashwoc-nuworld
   src/main.c
   src/platform/audio.c
+  src/platform/display.c
   src/platform/platform.c
   src/gfx/gl.c
   src/gfx/vu.c
@@ -150,7 +151,7 @@ add_library(nuworld_frontend STATIC
   src/frontend/settings.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs)
+target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)
 
 # Saves: the TOML document, the save records in it, the saves folder and PS2 card images (no decomp).
 set(NW_SAVE_SOURCES
@@ -183,6 +184,11 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)
   add_test(NAME settings COMMAND nuworld_test_settings ${CMAKE_CURRENT_BINARY_DIR}/test-settings)
+  add_executable(nuworld_test_display tests/c/test_display.c src/platform/display.c)
+  target_include_directories(nuworld_test_display PRIVATE src)
+  target_compile_options(nuworld_test_display PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_display PRIVATE SDL3::SDL3)
+  add_test(NAME display COMMAND nuworld_test_display)
   add_executable(nuworld_test_savefile tests/c/test_savefile.c)
   target_compile_options(nuworld_test_savefile PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save nuworld_vfs)
