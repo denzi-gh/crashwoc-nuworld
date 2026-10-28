@@ -31,6 +31,7 @@
 #include "port/saveload.h"
 #include "port/scene.h"
 #include "port/trace.h"
+#include "port/wide.h"
 #include "shim/shim.h"
 #include "vfs/dat.h"
 #include "vfs/sha256.h"
@@ -646,16 +647,61 @@ static void nw_boot_levels(void *user)
     }
 }
 
+/* The picture's aspect: settings.toml's, or the display's for auto; the window takes it at the height it opened with,
+   narrower where it would not fit the display. */
+static float nw_boot_aspect(NwPlatform *p, float aspect)
+{
+    SDL_DisplayID display = SDL_GetDisplayForWindow(p->window);
+    const SDL_DisplayMode *mode = SDL_GetDesktopDisplayMode(display);
+    if (aspect <= 0.0f) {
+        aspect = mode && mode->h > 0 ? (float)mode->w / (float)mode->h : 16.0f / 9.0f;
+    }
+    if (aspect < NW_WIDE_MIN) {
+        aspect = NW_WIDE_MIN;
+    } else if (aspect > NW_WIDE_MAX) {
+        aspect = NW_WIDE_MAX;
+    }
+    int w, h;
+    SDL_Rect usable;
+    SDL_GetWindowSize(p->window, &w, &h);
+    w = (int)((float)h * aspect + 0.5f);
+    if (SDL_GetDisplayUsableBounds(display, &usable) && w > usable.w * 9 / 10) {
+        w = usable.w * 9 / 10;
+        h = (int)((float)w / aspect + 0.5f);
+    }
+    SDL_SetWindowSize(p->window, w, h);
+    SDL_SetWindowPosition(p->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+    return aspect;
+}
+
+/* settings.toml's picture aspect, which the game takes at its next start. */
+static void nw_boot_video(void *user)
+{
+    static const float aspects[] = { 0.0f, 4.0f / 3.0f, 16.0f / 9.0f, 16.0f / 10.0f, 21.0f / 9.0f, 32.0f / 9.0f };
+    NwSettings *s = user;
+    char name[16];
+    for (size_t i = 0; i < SDL_arraysize(aspects); i++) {
+        if (nw_debug_selectable(nw_settings_aspect_name(aspects[i], name, sizeof(name)),
+                                SDL_fabsf(s->aspect - aspects[i]) < 0.001f)) {
+            s->aspect = aspects[i];
+        }
+    }
+    nw_debug_text("frame %d px wide now; a change applies at the next start", nw_wide_width());
+}
+
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
-   menu changes and saves, like the buses. Returns the exit code. */
-static int nw_boot(const char *data_dir, int hardware_speed)
+   menu changes and saves, like the buses; aspect -1 likewise. Returns the exit code. */
+static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
 {
     NwSettings settings;
     nw_settings_defaults(&settings);
     nw_boot_settings(data_dir, &settings, false);
     if (hardware_speed >= 0) {
         settings.hardware_speed = hardware_speed;
+    }
+    if (aspect >= 0.0f) {
+        settings.aspect = aspect;
     }
     int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
@@ -668,7 +714,10 @@ static int nw_boot(const char *data_dir, int hardware_speed)
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
+    nw_debug_panel("Video", "Aspect", nw_boot_video, &settings, false);
+    nw_wide_set(nw_boot_aspect(&platform, settings.aspect));
     bool applied = settings.hardware_speed;
+    float picture = settings.aspect;
     int buses[2] = { settings.master_volume, settings.voice_volume };
     nw_audio_set_buses(buses[0], buses[1]);
     if (!nw_audio_open()) {
@@ -695,6 +744,10 @@ static int nw_boot(const char *data_dir, int hardware_speed)
         if (settings.hardware_speed != applied) {
             applied = settings.hardware_speed;
             nw_nusound_set_hardware_speed(applied);
+            nw_boot_settings(data_dir, &settings, true);
+        }
+        if (settings.aspect != picture) {
+            picture = settings.aspect;
             nw_boot_settings(data_dir, &settings, true);
         }
         if (settings.master_volume != buses[0] || settings.voice_volume != buses[1]) {
@@ -997,6 +1050,7 @@ int main(int argc, char *argv[])
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
     int boot_loads = 0; /* --loads: background loads instead of vblanks */
     int hardware_speed = -1; /* --hardware-speed on|off; -1: as the mode has it */
+    const char *aspect_arg = NULL; /* --aspect auto|W:H|ratio */
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
@@ -1009,7 +1063,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
-             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0) &&
+             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
+             strcmp(argv[i], "--aspect") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -1079,6 +1134,8 @@ int main(int argc, char *argv[])
                 return 2;
             }
             hardware_speed = strcmp(value, "on") == 0;
+        } else if (strcmp(argv[i], "--aspect") == 0) {
+            aspect_arg = argv[++i];
         }
     }
     if (import) {
@@ -1118,6 +1175,15 @@ int main(int argc, char *argv[])
         /* The runs compared with PCSX2's keep its load times and the game window takes settings.toml's; the checks
            load at once, so they never depend on the player's settings. --hardware-speed decides for all of them. */
         int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
+        /* Likewise the picture: the checks and comparisons keep the PS2's 4:3 unless --aspect names another. */
+        float aspect = -1.0f;
+        if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
+            fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");
+            return 2;
+        }
+        if (aspect > 0.0f) {
+            nw_wide_set(aspect);
+        }
         if (capture) {
             return nw_capture(data_dir, capture, capture_dir, speed > 0);
         }
@@ -1127,7 +1193,7 @@ int main(int argc, char *argv[])
         return check_data   ? nw_check_data(data_dir)
                : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
                                             stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, speed > 0)
-                            : nw_boot(data_dir, speed);
+                            : nw_boot(data_dir, speed, aspect);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
         return 2;

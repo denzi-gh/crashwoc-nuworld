@@ -21,6 +21,7 @@
 #include "numath/numtx.h"
 #include "numath/nutrig.h"
 #include "port/nugscn.h"
+#include "port/wide.h"
 #include "vfs/vfs.h"
 
 #define NW_SCENE_BUFFER 0x1200000 /* main's superbuffer */
@@ -293,7 +294,7 @@ int nw_scene_main(int argc, char **argv)
     char *end = buf + NW_SCENE_BUFFER;
     NuPs2Init();
     NuFileInitEx(1, 1);
-    NuPs2InitVideo(0x280, 0x100, 0, 0x31, 3);
+    NuPs2InitVideo(nw_wide_width(), 0x100, 0, 0x31, 3);
     NuPs2VideoSetPos(0, 0);
     NuPs2InitVU();
     NuTrigInit();

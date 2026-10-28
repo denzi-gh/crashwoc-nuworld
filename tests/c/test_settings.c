@@ -1,5 +1,5 @@
-/* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, and what the
-   reader does not take.
+/* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
+   forms, and what the reader does not take.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -83,6 +83,28 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[audio]\nmaster_volume = 250\nvoice_volume = -3\n") == 100000);
     CHECK(read_volumes("[audio]\nmaster_volume = 5x\nvoice_volume = \n") == 100100);
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
+
+    float a = -1.0f;
+    char name[16];
+    CHECK(nw_settings_aspect("auto", &a) && a == 0.0f);
+    CHECK(nw_settings_aspect("\"16:9\"", &a) && SDL_fabsf(a - 16.0f / 9.0f) < 1e-6f);
+    CHECK(nw_settings_aspect("2.39", &a) && SDL_fabsf(a - 2.39f) < 1e-6f);
+    CHECK(nw_settings_aspect("3440:1440", &a) && SDL_fabsf(a - 3440.0f / 1440.0f) < 1e-6f);
+    a = 1.5f;
+    CHECK(!nw_settings_aspect("wide", &a) && !nw_settings_aspect("16:", &a) && !nw_settings_aspect("0:9", &a) &&
+          !nw_settings_aspect("-2", &a) && !nw_settings_aspect("\"16:9", &a) && !nw_settings_aspect("", &a) &&
+          a == 1.5f);
+    CHECK(SDL_strcmp(nw_settings_aspect_name(0.0f, name, sizeof(name)), "auto") == 0);
+    CHECK(SDL_strcmp(nw_settings_aspect_name(21.0f / 9.0f, name, sizeof(name)), "21:9") == 0);
+    CHECK(SDL_strcmp(nw_settings_aspect_name(2.39f, name, sizeof(name)), "2.39") == 0);
+    nw_settings_defaults(&s);
+    CHECK(s.aspect == 0.0f);
+    s.aspect = 32.0f / 9.0f;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && SDL_fabsf(s.aspect - 32.0f / 9.0f) < 1e-6f);
+    CHECK(read_text("[video]\naspect = 16:10 # unquoted\n", &s) && SDL_fabsf(s.aspect - 1.6f) < 1e-6f);
+    CHECK(read_text("[video]\naspect = \"square\"\n", &s) && s.aspect == 0.0f);
 
     if (failures) {
         fprintf(stderr, "settings: %d checks failed\n", failures);
