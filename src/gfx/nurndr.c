@@ -20,6 +20,7 @@
 #include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
+#include "port/wide.h"
 
 int NuPs2ScreenSwap(int vsync);
 void NuCameraSet(struct nucamera_s *cam);
@@ -631,7 +632,7 @@ void NuRndrRectUVStream(struct rndrstream_s *stream, int x, int y, int width, in
 }
 
 /* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame
-   counters; only the one main.c reads is kept. */
+   counters; only the one main.c reads is kept. A new picture aspect starts with the next frame. */
 int NuRndrSwapScreen(int target)
 {
     NuPs2DisableAutoScreenSwap();
@@ -639,6 +640,9 @@ int NuRndrSwapScreen(int target)
     NuRndrVu1Draw();
     NuRndrSwapStreamBuffers();
     nurndr_tritot_this_frame = 0;
+    if (target != -3) {
+        nw_wide_poll();
+    }
     return swapped;
 }
 

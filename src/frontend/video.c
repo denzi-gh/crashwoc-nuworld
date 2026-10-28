@@ -15,6 +15,7 @@ static struct {
     NwWindowMode fullscreen; /* where F11 goes from windowed */
     NwResolution asked;      /* the window size the port set last, which no drag made */
     NwVsync vsync;           /* in effect */
+    float aspect, hud;       /* the game's view, as last asked for */
 } nw_video;
 
 static bool nw_video_near(NwResolution a, NwResolution b)
@@ -31,11 +32,27 @@ static float nw_video_shape(const NwSettings *s)
     return r.w > 0 && r.h > 0 ? (float)r.w / (float)r.h : 16.0f / 9.0f;
 }
 
-/* The picture's aspect: settings.toml's, or the output's for auto. */
+/* The picture's aspect: settings.toml's, or for auto the output's, shape wide over high. */
+static float nw_video_picture(const NwSettings *s, float shape)
+{
+    float aspect = s->aspect > 0.0f ? s->aspect : shape;
+    return aspect < NW_WIDE_MIN ? NW_WIDE_MIN : aspect > NW_WIDE_MAX ? NW_WIDE_MAX : aspect;
+}
+
 static float nw_video_aspect(const NwSettings *s)
 {
-    float aspect = s->aspect > 0.0f ? s->aspect : nw_video_shape(s);
-    return aspect < NW_WIDE_MIN ? NW_WIDE_MIN : aspect > NW_WIDE_MAX ? NW_WIDE_MAX : aspect;
+    return nw_video_picture(s, nw_video_shape(s));
+}
+
+/* The game's view for an output shape wide over high, asked for when it changes. */
+static void nw_video_wide(const NwSettings *s, float shape)
+{
+    float aspect = nw_video_picture(s, shape);
+    if (aspect != nw_video.aspect || s->hud != nw_video.hud) {
+        nw_video.aspect = aspect;
+        nw_video.hud = s->hud;
+        nw_wide_request(aspect, s->hud);
+    }
 }
 
 /* A window of auto size: the picture's aspect NW_VIDEO_AUTO_H high, narrower where it would not fit the display. */
@@ -169,7 +186,7 @@ static void nw_video_panel(void *user)
     if (nw_debug_combo("HUD", &hud, hud_names, (int)SDL_arraysize(huds))) {
         s->hud = huds[hud];
     }
-    nw_debug_text("frame %d px wide now; aspect and HUD apply at the next start", nw_wide_width());
+    nw_debug_text("frame %d px wide", nw_wide_width());
 }
 
 static void nw_video_toggle(void *user)
@@ -186,6 +203,8 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     nw_debug_panel("Video", "Settings", nw_video_panel, s, false);
     nw_debug_action("Video", "Fullscreen", SDL_SCANCODE_F11, nw_video_toggle, s);
     float aspect = nw_video_aspect(s);
+    nw_video.aspect = aspect;
+    nw_video.hud = s->hud;
     if (s->resolution.w <= 0) {
         nw_video_autosize(aspect);
     }
@@ -200,9 +219,12 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
 void nw_video_event(const SDL_Event *e)
 {
     NwSettings *s = nw_video.settings;
-    if (e->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || !s || s->window != NW_WINDOW_WINDOWED ||
-        (SDL_GetWindowFlags(nw_video.platform->window) &
-         (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED))) {
+    if (e->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || !s || e->window.data2 <= 0) {
+        return;
+    }
+    nw_video_wide(s, (float)e->window.data1 / (float)e->window.data2);
+    if (s->window != NW_WINDOW_WINDOWED || (SDL_GetWindowFlags(nw_video.platform->window) &
+                                            (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED))) {
         return;
     }
     NwResolution px = { e->window.data1, e->window.data2 };
@@ -220,14 +242,17 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter) {
         nw_video_render(s);
     }
+    int w, h;
+    SDL_GetWindowSizeInPixels(nw_video.platform->window, &w, &h);
+    if (s->aspect != was->aspect || s->hud != was->hud) {
+        nw_video_wide(s, h > 0 ? (float)w / (float)h : nw_video.aspect);
+    }
     if (s->window == was->window && s->resolution.w == was->resolution.w && s->resolution.h == was->resolution.h) {
         return;
     }
     if (s->window != NW_WINDOW_WINDOWED) {
         nw_video.fullscreen = s->window;
     }
-    int w, h;
-    SDL_GetWindowSizeInPixels(nw_video.platform->window, &w, &h);
     bool windowed = s->window == NW_WINDOW_WINDOWED && was->window == NW_WINDOW_WINDOWED;
     if (windowed && s->resolution.w <= 0) {
         nw_video_autosize(nw_video_aspect(s));

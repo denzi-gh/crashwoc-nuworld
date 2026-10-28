@@ -32,6 +32,9 @@ void nw_rndr_texture_free(int tid);
    finds it; addr 0 for any other, and for the Z buffer and the palette and Z render targets the port does not draw
    (reported once). */
 NwSurf nw_ps2tx_surf(int tid);
+/* The render targets as wide as a frame was wide (NuLightMatInit's, InitGlass's, NuWaterInit's) to a frame now that
+   wide; GS memory they reserved stays where it is. */
+void nw_ps2tx_frame_width(int was, int now);
 
 typedef struct NwViewSnap NwViewSnap;
 typedef struct NwLightSnap NwLightSnap;

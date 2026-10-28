@@ -175,26 +175,44 @@ NwSurf nw_ps2tx_surf(int tid)
     return s;
 }
 
+/* A render target's size in GS terms; returns its bytes. */
+static int nw_ps2tx_rt_size(const struct nutex_s *spec, struct nups2tex_s *tex)
+{
+    static const uint8_t bpp[12] = { 2, 2, 2, 4, 4, 2, 4, 4, 2, 4, 4, 2 };
+    int align = spec->type <= 9 ? 0x80 : 0x40;
+    int size = (spec->width * spec->height * bpp[spec->type - 8] + 15) & ~15;
+    tex->tw = Ps2TxValToPowerOfTwo(spec->width);
+    tex->th = Ps2TxValToPowerOfTwo(spec->height);
+    tex->tbw[0] = ((spec->width + align - 1) & -align) / 64;
+    tex->reqsize[0] = (size + 255) / 256;
+    return size;
+}
+
 /* A render target's GS format and place: types 11-13 reserve their memory (NuTexReserve), the others take the
    address NuTexAssignAddr gives them, else gs_botfree. 8-10 are read back through a ramp CLUT and 17-19 hold Z,
    neither of which the port draws. */
 int NuPs2CreateRenderTarget(struct nutex_s *spec, struct nups2tex_s *tex)
 {
     static const uint8_t psm[12] = { 0x13, 0x13, 0x1B, 0x00, 0x01, 0x02, 0x00, 0x01, 0x02, 0x30, 0x31, 0x32 };
-    static const uint8_t bpp[12] = { 2, 2, 2, 4, 4, 2, 4, 4, 2, 4, 4, 2 };
     int type = spec->type;
     memset(tex, 0, sizeof(*tex));
-    tex->tw = Ps2TxValToPowerOfTwo(spec->width);
-    tex->th = Ps2TxValToPowerOfTwo(spec->height);
+    int size = nw_ps2tx_rt_size(spec, tex);
     tex->psm = psm[type - 8];
     tex->tcc = type <= 10 || type % 3 != 0; /* PSMCT24 (12, 15, 18) has no alpha */
-    int align = type <= 9 ? 0x80 : 0x40;
-    int size = (spec->width * spec->height * bpp[type - 8] + 15) & ~15;
     tex->tbp[0] = type >= 11 && type <= 13 ? NuTexReserve(size) : 0;
-    tex->tbw[0] = ((spec->width + align - 1) & -align) / 64;
-    tex->reqsize[0] = (size + 255) / 256;
     nw_ps2tx_set(tex, NULL);
     return 1;
+}
+
+void nw_ps2tx_frame_width(int was, int now)
+{
+    for (int i = 0; TexList && i < NW_TEX_SLOTS; i++) {
+        struct nutexslot_s *e = &TexList[i];
+        if (e->valid && e->type >= 8 && e->type < 0x14 && e->width == was && e->height == PS2_REZ_H) {
+            e->width = now;
+            nw_ps2tx_rt_size(&e->spec, &e->ps2tex);
+        }
+    }
 }
 
 /* GenTextureLoad's GS formats by bitmap type 2-5. */
