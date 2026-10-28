@@ -2,11 +2,20 @@
    theirs; loads beside them, such as the loading screen's in the superbuffer's last 1 MB, leave them. */
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
 #include "port/heap.h"
+/* After it: windows.h defines near and far. */
+#ifdef NW_HIGH_HEAP
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
+#endif
 
 static int failures;
 static char heap[4096];
@@ -143,6 +152,22 @@ int main(void)
     CHECK(nw_gpu_take(nw_packet_publish(3), &jobs, &cap) == 1 && jobs[0].op == NW_GPU_FREE_MESH &&
           jobs[0].obj == &mesh);
     SDL_free(jobs);
+
+#ifdef NW_HIGH_HEAP
+    /* Debug builds: every allocation lies above 4 GB, the superbuffer's size included. */
+    void *small = malloc(16), *large = malloc(0x1201000), *sdl = SDL_malloc(64);
+    CHECK((uintptr_t)small >> 32 && (uintptr_t)large >> 32 && (uintptr_t)sdl >> 32 && (uintptr_t)heap >> 32);
+    /* Not by chance: the address space below is taken. */
+#ifdef _WIN32
+    CHECK(VirtualAlloc((void *)0x10000000, 0x10000, MEM_RESERVE, PAGE_NOACCESS) == NULL);
+#else
+    CHECK(mmap((void *)0x10000000, 0x10000, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) ==
+          MAP_FAILED);
+#endif
+    free(small);
+    free(large);
+    SDL_free(sdl);
+#endif
 
     printf("%s\n", failures ? "FAILED" : "heap: all checks passed");
     return failures ? 1 : 0;

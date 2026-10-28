@@ -38,6 +38,9 @@ endif()
 if(NUWORLD_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
+else()
+  # Debug builds allocate nothing below 4 GB (src/platform/highheap.c); ASan keeps its own layout.
+  add_compile_definitions($<$<CONFIG:Debug>:NW_HIGH_HEAP>)
 endif()
 
 # Dear ImGui with its SDL3 and OpenGL 3 backends (the GL backend has its own loader).
