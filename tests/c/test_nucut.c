@@ -1,5 +1,6 @@
 /* The .cut loader override (src/port/gcutscn.c) on a synthetic file; locally on every .cut of the imported disc.
    Usage: test_nucut <scratch dir> | retail. */
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -76,10 +77,10 @@ static bool eval2(const char *file, size_t size, struct nuanimdata2_s *data, int
     }
     *val = NuAnimCurve2CalcVal(&data->curves[i], &at, type);
     if (type == 1) {
+        /* In double, so a sweep with NUWORLD_FP_TRAPS does not stop here: a slope times the keys' interval. */
         const struct nuanimkey2_s *kp = (const struct nuanimkey2_s *)k, *np = kp + 1;
-        float dt = np->time - kp->time, u = (at.time - kp->time) * kp->dtime, b = kp->slope * dt, c = np->slope * dt;
-        float a = kp->value - np->value;
-        if (!isfinite(u * (u * (u * (a + a + b + c) + a * -3.0f - (b + b) - c) + b) + kp->value)) {
+        double dt = (double)np->time - kp->time;
+        if (fabs(kp->slope * dt) > FLT_MAX || fabs(np->slope * dt) > FLT_MAX) {
             if (noverflowed < SDL_arraysize(overflowed)) {
                 overflowed[noverflowed] = *val;
             }

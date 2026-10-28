@@ -133,7 +133,8 @@ target_link_libraries(nuworld_data PUBLIC nuworld_port)
 set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.c src/gfx/nurndr.c src/gfx/nustream.c
   src/gfx/numtl.c src/gfx/nutex.c src/gfx/nuwater.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/eefloat.c src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c
-  src/hle/nuvecvu0.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
+  src/hle/nuvecvu0.c src/port/fptrap.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c
+  src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c
@@ -255,6 +256,18 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_heap PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_heap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME heap COMMAND nuworld_test_heap)
+  # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
+  add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
+  target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_fptrap PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME fp-traps COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=1
+    PASS_REGULAR_EXPRESSION "fp trap: invalid operation at .*nuworld_test_fptrap")
+  add_test(NAME fp-traps-off COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps-off PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=0)
+  add_test(NAME fp-traps-all COMMAND nuworld_test_fptrap)
+  set_tests_properties(fp-traps-all PROPERTIES ENVIRONMENT NUWORLD_FP_TRAPS=all
+    PASS_REGULAR_EXPRESSION "fp trap: invalid operation at .*fptrap: the game thread returned")
 
   # The .gsc loader override on a synthetic scene; built with the decomp flags for its struct layouts. nugscn-retail
   # checks the animation library of every .gsc of NUWORLD_TEST_DATA.

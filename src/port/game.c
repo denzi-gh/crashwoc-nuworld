@@ -7,6 +7,7 @@
 #endif
 
 #include "app.h"
+#include "port/fptrap.h"
 #include "port/ps2video.h"
 
 /* A yield that finds more edges than this delivers only this many (the game was stalled, not slow). */
@@ -77,6 +78,7 @@ void nw_game_host_enter(void)
     /* The EE FPU has no denormals: flush them to zero (FTZ) and read them as zero (DAZ). */
     _mm_setcsr(_mm_getcsr() | 0x8040);
 #endif
+    nw_fp_traps_enter();
 }
 
 static int SDLCALL nw_game_run(void *arg)
