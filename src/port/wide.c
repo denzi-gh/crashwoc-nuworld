@@ -3,9 +3,13 @@
 #include <math.h>
 
 #include "nu_port.h"
+#include "gamelib/terrain.h"
+#include "nu3d/nugscn.h"
 #include "nu3d/nuvport.h"
 
 extern int PS2_VCNTR_X;
+extern TerrainSetType *CurTerr;
+extern struct nugscn_s *world_scene[32];
 
 struct nw_wide_s nw_wide = { .k = 1.0f, .aspect = 0.75f, .width = 640, .hud = 1.0f, .draw = 1.0f, .draw2 = 1.0f };
 
@@ -38,7 +42,12 @@ void nw_wide_set(float aspect, float hud)
     for (size_t i = 0; i < sizeof(nw_wide_anchors) / sizeof(nw_wide_anchors[0]); i++) {
         *nw_wide_anchors[i].x += nw_wide_anchors[i].side * (h - nw_wide.hud);
     }
-    nw_wide = (struct nw_wide_s){ .k = k, .aspect = 0.75f / k, .width = width, .hud = h, .draw = 1.0f, .draw2 = 1.0f };
+    /* A radius r around the camera reaches depth r / sqrt(1 + zx^2) at the view's side edge (zx = x clip ratio,
+       tan(fov / 2) / aspect, fov 0.75): the draw radii grow to keep retail's edge depth. */
+    float zx0 = tanf(0.375f) / 0.75f, zx = zx0 * k;
+    float draw = sqrtf(1.0f + zx * zx) / sqrtf(1.0f + zx0 * zx0);
+    nw_wide = (struct nw_wide_s){ .k = k, .aspect = 0.75f / k, .width = width, .hud = h, .draw = draw,
+                                  .draw2 = draw * draw, .pvs_all = width > 640 };
 }
 
 int nw_wide_width(void)
@@ -63,17 +72,54 @@ int nw_wide_vp_x(void)
     return NuVpGetCurrentViewport()->x - ((PS2_VCNTR_X - (nw_wide.width >> 1)) << 4);
 }
 
+static int nw_wide_special(const struct nuspecial_s *specials, int n, const struct nuinstance_s *inst)
+{
+    for (int i = 0; i < n; i++) {
+        if (specials[i].instance == inst) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* An animated instance the PVS hid runs its animation while the wider view draws it, unless the game reads where it
+   is: a moving platform (CurTerr) or a special (PlayerObjectAnimCollision and the like) keeps retail's test. */
 int nw_wide_anim(struct nuinstance_s *inst, int test)
 {
-    (void)inst;
-    return test;
+    if (test || !nw_wide.pvs_all || !inst->anim) {
+        return test;
+    }
+    for (int i = 0; CurTerr && i < 128; i++) {
+        if (CurTerr->platdata[i].curmtx == &inst->anim->mtx) {
+            return test;
+        }
+    }
+    for (int s = 0; s < 32; s++) {
+        struct nugscn_s *sc = world_scene[s];
+        if (sc && inst >= sc->instances && inst < sc->instances + sc->numinstance &&
+            (nw_wide_special(sc->specials, sc->numspecial, inst) ||
+             nw_wide_special(sc->exspecials, sc->numexspecials, inst))) {
+            return test;
+        }
+    }
+    return 1;
 }
+
+static int nw_wide_tests, nw_wide_retail;
 
 void nw_wide_mark(void)
 {
+    nw_wide_tests = 0;
+    nw_wide_retail = 0;
+}
+
+void nw_wide_clip(int retail_visible)
+{
+    nw_wide_tests++;
+    nw_wide_retail |= retail_visible;
 }
 
 int nw_wide_seen(int drawn)
 {
-    return drawn;
+    return drawn && (nw_wide_tests == 0 || nw_wide_retail);
 }

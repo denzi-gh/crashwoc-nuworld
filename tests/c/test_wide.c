@@ -1,5 +1,5 @@
 /* src/port/wide.c: retail untouched, the frame width and camera aspect for each picture aspect, the HUD's reach
-   and anchors, the clamps. */
+   and anchors, the draw radii, the clamps. */
 #include <math.h>
 #include <stdio.h>
 
@@ -30,9 +30,11 @@ int main(void)
 
     nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f && nw_wide.aspect == 0.75f && nw_wide.hud == 1.0f);
+    CHECK(nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f && !nw_wide.pvs_all);
     nw_wide_set(16.0f / 9.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 854 && near(nw_wide.k, 854.0f / 640.0f) && near(nw_wide.aspect, 0.75f * 640.0f / 854.0f));
-    CHECK(near(nw_wide.hud, nw_wide.k));
+    CHECK(near(nw_wide.hud, nw_wide.k) && fabsf(nw_wide.draw - 1.08f) < 0.01f && nw_wide.pvs_all);
+    CHECK(near(nw_wide.draw2, nw_wide.draw * nw_wide.draw));
     nw_wide_set(21.0f / 9.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 1120);
     nw_wide_set(3440.0f / 1440.0f, 16.0f / 9.0f);
@@ -48,7 +50,7 @@ int main(void)
     nw_wide_set(16.0f / 9.0f, 0.5f);
     CHECK(nw_wide.hud == 1.0f);
     nw_wide_set(5.0f, 16.0f / 9.0f);
-    CHECK(nw_wide.width == 1706);
+    CHECK(nw_wide.width == 1706 && fabsf(nw_wide.draw - 1.52f) < 0.01f);
     nw_wide_set(1.25f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f);
     nw_wide_set(0.0f, 16.0f / 9.0f);

@@ -11,5 +11,7 @@
 void nw_wide_set(float aspect, float hud);
 /* The GS frame's width: 640 at 4:3, even so that its centre is a whole pixel. */
 int nw_wide_width(void);
+/* The VU0 clip test's box: whether it is inside retail's 4:3 frustum, for NW_WIDE_SEEN. */
+void nw_wide_clip(int retail_visible);
 
 #endif
