@@ -49,6 +49,7 @@ typedef struct NwRecord {
     const NwPtlList *ptllist;      /* PARTICLES: the effect list */
     const NwPtl *ptls;             /* PARTICLES: cmd.count particles */
     const NwZClut *zclut;          /* VERTS: the depth CLUT, NULL none */
+    const NwWaves *waves;          /* WAVES: the table */
     uint8_t misc;              /* the stream's attr & 0x43 */
     struct NwRecord *next;
 } NwRecord;
@@ -61,6 +62,8 @@ NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v);
 /* The same as a PARTICLES record of an effect list and n particles, which the caller writes at *list and *ptls. */
 NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls);
+/* A WAVES record in stream, whose table the caller fills in. */
+NwWaves *nw_rndr_waves(struct rndrstream_s *stream);
 /* A depth CLUT for the VERTS record c (nw_rndr_verts'), which the caller fills in. */
 NwZClut *nw_rndr_zclut(NwCmd *c);
 /* NuRndrRectUV3di's sprite in stream as a VERTS record in GS coordinates: from (x, y) in 12.4 pixels of the render

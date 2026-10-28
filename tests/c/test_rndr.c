@@ -406,7 +406,7 @@ static void test_animate(void)
         CHECK(k >= 0 && k < 3 && c->mtl < p->nmtls);
         if (k >= 0 && k < 3 && c->mtl < p->nmtls) {
             const NwMtlSnap *s = &p->mtls[c->mtl];
-            CHECK(s->uvoff[0] == m[k]->vuattr.f32[0] && s->uvoff[1] == m[k]->vuattr.f32[1]);
+            CHECK(memcmp(s->vu, m[k]->vuattr.f32, sizeof(s->vu)) == 0);
             CHECK(s->row[0] == m[k]->vuattr.s32[9] && s->row[1] == m[k]->vuattr.s32[10]);
         }
     }

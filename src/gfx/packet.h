@@ -57,7 +57,14 @@ typedef enum NwCmdOp {
     NW_CMD_VERTS,   /* triangles of vertices made this frame, in NwPacket.verts */
     NW_CMD_PARTICLES, /* particles under the local matrix, as the ptl program draws them from their effect list */
     NW_CMD_VOLUMES, /* the volume shadows' start on the target: the back buffer's Z, squeezed, and the stencil 0x7F */
+    NW_CMD_WAVES,   /* a water material's wave table, which the draws after it read */
 } NwCmdOp;
+
+/* What nuwater's animateWater unpacks to VU 0x1B2 for the water programs: 32 waves, each the camera-space offset of
+   the texcoords (x, y), 1 and the lift along the local y (w). */
+typedef struct NwWaves {
+    float wave[32][4];
+} NwWaves;
 
 /* What an effect list unpacks to VU 0x3C-0xBF for the ptl program: the gravity and the time, the corners' texel
    coordinates (u, v), and 64 entries by age of the corner offsets and the colour. */
@@ -113,7 +120,7 @@ typedef struct NwView {
 typedef struct NwMtlSnap {
     NwMtlState gs;
     float diffuse[4];
-    float uvoff[2]; /* VU 0x14: NuMtlAnimate's UV offset */
+    float vu[8];    /* VU 0x14-0x15 (numtl_s.vuattr): [0] [1] NuMtlAnimate's UV offset */
     int32_t row[2]; /* the STROW row: the offset x4096, for geoms that unpack their texcoords under STMOD 1 */
     const NwGpuTex *tex;
     NwSurf surf; /* a texture in GS memory instead of tex */
@@ -138,7 +145,8 @@ typedef struct NwCmd {
             };
             float local[16];
             uint32_t first, count; /* DRAW_OT: the vertex indices in NwPacket.idx; SKIN: the NwPacket.joints; VERTS:
-                                      the NwPacket.verts; PARTICLES: the NwPacket.ptls */
+                                      the NwPacket.verts; PARTICLES: the NwPacket.ptls; WAVES: first, the table in
+                                      NwPacket.waves */
             uint32_t weights, nweights; /* SKIN: the blend-shape weights in NwPacket.weights */
             uint8_t mode;               /* VERTS: an NwVertsMode */
             uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
@@ -200,6 +208,8 @@ typedef struct NwPacket {
     uint32_t nptls, ptlcap;
     NwZClut *zcluts;
     uint32_t nzcluts, zclutcap;
+    NwWaves *waves;
+    uint32_t nwaves, wavecap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -215,6 +225,7 @@ NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first);
 NwPtlList *nw_packet_ptllist(NwPacket *p, uint32_t *index);
 NwPtl *nw_packet_ptls(NwPacket *p, uint32_t n, uint32_t *first);
 NwZClut *nw_packet_zclut(NwPacket *p, uint32_t *index);
+NwWaves *nw_packet_waves(NwPacket *p, uint32_t *index);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

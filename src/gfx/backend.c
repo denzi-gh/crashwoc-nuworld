@@ -48,7 +48,7 @@ static struct {
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
-static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL, NULL };
+static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL, NULL };
 
 bool nw_backend_save(const char *path)
 {
@@ -426,8 +426,9 @@ static NwVuMaterial nw_be_material(const NwPacket *p, const NwCmd *c, bool uvrow
     if (c->mtl != NW_MTL_NONE) {
         const NwMtlSnap *s = &p->mtls[c->mtl];
         memcpy(m.diffuse, s->diffuse, sizeof(m.diffuse));
-        m.uvoff[0] = s->uvoff[0];
-        m.uvoff[1] = s->uvoff[1];
+        memcpy(m.vu, s->vu, sizeof(m.vu));
+        m.uvoff[0] = s->vu[0];
+        m.uvoff[1] = s->vu[1];
         m.uvoff[2] = uvrow ? (float)s->row[0] : 0.0f;
         m.uvoff[3] = uvrow ? (float)s->row[1] : 0.0f;
         m.tex = s->surf.addr ? nw_be_surf_tex(&s->surf, s->surf.tcc) : s->tex ? &s->tex->gl : NULL;
@@ -580,12 +581,18 @@ static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 }
 
 /* What vu1init leaves for a draw: the local times screen matrix, and the stream's block at VU 0x0C, the lights or for
-   the xuv programs the UV matrix. */
+   the xuv programs the UV matrix; and where the target's pixels are in GS coordinates, the GS pixel at
+   12.4 (x, y) from XYOFFSET being GL's (x, th - 1 - y) about its centre. */
 static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program, NwVuObject *o)
 {
     float screen[16];
-    nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, screen);
+    const NwView *v = &p->views[c->view];
+    nw_be_screen(v, nw_be.width, nw_be.height, screen);
     nw_vu1init(o, c->local, screen);
+    o->frag[0] = 16.0f;
+    o->frag[1] = -16.0f;
+    o->frag[2] = (float)v->xyoffset[0] - 8.0f;
+    o->frag[3] = (float)(nw_be.target->th * 16 + v->xyoffset[1]) - 8.0f;
     if (c->light != NW_LIGHT_NONE && (program == NW_VU_TRIXUV || program == NW_VU_SKINXUV)) {
         nw_vu1init_uv(o, c->local, &p->lights[c->light]);
     } else if (c->light != NW_LIGHT_NONE) {
@@ -879,6 +886,11 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_VOLUMES:
             nw_be_volumes(c);
+            break;
+        case NW_CMD_WAVES:
+            if (c->first < p->nwaves) {
+                nw_vu_waves(p->waves[c->first].wave);
+            }
             break;
         }
     }
