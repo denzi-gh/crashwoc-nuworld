@@ -56,7 +56,8 @@ schema = 1
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
 # kept: the shadow, footprint and water-ripple bookkeeping, the shadow and ripple draws over the port's quad writers,
 # the volume shadows' light and screen box, and the bodies retail leaves empty; NuRndrFx calls the overridden shadow,
-# water and light packet writers
+# water and light packet writers. NuRndrFxCode and its sprite sets (the fx microcode) split the Z buffer's bytes for the
+# light passes, which read Z through depth CLUTs here; nothing reaches them.
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
     "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld", "NuRndrShadowInit",
     "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
@@ -64,7 +65,8 @@ schema = 1
     "NuRndrShadowStencil", "NuRndrShadowDirCol", "RotateCyl", "DeRotateVectorAngles", "NuRndrFog*", "NuRndrLine3dDbg*",
     "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"] }
 "nu3d/nufont" = { treatment = "compile" }
-"nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw", "NuLgtArcLaserDraw"] }
+"nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw",
+    "NuLgtArcLaserDraw", "NuLightProcessSpot", "NuLightFxSetup"] }
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix

@@ -269,6 +269,17 @@ int NuPs2TxCreate(struct nutex_s *spec, struct nups2tex_s *tex)
     return 1;
 }
 
+/* NuLightMatInit gives its palette render targets (types 8-10) ramps, which the port does not draw: their CLUTs
+   are kept by no one. Retail calls it on nothing else. */
+void NuPs2ChangeTexPal(struct nups2tex_s *tex, u32 *pal)
+{
+    (void)pal;
+    ptrdiff_t slot = ((char *)tex - (char *)&TexList[0].ps2tex) / (ptrdiff_t)sizeof(struct nutexslot_s);
+    if (nw_ps2tx[slot]) {
+        nw_ps2tx_unsupported(3, "a decoded texture's new CLUT");
+    }
+}
+
 int NuPs2TxDestroy(struct nups2tex_s *tex)
 {
     for (int i = 0; i < 7; i++) {

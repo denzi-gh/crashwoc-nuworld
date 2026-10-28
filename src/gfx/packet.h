@@ -56,6 +56,7 @@ typedef enum NwCmdOp {
     NW_CMD_SKIN,    /* a skin geom under the local matrix and its joint palette */
     NW_CMD_VERTS,   /* triangles of vertices made this frame, in NwPacket.verts */
     NW_CMD_PARTICLES, /* particles under the local matrix, as the ptl program draws them from their effect list */
+    NW_CMD_VOLUMES, /* the volume shadows' start on the target: the back buffer's Z, squeezed, and the stencil 0x7F */
 } NwCmdOp;
 
 /* What an effect list unpacks to VU 0x3C-0xBF for the ptl program: the gravity and the time, the corners' texel
@@ -72,6 +73,26 @@ typedef struct NwPtl {
     float pos[3], birth;
     float mom[3], rate;
 } NwPtl;
+
+/* A CLUT that a VERTS command looks up by the GS Z under each pixel instead of a texture, as retail's fog and spot
+   lights read the Z buffer back byte by byte: entry (Z >> shift) & 0xFF over 256 entries from Z = base, entry far
+   below them and near above. Seashell's NuLightFogClear then gives the alpha 0x80 where it is under 0x80 and Z is at
+   most clear_z[0], and 0 where it is 0x80 or more and Z is at least clear_z[1]. A spot light's (NwZClut.spot)
+   clears its texel instead where the alpha is 0x80 or more and Z is at most clear_z[0] (0: none), or at least
+   clear_z[1] (0: none). far and near may also be NW_ZCLUT_ZERO, a clear texel, or NW_ZCLUT_WRAP, the entry of Z
+   wrapped as the rest. With alpha, the entry's alpha replaces the texture's alone, as the haze reads the fog's alpha
+   back with the frame. */
+#define NW_ZCLUT_ZERO 0x100u
+#define NW_ZCLUT_WRAP 0x200u
+
+typedef struct NwZClut {
+    uint32_t clut[256];
+    uint32_t shift, base;
+    uint32_t far, near;
+    bool clear, spot;
+    uint32_t clear_z[2];
+    bool alpha;
+} NwZClut;
 
 /* How a VERTS command's vertices are drawn. */
 typedef enum NwVertsMode {
@@ -122,6 +143,12 @@ typedef struct NwCmd {
             uint8_t mode;               /* VERTS: an NwVertsMode */
             uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
             const NwGpuTex *clut;       /* VERTS: a CLUT over the material texture's, NULL none */
+            uint32_t zclut;             /* VERTS: 1 + its depth CLUT in NwPacket.zcluts, 0 none */
+            bool exact;                 /* VERTS: the GS blend in the program over a copy of the target, for As past
+                                           0x80 or an ALPHA GL has no blend for (triangles that do not overlap) */
+            int8_t stencil;             /* VERTS: a shadow volume's +1 or -1, counted into the stencil alone where
+                                           the triangles pass the Z test; NW_STENCIL_SHADOWED: drawn only where the
+                                           count is 0x80 or more; 0 none */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {
@@ -135,11 +162,18 @@ typedef struct NwCmd {
             uint8_t mask; /* 1 colour, 2 Z */
         } clear;
         struct {
-            NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere */
+            int32_t width; /* the pixels the target's Z takes the back buffer's width in */
+        } volumes;
+        struct {
+            NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere; tcc false: PSMCT24,
+                                     whose alpha the draws leave */
             int32_t width, height; /* the target's pixels (nurndr_pixel_width, height) */
+            bool zback;            /* the Z buffer is the back buffer's (-2), shared when the sizes match */
         } target;
     };
 } NwCmd;
+
+#define NW_STENCIL_SHADOWED 2
 
 typedef struct NwPacket {
     uint64_t seq;  /* 1 for the first published packet */
@@ -164,6 +198,8 @@ typedef struct NwPacket {
     uint32_t nptllists, ptllistcap;
     NwPtl *ptls;
     uint32_t nptls, ptlcap;
+    NwZClut *zcluts;
+    uint32_t nzcluts, zclutcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -178,6 +214,7 @@ float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first);
 NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first);
 NwPtlList *nw_packet_ptllist(NwPacket *p, uint32_t *index);
 NwPtl *nw_packet_ptls(NwPacket *p, uint32_t n, uint32_t *first);
+NwZClut *nw_packet_zclut(NwPacket *p, uint32_t *index);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

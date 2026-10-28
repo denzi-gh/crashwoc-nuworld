@@ -35,17 +35,17 @@ NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t
     return s;
 }
 
-/* A colour's factor k + m * As as a GL factor and its sign; 1 + As has none. */
-static bool nw_mtl_factor(int k, int m, NwBlendFactor *f, int *sign)
+/* A colour's factor k + m * A (As, or Ad for dst) as a GL factor and its sign; 1 + A has none. */
+static bool nw_mtl_factor(int k, int m, bool dst, NwBlendFactor *f, int *sign)
 {
     *sign = 1;
     if (m == 0) {
         *f = k ? NW_BLEND_ONE : NW_BLEND_ZERO;
     } else if (k == 0) {
-        *f = NW_BLEND_SRC_ALPHA;
+        *f = dst ? NW_BLEND_DST_ALPHA : NW_BLEND_SRC_ALPHA;
         *sign = m;
     } else if (m < 0) {
-        *f = NW_BLEND_ONE_MINUS_SRC_ALPHA;
+        *f = dst ? NW_BLEND_ONE_MINUS_DST_ALPHA : NW_BLEND_ONE_MINUS_SRC_ALPHA;
     } else {
         return false;
     }
@@ -55,17 +55,18 @@ static bool nw_mtl_factor(int k, int m, NwBlendFactor *f, int *sign)
 bool nw_mtl_blend(uint8_t alpha, NwMtlBlend *b)
 {
     unsigned a = alpha & 3, bb = (alpha >> 2) & 3, c = (alpha >> 4) & 3, d = (alpha >> 6) & 3;
-    if (c != 0 || a == 3 || bb == 3 || d == 3) {
+    if (c == 2 || a == 3 || bb == 3 || d == 3) {
         return SDL_SetError("mtl: ALPHA 0x%02x", alpha);
     }
-    /* Cs and Cd each get k + m * As: k from D, m from A - B (0 Cs, 1 Cd, 2 zero). */
+    /* Cs and Cd each get k + m * A, A As or Ad by C: k from D, m from A - B (0 Cs, 1 Cd, 2 zero). */
     int ks = d == 0, kd = d == 1, ms = (a == 0) - (bb == 0), md = (a == 1) - (bb == 1), ss, sd;
-    if (ks == 0 && ms == 0 && kd == 1 && md == 1) {
+    if (c == 0 && ks == 0 && ms == 0 && kd == 1 && md == 1) {
         *b = (NwMtlBlend){ NW_BLEND_ADD, NW_BLEND_DST_COLOUR, NW_BLEND_ONE, true };
         return true;
     }
     *b = (NwMtlBlend){ NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_ZERO, false };
-    if (!nw_mtl_factor(ks, ms, &b->src, &ss) || !nw_mtl_factor(kd, md, &b->dst, &sd) || (ss < 0 && sd < 0)) {
+    if (!nw_mtl_factor(ks, ms, c == 1, &b->src, &ss) || !nw_mtl_factor(kd, md, c == 1, &b->dst, &sd) ||
+        (ss < 0 && sd < 0)) {
         return SDL_SetError("mtl: ALPHA 0x%02x has no GL blend", alpha);
     }
     b->op = ss < 0 ? NW_BLEND_REVERSE_SUBTRACT : sd < 0 ? NW_BLEND_SUBTRACT : NW_BLEND_ADD;

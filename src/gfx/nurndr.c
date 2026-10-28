@@ -14,11 +14,16 @@
 #include "nu3d/nustream.h"
 #include "gamelib/debris.h"
 #include "nu3d/nutex.h"
+#include "nu3d/nuvport.h"
 #include "numath/numtx.h"
+#include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
 
 int NuPs2ScreenSwap(int vsync);
+void NuCameraSet(struct nucamera_s *cam);
+void NuRndrSetRTarget(struct rndrstream_s *stream, int target);
+void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer);
 void NuPs2DisableAutoScreenSwap(void);
 void NuFntInit(void);
 int Ps2TxValToPowerOfTwo(int value);
@@ -45,6 +50,13 @@ extern struct rndrstream_s *rndrstream_3d;
 extern struct numtl_s *nurndr_forced_mtl;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern struct numtl_s *NuLightAddMat;
+extern struct numtl_s *NuLightAddMat2;
+extern struct numtl_s *NuLgtGreyNZMat;
+extern struct numtl_s *NuLgtSurf[18];
+extern int NuLgtHSurf[18];
+extern u32 curlightcol;
+extern struct nuvec_s NuRndrShadBox[2];
+extern int txupload_on;
 extern struct nucamera_s global_camera;
 extern struct nutexslot_s *D_0062EBEC;
 #define TexList D_0062EBEC
@@ -67,6 +79,11 @@ void *vpDmaTag_Next(void *packet, uint32_t addr);
 void NuRndrStreamLink(struct rndrstream_s *stream);
 void NuRndrShadowDirCol(struct nuvec_s *dir, u32 col);
 void NuRndrShadowStack(struct nuvec_s *light);
+struct nurndrshadface_s;
+void NuRndrShadowCylinderCap(struct numtx_s *mtx, struct NUCYLINDER_s *cyl, int count, struct nuvec_s *light);
+void NuRndrShadowEllipse(struct numtx_s *mtx, struct NUELLIPSOID_s *ellipse, int count, struct nuvec_s *light);
+void NuRndrShadowPols(struct numtx_s *mtx, struct nurndrshadface_s *face, struct nurndrshadface_s *vtx,
+                      struct nuvec_s *light);
 void RotateCyl(struct nuvec_s *v, float xang, float yang);
 void DeRotateVectorAngles(struct nuvec_s *dir, float *xang, float *yang);
 
@@ -80,6 +97,7 @@ struct nuvec_s lightfan[9];
 struct nurndrshadstore_s shadstore[256];
 static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
 struct debdma_s *testforcepart; /* an effect list over every particle group's; NULL in retail */
+float testmultl = 4.0f;         /* the volume shadows' light's length over NuRndrShadowStencil's */
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];
@@ -178,7 +196,8 @@ void NuRndrInitEx(int streamsize)
     }
 }
 
-/* The volume shadows' fan of eight directions about the light; their DMA packet the port has none of (#61). */
+/* The volume shadows' fan of eight directions about the light, which ShadElp reads (src/gfx/fx2.c); retail also
+   packs them into its DMA packet. */
 u32 *NuRndrShadowLightFan(void)
 {
     struct nuvec_s angles;
@@ -192,31 +211,118 @@ u32 *NuRndrShadowLightFan(void)
     return NULL;
 }
 
-/* Level 0xC's volume shadows (nurndr_shadowson): the port draws neither the volumes nor their composite yet (#61). */
+/* Level 0xC's volume shadows (nurndr_shadowson). Retail counts the volumes in NuLgtHSurf[2]'s colour from 0x7F with
+   its clamp off, against NuLgtHSurf[1]'s Z, keeps each channel's top bit (FBMSK 0x808080) by writing 0 over the
+   rest, and takes curlightcol's 0x20 off the frame by that mask, stretched back from 0.4 of the width (ALPHA 0x42);
+   here the count is the stencil's (NW_CMD_VOLUMES, the volumes' +1 and -1) and the mask grey where it is 0x80 or
+   more. */
 void NuRndrShadow(int mode)
 {
+    struct nuvec_s light = curlight;
+    NwVuSpriteVertex *v;
     (void)mode;
     if ((testflipold & 4) || shadstorecnt == 0) {
         return;
     }
-    NuRndrShadowStack(&curlight);
+    NuRndrStreamLink(rndrstream_system);
+    NuRndrSetRTarget(rndrstream_system, NuLgtHSurf[2]);
+    NuRndrSetZBuffer(rndrstream_system, NuLgtHSurf[1]);
+    rndrstream_free = vpDmaTag_Next(rndrstream_system->ptr.u8, 0);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
+    txupload_on = 0;
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
+    nw_rndr_cmd(rndrstream_fx, NW_CMD_VOLUMES)->volumes.width = 4096 >> 4;
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    light.x *= testmultl;
+    light.y *= testmultl;
+    light.z *= testmultl;
+    NuRndrShadowStack(&light);
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLgtGreyNZMat);
+    static const float none[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for (int shadowed = 0; shadowed < 2; shadowed++) {
+        NwCmd *c = nw_rndr_verts(rndrstream_fx, NW_VERTS_GS, 4 * 6, &v);
+        c->stencil = (int8_t)(shadowed ? NW_STENCIL_SHADOWED : 0);
+        for (int i = 0; i < 4; i++) {
+            v = nw_rndr_rect3d_quad(v, (i << 10) - 8, -8, 0x400, PS2_REZ_H << 4, none,
+                                    shadowed ? (int)0x80808080 : 0, 0xFFFFFF);
+        }
+    }
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    NuRndrStreamFlush();
+
+    NuRndrStreamLink(rndrstream_system);
+    NuRndrSetRTarget(rndrstream_system, -1);
+    NuRndrSetZBuffer(rndrstream_system, -2);
+    rndrstream_free = vpDmaTag_Next(rndrstream_system->ptr.u8, 0);
+    NuRndrSetXYOffset((0x800 - (nurndr_pixel_width >> 1)) << 4, (0x800 - (nurndr_pixel_height >> 1)) << 4);
+    NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
+    NuRndrStreamLink(rndrstream_3d);
+    NuRndrStreamSetMisc(rndrstream_3d);
+    NuRndrStreamAddMtl(rndrstream_3d, NuLgtSurf[2]);
+    for (int i = (int)NuRndrShadBox[0].x >> 10; i < ((int)NuRndrShadBox[1].x + 0x3FF) >> 10; i++) {
+        int x[2] = { i << 10, (i + 1) << 10 };
+        if ((float)x[0] < NuRndrShadBox[0].x) {
+            x[0] = (int)NuRndrShadBox[0].x;
+        }
+        if (NuRndrShadBox[1].x < (float)x[1]) {
+            x[1] = (int)NuRndrShadBox[1].x;
+        }
+        int y0 = (int)NuRndrShadBox[0].y, y1 = (int)NuRndrShadBox[1].y;
+        const float uv[4] = { (float)x[0] * 0.0009765625f * 25.6f / NuPower2(PS2_REZ_W),
+                              NuRndrShadBox[0].y / (float)(NuPower2(PS2_REZ_H) << 4),
+                              (float)x[1] * 0.0009765625f * 25.6f / NuPower2(PS2_REZ_W),
+                              NuRndrShadBox[1].y / (float)(NuPower2(PS2_REZ_H) << 4) };
+        nw_rndr_rect3d(rndrstream_3d, x[0] - 8, y0 - 8, x[1] - x[0], y1 - y0, uv, (int)curlightcol, 0);
+    }
+    rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u8, 0);
+    NuRndrStreamFlush();
 }
 
-/* Empties the store as retail does once the volumes are drawn. */
+/* The store's volumes along the light (fx2's programs, src/gfx/fx2.c) in NuLightAddMat2 under the identity, in a
+   viewport 4096 / 16 pixels wide, which squeezes them to 0.4 of the frame; then the store is empty. */
 void NuRndrShadowStack(struct nuvec_s *light)
 {
-    static bool reported;
-    (void)light;
-    if (!reported) {
-        reported = true;
-        fprintf(stderr, NW_APP_NAME ": the volume shadows are not drawn\n");
+    NuVpSetSize(4096.0f, (float)(PS2_REZ_H << 4));
+    NuCameraSet(&global_camera);
+    NuRndrStreamLink(rndrstream_fx);
+    NuRndrStreamSetMisc(rndrstream_fx);
+    NuRndrStreamAddMtl(rndrstream_fx, NuLightAddMat2);
+    NuRndrSetLocalMtx(&numtx_identity, 2);
+    NuRndrStreamSetViewMtxScissorClip(rndrstream_fx);
+    NuRndrStreamSetLocalMtx(rndrstream_fx);
+    NuRndrStreamFxMPG(1);
+    for (int i = 0; i < shadstorecnt; i++) {
+        struct nurndrshadstore_s *store = &shadstore[i];
+        if (store->shadow.ncylinders) {
+            NuRndrShadowCylinderCap(&store->mtx, store->shadow.cylinders, store->shadow.ncylinders, light);
+        }
+        if (store->shadow.nellipsoids) {
+            NuRndrShadowEllipse(&store->mtx, store->shadow.ellipsoids, store->shadow.nellipsoids, light);
+        }
+        struct NUSHADOWMESH_s *mesh = store->shadow.shadow_meshes;
+        if (mesh) {
+            NuRndrShadowPols(&store->mtx, (struct nurndrshadface_s *)mesh->normals,
+                             (struct nurndrshadface_s *)mesh->verts, light);
+        }
     }
+    NuRndrStreamFxMPG(0);
+    rndrstream_free = vpDmaTag_Next(rndrstream_fx->ptr.u8, 0);
+    NuVpSetSize((float)(PS2_REZ_W << 4), (float)(PS2_REZ_H << 4));
+    NuCameraSet(&global_camera);
     shadstorecnt = 0;
 }
 
+static NwCmd *nw_target;    /* the TARGET record NuRndrBeginSceneEx's NuRndrSetZBuffer completes */
+static int nw_zbuffer = -2; /* the last NuRndrSetZBuffer */
+
 /* A TARGET into stream: the back buffer (-1), the front buffer (-3), or a render target texture, whose size
-   becomes nurndr_pixel_width and height. -2 and -4 put the Z buffer behind the frame, which the port does not draw;
-   their draws go nowhere. */
+   becomes nurndr_pixel_width and height, under the last Z buffer. -2 and -4 put the Z buffer behind the frame,
+   which the port does not draw; their draws go nowhere. */
 void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
 {
     NwSurf surf = { 0, 0, 0, false };
@@ -242,20 +348,23 @@ void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
     nurndr_pixel_height = height;
     nurndr_pixel_p2w = Ps2TxValToPowerOfTwo(width);
     nurndr_pixel_p2h = Ps2TxValToPowerOfTwo(height);
-    NwCmd *c = nw_rndr_cmd(stream, NW_CMD_TARGET);
+    NwCmd *c = nw_target = nw_rndr_cmd(stream, NW_CMD_TARGET);
     c->target.surf = surf;
     c->target.width = width;
     c->target.height = height;
+    c->target.zback = nw_zbuffer == -2;
 }
 
-/* Each target the port draws into has a Z buffer of its own; a render target's Z (zbuffer > 0) is not drawn. */
+/* The draws after the last target's test and write the back buffer's Z (-2) when the target is its size; the port
+   gives other targets a Z of their own, which a render target as the Z buffer (zbuffer > 0) stands for: only the
+   volume shadows draw under one, NuLgtHSurf[1], which NW_CMD_VOLUMES fills. */
 void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer)
 {
-    static bool reported;
     (void)stream;
-    if (zbuffer > 0 && !reported) {
-        reported = true;
-        fprintf(stderr, NW_APP_NAME ": a render target's Z buffer is not drawn\n");
+    nw_zbuffer = zbuffer;
+    if (nw_target) {
+        nw_target->target.zback = zbuffer == -2;
+        nw_target = NULL;
     }
 }
 
@@ -326,6 +435,48 @@ void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, fl
 {
     const float st[4] = { u0, v0, u1, v1 };
     nw_rndr_rect(x, y, width, height, colour, mtl, st, nurndr_pixel_width, nurndr_pixel_height);
+}
+
+NwVuSpriteVertex *nw_rndr_rect3d_quad(NwVuSpriteVertex *v, int x, int y, int width, int height, const float uv[4],
+                                      int colour, int z)
+{
+    NwVuSpriteVertex q[4];
+    x += (PS2_VCNTR_X - (nurndr_pixel_width >> 1)) << 4;
+    y += (PS2_VCNTR_Y - (nurndr_pixel_height >> 1)) << 4;
+    z = z < 0 ? 0 : z > 0x7FFFFF ? 0x7FFFFF : z;
+    memset(q, 0, sizeof(q));
+    for (int k = 0; k < 4; k++) {
+        q[k].pos[0] = (float)(k & 1 ? x + width : x);
+        q[k].pos[1] = (float)(k & 2 ? y + height : y);
+        q[k].pos[2] = (float)z;
+        q[k].pos[3] = 1.0f;
+        q[k].tex[0] = uv[k & 1 ? 2 : 0] * 4096.0f;
+        q[k].tex[1] = uv[k & 2 ? 3 : 1] * 4096.0f;
+        memcpy(q[k].col, &colour, 4);
+    }
+    return nw_rndr_quad(v, q);
+}
+
+NwCmd *nw_rndr_rect3d(struct rndrstream_s *stream, int x, int y, int width, int height, const float uv[4],
+                      int colour, int z)
+{
+    NwVuSpriteVertex *v;
+    NwCmd *c = nw_rndr_verts(stream, NW_VERTS_GS, 6, &v);
+    nw_rndr_rect3d_quad(v, x, y, width, height, uv, colour, z);
+    return c;
+}
+
+void NuRndrRectUV3di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour, int z)
+{
+    const float uv[4] = { u0, v0, u1, v1 };
+    nw_rndr_rect3d(rndrstream_3d, x, y, width, height, uv, colour, z);
+}
+
+void NuRndrRectUVStream(struct rndrstream_s *stream, int x, int y, int width, int height, float u0, float v0, float u1,
+                        float v1, int colour, int z)
+{
+    const float uv[4] = { u0, v0, u1, v1 };
+    nw_rndr_rect3d(stream, x, y, width, height, uv, colour, z);
 }
 
 /* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame

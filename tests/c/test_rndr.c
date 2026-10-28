@@ -80,8 +80,35 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
                       float **dwa);
 u32 *NuRndrCreateBlendShapeDeformerWeightsArray(u32 count);
 extern u8 *rndrstream_free;
+extern struct rndrstream_s *rndrstream_3d;
 extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
+void NuLightFog(float near, float far, int colour, int blur, int haze_colour);
+void NuLightFogDraw(int paused);
+void NuLigthSetPolyHazeMat(void *mtl, float *u, float *v);
+void NuLightAddHazePoly(struct nuvec_s *pos, float size, float rot);
+extern int NuLightHazePolyCnt;
+void NuLgtSetArcMat(void *material, float u0, float v0, float u1, float v1);
+void NuLgtArcLaser(int type, struct nuvec_s *start, struct nuvec_s *end, struct nuvec_s *mid, float sizew, float sizel,
+                   float sizewob, float wobspeed, int colour);
+void NuLgtArcLaserDraw(int paused);
+extern int NuLgtArcLaserCnt, NuLgtArcLaserOldCnt;
+void NuLightAddSpot(struct nuvec_s *pos, float size, unsigned int colour, int mode);
+void NuLightAddSpotXSpanFade(struct nuvec_s *pos, float size, float brightness, int colour, int mode, int xspan,
+                             int fade);
+void NuLightProcessSpot(int mode);
+struct nurndrshadface_s {
+    struct nuvec_s v;
+    int count;
+};
+void NuRndrShadowCylinderCap(struct numtx_s *mtx, struct NUCYLINDER_s *cyl, int count, struct nuvec_s *light);
+void NuRndrShadowEllipse(struct numtx_s *mtx, struct NUELLIPSOID_s *ellipse, int count, struct nuvec_s *light);
+void NuRndrShadowPols(struct numtx_s *mtx, struct nurndrshadface_s *face, struct nurndrshadface_s *vtx,
+                      struct nuvec_s *light);
+u32 *NuRndrShadowLightFan(void);
+extern struct nuvec_s curlight;
+extern int NuLightSpotCnt, NuLightOldSpotCnt;
+extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff, *NuLightAddMat2, *NuLgtGreyNZMat;
 
 static int failures;
 
@@ -839,8 +866,10 @@ static void test_fx_quads(void)
 }
 
 /* The hub's part of the volume shadows: the light's fan of unit directions square to it, the stencil's full-screen
-   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) and drawing nothing, and an
-   hgobj's joint shadows stored under the joint's matrix times wm. */
+   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) with no volumes in it: the
+   stencil's start squeezing Z to 256 pixels, the mask cleared then grey where shadowed over those 256, and ten
+   columns of the frame taking it off by ALPHA 0x42 in NuLgtSurf[2], 0.4 of the texture across; and an hgobj's joint
+   shadows stored under the joint's matrix times wm. */
 static void test_shadows(void)
 {
     struct nuvec_s dir = { 1.0f, 0.0f, 0.0f }, pos = { 0.0f, 0.0f, 0.0f };
@@ -849,6 +878,12 @@ static void test_shadows(void)
         float len = lightfan[i].x * lightfan[i].x + lightfan[i].y * lightfan[i].y + lightfan[i].z * lightfan[i].z;
         CHECK(SDL_fabsf(lightfan[i].x) < 1e-3f && SDL_fabsf(len - 1.0f) < 1e-3f);
     }
+    NuLightAddMat2 = NuMtlCreate(1);
+    NuLgtGreyNZMat = NuMtlCreate(1);
+    NuLgtSurf[2] = NuMtlCreate(1);
+    NuMtlUpdate(NuLightAddMat2);
+    NuMtlUpdate(NuLgtGreyNZMat);
+    NuMtlUpdate(NuLgtSurf[2]);
     NuRndrShadMaskCount = 0;
     shadstorecnt = 2;
     NuRndrShadowStencil(0, &pos);
@@ -858,9 +893,24 @@ static void test_shadows(void)
     NuRndrShadow(0);
     CHECK(shadstorecnt == 2);
     testflipold = 1;
+    rndrstream_3d = rndrstream_3d_u; /* as the light passes before it in NuRndrFx leave it */
     NuRndrShadow(0);
-    NuRndrEndScene();
-    CHECK(shadstorecnt == 0 && nw_rndr_packet()->ncmds == 0);
+    CHECK(shadstorecnt == 0);
+    const NwPacket *p = nw_rndr_packet();
+    uint32_t volumes = 0, mask = 0, cols = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        volumes += c->op == NW_CMD_VOLUMES && c->volumes.width == 256;
+        mask += c->op == NW_CMD_VERTS && c->material == NuLgtGreyNZMat && c->count == 24 &&
+                c->stencil == (mask ? NW_STENCIL_SHADOWED : 0);
+        if (c->op == NW_CMD_VERTS && c->material == NuLgtSurf[2]) {
+            const NwVuSpriteVertex *v = &p->verts[c->first];
+            CHECK(v[0].col[0] == 0x20 && v[0].col[3] == 0x80 && v[0].pos[2] == 0.0f);
+            CHECK(SDL_fabsf(v[1].tex[0] - (float)(cols + 1) * 0.025f * 4096.0f) < 1e-2f);
+            cols++;
+        }
+    }
+    CHECK(volumes == 1 && mask == 2 && cols == 10);
     NuRndrSwapStreamBuffers();
 
     struct NUCYLINDER_s cyl;
@@ -1021,6 +1071,250 @@ static void test_render_target(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* NuLightFogDraw with west_a's fog and a haze: one composite of ten columns in NuLgtSurf[9] under ALPHA 0x44, its
+   depth CLUT the fog colour at nearly full alpha at the far end and clearing towards fog-near, the columns in front of
+   the CLUT's base; the blur's nineteen rects in GS coordinates under ALPHA 0x54, (Cs - Cd) * Ad + Cd. The haze copies
+   the frame in a grid of 10 x 32 cells and four edge strips, moves Hazetab on, and blends it in at half its alpha
+   with the fog CLUT's alpha. */
+static void test_fog(void)
+{
+    NuCameraSet(NuCameraCreate());
+    NuLgtSurf[9] = NuMtlCreate(1);
+    NuLgtSurf[12] = NuMtlCreate(1);
+    NuLgtBackAlphaBuff = NuMtlCreate(1);
+    NuLgtBackBuff = NuMtlCreate(1);
+    NuMtlUpdate(NuLgtSurf[9]);
+    NuMtlUpdate(NuLgtSurf[12]);
+    NuMtlUpdate(NuLgtBackAlphaBuff);
+    NuMtlUpdate(NuLgtBackBuff);
+    Hazetab[3][4].u = 5;
+    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0x30808080);
+    NuLightFogDraw(0);
+    CHECK(Hazetab[3][4].x == 5);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *fog = NULL, *copy = NULL, *haze = NULL;
+    uint32_t blur = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        bool alpha = c->op == NW_CMD_VERTS && c->zclut && c->zclut <= p->nzcluts && p->zcluts[c->zclut - 1].alpha;
+        fog = c->op == NW_CMD_VERTS && c->zclut && !alpha ? c : fog;
+        haze = alpha ? c : haze;
+        copy = c->op == NW_CMD_VERTS && c->material == NuLgtBackBuff ? c : copy;
+        blur += c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->alpha == (0x100 | 0x54) && c->count == 6 &&
+                c->material == NuLgtBackAlphaBuff;
+    }
+    CHECK(blur == 19);
+    CHECK(fog && fog->mode == NW_VERTS_GS && fog->count == 60 && fog->alpha == (0x100 | 0x44));
+    CHECK(fog && fog->material == NuLgtSurf[9] && fog->zclut <= p->nzcluts);
+    if (fog && fog->zclut <= p->nzcluts) {
+        const NwZClut *z = &p->zcluts[fog->zclut - 1];
+        CHECK((z->clut[z->far] & 0xFFFFFF) == 0x613F45 && z->clut[z->far] >> 24 >= 0xF0);
+        CHECK(z->shift >= 9 && z->near == 0 && !z->clear);
+        uint32_t k = 0, a = 0xFF;
+        while (k < 256 && (a = z->clut[(z->far + k) & 0xFF] >> 24) != 0) {
+            CHECK(k == 0 || a <= z->clut[(z->far + k - 1) & 0xFF] >> 24);
+            k++;
+        }
+        CHECK(k > 1 && k < 256 && a == 0);
+        for (uint32_t i = 0; i < fog->count; i++) {
+            const NwVuSpriteVertex *v = &p->verts[fog->first + i];
+            CHECK(v->pos[2] == p->verts[fog->first].pos[2] && v->pos[2] >= (float)z->base && v->col[3] == 0x3F);
+        }
+    }
+    CHECK(copy && copy->mode == NW_VERTS_GS && copy->count == (10 * 32 + 4) * 6);
+    CHECK(haze && haze->material == NuLgtSurf[12] && haze->alpha == (0x100 | 0x44) && haze->count == 6);
+    if (haze && fog) {
+        CHECK(p->verts[haze->first].col[3] == 0x18 && p->verts[haze->first].pos[2] == p->verts[fog->first].pos[2]);
+        CHECK(memcmp(p->zcluts[haze->zclut - 1].clut, p->zcluts[fog->zclut - 1].clut, 1024) == 0);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
+/* A haze poly in view: the warped copy with alpha 0, the poly as a quad of whole GS units in its material under
+   ALPHA 0x48 with alpha 0xA0 and its UV box, the composite in NuLgtSurf[12] in front of everything; the haze after it
+   reads the masks' alpha, not the fog's, and the polys are gone once drawn. */
+static void test_polyhaze(void)
+{
+    float u[2] = { 0.25f, 0.5f }, v[2] = { 0.0f, 1.0f };
+    struct nuvec_s pos = { 0.0f, 0.0f, 10.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuLigthSetPolyHazeMat(mtl, u, v);
+    NuLightAddHazePoly(&pos, 0.6f, 1.2f);
+    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0x30808080);
+    NuLightFogDraw(0);
+    CHECK(NuLightHazePolyCnt == 0);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *poly = NULL, *copy = NULL, *comp = NULL, *haze = NULL;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        if (c->op != NW_CMD_VERTS) {
+            continue;
+        }
+        poly = c->material == mtl ? c : poly;
+        copy = c->material == NuLgtBackBuff && !copy ? c : copy;
+        comp = c->material == NuLgtSurf[12] && !comp ? c : comp;
+        haze = c->material == NuLgtSurf[12] && comp != c ? c : haze;
+    }
+    CHECK(poly && poly->mode == NW_VERTS_GS && poly->alpha == (0x100 | 0x48) && poly->count == 6);
+    CHECK(copy && p->verts[copy->first].col[3] == 0);
+    CHECK(comp && comp->alpha == (0x100 | 0x44) && !comp->zclut && p->verts[comp->first].pos[2] == (float)0x7FFFFF);
+    CHECK(haze && !haze->zclut);
+    if (poly && poly->count == 6) {
+        static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+        for (int k = 0; k < 6; k++) {
+            const NwVuSpriteVertex *q = &p->verts[poly->first + k];
+            CHECK(q->col[3] == 0xA0 && q->col[0] == 0 && q->pos[0] == SDL_floorf(q->pos[0]));
+            CHECK(q->tex[0] == u[corner[k] & 1] * 4096.0f && q->tex[1] == v[corner[k] >> 1] * 4096.0f);
+        }
+        CHECK(p->verts[poly->first].pos[0] < p->verts[poly->first + 1].pos[0]);
+        CHECK(p->verts[poly->first].pos[1] < p->verts[poly->first + 2].pos[1]);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
+/* An arc laser two units long in segments of a half: one VERTS strip of four quads in GS coordinates in the arc
+   material, each new left and right corner then the last segment's, the laser's colour, U from U1 back to U0 along
+   a segment and V0 on the left, V1 on the right; paused, the same laser again. */
+static void test_arclaser(void)
+{
+    struct nuvec_s start = { -1.0f, 0.0f, 10.0f }, end = { 1.0f, 0.0f, 10.0f }, mid = { 0.0f, 1.0f, 0.0f };
+    struct numtl_s *mtl = NuMtlCreate(1);
+    NuMtlUpdate(mtl);
+    NuLgtSetArcMat(mtl, 0.0f, 0.25f, 0.5f, 0.75f);
+    for (int paused = 0; paused < 2; paused++) {
+        if (!paused) {
+            NuLgtArcLaser(0, &start, &end, &mid, 0.1f, 0.5f, 0.0f, 0.3f, (int)0x80402010);
+        }
+        NuLgtArcLaserDraw(paused);
+        CHECK(NuLgtArcLaserCnt == 0 && NuLgtArcLaserOldCnt == 1);
+        const NwPacket *p = nw_rndr_packet();
+        const NwCmd *c = NULL;
+        for (uint32_t i = 0; i < p->ncmds; i++) {
+            c = p->cmds[i].op == NW_CMD_VERTS && p->cmds[i].material == mtl ? &p->cmds[i] : c;
+        }
+        CHECK(c && c->mode == NW_VERTS_GS && c->count == 4 * 6);
+        if (c && c->count == 4 * 6) {
+            static const int corner[6] = { 0, 1, 2, 1, 2, 3 };
+            for (int k = 0; k < 6; k++) {
+                const NwVuSpriteVertex *v = &p->verts[c->first + k];
+                CHECK(v->col[0] == 0x10 && v->col[1] == 0x20 && v->col[2] == 0x40 && v->col[3] == 0x80);
+                CHECK(v->tex[0] == (corner[k] & 1 ? 0.5f : 0.0f) * 4096.0f);
+                CHECK(v->tex[1] == (corner[k] & 2 ? 0.75f : 0.25f) * 4096.0f);
+                CHECK(v->pos[0] == SDL_floorf(v->pos[0]) && v->pos[3] == 1.0f);
+            }
+            const NwVuSpriteVertex *v = &p->verts[c->first];
+            CHECK(v[1].pos[0] != v[0].pos[0] && v[7].pos[0] == v[0].pos[0] && v[11].pos[0] == v[2].pos[0]);
+        }
+        NuRndrSwapStreamBuffers();
+    }
+}
+
+/* A glow (mode 0) and a light in the dark (mode 1, xspan 0x20): each a fan of 64 triangles in NuLgtSurf[9], the GS
+   blend in the program (ALPHA 0x41, 0x09), its centre in grey with the spot's alpha and its rim in grey with none
+   (xspan's), over a spot depth CLUT whose unlit entries are xspan as alpha; mode 1 adds the ring out to the screen's
+   edges, 128 triangles, in front of everything. */
+static void test_spot(void)
+{
+    struct nuvec_s pos = { 0.0f, 0.0f, 10.0f };
+    NuLightAddSpot(&pos, 1.5f, 0xFF200020, 0);
+    NuLightAddSpotXSpanFade(&pos, 1.5f, 1.0f, (int)0xFF000000, 1, 0x20, 1);
+    NuLightProcessSpot(0);
+    CHECK(NuLightSpotCnt == 0 && NuLightOldSpotCnt == 2);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *fan[3] = { NULL, NULL, NULL };
+    int n = 0;
+    for (uint32_t i = 0; i < p->ncmds && n < 3; i++) {
+        if (p->cmds[i].op == NW_CMD_VERTS && p->cmds[i].material == NuLgtSurf[9]) {
+            fan[n++] = &p->cmds[i];
+        }
+    }
+    CHECK(n == 3);
+    if (n == 3) {
+        static const uint16_t alpha[3] = { 0x141, 0x109, 0x109 };
+        static const uint32_t count[3] = { 64 * 3, 64 * 3, 128 * 3 };
+        for (int k = 0; k < 3; k++) {
+            CHECK(fan[k]->mode == NW_VERTS_GS && fan[k]->exact && fan[k]->alpha == alpha[k]);
+            CHECK(fan[k]->count == count[k] && fan[k]->zclut && p->zcluts[fan[k]->zclut - 1].spot);
+        }
+        const NwVuSpriteVertex *v = &p->verts[fan[0]->first];
+        CHECK(v[0].col[0] == 0x80 && v[0].col[3] == 0xFF && v[1].col[0] == 0x80 && v[1].col[3] == 0);
+        CHECK(v[0].pos[0] == v[3].pos[0] && v[2].pos[0] == v[4].pos[0]);
+        v = &p->verts[fan[1]->first];
+        CHECK(v[0].col[3] == 0xDF && v[1].col[3] == 0x20 && v[0].pos[2] == (float)0x7FFFFF);
+        const NwZClut *z = &p->zcluts[fan[1]->zclut - 1];
+        uint32_t unlit = 0;
+        for (int i = 0; i < 256; i++) {
+            unlit += z->clut[i] == 0x20000000;
+        }
+        CHECK(unlit > 0);
+    }
+    NuRndrSwapStreamBuffers();
+}
+
+/* The vertices of the volume records (+1 and -1 into the stencil) one fx2 program made, and how many lie on the unit
+   sphere or one light away from it. */
+static uint32_t volume_verts(const struct nuvec_s *light, uint32_t *on, uint32_t *moved)
+{
+    NuRndrEndScene();
+    const NwPacket *p = nw_rndr_packet();
+    uint32_t n = 0;
+    *on = *moved = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        if (c->op != NW_CMD_VERTS || !c->stencil) {
+            continue;
+        }
+        n += c->count;
+        for (uint32_t k = 0; k < c->count; k++) {
+            const NwVuSpriteVertex *v = &p->verts[c->first + k];
+            CHECK(v->col[3] == 0x80 && v->col[0] == (c->stencil > 0 ? 1 : 0xFF) && c->mode == NW_VERTS_TRIS);
+            float x = v->pos[0], y = v->pos[1], z = v->pos[2];
+            *on += SDL_fabsf(x * x + y * y + z * z - 1.0f) < 1e-3f;
+            x -= light->x;
+            y -= light->y;
+            z -= light->z;
+            *moved += SDL_fabsf(x * x + y * y + z * z - 1.0f) < 1e-3f;
+        }
+    }
+    NuRndrSwapStreamBuffers();
+    return n;
+}
+
+/* fx2's volumes: a unit ellipsoid's fan of 9 points about the light (8 quads, 6 cap triangles) on the sphere and
+   moved by the light; a plain cylinder's rectangle (4 quads, 2 cap triangles); a shadow mesh's face against the light
+   by more than 2 closed into 3 quads with no cap, and a face that is not skipped with its points. */
+static void test_fx2_volumes(void)
+{
+    struct numtx_s id;
+    struct nuvec_s light = { 2.0f, -0.2f, 0.0f };
+    uint32_t on, moved;
+    NuMtxSetIdentity(&id);
+    curlight = light;
+    NuRndrShadowLightFan();
+    struct NUELLIPSOID_s e = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+    NuRndrStreamFxMPG(1);
+    NuRndrShadowEllipse(&id, &e, 1, &light);
+    CHECK(volume_verts(&light, &on, &moved) == 8 * 6 + 6 * 3 && on == 8 * 3 + 6 * 3 && moved == 8 * 3);
+
+    struct NUCYLINDER_s cyl;
+    memset(&cyl, 0, sizeof(cyl));
+    cyl.y_axis = (struct nuvec_s){ 0.0f, 1.0f, 0.0f };
+    cyl.x_axis = (struct nuvec4_s){ 0.5f, 0.0f, 0.0f, 0.0f };
+    cyl.z_axis = (struct nuvec4_s){ 0.0f, 0.0f, 0.5f, 0.0f };
+    NuRndrShadowCylinderCap(&id, &cyl, 1, &light);
+    CHECK(volume_verts(&light, &on, &moved) == 4 * 6 + 2 * 3);
+
+    struct nurndrshadface_s faces[2] = { { { -1.0f, 0.0f, 0.0f }, 3 }, { { 1.0f, 0.0f, 0.0f }, 3 } };
+    struct nurndrshadface_s pts[6] = { { { 0.0f, 1.0f, 0.0f }, 2 }, { { 0.0f, 0.0f, 1.0f }, 0 },
+                                       { { 0.0f, -1.0f, 0.0f }, 0 }, { { 1.0f, 0.0f, 0.0f }, 0 },
+                                       { { 1.0f, 0.0f, 0.0f }, 0 }, { { 1.0f, 0.0f, 0.0f }, 0 } };
+    struct nuvec_s far = { 3.0f, 0.0f, 0.0f };
+    NuRndrShadowPols(&id, faces, pts, &far);
+    CHECK(volume_verts(&far, &on, &moved) == 3 * 6 && on == 3 * 3 && moved == 3 * 3);
+    NuRndrStreamFxMPG(0);
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1052,6 +1346,11 @@ int main(void)
     test_shadows();
     test_particles();
     test_clouds();
+    test_fog();
+    test_polyhaze();
+    test_arclaser();
+    test_spot();
+    test_fx2_volumes();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

@@ -35,14 +35,21 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_LESS 0x0201
 #define GL_SRC_ALPHA 0x0302
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#define GL_DST_ALPHA 0x0304
+#define GL_ONE_MINUS_DST_ALPHA 0x0305
 #define GL_DST_COLOR 0x0306
 #define GL_LEQUAL 0x0203
 #define GL_ALWAYS 0x0207
 #define GL_FRONT_AND_BACK 0x0408
 #define GL_DEPTH_BUFFER_BIT 0x00000100
+#define GL_STENCIL_BUFFER_BIT 0x00000400
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
 #define GL_SCISSOR_TEST 0x0C11
+#define GL_STENCIL_TEST 0x0B90
+#define GL_KEEP 0x1E00
+#define GL_INCR_WRAP 0x8507
+#define GL_DECR_WRAP 0x8508
 #define GL_BLEND 0x0BE2
 #define GL_UNPACK_ALIGNMENT 0x0CF5
 #define GL_TEXTURE_2D 0x0DE1
@@ -78,14 +85,15 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
 #define GL_RGBA8 0x8058
-#define GL_DEPTH_COMPONENT24 0x81A6
+#define GL_DEPTH_STENCIL 0x84F9
+#define GL_UNSIGNED_INT_24_8 0x84FA
+#define GL_DEPTH24_STENCIL8 0x88F0
 #define GL_READ_FRAMEBUFFER 0x8CA8
 #define GL_DRAW_FRAMEBUFFER 0x8CA9
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 #define GL_COLOR_ATTACHMENT0 0x8CE0
-#define GL_DEPTH_ATTACHMENT 0x8D00
+#define GL_DEPTH_STENCIL_ATTACHMENT 0x821A
 #define GL_FRAMEBUFFER 0x8D40
-#define GL_RENDERBUFFER 0x8D41
 #define GL_RGBA8UI 0x8D7C
 #define GL_RED_INTEGER 0x8D94
 #define GL_RGBA_INTEGER 0x8D99
@@ -106,8 +114,12 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glDepthFunc, (GLenum func)) \
     X(void, glDepthMask, (GLboolean flag)) \
     X(void, glColorMask, (GLboolean r, GLboolean g, GLboolean b, GLboolean a)) \
-    X(void, glBlendFunc, (GLenum sfactor, GLenum dfactor)) \
-    X(void, glBlendEquation, (GLenum mode)) \
+    X(void, glStencilFunc, (GLenum func, GLint ref, GLuint mask)) \
+    X(void, glStencilOp, (GLenum sfail, GLenum dpfail, GLenum dppass)) \
+    X(void, glStencilMask, (GLuint mask)) \
+    X(void, glClearStencil, (GLint s)) \
+    X(void, glBlendFuncSeparate, (GLenum srgb, GLenum drgb, GLenum salpha, GLenum dalpha)) \
+    X(void, glBlendEquationSeparate, (GLenum rgb, GLenum alpha)) \
     X(void, glPolygonMode, (GLenum face, GLenum mode)) \
     X(void, glPixelStorei, (GLenum pname, GLint param)) \
     X(void, glReadPixels, (GLint x, GLint y, GLsizei w, GLsizei h, GLenum format, GLenum type, void *data)) \
@@ -118,6 +130,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glTexParameteri, (GLenum target, GLenum pname, GLint param)) \
     X(void, glTexImage2D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
         GLint border, GLenum format, GLenum type, const void *pixels)) \
+    X(void, glTexSubImage2D, (GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, \
+        GLenum format, GLenum type, const void *pixels)) \
     X(void, glGenBuffers, (GLsizei n, GLuint *buffers)) \
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *buffers)) \
     X(void, glBindBuffer, (GLenum target, GLuint buffer)) \
@@ -150,6 +164,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniform2i, (GLint location, GLint v0, GLint v1)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
     X(void, glUniform4uiv, (GLint location, GLsizei count, const GLuint *value)) \
+    X(void, glUniform4ui, (GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3)) \
+    X(void, glUniform3ui, (GLint location, GLuint v0, GLuint v1, GLuint v2)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count)) \
     X(void, glDrawArraysInstanced, (GLenum mode, GLint first, GLsizei count, GLsizei instances)) \
@@ -160,12 +176,6 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLenum, glCheckFramebufferStatus, (GLenum target)) \
     X(void, glFramebufferTexture2D, \
         (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level)) \
-    X(void, glFramebufferRenderbuffer, \
-        (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
-    X(void, glGenRenderbuffers, (GLsizei n, GLuint *renderbuffers)) \
-    X(void, glDeleteRenderbuffers, (GLsizei n, const GLuint *renderbuffers)) \
-    X(void, glBindRenderbuffer, (GLenum target, GLuint renderbuffer)) \
-    X(void, glRenderbufferStorage, (GLenum target, GLenum internalformat, GLsizei width, GLsizei height)) \
     X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
 
@@ -186,8 +196,12 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glDepthFunc nw_glDepthFunc
 #define glDepthMask nw_glDepthMask
 #define glColorMask nw_glColorMask
-#define glBlendFunc nw_glBlendFunc
-#define glBlendEquation nw_glBlendEquation
+#define glStencilFunc nw_glStencilFunc
+#define glStencilOp nw_glStencilOp
+#define glStencilMask nw_glStencilMask
+#define glClearStencil nw_glClearStencil
+#define glBlendFuncSeparate nw_glBlendFuncSeparate
+#define glBlendEquationSeparate nw_glBlendEquationSeparate
 #define glPolygonMode nw_glPolygonMode
 #define glPixelStorei nw_glPixelStorei
 #define glReadPixels nw_glReadPixels
@@ -197,6 +211,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glActiveTexture nw_glActiveTexture
 #define glTexParameteri nw_glTexParameteri
 #define glTexImage2D nw_glTexImage2D
+#define glTexSubImage2D nw_glTexSubImage2D
 #define glGenBuffers nw_glGenBuffers
 #define glDeleteBuffers nw_glDeleteBuffers
 #define glBindBuffer nw_glBindBuffer
@@ -228,6 +243,8 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniform2i nw_glUniform2i
 #define glUniform4fv nw_glUniform4fv
 #define glUniform4uiv nw_glUniform4uiv
+#define glUniform4ui nw_glUniform4ui
+#define glUniform3ui nw_glUniform3ui
 #define glDrawElements nw_glDrawElements
 #define glDrawArrays nw_glDrawArrays
 #define glDrawArraysInstanced nw_glDrawArraysInstanced
@@ -237,11 +254,6 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindFramebuffer nw_glBindFramebuffer
 #define glCheckFramebufferStatus nw_glCheckFramebufferStatus
 #define glFramebufferTexture2D nw_glFramebufferTexture2D
-#define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
-#define glGenRenderbuffers nw_glGenRenderbuffers
-#define glDeleteRenderbuffers nw_glDeleteRenderbuffers
-#define glBindRenderbuffer nw_glBindRenderbuffer
-#define glRenderbufferStorage nw_glRenderbufferStorage
 #define glBlitFramebuffer nw_glBlitFramebuffer
 
 /* Loads every function in NW_GL_FUNCTIONS; needs a current GL context. */

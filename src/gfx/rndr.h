@@ -48,6 +48,7 @@ typedef struct NwRecord {
     const NwVuSpriteVertex *verts; /* VERTS: cmd.count vertices */
     const NwPtlList *ptllist;      /* PARTICLES: the effect list */
     const NwPtl *ptls;             /* PARTICLES: cmd.count particles */
+    const NwZClut *zclut;          /* VERTS: the depth CLUT, NULL none */
     uint8_t misc;              /* the stream's attr & 0x43 */
     struct NwRecord *next;
 } NwRecord;
@@ -60,6 +61,15 @@ NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v);
 /* The same as a PARTICLES record of an effect list and n particles, which the caller writes at *list and *ptls. */
 NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls);
+/* A depth CLUT for the VERTS record c (nw_rndr_verts'), which the caller fills in. */
+NwZClut *nw_rndr_zclut(NwCmd *c);
+/* NuRndrRectUV3di's sprite in stream as a VERTS record in GS coordinates: from (x, y) in 12.4 pixels of the render
+   target, centred on it as the GS sees it, at z (the port's GS Z stops at 2^23 - 1). */
+NwCmd *nw_rndr_rect3d(struct rndrstream_s *stream, int x, int y, int width, int height, const float uv[4],
+                      int colour, int z);
+/* Its quad at v, for a record of several; returns v + 6. */
+NwVuSpriteVertex *nw_rndr_rect3d_quad(NwVuSpriteVertex *v, int x, int y, int width, int height, const float uv[4],
+                                      int colour, int z);
 /* A quad's corners as the GS strip draws them, the triangles (0, 1, 2) and (1, 2, 3); returns v + 6. */
 NwVuSpriteVertex *nw_rndr_quad(NwVuSpriteVertex *v, const NwVuSpriteVertex q[4]);
 struct numtx_s;
