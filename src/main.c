@@ -404,6 +404,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
 #define NW_DUMP_MS 3600000             /* the watchdog of --dump */
 #define NW_LEVEL_CHECK_MS 600000       /* the watchdog of --boot-check with --level */
+#define NW_SETTINGS_SAVE_MS 1000       /* how long settings stay unchanged before they are saved */
 
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
@@ -725,10 +726,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_debug_panel("Video", "Aspect", nw_boot_video, &settings, false);
     nw_wide_set(nw_boot_aspect(&platform, settings.aspect), settings.hud);
-    bool applied = settings.hardware_speed;
-    float picture[2] = { settings.aspect, settings.hud };
-    int buses[2] = { settings.master_volume, settings.voice_volume };
-    nw_audio_set_buses(buses[0], buses[1]);
+    NwSettings applied = settings;
+    bool unsaved = false;
+    uint64_t changed = 0; /* when the settings last changed */
+    nw_audio_set_buses(settings.master_volume, settings.voice_volume);
     if (!nw_audio_open()) {
         fprintf(stderr, NW_APP_NAME ": no sound: %s\n", SDL_GetError());
     }
@@ -750,21 +751,18 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             nw_input_event(&event);
         }
         nw_input_poll(!nw_debug_wants_keyboard());
-        if (settings.hardware_speed != applied) {
-            applied = settings.hardware_speed;
-            nw_nusound_set_hardware_speed(applied);
-            nw_boot_settings(data_dir, &settings, true);
+        if (!nw_settings_equal(&settings, &applied)) {
+            if (settings.hardware_speed != applied.hardware_speed) {
+                nw_nusound_set_hardware_speed(settings.hardware_speed);
+            }
+            nw_audio_set_buses(settings.master_volume, settings.voice_volume);
+            applied = settings;
+            unsaved = true;
+            changed = SDL_GetTicks();
         }
-        if (settings.aspect != picture[0] || settings.hud != picture[1]) {
-            picture[0] = settings.aspect;
-            picture[1] = settings.hud;
+        if (unsaved && SDL_GetTicks() - changed >= NW_SETTINGS_SAVE_MS) {
             nw_boot_settings(data_dir, &settings, true);
-        }
-        if (settings.master_volume != buses[0] || settings.voice_volume != buses[1]) {
-            buses[0] = settings.master_volume;
-            buses[1] = settings.voice_volume;
-            nw_audio_set_buses(buses[0], buses[1]);
-            nw_boot_settings(data_dir, &settings, true);
+            unsaved = false;
         }
         if (SDL_GetTicks() - titled >= 500) {
             char title[160];
@@ -780,6 +778,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_backend_frame(width, height);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
+    }
+    if (unsaved) {
+        nw_boot_settings(data_dir, &settings, true);
     }
     bool parked = nw_game_parked();
     NwGameState state = nw_game_state();

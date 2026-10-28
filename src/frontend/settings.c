@@ -1,47 +1,35 @@
 #include "frontend/settings.h"
 
+#include <stddef.h>
+
 #include <SDL3/SDL.h>
 
+#include "app.h"
 #include "platform/paths.h"
+#include "save/savedoc.h"
 
-#define NW_SETTINGS_TABLE 64
+typedef enum NwSettingKind {
+    NW_SETTING_BOOL,
+    NW_SETTING_INT,  /* clamped to lo..hi */
+    NW_SETTING_TEXT, /* a string, through parse and format */
+} NwSettingKind;
+
+typedef struct NwSettingKey {
+    const char *table, *name;
+    NwSettingKind kind;
+    size_t offset, size;
+    int lo, hi;
+    bool (*parse)(const char *text, void *field);
+    const char *(*format)(const void *field, char *buf, int size);
+    const char *help;
+} NwSettingKey;
+
+#define NW_FIELD(f) .offset = offsetof(NwSettings, f), .size = sizeof(((NwSettings *)0)->f)
 
 static char *nw_settings_path(const char *root)
 {
     char *path = NULL;
     return SDL_asprintf(&path, "%s%s", root, NW_PATHS_SETTINGS) < 0 ? NULL : path;
-}
-
-static char *nw_settings_trim(char *s)
-{
-    while (*s == ' ' || *s == '\t') {
-        s++;
-    }
-    char *end = s + SDL_strlen(s);
-    while (end > s && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r')) {
-        end--;
-    }
-    *end = '\0';
-    return s;
-}
-
-static void nw_settings_bool(const char *value, bool *out)
-{
-    if (SDL_strcmp(value, "true") == 0) {
-        *out = true;
-    } else if (SDL_strcmp(value, "false") == 0) {
-        *out = false;
-    }
-}
-
-/* A whole number, clamped to the volumes' 0-100. */
-static void nw_settings_volume(const char *value, int *out)
-{
-    char *end;
-    long v = SDL_strtol(value, &end, 10);
-    if (end != value && *end == '\0') {
-        *out = v < 0 ? 0 : v > 100 ? 100 : (int)v;
-    }
 }
 
 static const struct {
@@ -116,20 +104,39 @@ const char *nw_settings_hud_name(float hud, char *buf, int size)
     return hud <= 0.0f ? "edges" : nw_settings_aspect_name(hud, buf, size);
 }
 
-static void nw_settings_set(NwSettings *s, const char *table, const char *key, const char *value)
+static bool nw_settings_aspect_parse(const char *text, void *field)
 {
-    if (SDL_strcmp(table, "video") == 0 && SDL_strcmp(key, "aspect") == 0) {
-        nw_settings_aspect(value, &s->aspect);
-    } else if (SDL_strcmp(table, "video") == 0 && SDL_strcmp(key, "hud") == 0) {
-        nw_settings_hud(value, &s->hud);
-    } else if (SDL_strcmp(table, "game") == 0 && SDL_strcmp(key, "hardware_speed") == 0) {
-        nw_settings_bool(value, &s->hardware_speed);
-    } else if (SDL_strcmp(table, "audio") == 0 && SDL_strcmp(key, "master_volume") == 0) {
-        nw_settings_volume(value, &s->master_volume);
-    } else if (SDL_strcmp(table, "audio") == 0 && SDL_strcmp(key, "voice_volume") == 0) {
-        nw_settings_volume(value, &s->voice_volume);
-    }
+    return nw_settings_aspect(text, field);
 }
+
+static const char *nw_settings_aspect_format(const void *field, char *buf, int size)
+{
+    return nw_settings_aspect_name(*(const float *)field, buf, size);
+}
+
+static bool nw_settings_hud_parse(const char *text, void *field)
+{
+    return nw_settings_hud(text, field);
+}
+
+static const char *nw_settings_hud_format(const void *field, char *buf, int size)
+{
+    return nw_settings_hud_name(*(const float *)field, buf, size);
+}
+
+static const NwSettingKey nw_settings_keys[] = {
+    { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
+      .format = nw_settings_aspect_format,
+      .help = "auto (the display's), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's picture" },
+    { .table = "video", .name = "hud", .kind = NW_SETTING_TEXT, NW_FIELD(hud), .parse = nw_settings_hud_parse,
+      .format = nw_settings_hud_format, .help = "how far out the HUD goes: edges, or an aspect it stays inside, centred" },
+    { .table = "game", .name = "hardware_speed", .kind = NW_SETTING_BOOL, NW_FIELD(hardware_speed),
+      .help = "true simulates original hardware speed: the PS2's disc and sound load times" },
+    { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
+      .help = "0-100, over the game's own music and SFX volumes" },
+    { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
+      .help = "0-100, the cutscene and hint voices" },
+};
 
 void nw_settings_defaults(NwSettings *s)
 {
@@ -140,71 +147,148 @@ void nw_settings_defaults(NwSettings *s)
     s->hud = 16.0f / 9.0f;
 }
 
-bool nw_settings_load(NwSettings *s, const char *root)
+bool nw_settings_equal(const NwSettings *a, const NwSettings *b)
 {
-    char *path = nw_settings_path(root);
-    if (!path) {
-        return false;
+    for (size_t i = 0; i < SDL_arraysize(nw_settings_keys); i++) {
+        const NwSettingKey *k = &nw_settings_keys[i];
+        if (SDL_memcmp((const char *)a + k->offset, (const char *)b + k->offset, k->size) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* path's document, empty when there is no file; one that is not TOML is moved to .corrupt first. Returns 1, 0 when
+   it was moved (the SDL error says why), -1 on a failure (doc is then freed). */
+static int nw_settings_doc(const char *path, NwDoc *doc)
+{
+    if (!nw_doc_init(doc)) {
+        return -1;
     }
     if (!SDL_GetPathInfo(path, NULL)) {
-        SDL_free(path);
-        return true;
+        return 1;
     }
-    char *text = SDL_LoadFile(path, NULL);
+    size_t size = 0;
+    char *text = SDL_LoadFile(path, &size);
+    if (text && nw_doc_parse(doc, text, size)) {
+        SDL_free(text);
+        return 1;
+    }
+    char why[256], *aside = NULL;
+    SDL_strlcpy(why, SDL_GetError(), sizeof(why));
+    nw_doc_free(doc);
+    bool moved = text && nw_doc_init(doc);
+    SDL_free(text);
+    if (moved) {
+        moved = SDL_asprintf(&aside, "%s.corrupt", path) >= 0 && SDL_RenamePath(path, aside);
+        SDL_free(aside);
+        if (!moved) {
+            nw_doc_free(doc);
+        }
+    }
+    if (moved) {
+        SDL_SetError("%s; moved to " NW_PATHS_SETTINGS ".corrupt", why);
+    }
+    return moved ? 0 : -1;
+}
+
+static void nw_settings_take(const NwSettingKey *k, const NwDocValue *v, NwSettings *s)
+{
+    char *field = (char *)s + k->offset, text[64];
+    if (k->kind == NW_SETTING_BOOL && v->type == NW_DOC_BOOL) {
+        *(bool *)field = v->i != 0;
+    } else if (k->kind == NW_SETTING_INT && v->type == NW_DOC_INT) {
+        *(int *)field = v->i < k->lo ? k->lo : v->i > k->hi ? k->hi : (int)v->i;
+    } else if (k->kind == NW_SETTING_TEXT && v->type == NW_DOC_STR && v->len < sizeof(text)) {
+        SDL_memcpy(text, v->bytes, v->len);
+        text[v->len] = '\0';
+        k->parse(text, field);
+    }
+}
+
+bool nw_settings_load(NwSettings *s, const char *root)
+{
+    NwDoc doc;
+    char *path = nw_settings_path(root);
+    int got = path ? nw_settings_doc(path, &doc) : -1;
     SDL_free(path);
-    if (!text) {
+    if (got < 0) {
         return false;
     }
-    char table[NW_SETTINGS_TABLE] = "";
-    for (char *line = text, *next; line; line = next) {
-        next = SDL_strchr(line, '\n');
-        if (next) {
-            *next++ = '\0';
-        }
-        char *comment = SDL_strchr(line, '#');
-        if (comment) {
-            *comment = '\0';
-        }
-        line = nw_settings_trim(line);
-        size_t len = SDL_strlen(line);
-        char *eq = SDL_strchr(line, '=');
-        if (line[0] == '[') { /* a header that does not close names no table */
-            table[0] = '\0';
-            if (line[len - 1] == ']') {
-                line[len - 1] = '\0';
-                SDL_strlcpy(table, nw_settings_trim(line + 1), sizeof(table));
-            }
-        } else if (eq) {
-            *eq = '\0';
-            nw_settings_set(s, table, nw_settings_trim(line), nw_settings_trim(eq + 1));
+    for (size_t i = 0; i < SDL_arraysize(nw_settings_keys); i++) {
+        const NwSettingKey *k = &nw_settings_keys[i];
+        const NwDocTable *t = nw_doc_table(&doc, &k->table, 1);
+        const NwDocValue *v = t ? nw_doc_get(t, k->name) : NULL;
+        if (v) {
+            nw_settings_take(k, v, s);
         }
     }
-    SDL_free(text);
-    return true;
+    nw_doc_free(&doc);
+    return got > 0;
+}
+
+static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings *s)
+{
+    const char *field = (const char *)s + k->offset;
+    NwDocTable *t = nw_doc_add_table(doc, &k->table, 1);
+    NwDocValue v;
+    char buf[32];
+    if (!t) {
+        return false;
+    }
+    if (k->kind == NW_SETTING_BOOL) {
+        v = nw_doc_bool(*(const bool *)field);
+    } else if (k->kind == NW_SETTING_INT) {
+        v = nw_doc_int(*(const int *)field, 0);
+    } else {
+        const char *text = k->format(field, buf, sizeof(buf));
+        if (!nw_doc_str(&v, text, SDL_strlen(text))) {
+            return false;
+        }
+    }
+    return nw_doc_set(doc, t, k->name, &v);
+}
+
+/* The file's header: what each key takes. */
+static char *nw_settings_help(void)
+{
+    char *help = SDL_strdup(NW_APP_NAME " settings. Keys this version does not know are kept.\n\n");
+    for (size_t i = 0; help && i < SDL_arraysize(nw_settings_keys); i++) {
+        const NwSettingKey *k = &nw_settings_keys[i];
+        char *more = NULL;
+        if (SDL_asprintf(&more, "%s%s.%s: %s\n", help, k->table, k->name, k->help) < 0) {
+            more = NULL;
+        }
+        SDL_free(help);
+        help = more;
+    }
+    return help;
 }
 
 bool nw_settings_save(const NwSettings *s, const char *root)
 {
-    char *path = nw_settings_path(root), *text = NULL, aspect[16], hud[16];
-    int len = SDL_asprintf(&text,
-                           "[video]\n"
-                           "# auto (the display's), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's picture\n"
-                           "aspect = \"%s\"\n"
-                           "# How far out the HUD goes: edges, or an aspect it stays inside, centred\n"
-                           "hud = \"%s\"\n"
-                           "\n"
-                           "[game]\n"
-                           "# Simulate original hardware speed: the PS2's disc and sound load times\n"
-                           "hardware_speed = %s\n"
-                           "\n"
-                           "[audio]\n"
-                           "# 0-100, over the game's own music and SFX volumes\n"
-                           "master_volume = %d\n"
-                           "voice_volume = %d\n",
-                           nw_settings_aspect_name(s->aspect, aspect, sizeof(aspect)),
-                           nw_settings_hud_name(s->hud, hud, sizeof(hud)), s->hardware_speed ? "true" : "false", s->master_volume, s->voice_volume);
-    bool ok = path && len >= 0 && SDL_SaveFile(path, text, (size_t)len);
+    NwDoc doc;
+    char *path = nw_settings_path(root), *tmp = NULL, *help = nw_settings_help(), *text = NULL;
+    size_t size = 0;
+    bool ok = path && help && SDL_asprintf(&tmp, "%s.tmp", path) >= 0 && nw_settings_doc(path, &doc) >= 0;
+    if (ok) {
+        for (size_t i = 0; ok && i < SDL_arraysize(nw_settings_keys); i++) {
+            ok = nw_settings_put(&doc, &nw_settings_keys[i], s);
+        }
+        text = ok ? nw_doc_write(&doc, help, &size) : NULL;
+        nw_doc_free(&doc);
+        ok = text && SDL_SaveFile(tmp, text, size);
+        if (ok && !SDL_RenamePath(tmp, path)) {
+            char why[256];
+            SDL_strlcpy(why, SDL_GetError(), sizeof(why));
+            SDL_RemovePath(tmp);
+            SDL_SetError("%s", why);
+            ok = false;
+        }
+    }
     SDL_free(text);
+    SDL_free(help);
+    SDL_free(tmp);
     SDL_free(path);
     return ok;
 }

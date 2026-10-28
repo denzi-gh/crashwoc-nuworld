@@ -150,7 +150,7 @@ add_library(nuworld_frontend STATIC
   src/frontend/settings.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
-target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs)
+target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)
 
 # Saves: the TOML document, the save records in it, the saves folder and PS2 card images (no decomp).
 set(NW_SAVE_SOURCES

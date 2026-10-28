@@ -1,5 +1,5 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, and what the reader does not take.
+   and the HUD's forms, what the reader does not take, a file that is not TOML, and keys a save keeps.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -20,13 +20,35 @@ static char root[1100];
         } \
     } while (0)
 
+/* root's settings.toml holding text. */
+static bool write_text(const char *text)
+{
+    char path[1200];
+    SDL_snprintf(path, sizeof(path), "%s%s", root, NW_PATHS_SETTINGS);
+    return SDL_SaveFile(path, text, strlen(text));
+}
+
 /* The defaults with root's settings.toml holding text read over them; false when it does not load. */
 static bool read_text(const char *text, NwSettings *s)
 {
-    char path[1200];
     nw_settings_defaults(s);
+    return write_text(text) && nw_settings_load(s, root);
+}
+
+/* Whether root holds name. */
+static bool exists(const char *name)
+{
+    char path[1200];
+    SDL_snprintf(path, sizeof(path), "%s%s", root, name);
+    return SDL_GetPathInfo(path, NULL);
+}
+
+/* root's settings.toml as text; SDL_free it. */
+static char *file_text(void)
+{
+    char path[1200];
     SDL_snprintf(path, sizeof(path), "%s%s", root, NW_PATHS_SETTINGS);
-    return SDL_SaveFile(path, text, strlen(text)) && nw_settings_load(s, root);
+    return SDL_LoadFile(path, NULL);
 }
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
@@ -65,12 +87,23 @@ int main(int argc, char *argv[])
     CHECK(nw_settings_load(&s, root) && s.hardware_speed);
 
     CHECK(read_speed("# settings\n\n  [ game ]  \r\n\thardware_speed=true # on\r\n") == 1);
-    CHECK(read_speed("[game]\nhardware_speed = true\nhardware_speed = false\n") == 0);
     CHECK(read_speed("hardware_speed = true\n") == 0);
     CHECK(read_speed("[video]\nhardware_speed = true\n[game]\nspeed = true\n") == 0);
-    CHECK(read_speed("[game]\nhardware_speed = yes\n") == 0);
-    CHECK(read_speed("[game]\nhardware_speed = true\n[game\nhardware_speed = false\n") == 1);
+    CHECK(read_speed("[game]\nhardware_speed = \"true\"\n") == 0);
     CHECK(read_speed("") == 0);
+
+    /* Not TOML: moved aside, s keeps its values, and the next save starts a new file. */
+    CHECK(read_speed("[game]\nhardware_speed = true\nhardware_speed = false\n") == -1);
+    CHECK(exists(NW_PATHS_SETTINGS ".corrupt") && !exists(NW_PATHS_SETTINGS));
+    CHECK(read_speed("[game]\nhardware_speed = yes\n") == -1);
+    CHECK(read_speed("[game]\nhardware_speed = true\n[game\nhardware_speed = false\n") == -1);
+    nw_settings_defaults(&s);
+    s.hardware_speed = true;
+    CHECK(write_text("[game]\nhardware_speed = false\n[game]\n") && !nw_settings_load(&s, root) && s.hardware_speed);
+    s.hardware_speed = true;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.hardware_speed);
 
     nw_settings_defaults(&s);
     CHECK(s.master_volume == 100 && s.voice_volume == 100);
@@ -81,7 +114,7 @@ int main(int argc, char *argv[])
     CHECK(nw_settings_load(&s, root) && s.master_volume == 40 && s.voice_volume == 7);
     CHECK(read_volumes("[audio]\nmaster_volume = 55\nvoice_volume=0\n") == 55000);
     CHECK(read_volumes("[audio]\nmaster_volume = 250\nvoice_volume = -3\n") == 100000);
-    CHECK(read_volumes("[audio]\nmaster_volume = 5x\nvoice_volume = \n") == 100100);
+    CHECK(read_volumes("[audio]\nmaster_volume = \"5\"\nvoice_volume = 0x10\n") == 100016);
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
     float a = -1.0f;
@@ -103,7 +136,7 @@ int main(int argc, char *argv[])
     CHECK(nw_settings_save(&s, root));
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && SDL_fabsf(s.aspect - 32.0f / 9.0f) < 1e-6f);
-    CHECK(read_text("[video]\naspect = 16:10 # unquoted\n", &s) && SDL_fabsf(s.aspect - 1.6f) < 1e-6f);
+    CHECK(read_text("[video]\naspect = \"16:10\" # quoted\n", &s) && SDL_fabsf(s.aspect - 1.6f) < 1e-6f);
     CHECK(read_text("[video]\naspect = \"square\"\n", &s) && s.aspect == 0.0f);
     CHECK(s.hud == 16.0f / 9.0f);
     CHECK(nw_settings_hud("edges", &a) && a == 0.0f && nw_settings_hud("\"4:3\"", &a) &&
@@ -114,6 +147,19 @@ int main(int argc, char *argv[])
     CHECK(nw_settings_save(&s, root));
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.hud == 0.0f);
+
+    /* A save keeps what it does not know, writes the keys' help first and leaves no .tmp. */
+    NwSettings t;
+    nw_settings_defaults(&t);
+    CHECK(nw_settings_equal(&s, &s) && !nw_settings_equal(&s, &t));
+    CHECK(read_text("[video]\nfov = 90\naspect = \"4:3\"\n\n[mods.example]\nenabled = true\n", &s));
+    s.aspect = 0.0f;
+    CHECK(nw_settings_save(&s, root) && !exists(NW_PATHS_SETTINGS ".tmp"));
+    char *text = file_text();
+    CHECK(text && SDL_strncmp(text, "# ", 2) == 0 && SDL_strstr(text, "# video.aspect: ") &&
+          SDL_strstr(text, "[video]\nfov = 90\naspect = \"auto\"\n") &&
+          SDL_strstr(text, "[mods.example]\nenabled = true\n") && SDL_strstr(text, "[audio]\n"));
+    SDL_free(text);
 
     if (failures) {
         fprintf(stderr, "settings: %d checks failed\n", failures);

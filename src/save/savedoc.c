@@ -788,8 +788,8 @@ char *nw_doc_write(const NwDoc *doc, const char *comment, size_t *size)
     }
     for (size_t i = 0; ok && i < doc->count; i++) {
         const NwDocTable *t = doc->tables[i];
-        if (i > 0 || comment) {
-            ok = b.len == 0 || nw_doc_puts(&b, "\n");
+        if ((i > 0 || t->count) && b.len) { /* an empty root table writes no blank line */
+            ok = nw_doc_puts(&b, "\n");
         }
         if (ok && i > 0) {
             ok = nw_doc_puts(&b, "[");

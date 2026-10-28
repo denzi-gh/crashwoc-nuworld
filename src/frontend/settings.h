@@ -1,5 +1,5 @@
-/* The player's settings in <data root>settings.toml, in the part of TOML the port writes: [table] headers,
-   key = value lines and # comments. What the reader does not know keeps its value. */
+/* The player's settings in <data root>settings.toml, a TOML document (save/savedoc.h): a key the reader does not take
+   keeps its value, and a save merges into the file, so keys and tables the port does not know stay. */
 #ifndef NUWORLD_FRONTEND_SETTINGS_H
 #define NUWORLD_FRONTEND_SETTINGS_H
 
@@ -14,6 +14,7 @@ typedef struct NwSettings {
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);
+bool nw_settings_equal(const NwSettings *a, const NwSettings *b);
 /* An aspect as settings.toml and --aspect write it: "auto" (0), "W:H" or a ratio, quoted or not; false when it is
    none of them. */
 bool nw_settings_aspect(const char *value, float *out);
@@ -23,9 +24,10 @@ const char *nw_settings_aspect_name(float aspect, char *buf, int size);
 bool nw_settings_hud(const char *value, float *out);
 /* Its name: edges, else as nw_settings_aspect_name. */
 const char *nw_settings_hud_name(float hud, char *buf, int size);
-/* Root's settings.toml over s when there is one; false with an SDL error when it is there but cannot be read. */
+/* Root's settings.toml over s when there is one. False with an SDL error when it cannot be read, or when it is not
+   TOML: it is then moved to settings.toml.corrupt and s keeps its values. */
 bool nw_settings_load(NwSettings *s, const char *root);
-/* Writes every setting to root's settings.toml; false with an SDL error. */
+/* s merged into root's settings.toml through a .tmp file; false with an SDL error. */
 bool nw_settings_save(const NwSettings *s, const char *root);
 
 #endif
