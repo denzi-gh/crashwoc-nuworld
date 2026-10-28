@@ -10,7 +10,7 @@
 
 typedef enum NwSettingKind {
     NW_SETTING_BOOL,
-    NW_SETTING_INT,  /* clamped to lo..hi */
+    NW_SETTING_INT,  /* clamped to lo..hi; 0 also by the name zero */
     NW_SETTING_ENUM, /* an enum (int-sized) by its names */
     NW_SETTING_TEXT, /* a string, through parse and format */
 } NwSettingKind;
@@ -21,6 +21,7 @@ typedef struct NwSettingKey {
     size_t offset, size;
     int lo, hi;
     const char *const *names; /* NW_SETTING_ENUM: hi of them */
+    const char *zero;
     bool (*parse)(const char *text, void *field);
     const char *(*format)(const void *field, char *buf, int size);
     const char *help;
@@ -179,6 +180,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "auto or WxH pixels: the window's size, or fullscreen the display's mode (auto: the desktop's)" },
     { .table = "video", .name = "vsync", .kind = NW_SETTING_ENUM, NW_FIELD(vsync), .hi = NW_VSYNC_MODES,
       .names = nw_settings_vsyncs, .help = "off, on, or adaptive (a late frame shows at once; on where unsupported)" },
+    { .table = "video", .name = "scale", .kind = NW_SETTING_INT, NW_FIELD(scale), .lo = 0, .hi = NW_BACKEND_SCALE_MAX,
+      .zero = "auto", .help = "internal resolution: auto (the screen's or more) or 1-8 times the PS2's" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
       .help = "auto (the screen's or window's shape), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's" },
@@ -202,6 +205,7 @@ void nw_settings_defaults(NwSettings *s)
     s->window = NW_WINDOW_WINDOWED;
     s->resolution = (NwResolution){ 0, 0 };
     s->vsync = NW_VSYNC_ON;
+    s->scale = 0;
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)
@@ -256,6 +260,9 @@ static void nw_settings_take(const NwSettingKey *k, const NwDocValue *v, NwSetti
         *(bool *)field = v->i != 0;
     } else if (k->kind == NW_SETTING_INT && v->type == NW_DOC_INT) {
         *(int *)field = v->i < k->lo ? k->lo : v->i > k->hi ? k->hi : (int)v->i;
+    } else if (k->kind == NW_SETTING_INT && k->zero && v->type == NW_DOC_STR && v->len == SDL_strlen(k->zero) &&
+               SDL_memcmp(v->bytes, k->zero, v->len) == 0) {
+        *(int *)field = 0;
     } else if ((k->kind == NW_SETTING_ENUM || k->kind == NW_SETTING_TEXT) && v->type == NW_DOC_STR &&
                v->len < sizeof(text)) {
         SDL_memcpy(text, v->bytes, v->len);
@@ -303,11 +310,12 @@ static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings 
     }
     if (k->kind == NW_SETTING_BOOL) {
         v = nw_doc_bool(*(const bool *)field);
-    } else if (k->kind == NW_SETTING_INT) {
+    } else if (k->kind == NW_SETTING_INT && !(k->zero && *(const int *)field == 0)) {
         v = nw_doc_int(*(const int *)field, 0);
     } else {
-        const char *text =
-            k->kind == NW_SETTING_ENUM ? k->names[*(const int *)field] : k->format(field, buf, sizeof(buf));
+        const char *text = k->kind == NW_SETTING_INT    ? k->zero
+                           : k->kind == NW_SETTING_ENUM ? k->names[*(const int *)field]
+                                                        : k->format(field, buf, sizeof(buf));
         if (!nw_doc_str(&v, text, SDL_strlen(text))) {
             return false;
         }

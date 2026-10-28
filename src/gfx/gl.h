@@ -52,6 +52,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_DECR_WRAP 0x8508
 #define GL_BLEND 0x0BE2
 #define GL_UNPACK_ALIGNMENT 0x0CF5
+#define GL_MAX_TEXTURE_SIZE 0x0D33
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_UNSIGNED_BYTE 0x1401
 #define GL_SHORT 0x1402
@@ -109,6 +110,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glScissor, (GLint x, GLint y, GLsizei w, GLsizei h)) \
     X(void, glClearDepth, (GLdouble depth)) \
     X(const GLubyte *, glGetString, (GLenum name)) \
+    X(void, glGetIntegerv, (GLenum pname, GLint *data)) \
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
     X(void, glDepthFunc, (GLenum func)) \
@@ -128,6 +130,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glBindTexture, (GLenum target, GLuint texture)) \
     X(void, glActiveTexture, (GLenum texture)) \
     X(void, glTexParameteri, (GLenum target, GLenum pname, GLint param)) \
+    X(void, glGenerateMipmap, (GLenum target)) \
     X(void, glTexImage2D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
         GLint border, GLenum format, GLenum type, const void *pixels)) \
     X(void, glTexSubImage2D, (GLenum target, GLint level, GLint x, GLint y, GLsizei width, GLsizei height, \
@@ -191,6 +194,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glScissor nw_glScissor
 #define glClearDepth nw_glClearDepth
 #define glGetString nw_glGetString
+#define glGetIntegerv nw_glGetIntegerv
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable
 #define glDepthFunc nw_glDepthFunc
@@ -210,6 +214,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glBindTexture nw_glBindTexture
 #define glActiveTexture nw_glActiveTexture
 #define glTexParameteri nw_glTexParameteri
+#define glGenerateMipmap nw_glGenerateMipmap
 #define glTexImage2D nw_glTexImage2D
 #define glTexSubImage2D nw_glTexSubImage2D
 #define glGenBuffers nw_glGenBuffers

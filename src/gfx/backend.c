@@ -16,10 +16,12 @@
 #define NW_BE_SURFS 16
 
 /* GS memory the packets draw into and read back: the back and front buffers and the render targets, by GS address.
-   Each is a texture of the power-of-two size the GS addresses it at, drawn with GS row y at row th - 1 - y. */
+   Each is a texture of the power-of-two size the GS addresses it at, n pixels across a GS pixel, drawn with GS row y
+   at rows from n * (th - 1 - y). */
 typedef struct NwBeSurf {
     int32_t addr; /* NW_SURF_BACK, NW_SURF_FRONT, a GS address, 0 for the targets the port does not draw */
-    int tw, th;
+    int tw, th;   /* GS pixels */
+    int n;        /* the internal scale it was made at */
     GLuint tex, depth, fbo;
 } NwBeSurf;
 
@@ -45,6 +47,10 @@ static struct {
     NwVifVertex *rect_verts;
     uint32_t rect_cap;
     bool wireframe;
+    NwRenderOptions opts;
+    int scale;          /* the frame's */
+    GLint max_tex;      /* GL_MAX_TEXTURE_SIZE */
+    GLuint present_fbo; /* a mip level of the back buffer, to shrink it from */
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
@@ -59,10 +65,10 @@ bool nw_backend_save(const char *path)
     SDL_Surface *shot = NULL;
     if (!back) {
         SDL_SetError("nothing drawn yet");
-    } else if ((shot = SDL_CreateSurface(nw_be.shown_w, nw_be.shown_h, SDL_PIXELFORMAT_RGBX32))) {
+    } else if ((shot = SDL_CreateSurface(nw_be.shown_w * back->n, nw_be.shown_h * back->n, SDL_PIXELFORMAT_RGBX32))) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
         for (int y = 0; y < shot->h; y++) {
-            glReadPixels(0, back->th - 1 - y, shot->w, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+            glReadPixels(0, back->th * back->n - 1 - y, shot->w, 1, GL_RGBA, GL_UNSIGNED_BYTE,
                          (uint8_t *)shot->pixels + (size_t)y * (size_t)shot->pitch);
         }
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
@@ -86,6 +92,8 @@ static void nw_be_screenshot(void *user)
 
 bool nw_backend_init(void)
 {
+    nw_be.opts.scale = 1;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &nw_be.max_tex);
     nw_debug_toggle("Render", "Wireframe", &nw_be.wireframe);
     nw_debug_action("Render", "Screenshot", SDL_SCANCODE_F12, nw_be_screenshot, NULL);
     return nw_vu_init();
@@ -119,6 +127,7 @@ void nw_backend_shutdown(void)
     glDeleteBuffers(1, &nw_be.verts_vbo);
     glDeleteVertexArrays(1, &nw_be.ptl_vao);
     glDeleteBuffers(1, &nw_be.ptl_vbo);
+    glDeleteFramebuffers(1, &nw_be.present_fbo);
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -248,35 +257,46 @@ static void nw_be_job(const NwGpuJob *job)
     }
 }
 
-/* (Re)makes a surface tw x th, black: colour and a 24-bit Z, as the GS has, the Z a texture a depth CLUT reads
-   (with a stencil); leaves its framebuffer bound. */
+/* (Re)makes a surface tw x th at the frame's scale, black: colour and a 24-bit Z, as the GS has, the Z a texture a
+   depth CLUT reads (with a stencil); one that only changes scale keeps its picture. Leaves its framebuffer bound. */
 static void nw_be_surf_make(NwBeSurf *s, int32_t addr, int tw, int th)
 {
-    if (!s->fbo) {
+    int n = nw_be.scale;
+    NwBeSurf old = *s;
+    bool rescale = s->fbo && s->tw == tw && s->th == th && s->n != n;
+    if (!s->fbo || rescale) {
         glGenFramebuffers(1, &s->fbo);
         glGenTextures(1, &s->tex);
         glGenTextures(1, &s->depth);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
-    if (s->tw != tw || s->th != th) {
+    if (s->tw != tw || s->th != th || s->n != n) {
         glActiveTexture(GL_TEXTURE0 + 2);
         glBindTexture(GL_TEXTURE_2D, s->tex);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw * n, th * n, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
         glBindTexture(GL_TEXTURE_2D, s->depth);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, tw, th, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, tw * n, th * n, 0, GL_DEPTH_STENCIL,
+                     GL_UNSIGNED_INT_24_8, NULL);
         glActiveTexture(GL_TEXTURE0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->tex, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s->depth, 0);
         s->tw = tw;
         s->th = th;
+        s->n = n;
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        if (rescale) {
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, old.fbo);
+            glBlitFramebuffer(0, 0, tw * old.n, th * old.n, 0, 0, tw * n, th * n, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+            nw_be_surf_free(&old);
+            glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+        }
     }
     s->addr = addr;
 }
@@ -297,11 +317,11 @@ static NwBeSurf *nw_be_surf(int32_t addr, int tw, int th)
     return s;
 }
 
-/* The draws go to s, width x height pixels at its top left. */
+/* The draws go to s, width x height GS pixels at its top left. */
 static void nw_be_bind(NwBeSurf *s, int width, int height)
 {
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
-    glViewport(0, s->th - height, width, height);
+    glViewport(0, (s->th - height) * s->n, width * s->n, height * s->n);
     nw_be.target = s;
     nw_be.width = width;
     nw_be.height = height;
@@ -325,7 +345,8 @@ static void nw_be_target(const NwCmd *c)
     }
     NwBeSurf *s = nw_be_surf(surf.addr, surf.tw, surf.th);
     if (s) {
-        bool shared = c->target.zback && back && back != s && back->tw == s->tw && back->th == s->th;
+        bool shared =
+            c->target.zback && back && back != s && back->tw == s->tw && back->th == s->th && back->n == s->n;
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
                                shared ? back->depth : s->depth, 0);
         nw_be_bind(s, c->target.width, c->target.height);
@@ -348,7 +369,8 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
     if (s == nw_be.target) {
         nw_be_surf_make(&nw_be.copy, 0, s->tw, s->th);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
-        glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
+                          GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
         s = &nw_be.copy;
     }
@@ -363,7 +385,8 @@ static const NwVuTexture *nw_be_dst(void)
     NwBeSurf *s = nw_be.target;
     nw_be_surf_make(&nw_be.copy, 0, s->tw, s->th);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
-    glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
+                      GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
     tex = (NwVuTexture){ nw_be.copy.tex, 0, true, true };
     return &tex;
@@ -376,7 +399,8 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     NwBeSurf *s = nw_be.target;
     nw_be_surf_make(&nw_be.zcopy, 0, s->tw, s->th);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
-    glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_DEPTH_BUFFER_BIT,
+                      GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
     glActiveTexture(GL_TEXTURE0 + 7);
     if (!nw_be.zclut) {
@@ -453,8 +477,9 @@ static void nw_be_passes(NwVuProgram program, const NwVuObject *o, const NwVuMat
 static void nw_be_clear(const NwPacket *p, const NwCmd *c)
 {
     const int32_t *sc = p->views[c->view].scissor;
+    int n = nw_be.target->n;
     glEnable(GL_SCISSOR_TEST);
-    glScissor(sc[0], nw_be.target->th - 1 - sc[3], sc[2] - sc[0] + 1, sc[3] - sc[1] + 1);
+    glScissor(sc[0] * n, (nw_be.target->th - 1 - sc[3]) * n, (sc[2] - sc[0] + 1) * n, (sc[3] - sc[1] + 1) * n);
     bool rgb = c->clear.mask & 1, z = c->clear.mask & 2;
     glColorMask(rgb, rgb, rgb, rgb && nw_be.alpha);
     glDepthMask(z);
@@ -582,15 +607,15 @@ static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 
 /* What vu1init leaves for a draw: the local times screen matrix, and the stream's block at VU 0x0C, the lights or for
    the xuv and glass programs the UV matrix; and where the target's pixels are in GS coordinates, the GS pixel at
-   12.4 (x, y) from XYOFFSET being GL's (x, th - 1 - y) about its centre. */
+   12.4 (x, y) from XYOFFSET being GL's (x, th - 1 - y) about its centre, each n x n pixels at scale n. */
 static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program, NwVuObject *o)
 {
     float screen[16];
     const NwView *v = &p->views[c->view];
     nw_be_screen(v, nw_be.width, nw_be.height, screen);
     nw_vu1init(o, c->local, screen);
-    o->frag[0] = 16.0f;
-    o->frag[1] = -16.0f;
+    o->frag[0] = 16.0f / (float)nw_be.target->n;
+    o->frag[1] = -16.0f / (float)nw_be.target->n;
     o->frag[2] = (float)v->xyoffset[0] - 8.0f;
     o->frag[3] = (float)(nw_be.target->th * 16 + v->xyoffset[1]) - 8.0f;
     if (c->light != NW_LIGHT_NONE && (program == NW_VU_TRIXUV || program == NW_VU_SKINXUV ||
@@ -671,8 +696,9 @@ static void nw_be_volumes(const NwCmd *c)
     }
     if (back && back != s) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
-        glBlitFramebuffer(0, back->th - nw_be.shown_h, nw_be.shown_w, back->th, 0, s->th - nw_be.height,
-                          c->volumes.width, s->th, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, (back->th - nw_be.shown_h) * back->n, nw_be.shown_w * back->n, back->th * back->n, 0,
+                          (s->th - nw_be.height) * s->n, c->volumes.width * s->n, s->th * s->n, GL_DEPTH_BUFFER_BIT,
+                          GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
     }
     glStencilMask(0xFF);
@@ -899,7 +925,8 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     NwBeSurf *front = nw_be_surf(NW_SURF_FRONT, back->tw, back->th);
     if (front) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
-        glBlitFramebuffer(0, 0, back->tw, back->th, 0, 0, back->tw, back->th, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBlitFramebuffer(0, 0, back->tw * back->n, back->th * back->n, 0, 0, front->tw * front->n,
+                          front->th * front->n, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
     nw_be.drawn = p->seq;
 }
@@ -912,6 +939,52 @@ static int nw_be_log2(int n)
         shift++;
     }
     return shift;
+}
+
+void nw_backend_set_options(const NwRenderOptions *o)
+{
+    nw_be.opts = *o;
+}
+
+int nw_backend_scale(void)
+{
+    return nw_be.scale;
+}
+
+/* The scale for a frame tw x th GS pixels (powers of two) shown h pixels high: the options', or auto the least that
+   covers h with bh GS rows; at most what the GPU's textures hold. */
+static int nw_be_scale(int h, int bh, int tw, int th)
+{
+    int n = nw_be.opts.scale ? nw_be.opts.scale : (h + bh - 1) / bh;
+    n = SDL_clamp(n, 1, NW_BACKEND_SCALE_MAX);
+    while (n > 1 && (tw * n > nw_be.max_tex || th * n > nw_be.max_tex)) {
+        n--;
+    }
+    return n;
+}
+
+/* The back buffer's bw x bh into the window's w x h at (x, y): a mip level at least that size when it shrinks more
+   than twice (glGenerateMipmap averages), then a linear blit. */
+static void nw_be_present(const NwBeSurf *back, int bw, int bh, int x, int y, int w, int h)
+{
+    int n = back->n, level = 0;
+    while (level < 12 && (bw * n) >> (level + 1) >= w && (bh * n) >> (level + 1) >= h) {
+        level++;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+    if (level) {
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, back->tex);
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glActiveTexture(GL_TEXTURE0);
+        if (!nw_be.present_fbo) {
+            glGenFramebuffers(1, &nw_be.present_fbo);
+        }
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, nw_be.present_fbo);
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, back->tex, level);
+    }
+    glBlitFramebuffer(0, ((back->th - bh) * n) >> level, (bw * n) >> level, (back->th * n) >> level, x, y, x + w,
+                      y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 }
 
 const NwPacket *nw_backend_frame(int width, int height)
@@ -932,14 +1005,6 @@ const NwPacket *nw_backend_frame(int width, int height)
     }
     nw_be.shown_w = bw;
     nw_be.shown_h = bh;
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
-    glDepthMask(GL_TRUE);
-    NwBeSurf *back = nw_be_surf(NW_SURF_BACK, 1 << nw_be_log2(bw), 1 << nw_be_log2(bh));
-    if (back && p && p->seq != nw_be.drawn) {
-        nw_be_run(p, back);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glDepthMask(GL_TRUE);
-    }
 
     /* The PS2 shows a 640-wide frame at 4:3 whatever its height; a wider one (port/wide.h) keeps those pixels' shape.
        Within 1% of the window's aspect it fills the window. */
@@ -952,14 +1017,22 @@ const NwPacket *nw_backend_frame(int width, int height)
             h = (int)((float)w / aspect + 0.5f);
         }
     }
+    int tw = 1 << nw_be_log2(bw), th = 1 << nw_be_log2(bh);
+    nw_be.scale = nw_be_scale(h, bh, tw, th);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
+    glDepthMask(GL_TRUE);
+    NwBeSurf *back = nw_be_surf(NW_SURF_BACK, tw, th);
+    if (back && p && p->seq != nw_be.drawn) {
+        nw_be_run(p, back);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(GL_TRUE);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (back) {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
-        glBlitFramebuffer(0, back->th - bh, bw, back->th, (width - w) / 2, (height - h) / 2, (width + w) / 2,
-                          (height + h) / 2, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        nw_be_present(back, bw, bh, (width - w) / 2, (height - h) / 2, w, h);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return p;

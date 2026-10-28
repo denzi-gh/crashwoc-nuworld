@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 
+#include "gfx/backend.h"
 #include "platform/display.h"
 
 typedef struct NwSettings {
@@ -16,6 +17,7 @@ typedef struct NwSettings {
     NwWindowMode window;
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
     NwVsync vsync;
+    int scale; /* the internal resolution, NwRenderOptions' */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

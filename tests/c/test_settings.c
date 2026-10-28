@@ -159,6 +159,22 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nvsync = \"adaptive\"\n", &s) && s.vsync == NW_VSYNC_ADAPTIVE);
     CHECK(read_text("[video]\nvsync = true\n", &s) && s.vsync == NW_VSYNC_ON);
 
+    /* The scale: auto or a number, clamped. */
+    CHECK(read_text("[video]\nscale = 3\n", &s) && s.scale == 3);
+    CHECK(read_text("[video]\nscale = 99\n", &s) && s.scale == NW_BACKEND_SCALE_MAX);
+    CHECK(read_text("[video]\nscale = \"auto\"\n", &s) && s.scale == 0);
+    s.scale = 2;
+    CHECK(read_text("[video]\nscale = \"big\"\n", &s) && s.scale == 0);
+    s.scale = 0;
+    CHECK(nw_settings_save(&s, root));
+    char *saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "scale = \"auto\"\n"));
+    SDL_free(saved);
+    s.scale = 4;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.scale == 4);
+
     /* A resolution: auto or WxH. */
     NwResolution res = { 1, 1 };
     CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);
