@@ -76,13 +76,15 @@ typedef struct NwPtl {
 /* A CLUT that a VERTS command looks up by the GS Z under each pixel instead of a texture, as retail's fog and spot
    lights read the Z buffer back byte by byte: entry (Z >> shift) & 0xFF over 256 entries from Z = base, entry far
    below them and near above. Seashell's NuLightFogClear then gives the alpha 0x80 where it is under 0x80 and Z is at
-   most clear[0], and 0 where it is 0x80 or more and Z is at least clear[1]. */
+   most clear[0], and 0 where it is 0x80 or more and Z is at least clear[1]. With alpha, the entry's alpha replaces
+   the texture's alone, as the haze reads the fog's alpha back with the frame. */
 typedef struct NwZClut {
     uint32_t clut[256];
     uint32_t shift, base;
     uint32_t far, near;
     bool clear;
     uint32_t clear_z[2];
+    bool alpha;
 } NwZClut;
 
 /* How a VERTS command's vertices are drawn. */
@@ -148,8 +150,10 @@ typedef struct NwCmd {
             uint8_t mask; /* 1 colour, 2 Z */
         } clear;
         struct {
-            NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere */
+            NwSurf surf;          /* addr 0: one the port does not draw, whose draws go nowhere; tcc false: PSMCT24,
+                                     whose alpha the draws leave */
             int32_t width, height; /* the target's pixels (nurndr_pixel_width, height) */
+            bool zback;            /* the Z buffer is the back buffer's (-2), shared when the sizes match */
         } target;
     };
 } NwCmd;

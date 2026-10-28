@@ -157,8 +157,10 @@ static const char nw_vu_fs[] =
     "uniform usampler2D u_clut;\n"
     "uniform sampler2D u_surf;\n"
     "uniform sampler2D u_depth;\n" /* a depth CLUT's: the target's Z */
+    "uniform usampler2D u_zpal;\n" /* its entries */
     "uniform uvec4 u_zclut;\n"     /* shift, base, far, near */
     "uniform uvec3 u_zclear;\n"    /* NuLightFogClear: on, the two Z */
+    "uniform int u_zalpha;\n"      /* its alpha alone over the texture's */
     "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface, 4 depth CLUT; MMAG; CLAMP u, v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
@@ -217,7 +219,7 @@ static const char nw_vu_fs[] =
     "    uint z = uint((1.0 - d) * 8388607.0 + 0.5);\n"
     "    uint i = z < u_zclut.y ? u_zclut.z\n"
     "           : z - u_zclut.y >= (256u << u_zclut.x) ? u_zclut.w : (z >> u_zclut.x) & 0xFFu;\n"
-    "    vec4 t = vec4(texelFetch(u_clut, ivec2(int(i), 0), 0));\n"
+    "    vec4 t = vec4(texelFetch(u_zpal, ivec2(int(i), 0), 0));\n"
     "    if (u_zclear.x != 0u && t.a < 128.0 && z <= u_zclear.y) {\n"
     "        t.a = 128.0;\n"
     "    }\n"
@@ -245,6 +247,9 @@ static const char nw_vu_fs[] =
     "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
     "    if (u_texmode.x != 0) {\n"
     "        vec4 t = u_texmode.x == 4 ? zclut() : floor(sample_gs(v_uv));\n"
+    "        if (u_zalpha != 0) {\n"
+    "            t.a = zclut().a;\n"
+    "        }\n"
     "        c.rgb = min(floor(c.rgb * t.rgb / 128.0), 255.0);\n"
     "        c.a = u_tcc != 0 ? min(floor(c.a * t.a / 128.0), 255.0) : c.a;\n"
     "    }\n"
@@ -257,7 +262,7 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear;
+        uv, ptl, zclut, zclear, zalpha;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -325,6 +330,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].ptl = glGetUniformLocation(p, "u_ptl");
     nw_vu[program].zclut = glGetUniformLocation(p, "u_zclut");
     nw_vu[program].zclear = glGetUniformLocation(p, "u_zclear");
+    nw_vu[program].zalpha = glGetUniformLocation(p, "u_zalpha");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -333,6 +339,7 @@ static bool nw_vu_link(NwVuProgram program)
     glUniform1i(glGetUniformLocation(p, "u_weights"), 4);
     glUniform1i(glGetUniformLocation(p, "u_deltas"), 5);
     glUniform1i(glGetUniformLocation(p, "u_depth"), 6);
+    glUniform1i(glGetUniformLocation(p, "u_zpal"), 7);
     return true;
 }
 
@@ -406,17 +413,19 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     glUniform4fv(nw_vu[program].uv, 4, o->uv[0]);
     const NwVuZClut *z = m->zclut;
-    bool textured = !z && m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, z ? 4 : textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0,
+    bool zonly = z && !z->alpha;
+    bool textured = !zonly && m->tex && m->tex->index;
+    glUniform4i(nw_vu[program].texmode, zonly ? 4 : textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0,
                 m->state.mmag, m->state.wms == 1, m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].tcc, z || (textured && m->tex->tcc));
+    glUniform1i(nw_vu[program].zalpha, z && z->alpha);
     if (z) {
         glUniform4ui(nw_vu[program].zclut, z->shift, z->base, z->far, z->near);
         glUniform3ui(nw_vu[program].zclear, z->clear[0], z->clear[1], z->clear[2]);
         glActiveTexture(GL_TEXTURE0 + 6);
         glBindTexture(GL_TEXTURE_2D, z->depth);
-        glActiveTexture(GL_TEXTURE0 + 1);
+        glActiveTexture(GL_TEXTURE0 + 7);
         glBindTexture(GL_TEXTURE_2D, z->clut);
         glActiveTexture(GL_TEXTURE0);
     }
@@ -449,10 +458,17 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     return nw_mtl_passes(&m->state, pass);
 }
 
+static bool nw_vu_alpha = true;
+
+void nw_vu_alpha_writes(bool on)
+{
+    nw_vu_alpha = on;
+}
+
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass)
 {
     glUniform4i(nw_vu[program].atest, m->state.ate ? m->state.atst : 1, m->state.aref, pass->failed, 0);
-    glColorMask(pass->rgb, pass->rgb, pass->rgb, pass->alpha);
+    glColorMask(pass->rgb, pass->rgb, pass->rgb, pass->alpha && nw_vu_alpha);
     glDepthMask(pass->z);
 }
 

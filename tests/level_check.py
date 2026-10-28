@@ -19,7 +19,6 @@ SHARED = {
     "NuLgtArcLaserDraw": "#61",
     "NuRndrFxCode": "#61",
     "NuLightPolyHaze": "#61",
-    "NuLightHaze": "#61",
     "NuRndrWater": "#62",
 }
 

@@ -85,7 +85,7 @@ extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
 void NuLightFog(float near, float far, int colour, int blur, int haze_colour);
 void NuLightFogDraw(int paused);
-extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff;
+extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff, *NuLgtBackBuff;
 
 static int failures;
 
@@ -1025,25 +1025,36 @@ static void test_render_target(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* NuLightFogDraw with west_a's fog: one composite of ten columns in NuLgtSurf[9] under ALPHA 0x44, its depth CLUT
-   the fog colour at nearly full alpha at the far end and clearing towards fog-near, the columns in front of the CLUT's
-   base; the blur's nineteen rects in GS coordinates under ALPHA 0x54, (Cs - Cd) * Ad + Cd. */
+/* NuLightFogDraw with west_a's fog and a haze: one composite of ten columns in NuLgtSurf[9] under ALPHA 0x44, its
+   depth CLUT the fog colour at nearly full alpha at the far end and clearing towards fog-near, the columns in front of
+   the CLUT's base; the blur's nineteen rects in GS coordinates under ALPHA 0x54, (Cs - Cd) * Ad + Cd. The haze copies
+   the frame in a grid of 10 x 32 cells and four edge strips, moves Hazetab on, and blends it in at half its alpha
+   with the fog CLUT's alpha. */
 static void test_fog(void)
 {
     NuCameraSet(NuCameraCreate());
     NuLgtSurf[9] = NuMtlCreate(1);
+    NuLgtSurf[12] = NuMtlCreate(1);
     NuLgtBackAlphaBuff = NuMtlCreate(1);
+    NuLgtBackBuff = NuMtlCreate(1);
     NuMtlUpdate(NuLgtSurf[9]);
+    NuMtlUpdate(NuLgtSurf[12]);
     NuMtlUpdate(NuLgtBackAlphaBuff);
-    nw_stub_set_continue(true); /* the haze passes it ends with */
-    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0);
+    NuMtlUpdate(NuLgtBackBuff);
+    Hazetab[3][4].u = 5;
+    nw_stub_set_continue(true); /* the haze poly pass it ends with */
+    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0x30808080);
     NuLightFogDraw(0);
+    CHECK(Hazetab[3][4].x == 5);
     const NwPacket *p = nw_rndr_packet();
-    const NwCmd *fog = NULL;
+    const NwCmd *fog = NULL, *copy = NULL, *haze = NULL;
     uint32_t blur = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
-        fog = c->op == NW_CMD_VERTS && c->zclut ? c : fog;
+        bool alpha = c->op == NW_CMD_VERTS && c->zclut && c->zclut <= p->nzcluts && p->zcluts[c->zclut - 1].alpha;
+        fog = c->op == NW_CMD_VERTS && c->zclut && !alpha ? c : fog;
+        haze = alpha ? c : haze;
+        copy = c->op == NW_CMD_VERTS && c->material == NuLgtBackBuff ? c : copy;
         blur += c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->alpha == (0x100 | 0x54) && c->count == 6 &&
                 c->material == NuLgtBackAlphaBuff;
     }
@@ -1064,6 +1075,12 @@ static void test_fog(void)
             const NwVuSpriteVertex *v = &p->verts[fog->first + i];
             CHECK(v->pos[2] == p->verts[fog->first].pos[2] && v->pos[2] >= (float)z->base && v->col[3] == 0x3F);
         }
+    }
+    CHECK(copy && copy->mode == NW_VERTS_GS && copy->count == (10 * 32 + 4) * 6);
+    CHECK(haze && haze->material == NuLgtSurf[12] && haze->alpha == (0x100 | 0x44) && haze->count == 6);
+    if (haze && fog) {
+        CHECK(p->verts[haze->first].col[3] == 0x18 && p->verts[haze->first].pos[2] == p->verts[fog->first].pos[2]);
+        CHECK(memcmp(p->zcluts[haze->zclut - 1].clut, p->zcluts[fog->zclut - 1].clut, 1024) == 0);
     }
     nw_stub_set_continue(false);
     NuRndrSwapStreamBuffers();

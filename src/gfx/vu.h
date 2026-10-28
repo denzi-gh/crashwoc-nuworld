@@ -63,12 +63,13 @@ typedef struct NwVuTexture {
     bool surface;
 } NwVuTexture;
 
-/* A depth CLUT (NwZClut) the programs read in place of the texture: the target's Z as a depth texture, the CLUT
-   (256x1 RGBA8UI), and the lookup; clear: NuLightFogClear on, then its two Z. */
+/* A depth CLUT (NwZClut) the programs read in place of the texture, or of its alpha alone: the target's Z as a
+   depth texture, the CLUT (256x1 RGBA8UI), and the lookup; clear: NuLightFogClear on, then its two Z. */
 typedef struct NwVuZClut {
     unsigned int depth, clut;
     uint32_t shift, base, far, near;
     uint32_t clear[3];
+    bool alpha;
 } NwVuZClut;
 
 /* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state, and a
@@ -106,6 +107,8 @@ void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l);
 void nw_vu1init_uv(NwVuObject *o, const float local[16], const NwLights *l);
 /* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
+/* Whether the target keeps the alpha the passes write (a PSMCT24 frame does not). */
+void nw_vu_alpha_writes(bool on);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass);
 /* Uploads t with its mip levels. */

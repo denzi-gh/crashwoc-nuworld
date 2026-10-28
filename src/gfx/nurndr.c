@@ -214,9 +214,12 @@ void NuRndrShadowStack(struct nuvec_s *light)
     shadstorecnt = 0;
 }
 
+static NwCmd *nw_target;    /* the TARGET record NuRndrBeginSceneEx's NuRndrSetZBuffer completes */
+static int nw_zbuffer = -2; /* the last NuRndrSetZBuffer */
+
 /* A TARGET into stream: the back buffer (-1), the front buffer (-3), or a render target texture, whose size
-   becomes nurndr_pixel_width and height. -2 and -4 put the Z buffer behind the frame, which the port does not draw;
-   their draws go nowhere. */
+   becomes nurndr_pixel_width and height, under the last Z buffer. -2 and -4 put the Z buffer behind the frame,
+   which the port does not draw; their draws go nowhere. */
 void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
 {
     NwSurf surf = { 0, 0, 0, false };
@@ -242,17 +245,24 @@ void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
     nurndr_pixel_height = height;
     nurndr_pixel_p2w = Ps2TxValToPowerOfTwo(width);
     nurndr_pixel_p2h = Ps2TxValToPowerOfTwo(height);
-    NwCmd *c = nw_rndr_cmd(stream, NW_CMD_TARGET);
+    NwCmd *c = nw_target = nw_rndr_cmd(stream, NW_CMD_TARGET);
     c->target.surf = surf;
     c->target.width = width;
     c->target.height = height;
+    c->target.zback = nw_zbuffer == -2;
 }
 
-/* Each target the port draws into has a Z buffer of its own; a render target's Z (zbuffer > 0) is not drawn. */
+/* The draws after the last target's test and write the back buffer's Z (-2) when the target is its size; the port
+   gives other targets a Z of their own. A render target's Z (zbuffer > 0) is not drawn. */
 void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer)
 {
     static bool reported;
     (void)stream;
+    nw_zbuffer = zbuffer;
+    if (nw_target) {
+        nw_target->target.zback = zbuffer == -2;
+        nw_target = NULL;
+    }
     if (zbuffer > 0 && !reported) {
         reported = true;
         fprintf(stderr, NW_APP_NAME ": a render target's Z buffer is not drawn\n");

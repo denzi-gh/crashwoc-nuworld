@@ -30,6 +30,7 @@ static struct {
     NwBeSurf zcopy;        /* the target's Z a depth CLUT reads, copied */
     GLuint zclut;          /* a depth CLUT's entries */
     NwBeSurf *target;      /* what the draws go to */
+    bool alpha;            /* the target keeps alpha (not PSMCT24) */
     int width, height;     /* the target's pixels */
     int shown_w, shown_h;  /* those of the back buffer */
     uint64_t drawn;        /* the last packet run */
@@ -310,6 +311,7 @@ static void nw_be_bind(NwBeSurf *s, int width, int height)
     }
 }
 
+/* A render target takes the back buffer's Z when it is drawn under it and its size, else its own. */
 static void nw_be_target(const NwCmd *c)
 {
     NwSurf surf = c->target.surf;
@@ -317,9 +319,18 @@ static void nw_be_target(const NwCmd *c)
         surf.tw = (uint16_t)c->target.width;
         surf.th = (uint16_t)c->target.height;
     }
+    NwBeSurf *back = NULL;
+    for (uint32_t i = 0; i < nw_be.nsurf && !back; i++) {
+        back = nw_be.surf[i].addr == NW_SURF_BACK ? &nw_be.surf[i] : NULL;
+    }
     NwBeSurf *s = nw_be_surf(surf.addr, surf.tw, surf.th);
     if (s) {
+        bool shared = c->target.zback && back && back != s && back->tw == s->tw && back->th == s->th;
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
+                               shared ? back->depth : s->depth, 0);
         nw_be_bind(s, c->target.width, c->target.height);
+        nw_be.alpha = surf.tcc || !surf.addr;
+        nw_vu_alpha_writes(nw_be.alpha);
     }
 }
 
@@ -354,7 +365,7 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
     glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
-    glActiveTexture(GL_TEXTURE0 + 1);
+    glActiveTexture(GL_TEXTURE0 + 7);
     if (!nw_be.zclut) {
         glGenTextures(1, &nw_be.zclut);
         glBindTexture(GL_TEXTURE_2D, nw_be.zclut);
@@ -367,7 +378,7 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, z->clut);
     glActiveTexture(GL_TEXTURE0);
     vz = (NwVuZClut){ nw_be.zcopy.depth, nw_be.zclut, z->shift, z->base, z->far, z->near,
-                      { z->clear, z->clear_z[0], z->clear_z[1] } };
+                      { z->clear, z->clear_z[0], z->clear_z[1] }, z->alpha };
     return &vz;
 }
 
@@ -431,7 +442,7 @@ static void nw_be_clear(const NwPacket *p, const NwCmd *c)
     glEnable(GL_SCISSOR_TEST);
     glScissor(sc[0], nw_be.target->th - 1 - sc[3], sc[2] - sc[0] + 1, sc[3] - sc[1] + 1);
     bool rgb = c->clear.mask & 1, z = c->clear.mask & 2;
-    glColorMask(rgb, rgb, rgb, rgb);
+    glColorMask(rgb, rgb, rgb, rgb && nw_be.alpha);
     glDepthMask(z);
     glClearColor(c->clear.rgba[0] / 255.0f, c->clear.rgba[1] / 255.0f, c->clear.rgba[2] / 255.0f,
                  SDL_min(c->clear.rgba[3] / 128.0f, 1.0f));
@@ -769,6 +780,8 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
 static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
     nw_be_bind(back, nw_be.shown_w, nw_be.shown_h);
+    nw_be.alpha = true;
+    nw_vu_alpha_writes(true);
     glEnable(GL_DEPTH_TEST);
     glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
     nw_be_rects(p);
