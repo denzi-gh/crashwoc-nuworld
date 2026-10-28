@@ -66,10 +66,11 @@ def stab_strings(asm: str) -> list[str]:
 
 
 def probe_source(db: dict) -> tuple[str, dict[str, str]]:
-    """Probe TU text and {variable: record id} for every named record."""
+    """Probe TU text and {variable: record id} for every named record the PS2 build has (not NW_HOST-only ones)."""
     names = {}
     lines = [f'#include "{h}"' for h in db["headers"]]
-    for i, rid in enumerate(r for r in sorted(db["records"]) if "$" not in r):
+    records = db["records"]
+    for i, rid in enumerate(r for r in sorted(records) if "$" not in r and "ps2" in records[r]):
         var = f"{PREFIX}{i}"
         names[var] = rid
         lines.append(f"{rid} {var};")

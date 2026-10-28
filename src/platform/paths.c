@@ -15,8 +15,13 @@ static bool nw_paths_sep(char c)
 
 char *nw_paths_data_root(const char *base_dir, const char *pref_dir)
 {
-    if (base_dir) {
-        return nw_paths_dir(base_dir, "user", false);
+    char *portable = NULL;
+    if (base_dir && SDL_asprintf(&portable, "%s" NW_PATHS_PORTABLE, base_dir) >= 0) {
+        bool found = SDL_GetPathInfo(portable, NULL);
+        SDL_free(portable);
+        if (found) {
+            return nw_paths_dir(base_dir, "user", false);
+        }
     }
     return pref_dir ? SDL_strdup(pref_dir) : SDL_GetPrefPath(NULL, NW_PATHS_APP);
 }
