@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include "nups2/ps2ctl.h"
+#include "port/padscript.h"
 
 #define NW_PAD_PORTS 2
 #define NW_PAD_DISCONNECTED 0
@@ -66,35 +67,42 @@ int scePadPortClose(int port, int slot)
     return 1;
 }
 
+void nw_pad_frame(const NwPadInput *in, struct nupadframe_s *data)
+{
+    uint16_t low = (uint16_t)~in->buttons;
+    data->ok = 0;
+    data->read_id = NW_PAD_ID_PRESSURE;
+    data->buttons_hi = (uint8_t)(low >> 8);
+    data->buttons_lo = (uint8_t)low;
+    data->r_alg_x = in->rx;
+    data->r_alg_y = in->ry;
+    data->l_alg_x = in->lx;
+    data->l_alg_y = in->ly;
+    data->l_algpad_r = nw_pad_pressure(in->buttons, NW_PAD_RIGHT);
+    data->l_algpad_l = nw_pad_pressure(in->buttons, NW_PAD_LEFT);
+    data->l_algpad_u = nw_pad_pressure(in->buttons, NW_PAD_UP);
+    data->l_algpad_d = nw_pad_pressure(in->buttons, NW_PAD_DOWN);
+    data->r_algpad_u = nw_pad_pressure(in->buttons, NW_PAD_TRIANGLE);
+    data->r_algpad_r = nw_pad_pressure(in->buttons, NW_PAD_CIRCLE);
+    data->r_algpad_d = nw_pad_pressure(in->buttons, NW_PAD_CROSS);
+    data->r_algpad_l = nw_pad_pressure(in->buttons, NW_PAD_SQUARE);
+    data->l1_alg = nw_pad_pressure(in->buttons, NW_PAD_L1);
+    data->r1_alg = nw_pad_pressure(in->buttons, NW_PAD_R1);
+    data->l2_alg = in->l2;
+    data->r2_alg = in->r2;
+}
+
 int scePadRead(int port, int slot, struct nupadframe_s *data)
 {
     if (!nw_pad_live(port, slot)) {
         return 0;
     }
-    nw_pad_lock();
-    NwPadInput in = nw_pad_input;
-    SDL_UnlockMutex(nw_pad_mutex);
-    uint16_t low = (uint16_t)~in.buttons;
-    data->ok = 0;
-    data->read_id = NW_PAD_ID_PRESSURE;
-    data->buttons_hi = (uint8_t)(low >> 8);
-    data->buttons_lo = (uint8_t)low;
-    data->r_alg_x = in.rx;
-    data->r_alg_y = in.ry;
-    data->l_alg_x = in.lx;
-    data->l_alg_y = in.ly;
-    data->l_algpad_r = nw_pad_pressure(in.buttons, NW_PAD_RIGHT);
-    data->l_algpad_l = nw_pad_pressure(in.buttons, NW_PAD_LEFT);
-    data->l_algpad_u = nw_pad_pressure(in.buttons, NW_PAD_UP);
-    data->l_algpad_d = nw_pad_pressure(in.buttons, NW_PAD_DOWN);
-    data->r_algpad_u = nw_pad_pressure(in.buttons, NW_PAD_TRIANGLE);
-    data->r_algpad_r = nw_pad_pressure(in.buttons, NW_PAD_CIRCLE);
-    data->r_algpad_d = nw_pad_pressure(in.buttons, NW_PAD_CROSS);
-    data->r_algpad_l = nw_pad_pressure(in.buttons, NW_PAD_SQUARE);
-    data->l1_alg = nw_pad_pressure(in.buttons, NW_PAD_L1);
-    data->r1_alg = nw_pad_pressure(in.buttons, NW_PAD_R1);
-    data->l2_alg = in.l2;
-    data->r2_alg = in.r2;
+    if (!nw_pad_script_read(data)) {
+        nw_pad_lock();
+        NwPadInput in = nw_pad_input;
+        SDL_UnlockMutex(nw_pad_mutex);
+        nw_pad_frame(&in, data);
+    }
     return (int)sizeof(*data);
 }
 

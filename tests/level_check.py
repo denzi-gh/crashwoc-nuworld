@@ -1,9 +1,10 @@
 """Levels entered headless (local only; run_local.py passes the data root): each runs on the stepped clock with
 instant loads for VBLANKS vblanks after it runs (--level), and passes when it got there, the game thread parked
 and it hit no stub. Near-match hits are listed, not failed. A route ("intro,farm,hub") passes when every leg ran and
-a level that runs twice has as many scene GPU objects alive both times. -j runs that many levels at once.
+a level that runs twice has as many scene GPU objects alive both times. The pad follows --pad-script (default auto:
+the level's retail recording, else the sweep script; none: an idle pad). -j runs that many levels at once.
 
-    run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] [-j N] <level> ...
+    run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] [--pad-script S] [-j N] <level> ...
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -17,9 +18,10 @@ RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
 ARRIVAL = re.compile(r"^boot-check: level (\d+) ran with (\d+) scene GPU objects alive$")
 
 
-def check(exe: str, root: str, level: str, vblanks: int) -> tuple[bool, str]:
+def check(exe: str, root: str, level: str, vblanks: int, script: str) -> tuple[bool, str]:
+    pad = ["--pad-script", script] if script != "none" else []
     out = subprocess.run([exe, "--data-dir", root, "--stepped", "--hardware-speed", "off", "--boot-check",
-                          str(vblanks), "--level", level], capture_output=True, text=True)
+                          str(vblanks), "--level", level, *pad], capture_output=True, text=True)
     lines = out.stdout.splitlines()
     hits = [m.groups() for line in lines if (m := STUB.match(line))]
     stubs = [name for kind, _unit, name in hits if kind == "stub"]
@@ -44,11 +46,13 @@ def main() -> int:
     ap.add_argument("root")
     ap.add_argument("levels", nargs="+")
     ap.add_argument("--vblanks", type=int, default=VBLANKS)
+    ap.add_argument("--pad-script", default="auto")
     ap.add_argument("-j", type=int, default=1)
     args = ap.parse_args()
     failed = 0
     with ThreadPoolExecutor(args.j) as pool:
-        for ok, report in pool.map(lambda level: check(args.exe, args.root, level, args.vblanks), args.levels):
+        for ok, report in pool.map(lambda level: check(args.exe, args.root, level, args.vblanks, args.pad_script),
+                                   args.levels):
             print(report, end="", flush=True)
             failed += not ok
     return 1 if failed else 0

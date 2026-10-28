@@ -132,6 +132,11 @@ bool nw_level_start(const char *names)
     return true;
 }
 
+int nw_level_final(void)
+{
+    return nw_level.nroute ? nw_level.route[nw_level.nroute - 1] : -1;
+}
+
 int nw_level_arrival(void)
 {
     return nw_level.arrival;

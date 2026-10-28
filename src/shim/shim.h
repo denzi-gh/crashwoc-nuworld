@@ -45,6 +45,9 @@ typedef struct NwPadInput {
 
 /* Any thread: the pad the game reads from now on. Until the first call it is idle. */
 void nw_pad_set(const NwPadInput *in);
+/* The frame scePadRead gives for `in`. */
+struct nupadframe_s;
+void nw_pad_frame(const NwPadInput *in, struct nupadframe_s *data);
 
 /* src/shim/ee.c. The return from an interrupt: the best ready EE thread runs. */
 void nw_ee_schedule(void);

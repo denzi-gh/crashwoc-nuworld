@@ -26,6 +26,7 @@
 #include "port/dump.h"
 #include "port/game.h"
 #include "port/level.h"
+#include "port/padscript.h"
 #include "port/options.h"
 #include "port/saveload.h"
 #include "port/scene.h"
@@ -301,13 +302,14 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 #define NW_DUMP_MS 3600000             /* the watchdog of --dump */
 #define NW_LEVEL_CHECK_MS 600000       /* the watchdog of --boot-check with --level */
 
-static const char *nw_run_level; /* --level */
+static const char *nw_run_level;  /* --level */
+static const char *nw_pad_script; /* --pad-script */
 
 /* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
    file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
-   sound module on both (at the hardware speed or with instant loads), --level's request. The file system stays open
-   for the game. Returns 0, else the exit code: 2 without usable data or level, 1 when the image or the clock
-   fails. */
+   sound module on both (at the hardware speed or with instant loads), --level's request, --pad-script. The file
+   system stays open for the game. Returns 0, else the exit code: 2 without usable data, level or pad script, 1 when
+   the image or the clock fails. */
 static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware_speed)
 {
     static NwVfs vfs;
@@ -344,6 +346,10 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     nw_nusound_set_hardware_speed(hardware_speed);
     if (nw_run_level && !nw_level_start(nw_run_level)) {
         fprintf(stderr, NW_APP_NAME ": --level %s: no such level on the disc\n", nw_run_level);
+        return 2;
+    }
+    if (nw_pad_script && !nw_pad_script_start(&vfs, nw_pad_script, nw_level_final())) {
+        fprintf(stderr, NW_APP_NAME ": --pad-script %s: %s\n", nw_pad_script, SDL_GetError());
         return 2;
     }
     return 0;
@@ -901,7 +907,7 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
-             strcmp(argv[i], "--level") == 0) &&
+             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -960,6 +966,8 @@ int main(int argc, char *argv[])
             dump_after = argv[++i];
         } else if (strcmp(argv[i], "--level") == 0) {
             nw_run_level = argv[++i];
+        } else if (strcmp(argv[i], "--pad-script") == 0) {
+            nw_pad_script = argv[++i];
         } else if (strcmp(argv[i], "--hardware-speed") == 0) {
             const char *value = argv[++i];
             if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
