@@ -148,6 +148,14 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.hud == 0.0f);
 
+    /* An enum by its name; another name keeps the value. */
+    CHECK(read_text("[video]\nwindow = \"borderless\"\n", &s) && s.window == NW_WINDOW_BORDERLESS);
+    CHECK(read_text("[video]\nwindow = \"maximised\"\n", &s) && s.window == NW_WINDOW_WINDOWED);
+    s.window = NW_WINDOW_FULLSCREEN;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.window == NW_WINDOW_FULLSCREEN);
+
     /* A save keeps what it does not know, writes the keys' help first and leaves no .tmp. */
     NwSettings t;
     nw_settings_defaults(&t);

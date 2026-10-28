@@ -5,12 +5,15 @@
 
 #include <stdbool.h>
 
+#include "platform/display.h"
+
 typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
     float aspect;        /* [video]: the picture's width over its height, 0 = the display's */
     float hud;           /* the widest width over height the HUD spreads to, 0 = the picture's edges */
+    NwWindowMode window;
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

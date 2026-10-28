@@ -37,6 +37,7 @@ void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VAR
 bool nw_debug_button(const char *label);
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log);
 bool nw_debug_slider_int(const char *label, int *value, int lo, int hi);
+bool nw_debug_combo(const char *label, int *index, const char *const *items, int count);
 bool nw_debug_filter(const char *hint, char *buf, size_t size);
 /* A scrolling list rows lines high; always closed with nw_debug_list_end. */
 void nw_debug_list_begin(const char *id, int rows);

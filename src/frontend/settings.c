@@ -11,6 +11,7 @@
 typedef enum NwSettingKind {
     NW_SETTING_BOOL,
     NW_SETTING_INT,  /* clamped to lo..hi */
+    NW_SETTING_ENUM, /* an enum (int-sized) by its names */
     NW_SETTING_TEXT, /* a string, through parse and format */
 } NwSettingKind;
 
@@ -19,6 +20,7 @@ typedef struct NwSettingKey {
     NwSettingKind kind;
     size_t offset, size;
     int lo, hi;
+    const char *const *names; /* NW_SETTING_ENUM: hi of them */
     bool (*parse)(const char *text, void *field);
     const char *(*format)(const void *field, char *buf, int size);
     const char *help;
@@ -124,7 +126,13 @@ static const char *nw_settings_hud_format(const void *field, char *buf, int size
     return nw_settings_hud_name(*(const float *)field, buf, size);
 }
 
+static const char *const nw_settings_windows[NW_WINDOW_MODES] = { "windowed", "borderless", "fullscreen" };
+_Static_assert(sizeof(NwWindowMode) == sizeof(int), "NW_SETTING_ENUM fields are int-sized");
+
 static const NwSettingKey nw_settings_keys[] = {
+    { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
+      .names = nw_settings_windows,
+      .help = "windowed, borderless (fullscreen at the desktop's resolution) or fullscreen (exclusive)" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
       .help = "auto (the display's), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's picture" },
@@ -145,6 +153,7 @@ void nw_settings_defaults(NwSettings *s)
     s->voice_volume = 100;
     s->aspect = 0.0f;
     s->hud = 16.0f / 9.0f;
+    s->window = NW_WINDOW_WINDOWED;
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)
@@ -199,10 +208,18 @@ static void nw_settings_take(const NwSettingKey *k, const NwDocValue *v, NwSetti
         *(bool *)field = v->i != 0;
     } else if (k->kind == NW_SETTING_INT && v->type == NW_DOC_INT) {
         *(int *)field = v->i < k->lo ? k->lo : v->i > k->hi ? k->hi : (int)v->i;
-    } else if (k->kind == NW_SETTING_TEXT && v->type == NW_DOC_STR && v->len < sizeof(text)) {
+    } else if ((k->kind == NW_SETTING_ENUM || k->kind == NW_SETTING_TEXT) && v->type == NW_DOC_STR &&
+               v->len < sizeof(text)) {
         SDL_memcpy(text, v->bytes, v->len);
         text[v->len] = '\0';
-        k->parse(text, field);
+        for (int i = 0; k->kind == NW_SETTING_ENUM && i < k->hi; i++) {
+            if (SDL_strcmp(text, k->names[i]) == 0) {
+                *(int *)field = i;
+            }
+        }
+        if (k->kind == NW_SETTING_TEXT) {
+            k->parse(text, field);
+        }
     }
 }
 
@@ -241,7 +258,8 @@ static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings 
     } else if (k->kind == NW_SETTING_INT) {
         v = nw_doc_int(*(const int *)field, 0);
     } else {
-        const char *text = k->format(field, buf, sizeof(buf));
+        const char *text =
+            k->kind == NW_SETTING_ENUM ? k->names[*(const int *)field] : k->format(field, buf, sizeof(buf));
         if (!nw_doc_str(&v, text, SDL_strlen(text))) {
             return false;
         }
