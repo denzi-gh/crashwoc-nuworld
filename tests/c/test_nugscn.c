@@ -249,6 +249,23 @@ static void test_load(const char *scratch)
         uploads += jobs[i].op < NW_GPU_FREE_MESH;
     }
     CHECK(n > 0 && uploads * 2 == n);
+    /* Five times with no remove, as the game drops a scene by reusing its buffer (ResetSuperBuffer) after a level
+       init: each load frees the one before. */
+    for (int pass = 0; pass < 5; pass++) {
+        char *buf = scene_buffer + 3;
+        NuTexInit();
+        NuMtlInit();
+        NuRndrInitWorld();
+        CHECK(NuGScnRead(&buf, end, "test.gsc") != NULL);
+    }
+    n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    uint32_t geoms[2] = { 0, 0 };
+    for (uint32_t i = 0; i < n; i++) {
+        NwGpuOp op = jobs[i].op;
+        geoms[0] += op == NW_GPU_UPLOAD_MESH || op == NW_GPU_UPLOAD_SPRITES;
+        geoms[1] += op == NW_GPU_FREE_MESH || op == NW_GPU_FREE_SPRITES;
+    }
+    CHECK(geoms[0] > 0 && geoms[0] % 5 == 0 && geoms[1] == geoms[0] / 5 * 4);
     SDL_free(jobs);
 
     nw_shim_file_init(NULL);

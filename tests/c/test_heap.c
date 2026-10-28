@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "port/heap.h"
 
 static int failures;
@@ -31,6 +33,18 @@ static void count_hole(const void *at, size_t size, const char *why, void *user)
 {
     (void)at, (void)size, (void)why;
     ++*(unsigned *)user;
+}
+
+/* The frees queued so far, as the render thread takes them once every fence has passed. */
+static uint32_t take_frees(const void *objs[4])
+{
+    NwGpuJob *jobs = NULL;
+    uint32_t cap = 0, n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; objs && i < n && i < 4; i++) {
+        objs[i] = jobs[i].obj;
+    }
+    SDL_free(jobs);
+    return n;
 }
 
 int main(void)
@@ -93,6 +107,24 @@ int main(void)
     holes = 0;
     nw_heap_each_hole(count_hole, &holes);
     CHECK(holes == 0);
+
+    /* A load's GPU objects are freed with its records, once: by a load over its range, or by its release. */
+    NwHeapSide *scene = nw_heap_side();
+    nw_heap_side_gpu(scene, NW_GPU_FREE_MESH, heap + 1);
+    nw_heap_side_gpu(scene, NW_GPU_FREE_SPRITES, heap + 2);
+    nw_heap_side_own(scene, heap, heap + 64);
+    CHECK(take_frees(NULL) == 0);
+    nw_heap_side_own(nw_heap_side(), heap, heap + 32);
+    const void *freed[4];
+    CHECK(take_frees(freed) == 2 && freed[0] == heap + 1 && freed[1] == heap + 2);
+    NwHeapSide *viewed = nw_heap_side();
+    nw_heap_side_gpu(viewed, NW_GPU_FREE_MESH, heap + 3);
+    char *sc = nw_heap_side_new(viewed, 16, 8);
+    nw_heap_side_own(viewed, heap + 2048, heap + 2112);
+    nw_heap_release(sc + 4);
+    CHECK(take_frees(freed) == 1 && freed[0] == heap + 3 && nw_heap_find(sc) == NULL);
+    nw_heap_side_own(nw_heap_side(), heap + 2048, heap + 2112);
+    CHECK(take_frees(NULL) == 0);
 
     printf("%s\n", failures ? "FAILED" : "heap: all checks passed");
     return failures ? 1 : 0;

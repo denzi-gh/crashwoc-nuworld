@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "gfx/packet.h"
 #include "nucore/nuerror.h"
 
 #define NW_HEAP_FIRST 0x400  /* a side's first chunk; each next one doubles */
@@ -32,6 +33,11 @@ struct NwHeapSide {
         const char *why;
     } *holes;
     size_t nholes, holecap;
+    struct NwHeapGpu {
+        NwGpuOp free;
+        void *obj;
+    } *gpu;
+    size_t ngpu, gpucap;
 };
 
 /* EE threads pass a baton, so no lock. */
@@ -112,18 +118,49 @@ void *nw_heap_side_at(NwHeapSide *side, size_t size, size_t align, const void *a
     return rec;
 }
 
+void nw_heap_side_gpu(NwHeapSide *side, NwGpuOp free, void *obj)
+{
+    if (side->ngpu == side->gpucap) {
+        size_t n = side->gpucap ? side->gpucap * 2 : 64;
+        struct NwHeapGpu *grown = SDL_realloc(side->gpu, n * sizeof(*grown));
+        if (!grown) {
+            nw_heap_oom();
+        }
+        side->gpu = grown;
+        side->gpucap = n;
+    }
+    side->gpu[side->ngpu++] = (struct NwHeapGpu){ free, obj };
+}
+
 static void nw_heap_side_free(size_t i)
 {
     NwHeapSide *side = nw_heap_live[i];
+    for (size_t g = 0; g < side->ngpu; g++) {
+        nw_gpu_queue(side->gpu[g].free, side->gpu[g].obj);
+    }
     for (NwHeapChunk *c = side->chunks, *next; c; c = next) {
         next = c->next;
         SDL_free(c);
     }
     SDL_free(side->recs);
     SDL_free(side->holes);
+    SDL_free(side->gpu);
     SDL_free(side);
     nw_heap_live[i] = nw_heap_live[--nw_heap_nlive];
     nw_heap_stale = true;
+}
+
+void nw_heap_release(const void *host)
+{
+    for (size_t i = 0; i < nw_heap_nlive; i++) {
+        const NwHeapSide *side = nw_heap_live[i];
+        for (size_t r = 0; r < side->nrecs; r++) {
+            if ((uintptr_t)host - (uintptr_t)side->recs[r].host < side->recs[r].size) {
+                nw_heap_side_free(i);
+                return;
+            }
+        }
+    }
 }
 
 void nw_heap_side_own(NwHeapSide *side, const void *lo, const void *hi)
