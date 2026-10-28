@@ -17,9 +17,9 @@ RUNNING = re.compile(r"^boot-check: level running at vblank \d+")
 SHARED = {
     "NuPs2ChangeTexPal": "#61",
     "NuLgtArcLaserDraw": "#61",
-    "NuRndrRectUV3di": "#61",
     "NuRndrFxCode": "#61",
-    "NuLightFogDraw": "#61",
+    "NuLightPolyHaze": "#61",
+    "NuLightHaze": "#61",
     "NuRndrWater": "#62",
 }
 

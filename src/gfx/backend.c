@@ -27,6 +27,8 @@ static struct {
     NwBeSurf surf[NW_BE_SURFS];
     uint32_t nsurf;
     NwBeSurf copy;         /* a target a draw also reads, copied */
+    NwBeSurf zcopy;        /* the target's Z a depth CLUT reads, copied */
+    GLuint zclut;          /* a depth CLUT's entries */
     NwBeSurf *target;      /* what the draws go to */
     int width, height;     /* the target's pixels */
     int shown_w, shown_h;  /* those of the back buffer */
@@ -45,7 +47,7 @@ static struct {
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
-static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 } };
+static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL };
 
 bool nw_backend_save(const char *path)
 {
@@ -92,7 +94,7 @@ static void nw_be_surf_free(NwBeSurf *s)
 {
     glDeleteFramebuffers(1, &s->fbo);
     glDeleteTextures(1, &s->tex);
-    glDeleteRenderbuffers(1, &s->depth);
+    glDeleteTextures(1, &s->depth);
     memset(s, 0, sizeof(*s));
 }
 
@@ -102,6 +104,8 @@ void nw_backend_shutdown(void)
         nw_be_surf_free(&nw_be.surf[i]);
     }
     nw_be_surf_free(&nw_be.copy);
+    nw_be_surf_free(&nw_be.zcopy);
+    glDeleteTextures(1, &nw_be.zclut);
     glDeleteVertexArrays(1, &nw_be.rect_vao);
     glDeleteBuffers(1, &nw_be.rect_vbo);
     glDeleteBuffers(1, &nw_be.rect_ibo);
@@ -243,13 +247,14 @@ static void nw_be_job(const NwGpuJob *job)
     }
 }
 
-/* (Re)makes a surface tw x th, black: colour and a 24-bit Z, as the GS has; leaves its framebuffer bound. */
+/* (Re)makes a surface tw x th, black: colour and a 24-bit Z, as the GS has, the Z a texture a depth CLUT reads
+   (with a stencil); leaves its framebuffer bound. */
 static void nw_be_surf_make(NwBeSurf *s, int32_t addr, int tw, int th)
 {
     if (!s->fbo) {
         glGenFramebuffers(1, &s->fbo);
         glGenTextures(1, &s->tex);
-        glGenRenderbuffers(1, &s->depth);
+        glGenTextures(1, &s->depth);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
     if (s->tw != tw || s->th != th) {
@@ -258,17 +263,19 @@ static void nw_be_surf_make(NwBeSurf *s, int32_t addr, int tw, int th)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glBindTexture(GL_TEXTURE_2D, s->depth);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, tw, th, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, NULL);
         glActiveTexture(GL_TEXTURE0);
-        glBindRenderbuffer(GL_RENDERBUFFER, s->depth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, tw, th);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->tex, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, s->depth);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, s->depth, 0);
         s->tw = tw;
         s->th = th;
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     }
     s->addr = addr;
 }
@@ -336,6 +343,32 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
     }
     tex = (NwVuTexture){ s->tex, 0, tcc, true };
     return &tex;
+}
+
+/* A depth CLUT for a draw on the target: its Z copied, as a texture cannot be both, and the entries uploaded. */
+static const NwVuZClut *nw_be_zclut(const NwZClut *z)
+{
+    static NwVuZClut vz;
+    NwBeSurf *s = nw_be.target;
+    nw_be_surf_make(&nw_be.zcopy, 0, s->tw, s->th);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, s->fbo);
+    glBlitFramebuffer(0, 0, s->tw, s->th, 0, 0, s->tw, s->th, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, s->fbo);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    if (!nw_be.zclut) {
+        glGenTextures(1, &nw_be.zclut);
+        glBindTexture(GL_TEXTURE_2D, nw_be.zclut);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8UI, 256, 1, 0, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, NULL);
+    }
+    glBindTexture(GL_TEXTURE_2D, nw_be.zclut);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, z->clut);
+    glActiveTexture(GL_TEXTURE0);
+    vz = (NwVuZClut){ nw_be.zcopy.depth, nw_be.zclut, z->shift, z->base, z->far, z->near,
+                      { z->clear, z->clear_z[0], z->clear_z[1] } };
+    return &vz;
 }
 
 /* The matrix from GS coordinates (12.4 pixels from XYOFFSET, Z 0 .. 2^23 - 1 with the nearer point larger) to GL
@@ -558,6 +591,9 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     NwVuMaterial m = nw_be_material(p, c, false);
     if (c->alpha) {
         m.state.alpha = (uint8_t)c->alpha;
+    }
+    if (c->zclut && c->zclut <= p->nzcluts) {
+        m.zclut = nw_be_zclut(&p->zcluts[c->zclut - 1]);
     }
     NwVuTexture clut;
     if (c->clut && c->clut->gl.clut && m.tex && m.tex->clut) {

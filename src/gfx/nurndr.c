@@ -328,6 +328,48 @@ void NuRndrRectUV2di(int x, int y, int width, int height, float u0, float v0, fl
     nw_rndr_rect(x, y, width, height, colour, mtl, st, nurndr_pixel_width, nurndr_pixel_height);
 }
 
+NwVuSpriteVertex *nw_rndr_rect3d_quad(NwVuSpriteVertex *v, int x, int y, int width, int height, const float uv[4],
+                                      int colour, int z)
+{
+    NwVuSpriteVertex q[4];
+    x += (PS2_VCNTR_X - (nurndr_pixel_width >> 1)) << 4;
+    y += (PS2_VCNTR_Y - (nurndr_pixel_height >> 1)) << 4;
+    z = z < 0 ? 0 : z > 0x7FFFFF ? 0x7FFFFF : z;
+    memset(q, 0, sizeof(q));
+    for (int k = 0; k < 4; k++) {
+        q[k].pos[0] = (float)(k & 1 ? x + width : x);
+        q[k].pos[1] = (float)(k & 2 ? y + height : y);
+        q[k].pos[2] = (float)z;
+        q[k].pos[3] = 1.0f;
+        q[k].tex[0] = uv[k & 1 ? 2 : 0] * 4096.0f;
+        q[k].tex[1] = uv[k & 2 ? 3 : 1] * 4096.0f;
+        memcpy(q[k].col, &colour, 4);
+    }
+    return nw_rndr_quad(v, q);
+}
+
+NwCmd *nw_rndr_rect3d(struct rndrstream_s *stream, int x, int y, int width, int height, const float uv[4],
+                      int colour, int z)
+{
+    NwVuSpriteVertex *v;
+    NwCmd *c = nw_rndr_verts(stream, NW_VERTS_GS, 6, &v);
+    nw_rndr_rect3d_quad(v, x, y, width, height, uv, colour, z);
+    return c;
+}
+
+void NuRndrRectUV3di(int x, int y, int width, int height, float u0, float v0, float u1, float v1, int colour, int z)
+{
+    const float uv[4] = { u0, v0, u1, v1 };
+    nw_rndr_rect3d(rndrstream_3d, x, y, width, height, uv, colour, z);
+}
+
+void NuRndrRectUVStream(struct rndrstream_s *stream, int x, int y, int width, int height, float u0, float v0, float u1,
+                        float v1, int colour, int z)
+{
+    const float uv[4] = { u0, v0, u1, v1 };
+    nw_rndr_rect3d(stream, x, y, width, height, uv, colour, z);
+}
+
 /* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame
    counters; only the one main.c reads is kept. */
 int NuRndrSwapScreen(int target)

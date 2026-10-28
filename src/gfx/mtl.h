@@ -25,7 +25,9 @@ typedef enum NwBlendFactor {
     NW_BLEND_ONE,
     NW_BLEND_SRC_ALPHA,
     NW_BLEND_ONE_MINUS_SRC_ALPHA,
-    NW_BLEND_DST_COLOUR
+    NW_BLEND_DST_COLOUR,
+    NW_BLEND_DST_ALPHA,
+    NW_BLEND_ONE_MINUS_DST_ALPHA
 } NwBlendFactor;
 
 /* An ALPHA register as a GL blend: op(Cs * src, Cd * dst); as_colour: the program writes As as Cs. */
@@ -45,7 +47,7 @@ typedef struct NwMtlPass {
 NwMtlState nw_mtl_state(const uint32_t attrib[2], int16_t k, uint8_t l, uint32_t levels);
 /* The passes the alpha test needs: the passing pixels, then (unless AFAIL is KEEP) what AFAIL writes of the rest. */
 uint32_t nw_mtl_passes(const NwMtlState *s, NwMtlPass pass[2]);
-/* false for an ALPHA whose C is not As or whose factors have no GL blend. */
+/* false for an ALPHA whose C is FIX or whose factors have no GL blend. */
 bool nw_mtl_blend(uint8_t alpha, NwMtlBlend *b);
 
 #endif

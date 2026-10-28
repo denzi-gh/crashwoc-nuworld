@@ -73,6 +73,18 @@ typedef struct NwPtl {
     float mom[3], rate;
 } NwPtl;
 
+/* A CLUT that a VERTS command looks up by the GS Z under each pixel instead of a texture, as retail's fog and spot
+   lights read the Z buffer back byte by byte: entry (Z >> shift) & 0xFF over 256 entries from Z = base, entry far
+   below them and near above. Seashell's NuLightFogClear then gives the alpha 0x80 where it is under 0x80 and Z is at
+   most clear[0], and 0 where it is 0x80 or more and Z is at least clear[1]. */
+typedef struct NwZClut {
+    uint32_t clut[256];
+    uint32_t shift, base;
+    uint32_t far, near;
+    bool clear;
+    uint32_t clear_z[2];
+} NwZClut;
+
 /* How a VERTS command's vertices are drawn. */
 typedef enum NwVertsMode {
     NW_VERTS_GS,   /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
@@ -122,6 +134,7 @@ typedef struct NwCmd {
             uint8_t mode;               /* VERTS: an NwVertsMode */
             uint16_t alpha;             /* VERTS: 0x100 | an ALPHA_1 written over the material's; 0 none */
             const NwGpuTex *clut;       /* VERTS: a CLUT over the material texture's, NULL none */
+            uint32_t zclut;             /* VERTS: 1 + its depth CLUT in NwPacket.zcluts, 0 none */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
         };
         struct {
@@ -164,6 +177,8 @@ typedef struct NwPacket {
     uint32_t nptllists, ptllistcap;
     NwPtl *ptls;
     uint32_t nptls, ptlcap;
+    NwZClut *zcluts;
+    uint32_t nzcluts, zclutcap;
 } NwPacket;
 
 /* Appends a command, a view, a material or lights; NULL on out of memory. */
@@ -178,6 +193,7 @@ float *nw_packet_weights(NwPacket *p, uint32_t n, uint32_t *first);
 NwVuSpriteVertex *nw_packet_verts(NwPacket *p, uint32_t n, uint32_t *first);
 NwPtlList *nw_packet_ptllist(NwPacket *p, uint32_t *index);
 NwPtl *nw_packet_ptls(NwPacket *p, uint32_t n, uint32_t *first);
+NwZClut *nw_packet_zclut(NwPacket *p, uint32_t *index);
 /* Empties p, keeping its memory. */
 void nw_packet_reset(NwPacket *p);
 

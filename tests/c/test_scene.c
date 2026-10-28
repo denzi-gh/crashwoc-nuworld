@@ -875,6 +875,7 @@ static void test_blend(void)
         { 0x46, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_ONE_MINUS_SRC_ALPHA, false } },
         { 0x89, { NW_BLEND_ADD, NW_BLEND_ZERO, NW_BLEND_SRC_ALPHA, false } },
         { 0x84, { NW_BLEND_SUBTRACT, NW_BLEND_SRC_ALPHA, NW_BLEND_SRC_ALPHA, false } }, /* (Cs - Cd) * As */
+        { 0x54, { NW_BLEND_ADD, NW_BLEND_DST_ALPHA, NW_BLEND_ONE_MINUS_DST_ALPHA, false } }, /* (Cs - Cd) * Ad + Cd */
     };
     for (size_t i = 0; i < SDL_arraysize(cases); i++) {
         NwMtlBlend b;

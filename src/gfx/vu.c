@@ -156,7 +156,10 @@ static const char nw_vu_fs[] =
     "uniform usampler2D u_tex;\n"
     "uniform usampler2D u_clut;\n"
     "uniform sampler2D u_surf;\n"
-    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface; MMAG; CLAMP u; CLAMP v */
+    "uniform sampler2D u_depth;\n" /* a depth CLUT's: the target's Z */
+    "uniform uvec4 u_zclut;\n"     /* shift, base, far, near */
+    "uniform uvec3 u_zclear;\n"    /* NuLightFogClear: on, the two Z */
+    "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface, 4 depth CLUT; MMAG; CLAMP u, v */
     "uniform ivec4 u_texlod;\n"  /* MMIN, MXL, L, K (1/16) */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
@@ -207,6 +210,22 @@ static const char nw_vu_fs[] =
     "    }\n"
     "    return sample_level(uv, min(int(lod + 0.5), u_texlod.y), bilinear);\n"
     "}\n"
+    /* The GS Z under the pixel, back from the depth the GS matrix (src/gfx/backend.c) gave it. */
+    "vec4 zclut()\n"
+    "{\n"
+    "    float d = texelFetch(u_depth, ivec2(gl_FragCoord.xy), 0).r;\n"
+    "    uint z = uint((1.0 - d) * 8388607.0 + 0.5);\n"
+    "    uint i = z < u_zclut.y ? u_zclut.z\n"
+    "           : z - u_zclut.y >= (256u << u_zclut.x) ? u_zclut.w : (z >> u_zclut.x) & 0xFFu;\n"
+    "    vec4 t = vec4(texelFetch(u_clut, ivec2(int(i), 0), 0));\n"
+    "    if (u_zclear.x != 0u && t.a < 128.0 && z <= u_zclear.y) {\n"
+    "        t.a = 128.0;\n"
+    "    }\n"
+    "    if (u_zclear.x != 0u && t.a >= 128.0 && z >= u_zclear.z) {\n"
+    "        t.a = 0.0;\n"
+    "    }\n"
+    "    return t;\n"
+    "}\n"
     "bool atest(int a)\n"
     "{\n"
     "    switch (u_atest.x) {\n"
@@ -225,7 +244,7 @@ static const char nw_vu_fs[] =
     "{\n"
     "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
     "    if (u_texmode.x != 0) {\n"
-    "        vec4 t = floor(sample_gs(v_uv));\n"
+    "        vec4 t = u_texmode.x == 4 ? zclut() : floor(sample_gs(v_uv));\n"
     "        c.rgb = min(floor(c.rgb * t.rgb / 128.0), 255.0);\n"
     "        c.a = u_tcc != 0 ? min(floor(c.a * t.a / 128.0), 255.0) : c.a;\n"
     "    }\n"
@@ -238,7 +257,7 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl;
+        uv, ptl, zclut, zclear;
 } nw_vu[NW_VU_PROGRAMS];
 
 static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
@@ -304,6 +323,8 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].blend = glGetUniformLocation(p, "u_blend");
     nw_vu[program].uv = glGetUniformLocation(p, "u_uv");
     nw_vu[program].ptl = glGetUniformLocation(p, "u_ptl");
+    nw_vu[program].zclut = glGetUniformLocation(p, "u_zclut");
+    nw_vu[program].zclear = glGetUniformLocation(p, "u_zclear");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -311,6 +332,7 @@ static bool nw_vu_link(NwVuProgram program)
     glUniform1i(glGetUniformLocation(p, "u_pool"), 3);
     glUniform1i(glGetUniformLocation(p, "u_weights"), 4);
     glUniform1i(glGetUniformLocation(p, "u_deltas"), 5);
+    glUniform1i(glGetUniformLocation(p, "u_depth"), 6);
     return true;
 }
 
@@ -383,19 +405,30 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].uvoff, 1, m->uvoff);
     glUniform4fv(nw_vu[program].sprite, 1, o->sprite);
     glUniform4fv(nw_vu[program].uv, 4, o->uv[0]);
-    bool textured = m->tex && m->tex->index;
-    glUniform4i(nw_vu[program].texmode, textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0, m->state.mmag,
-                m->state.wms == 1,
-                m->state.wmt == 1);
+    const NwVuZClut *z = m->zclut;
+    bool textured = !z && m->tex && m->tex->index;
+    glUniform4i(nw_vu[program].texmode, z ? 4 : textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0,
+                m->state.mmag, m->state.wms == 1, m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
-    glUniform1i(nw_vu[program].tcc, textured && m->tex->tcc);
+    glUniform1i(nw_vu[program].tcc, z || (textured && m->tex->tcc));
+    if (z) {
+        glUniform4ui(nw_vu[program].zclut, z->shift, z->base, z->far, z->near);
+        glUniform3ui(nw_vu[program].zclear, z->clear[0], z->clear[1], z->clear[2]);
+        glActiveTexture(GL_TEXTURE0 + 6);
+        glBindTexture(GL_TEXTURE_2D, z->depth);
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, z->clut);
+        glActiveTexture(GL_TEXTURE0);
+    }
     NwMtlBlend b = { 0 };
     if (m->state.abe && nw_mtl_blend(m->state.alpha, &b)) {
         static const GLenum ops[] = { GL_FUNC_ADD, GL_FUNC_SUBTRACT, GL_FUNC_REVERSE_SUBTRACT };
-        static const GLenum factors[] = { GL_ZERO, GL_ONE, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_COLOR };
+        static const GLenum factors[] = { GL_ZERO,      GL_ONE,       GL_SRC_ALPHA,          GL_ONE_MINUS_SRC_ALPHA,
+                                          GL_DST_COLOR, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA };
         glEnable(GL_BLEND);
-        glBlendEquation(ops[b.op]);
-        glBlendFunc(factors[b.src], factors[b.dst]);
+        glBlendEquationSeparate(ops[b.op], GL_FUNC_ADD);
+        /* The GS writes As to the frame's alpha unblended. */
+        glBlendFuncSeparate(factors[b.src], factors[b.dst], GL_ONE, GL_ZERO);
     } else {
         glDisable(GL_BLEND);
     }

@@ -23,6 +23,7 @@
 #include "nups2/nups2types.h"
 
 #include "gsc_builder.h"
+#include "port/stub.h"
 
 extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[],
     vu_load_fx2_mpg[];
@@ -82,6 +83,9 @@ u32 *NuRndrCreateBlendShapeDeformerWeightsArray(u32 count);
 extern u8 *rndrstream_free;
 extern struct rndrstream_s *rndrstream_system, *rndrstream_mtl_sort, *rndrstream_faceon, *rndrstream_3d_u,
     *rndrstream_3d_l, *rndrstream_2d, *rndrstream_ptl, *rndrstream_fx, *rndrstream_ot_sort;
+void NuLightFog(float near, float far, int colour, int blur, int haze_colour);
+void NuLightFogDraw(int paused);
+extern struct numtl_s *NuLgtSurf[18], *NuLgtBackAlphaBuff;
 
 static int failures;
 
@@ -1021,6 +1025,50 @@ static void test_render_target(void)
     NuRndrSwapStreamBuffers();
 }
 
+/* NuLightFogDraw with west_a's fog: one composite of ten columns in NuLgtSurf[9] under ALPHA 0x44, its depth CLUT
+   the fog colour at nearly full alpha at the far end and clearing towards fog-near, the columns in front of the CLUT's
+   base; the blur's nineteen rects in GS coordinates under ALPHA 0x54, (Cs - Cd) * Ad + Cd. */
+static void test_fog(void)
+{
+    NuCameraSet(NuCameraCreate());
+    NuLgtSurf[9] = NuMtlCreate(1);
+    NuLgtBackAlphaBuff = NuMtlCreate(1);
+    NuMtlUpdate(NuLgtSurf[9]);
+    NuMtlUpdate(NuLgtBackAlphaBuff);
+    nw_stub_set_continue(true); /* the haze passes it ends with */
+    NuLightFog(45.0f, 95.0f, 0x7F613F45, 1, 0);
+    NuLightFogDraw(0);
+    const NwPacket *p = nw_rndr_packet();
+    const NwCmd *fog = NULL;
+    uint32_t blur = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        fog = c->op == NW_CMD_VERTS && c->zclut ? c : fog;
+        blur += c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->alpha == (0x100 | 0x54) && c->count == 6 &&
+                c->material == NuLgtBackAlphaBuff;
+    }
+    CHECK(blur == 19);
+    CHECK(fog && fog->mode == NW_VERTS_GS && fog->count == 60 && fog->alpha == (0x100 | 0x44));
+    CHECK(fog && fog->material == NuLgtSurf[9] && fog->zclut <= p->nzcluts);
+    if (fog && fog->zclut <= p->nzcluts) {
+        const NwZClut *z = &p->zcluts[fog->zclut - 1];
+        CHECK((z->clut[z->far] & 0xFFFFFF) == 0x613F45 && z->clut[z->far] >> 24 >= 0xF0);
+        CHECK(z->shift >= 9 && z->near == 0 && !z->clear);
+        uint32_t k = 0, a = 0xFF;
+        while (k < 256 && (a = z->clut[(z->far + k) & 0xFF] >> 24) != 0) {
+            CHECK(k == 0 || a <= z->clut[(z->far + k - 1) & 0xFF] >> 24);
+            k++;
+        }
+        CHECK(k > 1 && k < 256 && a == 0);
+        for (uint32_t i = 0; i < fog->count; i++) {
+            const NwVuSpriteVertex *v = &p->verts[fog->first + i];
+            CHECK(v->pos[2] == p->verts[fog->first].pos[2] && v->pos[2] >= (float)z->base && v->col[3] == 0x3F);
+        }
+    }
+    nw_stub_set_continue(false);
+    NuRndrSwapStreamBuffers();
+}
+
 int main(void)
 {
     PS2_REZ_W = 640;
@@ -1052,6 +1100,7 @@ int main(void)
     test_shadows();
     test_particles();
     test_clouds();
+    test_fog();
     printf("%s\n", failures ? "FAILED" : "rndr: all checks passed");
     return failures ? 1 : 0;
 }

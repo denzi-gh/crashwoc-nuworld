@@ -210,6 +210,15 @@ NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, 
     return &r->cmd;
 }
 
+NwZClut *nw_rndr_zclut(NwCmd *c)
+{
+    NwRecord *r = (NwRecord *)c;
+    NwZClut *z = nw_rndr_alloc(sizeof(*z));
+    memset(z, 0, sizeof(*z));
+    r->zclut = z;
+    return z;
+}
+
 NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls)
 {
     NwRecord *r = nw_rndr_record(NW_CMD_PARTICLES, stream->mtl, nw_stream_mpg(stream), (int)(stream->attr & 0x43));
@@ -306,6 +315,13 @@ static void nw_rndr_emit(struct rndrstream_s *stream)
             if (verts) {
                 memcpy(verts, r->verts, r->cmd.count * sizeof(*verts));
             } else if (r->verts) {
+                c->count = 0;
+            }
+            NwZClut *zclut = r->zclut ? nw_packet_zclut(nw_packet_building(), &c->zclut) : NULL;
+            if (zclut) {
+                *zclut = *r->zclut;
+                c->zclut++;
+            } else if (r->zclut) {
                 c->count = 0;
             }
             NwPtlList *list = r->ptllist ? nw_packet_ptllist(nw_packet_building(), &c->ptllist) : NULL;
