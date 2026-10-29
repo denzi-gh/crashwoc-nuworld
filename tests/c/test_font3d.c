@@ -166,7 +166,7 @@ static void test_synthetic(const char *scratch)
     NwPrompts prompts;
     nw_prompts_retail(&prompts);
     strcpy(prompts.glyph[4].text, "AA");
-    strcpy(prompts.glyph[0].icon, "xbox_button_a");
+    strcpy(prompts.glyph[0].icon, "xbox_button_color_a");
     nw_font3d_prompts(&prompts);
     Text3D("qx", 0.0f, 1.0f, 5.0f, 1.0f, 1.0f, 1.0f, 2, 0);
     CHECK(SDL_fabsf(font3d_xleft) < 1e-6f && SDL_fabsf(font3d_xright - 0.4f) < 1e-6f);

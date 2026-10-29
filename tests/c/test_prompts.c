@@ -49,7 +49,7 @@ static void test_glyphs(void)
     nw_prompts_build(NW_PROMPTS_PLAYSTATION, &c, &p);
     CHECK(memcmp(&p, &retail, sizeof(p)) == 0);
     nw_prompts_build(NW_PROMPTS_XBOX, &c, &p);
-    CHECK(strcmp(p.glyph[0].icon, "xbox_button_a") == 0 && strcmp(p.glyph[1].icon, "xbox_button_b") == 0);
+    CHECK(strcmp(p.glyph[0].icon, "xbox_button_color_a") == 0 && strcmp(p.glyph[1].icon, "xbox_button_color_b") == 0);
     CHECK(strcmp(p.glyph[4].icon, "xbox_lb") == 0 && strcmp(p.glyph[7].icon, "xbox_rt") == 0);
     /* Nintendo's labels by position: south is B. */
     nw_prompts_build(NW_PROMPTS_NINTENDO, &c, &p);
@@ -62,7 +62,7 @@ static void test_glyphs(void)
     nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 0, NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
     nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 4, 1 + SDL_GAMEPAD_BUTTON_EAST);
     nw_prompts_build(NW_PROMPTS_XBOX, &c, &p);
-    CHECK(strcmp(p.glyph[0].icon, "xbox_rt") == 0 && strcmp(p.glyph[4].icon, "xbox_button_b") == 0);
+    CHECK(strcmp(p.glyph[0].icon, "xbox_rt") == 0 && strcmp(p.glyph[4].icon, "xbox_button_color_b") == 0);
     CHECK(memcmp(&p.glyph[1], &retail.glyph[1], sizeof(p.glyph[1])) == 0);
     nw_prompts_build(NW_PROMPTS_PLAYSTATION, &c, &p);
     CHECK(strcmp(p.glyph[0].text, "R2") == 0 && p.glyph[4].model == 'o' && !p.glyph[4].text[0]);

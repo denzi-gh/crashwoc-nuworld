@@ -4,8 +4,8 @@
 
 /* By SDL_GamepadButton; NULL draws the button's name. The guide buttons are brand logos. */
 static const char *const nw_prompts_xbox[SDL_GAMEPAD_BUTTON_COUNT] = {
-    "xbox_button_a", "xbox_button_b", "xbox_button_x", "xbox_button_y", "xbox_button_view", NULL, "xbox_button_menu",
-    "xbox_ls", "xbox_rs", "xbox_lb", "xbox_rb", "xbox_dpad_up", "xbox_dpad_down", "xbox_dpad_left", "xbox_dpad_right",
+    "xbox_button_color_a", "xbox_button_color_b", "xbox_button_color_x", "xbox_button_color_y", "xbox_button_view",
+    NULL, "xbox_button_menu", "xbox_ls", "xbox_rs", "xbox_lb", "xbox_rb", "xbox_dpad_up", "xbox_dpad_down", "xbox_dpad_left", "xbox_dpad_right",
     "xbox_button_share", "xbox_elite_paddle_top_right", "xbox_elite_paddle_top_left", "xbox_elite_paddle_bottom_right",
     "xbox_elite_paddle_bottom_left",
 };
