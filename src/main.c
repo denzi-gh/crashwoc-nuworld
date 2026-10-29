@@ -417,6 +417,14 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
 static int nw_run_hz;             /* --hz, else the window's setting; 0: PAL's */
+static const char *nw_overlays[NW_VFS_OVERLAYS]; /* --overlay, in the order given: the later wins */
+static int nw_overlay_count;
+
+static void nw_overlay_conflict(void *user, const char *key)
+{
+    fprintf(stderr, NW_APP_NAME ": --overlay %s: %s is in an earlier overlay too; this one wins\n",
+            (const char *)user, key);
+}
 
 /* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
    file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
@@ -440,6 +448,15 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
             nw_vfs_shutdown(&vfs);
         }
         return 2;
+    }
+    for (int i = 0; i < nw_overlay_count; i++) {
+        if (!nw_vfs_overlay(&vfs, nw_overlays[i], nw_overlay_conflict, (void *)nw_overlays[i])) {
+            fprintf(stderr, NW_APP_NAME ": --overlay: %s\n", SDL_GetError());
+            SDL_free(elf);
+            nw_vfs_shutdown(&vfs);
+            return 2;
+        }
+        fprintf(stderr, NW_APP_NAME ": --overlay %s: %u files\n", nw_overlays[i], vfs.mounts[NW_VFS_OVERLAY].count);
     }
     nw_shim_file_init(&vfs);
     nw_newlib_init();
@@ -1070,7 +1087,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
              strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
-             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0) &&
+             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0 ||
+             strcmp(argv[i], "--overlay") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -1133,6 +1151,12 @@ int main(int argc, char *argv[])
             nw_run_level = argv[++i];
         } else if (strcmp(argv[i], "--pad-script") == 0) {
             nw_pad_script = argv[++i];
+        } else if (strcmp(argv[i], "--overlay") == 0) {
+            if (nw_overlay_count == NW_VFS_OVERLAYS) {
+                fprintf(stderr, NW_APP_NAME ": at most %d --overlay folders\n", NW_VFS_OVERLAYS);
+                return 2;
+            }
+            nw_overlays[nw_overlay_count++] = argv[++i];
         } else if (strcmp(argv[i], "--hardware-speed") == 0) {
             const char *value = argv[++i];
             if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
@@ -1150,6 +1174,12 @@ int main(int argc, char *argv[])
             }
             nw_run_hz = atoi(value);
         }
+    }
+    /* The checks, tests and comparisons read the retail disc. */
+    if (nw_overlay_count && (!boot || boot_check || capture || dump || check_data || check_scenes || check_disc ||
+                             scene || scene_check || verify || import || import_save)) {
+        fprintf(stderr, NW_APP_NAME ": --overlay is for the game window (--boot) only\n");
+        return 2;
     }
     if (import) {
         return nw_import(import, data_dir);

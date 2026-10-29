@@ -17,6 +17,8 @@ void nw_newlib_init(void);
 /* src/shim/file.c: the file system the sce file calls use (NULL: none, every open fails); closes what is
    open. */
 void nw_shim_file_init(const struct NwVfs *vfs);
+/* That file system (the port's NuDat* reads overlaid archive entries from it). */
+const struct NwVfs *nw_shim_file_vfs(void);
 
 /* src/shim/pad.c: the DualShock 2 on port 0. Buttons are active-high libpad bits, sticks 0x00-0xFF centred on 0x80
    (y down), l2/r2 the trigger pressure. */

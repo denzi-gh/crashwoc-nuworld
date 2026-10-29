@@ -139,6 +139,69 @@ static void test_synthetic(const char *scratch)
     SDL_free(root);
 }
 
+/* --overlay folders replace single entries: the loose file's size in the directory, unpacked, read in its place. */
+static void test_overlay(const char *scratch)
+{
+    char *root = NULL, *path = NULL;
+    char buf[64];
+    DatBuild d;
+    NwVfs vfs;
+
+    SDL_asprintf(&root, "%snudat-overlay/", scratch);
+    SDL_RemovePath(root);
+    build_dat(&d);
+    SDL_asprintf(&path, "%s" NW_DISC_DIR "/", root);
+    CHECK(SDL_CreateDirectory(path));
+    SDL_free(path);
+    SDL_asprintf(&path, "%s" NW_DISC_DIR "/" NW_DISC_STAMP, root);
+    CHECK(SDL_SaveFile(path, "", 0));
+    SDL_free(path);
+    SDL_asprintf(&path, "%s" NW_DISC_DIR "/TEST.DAT", root);
+    CHECK(SDL_SaveFile(path, d.data, d.size));
+    SDL_free(path);
+    SDL_asprintf(&path, "%smod/test.dat/arc/a/", root);
+    CHECK(SDL_CreateDirectory(path));
+    SDL_free(path);
+    SDL_asprintf(&path, "%smod/test.dat/arc/a/y.bin", root);
+    CHECK(SDL_SaveFile(path, "the loose why", 13));
+    SDL_free(path);
+    SDL_asprintf(&path, "%smod/test.dat/arc/a/x.bin", root);
+    CHECK(SDL_SaveFile(path, "plain x", 7));
+    SDL_free(path);
+
+    CHECK(nw_vfs_init(&vfs, root));
+    SDL_asprintf(&path, "%smod", root);
+    CHECK(nw_vfs_overlay(&vfs, path, NULL, NULL));
+    SDL_free(path);
+    nw_shim_file_init(&vfs);
+    NuFileInitEx(1, 1);
+
+    struct nudathdr_s *dat = NuDatOpen("test.dat", NULL, NULL);
+    CHECK(dat != NULL);
+    if (dat) {
+        NuDatSet(dat);
+        CHECK(NuFileSize("arc\\a\\y.bin") == 13 && NuFileSize("arc\\a\\x.bin") == 7);
+        CHECK(NuFileSize("arc\\top.bin") == 4);
+        memset(buf, 0, sizeof(buf));
+        CHECK(NuFileLoadBuffer("arc\\a\\x.bin", buf, sizeof(buf)) == 7 && memcmp(buf, "plain x", 7) == 0);
+        int fh = NuFileOpen("arc\\a\\y.bin", NUFILE_READ);
+        CHECK(fh >= 0x800 && NuFileOpenSize(fh) == 13);
+        CHECK(NuFileRead(fh, buf, 3) == 3 && memcmp(buf, "the", 3) == 0);
+        CHECK(NuFileSeek(fh, 4, 0) == 4 && NuFilePos(fh) == 4);
+        CHECK(NuFileRead(fh, buf, 5) == 5 && memcmp(buf, "loose", 5) == 0);
+        NuFileClose(fh);
+        fh = NuFileOpen("arc\\top.bin", NUFILE_READ); /* not overlaid: the archive's */
+        CHECK(fh >= 0x800 && NuFileRead(fh, buf, 4) == 4 && memcmp(buf, "top!", 4) == 0);
+        NuFileClose(fh);
+        NuDatSet(NULL);
+        NuDatClose(dat);
+    }
+    nw_shim_file_init(NULL);
+    nw_vfs_shutdown(&vfs);
+    SDL_RemovePath(root);
+    SDL_free(root);
+}
+
 typedef struct RetailCheck {
     NwDat *raw;
     unsigned entries, packed, bad;
@@ -217,6 +280,7 @@ int main(int argc, char *argv[])
     SDL_asprintf(&scratch, "%s/", argv[1]);
     SDL_CreateDirectory(scratch);
     test_synthetic(scratch);
+    test_overlay(scratch);
     SDL_free(scratch);
     printf("%s\n", failures ? "FAILED" : "ok");
     return failures ? 1 : 0;

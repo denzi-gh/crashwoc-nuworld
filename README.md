@@ -78,6 +78,12 @@ in NuWorld: the decomp's definition stays as `<name>__retail` (declared in the g
 NuWorld's takes every call, the decomp's own included. A file `static` that NuWorld code must reach goes under
 `expose`: the generated wrapper drops its `static`, the name stays.
 
+Files and assets are replaced without code: `--overlay DIR` (with `--boot`, up to four, the later wins) lays a
+folder over the disc. Each file in it replaces the disc file of the same path, or, in a folder named after an
+archive (`ATS.DAT/LEVELS/...`), that archive's entry. An overlay only replaces: a file the disc lacks, the boot
+ELF, `SYSTEM.CNF`, the IRX modules and `DUMMY.DAT` stop the start, and a file two overlays have is reported. The
+mod format with manifests (`mods/`) comes with the engine rewrite.
+
 A decomp function that NuWorld defines itself (an override or a wrap in `port/units.toml`) is locked in
 `port/copies.lock`.
 `python tools/copies.py --check` fails when a decomp update changes one, so its NuWorld definition gets a look

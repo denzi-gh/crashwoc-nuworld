@@ -624,6 +624,79 @@ static void test_vfs(void)
 #undef AT
 }
 
+/* ---- --overlay ------------------------------------------------------------------------------------------- */
+
+typedef struct OverlayEach {
+    char seen[4][64];
+    int count;
+    int conflicts;
+} OverlayEach;
+
+static void overlay_conflict(void *user, const char *key)
+{
+    (void)key;
+    ((OverlayEach *)user)->conflicts++;
+}
+
+static void overlay_each(void *user, const char *rest, const char *path)
+{
+    OverlayEach *e = user;
+    (void)path;
+    if (e->count < 4) {
+        SDL_strlcpy(e->seen[e->count], rest, sizeof(e->seen[0]));
+    }
+    e->count++;
+}
+
+static void test_overlay(void)
+{
+    char root[1024], path[1024], buf[16];
+    NwVfs vfs;
+    NwVfsFile *f;
+    DatBuild d;
+    OverlayEach each = { 0 };
+
+#define AT(name) (SDL_snprintf(path, sizeof(path), "%s%s", root, name), path)
+    SDL_snprintf(root, sizeof(root), "%s/overlay/", scratch);
+    build_dat(&d);
+    CHECK(SDL_CreateDirectory(AT("disc/LEVELS")) && SDL_CreateDirectory(AT("new/levels")) &&
+          SDL_CreateDirectory(AT("old/LEVELS")) && SDL_CreateDirectory(AT("entry/test.dat/arc/a")) &&
+          SDL_CreateDirectory(AT("bad/test.dat/arc")) && SDL_CreateDirectory(AT("extra")) &&
+          SDL_CreateDirectory(AT("fixed")));
+    CHECK(SDL_SaveFile(AT("disc/LEVELS/A.GSC"), "disc", 4) && SDL_SaveFile(AT("disc/SYSTEM.CNF"), "cnf", 3));
+    CHECK(SDL_SaveFile(AT("disc/TEST.DAT"), d.data, d.size) && SDL_SaveFile(AT("disc/" NW_DISC_STAMP), "", 0));
+    CHECK(SDL_SaveFile(AT("old/LEVELS/A.GSC"), "old", 3) && SDL_SaveFile(AT("new/levels/a.gsc"), "new", 3));
+    CHECK(SDL_SaveFile(AT("entry/test.dat/arc/a/y.bin"), "loose y", 7));
+    CHECK(SDL_SaveFile(AT("bad/test.dat/arc/nope.bin"), "x", 1) && SDL_SaveFile(AT("extra/NEW.GSC"), "x", 1));
+    CHECK(SDL_SaveFile(AT("fixed/system.cnf"), "x", 1));
+    if (!nw_vfs_init(&vfs, root)) {
+        CHECK(!"nw_vfs_init");
+        return;
+    }
+
+    /* The newest overlay wins and reports the file the older one has too. */
+    CHECK(nw_vfs_overlay(&vfs, AT("old"), overlay_conflict, &each) && each.conflicts == 0);
+    CHECK(nw_vfs_overlay(&vfs, AT("new"), overlay_conflict, &each) && each.conflicts == 1);
+    f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\A.GSC;1", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 3 && memcmp(buf, "new", 3) == 0);
+    nw_vfs_close(f);
+
+    /* An archive entry by its folder; only what the disc has, never the fixed files. */
+    CHECK(nw_vfs_overlay(&vfs, AT("entry"), overlay_conflict, &each));
+    nw_vfs_overlay_each(&vfs, "TEST.DAT/", overlay_each, &each);
+    CHECK(each.count == 1 && strcmp(each.seen[0], "ARC/A/Y.BIN") == 0);
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("bad"), NULL, NULL), "no such entry in TEST.DAT");
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("extra"), NULL, NULL), "not on the disc");
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("fixed"), NULL, NULL), "never replaces");
+    CHECK(nw_vfs_overlay(&vfs, AT("old"), NULL, NULL));
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("old"), NULL, NULL), "more than");
+    f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\A.GSC;1", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 3 && memcmp(buf, "old", 3) == 0); /* the failed ones left none */
+    nw_vfs_close(f);
+    nw_vfs_shutdown(&vfs);
+#undef AT
+}
+
 /* ---- .DAT archives -------------------------------------------------------------------------------------- */
 
 typedef struct DatListing {
@@ -964,6 +1037,7 @@ int main(int argc, char *argv[])
     test_paths();
     test_map();
     test_vfs();
+    test_overlay();
     test_dat();
     test_import_folder();
     test_import_job();

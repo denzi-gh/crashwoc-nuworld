@@ -1,6 +1,6 @@
-/* Game file system: maps the PS2 devices onto the data folder. cdrom0: reads go through a mount list (slot 0 is
-   reserved for the mod overlay, then the imported disc) with case-insensitive lookups; host0: is the writable
-   <root>host0/ folder. Errors via SDL_GetError(). */
+/* Game file system: maps the PS2 devices onto the data folder. cdrom0: reads go through a mount list (the
+   --overlay folders, the newest first, then the imported disc) with case-insensitive lookups; host0: is the
+   writable <root>host0/ folder. Errors via SDL_GetError(). */
 #ifndef NUWORLD_VFS_VFS_H
 #define NUWORLD_VFS_VFS_H
 
@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #define NW_VFS_PATH_MAX 256 /* normalised path with the NUL */
+#define NW_VFS_OVERLAYS 4   /* --overlay folders at most */
 
 typedef enum NwVfsDevice {
     NW_VFS_CDROM, /* cdrom0:, also paths without a device */
@@ -16,8 +17,8 @@ typedef enum NwVfsDevice {
 } NwVfsDevice;
 
 typedef enum NwVfsSlot {
-    NW_VFS_OVERLAY, /* mod overlay hook, empty for now */
-    NW_VFS_DISC,
+    NW_VFS_OVERLAY,                /* the first of the overlay slots, the newest overlay */
+    NW_VFS_DISC = NW_VFS_OVERLAYS, /* the imported disc */
     NW_VFS_SLOTS,
 } NwVfsSlot;
 
@@ -55,6 +56,16 @@ bool nw_vfs_init(NwVfs *vfs, const char *root);
 /* Indexes dir into a slot; NULL empties it. Names starting with '.' are skipped. */
 bool nw_vfs_mount(NwVfs *vfs, NwVfsSlot slot, const char *dir);
 void nw_vfs_shutdown(NwVfs *vfs);
+
+/* --overlay: mounts dir in front of the overlays mounted before, so the newest wins. It only replaces: each file
+   stands for a disc file, or, in a folder named after an archive (ATS.DAT/LEVELS/...), for one of its entries; the
+   boot ELF, SYSTEM.CNF, the IRX modules and DUMMY.DAT are never replaced. A file an older overlay also has goes to
+   conflict (the newest wins). Needs the disc mounted. */
+bool nw_vfs_overlay(NwVfs *vfs, const char *dir, void (*conflict)(void *user, const char *key), void *user);
+/* Calls fn with the overlays' files under prefix (an archive's key and '/'), the newest overlay's for a key, with
+   the key's rest and the host path. */
+void nw_vfs_overlay_each(const NwVfs *vfs, const char *prefix,
+                         void (*fn)(void *user, const char *rest, const char *path), void *user);
 
 /* Host path of a game file: the first mount that has it (cdrom0:) or the host0: folder. Free with SDL_free. */
 char *nw_vfs_resolve(const NwVfs *vfs, const char *game_path);
