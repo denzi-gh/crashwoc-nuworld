@@ -162,21 +162,21 @@ static void test_synthetic(const char *scratch)
     CHECK(first == 3 && second == 2 && other == 0);
     NuRndrSwapStreamBuffers();
 
-    /* L1 (q) handed as two letters, cross (x) as an icon: three cells from the left, the icon a VERTS record. */
+    /* L1 (q) handed as two letters, cross (x) as an icon in two cells: four from the left, the icon a VERTS record. */
     NwPrompts prompts;
     nw_prompts_retail(&prompts);
     strcpy(prompts.glyph[4].text, "AA");
     strcpy(prompts.glyph[0].icon, "xbox_button_a");
     nw_font3d_prompts(&prompts);
     Text3D("qx", 0.0f, 1.0f, 5.0f, 1.0f, 1.0f, 1.0f, 2, 0);
-    CHECK(SDL_fabsf(font3d_xleft) < 1e-6f && SDL_fabsf(font3d_xright - 0.3f) < 1e-6f);
+    CHECK(SDL_fabsf(font3d_xleft) < 1e-6f && SDL_fabsf(font3d_xright - 0.4f) < 1e-6f);
     NuRndrEndScene();
     p = nw_rndr_packet();
     unsigned letters[2] = { 0, 0 }, icons = 0;
     other = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
-        if (c->op == NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.5f) < 1e-6f && c->material && c->material->tid) {
+        if (c->op == NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.6f) < 1e-6f && c->material && c->material->tid) {
             icons++;
         } else if (c->op != NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.1f) < 1e-6f) {
             letters[0]++;

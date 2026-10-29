@@ -51,8 +51,9 @@ extern const struct nw_embed_file nw_prompt_icons[];
 extern const size_t nw_prompt_icons_count;
 
 #define NW_FONT3D_ICONS 64
-/* An icon over the cross model's extent. */
+/* An icon over the cross model's extent, which comes out about two letters wide, and the letters it takes. */
 #define NW_FONT3D_ICON_SCALE 1.5f
+#define NW_FONT3D_ICON_CELLS 2.0f
 
 static SDL_SpinLock nw_font3d_lock;
 static bool nw_font3d_handed;
@@ -143,7 +144,7 @@ static f32 nw_font3d_width(char c)
     }
     const NwPromptGlyph *g = &nw_font3d_glyphs.glyph[t];
     if (g->icon[0] && nw_font3d_icon(g->icon)) {
-        return 1.0f;
+        return NW_FONT3D_ICON_CELLS;
     }
     if (g->text[0]) {
         f32 w = 0.0f;
@@ -205,7 +206,7 @@ static void nw_font3d_glyph(char c, f32 x, f32 y, f32 z, f32 dx, f32 scalex, f32
     const NwPromptGlyph *g = &nw_font3d_glyphs.glyph[nw_font3d_target(c)];
     struct numtl_s *mtl = g->icon[0] ? nw_font3d_icon(g->icon) : NULL;
     if (mtl) {
-        nw_font3d_quad(mtl, x, y, z, scalex, scaley);
+        nw_font3d_quad(mtl, x + dx * (NW_FONT3D_ICON_CELLS - 1.0f) * 0.5f, y, z, scalex, scaley);
     } else if (g->text[0]) {
         for (const char *s = g->text; *s; s++) {
             nw_font3d_letter(*s, x, y, z, dx, scalex, scaley, scalez);
