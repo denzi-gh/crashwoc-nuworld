@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     CHECK(e != NULL && strcmp(e->name, "FixLoad") == 0 && e->provenance == NW_PROV_PORT);
     CHECK(((int (*)(const char *))e->fn)("x") == 42);
 
-    /* The decomp caller binds to the port's FixLocal, not the renamed decomp one. */
+    /* The decomp caller binds to the port's FixLocal, which wraps the decomp's (FixLocal__retail). */
     e = nw_funcmap_find(0x001001e0u);
     CHECK(e != NULL && e->provenance == NW_PROV_PORT);
     e = nw_funcmap_find(0x001001f0u);

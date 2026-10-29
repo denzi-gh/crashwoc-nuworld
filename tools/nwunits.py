@@ -22,7 +22,7 @@ DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
 
 TREATMENTS = ("compile", "editor", "hle", "replace", "dead", "shim")
-UNIT_KEYS = {"treatment", "override", "keep", "rename", "runtime", "called"}
+UNIT_KEYS = {"treatment", "override", "keep", "rename", "wrap", "runtime", "called"}
 HOST_DEFINES = frozenset({"NW_HOST"})
 
 STATE_PROVENANCE = {"matching": "matching", "equivalent": "equivalent", "asm": "near"}
@@ -56,6 +56,7 @@ class Function:
     provider: str = ""              # decomp | port | stub | shim
     provenance: str = ""
     overridden: bool = False
+    wrapped: bool = False           # the decomp C compiles as <name>__retail, the port's <name> takes the calls
     static: bool = False
     definition: "Decl | None" = None
     proto: "Decl | None" = None
@@ -73,6 +74,7 @@ class Unit:
     override: tuple[str, ...] = ()
     keep: tuple[str, ...] = ()
     rename: dict[str, str] = field(default_factory=dict)
+    wrap: tuple[str, ...] = ()
     runtime: tuple[str, ...] = ()   # editor unit: compiled in every build, the rest only with the editor
     editor_dropped: bool = False    # the functions outside runtime are dropped (no editor build)
     called: tuple[str, ...] = ()    # editor/dead unit: stubs compiled code may call (guarded or unreachable)
@@ -89,6 +91,9 @@ class Unit:
             return True
         hit = any(fnmatch.fnmatchcase(name, p) for p in self.override)
         return hit and not any(fnmatch.fnmatchcase(name, p) for p in self.keep)
+
+    def is_wrapped(self, name: str) -> bool:
+        return name in self.wrap
 
 
 def load_registries(decomp: Path, version: str) -> list[Unit]:
@@ -457,6 +462,7 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         unit.override = tuple(entry.get("override", ()))
         unit.keep = tuple(entry.get("keep", ()))
         unit.rename = dict(entry.get("rename", {}))
+        unit.wrap = tuple(entry.get("wrap", ()))
         unit.runtime = tuple(entry.get("runtime", ()))
         if unit.runtime and unit.treatment != "editor":
             errors.append(f"unit {unit.name}: runtime on a {unit.treatment} unit (editor only)")
@@ -474,6 +480,9 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         for old in unit.rename:
             if old not in fnames:
                 errors.append(f"unit {unit.name}: rename of unknown function {old!r}")
+        for name in unit.wrap:
+            if name not in fnames:
+                errors.append(f"unit {unit.name}: wrap of unknown function {name!r}")
 
 
 def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
@@ -553,6 +562,19 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
                 continue
             defs = [d for d in tu_decls.get(f.name, ()) if d.is_def]
             f.definition = defs[0] if defs else None
+            f.wrapped = unit.is_wrapped(f.name)
+            if f.wrapped:
+                why = ("it is also overridden" if f.overridden
+                       else "the decomp has no C for it" if f.definition is None
+                       else "it is static in the decomp" if f.definition.static
+                       else "it is also renamed" if f.host != f.name
+                       else "the port does not define it" if f.host not in port_defs
+                       else f"{unit.name} is no wrapper unit" if unit.kind != "wrapper" else None)
+                if why:
+                    model.errors.append(f"unit {unit.name}: wrap {f.name}: {why}")
+                f.provider, f.provenance = "port", "port"
+                _choose_proto(f, unit, tu_decls, decls_by_name, typedefs, module_header)
+                continue
             if f.definition and not f.overridden:
                 f.provider = "decomp"
                 f.provenance = STATE_PROVENANCE.get(f.state or "asm", "near")

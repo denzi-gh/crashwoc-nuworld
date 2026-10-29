@@ -1,6 +1,6 @@
-# The decomp functions NuWorld defines itself (port/units.toml overrides), with a hash of the decomp's
-# definition. tools/copies.py --check fails when the decomp changes one: look at NuWorld's definition,
-# then --update. A port patch must not edit them (the edit never compiles).
+# The decomp functions NuWorld defines itself (port/units.toml overrides and wraps), with a hash of the
+# decomp's definition. tools/copies.py --check fails when the decomp changes one: look at NuWorld's
+# definition, then --update. A port patch must not edit an overridden one (the edit never compiles).
 schema = 1
 
 [copies]

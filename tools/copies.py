@@ -2,10 +2,11 @@
 """Lock the retail functions NuWorld defines itself in place of the decomp C.
 
 An override in port/units.toml drops the decomp's definition and compiles
-NuWorld's. port/copies.lock holds a hash of each such decomp definition (its
-tokens; comments and spacing ignored). --check fails when the decomp changes
-one, so its NuWorld definition gets a look (then --update), and when a port
-patch edits one: that edit never compiles, drop it from the patch.
+NuWorld's; a wrap keeps it as <name>__retail behind NuWorld's. port/copies.lock
+holds a hash of each such decomp definition (its tokens; comments and spacing
+ignored). --check fails when the decomp changes one, so its NuWorld definition
+gets a look (then --update), and when a port patch edits an overridden one:
+that edit never compiles, drop it from the patch.
 """
 from __future__ import annotations
 
@@ -19,9 +20,9 @@ import nwunits  # noqa: E402
 import patches  # noqa: E402
 
 LOCK = nwunits.REPO / "port" / "copies.lock"
-HEADER = ("# The decomp functions NuWorld defines itself (port/units.toml overrides), with a hash of the decomp's\n"
-          "# definition. tools/copies.py --check fails when the decomp changes one: look at NuWorld's definition,\n"
-          "# then --update. A port patch must not edit them (the edit never compiles).\n")
+HEADER = ("# The decomp functions NuWorld defines itself (port/units.toml overrides and wraps), with a hash of the\n"
+          "# decomp's definition. tools/copies.py --check fails when the decomp changes one: look at NuWorld's\n"
+          "# definition, then --update. A port patch must not edit an overridden one (the edit never compiles).\n")
 
 
 def bodies(tree: Path, source: str, cache: dict) -> dict[str, str]:
@@ -35,9 +36,9 @@ def bodies(tree: Path, source: str, cache: dict) -> dict[str, str]:
 
 
 def replaced(model: nwunits.Model) -> list[nwunits.Function]:
-    """The functions with decomp C whose NuWorld definition replaces it."""
+    """The functions with decomp C whose NuWorld definition takes the calls (overrides and wraps)."""
     return [f for u in model.units if u.kind == "wrapper" for f in u.functions
-            if f.overridden and f.provider == "port" and f.definition is not None]
+            if (f.overridden or f.wrapped) and f.provider == "port" and f.definition is not None]
 
 
 def current(decomp: Path, pristine: Path, units: Path, port_src: Path) -> tuple[dict[str, str], list[str]]:
@@ -54,7 +55,7 @@ def current(decomp: Path, pristine: Path, units: Path, port_src: Path) -> tuple[
             errors.append(f"{key}: the decomp has no definition of it")
             continue
         hashes[key] = retail
-        if patched != retail:
+        if patched != retail and f.overridden:  # a wrap keeps the decomp C, patched or not
             errors.append(f"{key}: a port patch edits it, but NuWorld defines it itself; the edit never compiles, "
                           "drop it from the patch")
     return hashes, errors

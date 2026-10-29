@@ -63,7 +63,12 @@ A patch must leave the PS2 build unchanged: host behaviour goes behind a `nu_por
 EE compilers with and without the patches and compares the objects. Host-only blocks are invisible to it, so their
 count per concern is kept in `port/ee_gate.toml`; change it together with the patch that needs it.
 
-A decomp function that NuWorld defines itself (an override in `port/units.toml`) is locked in `port/copies.lock`.
+To run code before, after or instead of a decomp function, list it under `wrap` in `port/units.toml` and define it
+in NuWorld: the decomp's definition stays as `<name>__retail` (declared in the generated `<unit>.retail.h`), and
+NuWorld's takes every call, the decomp's own included.
+
+A decomp function that NuWorld defines itself (an override or a wrap in `port/units.toml`) is locked in
+`port/copies.lock`.
 `python tools/copies.py --check` fails when a decomp update changes one, so its NuWorld definition gets a look
 (then `--update`), and when a port patch edits one: that edit never compiles.
 

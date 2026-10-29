@@ -162,7 +162,7 @@ class Model(unittest.TestCase):
 
     def test_editor_runtime(self):
         text = UNITS.read_text().replace('"nucore/fixcore" = { treatment = "compile",',
-                                         '"nucore/fixcore" = { treatment = "editor", runtime = ["FixAdd"], '
+                                         '"nucore/fixcore" = { treatment = "editor", runtime = ["FixAdd", "FixLocal"], '
                                          'called = ["FixOther"],')
         with tempfile.TemporaryDirectory() as tmp:
             units = Path(tmp) / "units.toml"
@@ -204,7 +204,8 @@ class Model(unittest.TestCase):
     def test_units_toml_errors(self):
         bad = {
             '"game/fixdead" = { treatment = "dead" }': '"game/fixdead" = { treatment = "gone" }',
-            'override = ["FixLoad", "FixLocal"]': 'override = ["FixLoad", "NoSuchFn*"], keep = ["Fix*"]',
+            'override = ["FixLoad"], wrap = ["FixLocal"]':
+                'override = ["FixLoad", "NoSuchFn*"], keep = ["Fix*"], wrap = ["FixLocal", "NoSuchWrap"]',
             'rename = { main = "nw_game_main" }': 'rename = { mian = "nw_game_main" }',
             '"game/fixdata" = { treatment = "compile",': '"game/fixdata" = { treatment = "compile", runtime = ["FixDataUse"],',
         }
@@ -218,7 +219,8 @@ class Model(unittest.TestCase):
             errors = "\n".join(load(units).errors)
         for needle in ("treatment must be one of", "'NoSuchFn*' matches no function",
                        "rename of unknown function 'mian'", "units.game/nosuchunit: matches no decomp unit",
-                       "a glob key takes only a treatment", "unit game/fixdata: runtime on a compile unit"):
+                       "a glob key takes only a treatment", "unit game/fixdata: runtime on a compile unit",
+                       "wrap of unknown function 'NoSuchWrap'"):
             self.assertIn(needle, errors)
 
     def test_duplicate_global(self):
@@ -250,11 +252,12 @@ class Model(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "src"
             src.mkdir()
-            text = (PORT_SRC / "fiximpl.c").read_text().replace("return v * 10;", "/* copied */\n    return  v ;")
+            text = (PORT_SRC / "fiximpl.c").read_text().replace("(void)name;\n    return 42;",
+                                                                "/* copied */\n    return  name[0] ;")
             (src / "fiximpl.c").write_text(text)
             model = nwunits.load(DECOMP, UNITS, src)
         self.assertEqual(model.errors, [])
-        self.assertEqual(model.warnings, ["src/fiximpl.c:9: the port's FixLocal is identical to the decomp C "
+        self.assertEqual(model.warnings, ["src/fiximpl.c:4: the port's FixLoad is identical to the decomp C "
                                           "(nucore/fixcore); drop the override"])
 
 
@@ -298,9 +301,11 @@ class TuFilter(unittest.TestCase):
         self.assertEqual(out[out.index("s32 FixNear(s32 a)") + 1], probe)
         self.assertEqual(sum("NW_NEAR" in line for line in out), 1)
         out[out.index(probe)] = "{"
-        end = src.index("FixLocal(s32 v)") + 3          # the closing brace
+        # The wrapped FixLocal keeps its body as FixLocal__retail, behind a prototype of the port's FixLocal.
+        start = src.index("FixLocal(s32 v)")            # 1-based, the line of its "s32"
         i = out.index("s32 FixLocal(s32 v);")
-        self.assertRegex(out[i + 1], rf'^#line {end + 2} ".*/nucore/fixcore\.c"$')
+        self.assertRegex(out[i + 1], rf'^#line {start} ".*/nucore/fixcore\.c"$')
+        self.assertEqual(out[i + 2:i + 4], ["s32", "FixLocal__retail(s32 v)"])
         self.assertIn("s32 FixLoad(const char *name);", out)
         self.assertIn("    return FixLocal(v) + 1;", out)
         self.assertEqual(out[-5:], ['#line %d "w.wrap.c"' % (len(out) - 3),
@@ -308,7 +313,7 @@ class TuFilter(unittest.TestCase):
                                     '#include "fixcore.funcmap.inc"',
                                     '#include "fixcore.data.inc"', ""])
         # Every other line maps through #line to the same source line; the only source
-        # lines left out are the two overridden definitions.
+        # lines left out are the overridden definition.
         body, cur, seen = out[4:-5], 1, set()
         for j, line in enumerate(body):
             if line.startswith("#line "):
@@ -316,12 +321,11 @@ class TuFilter(unittest.TestCase):
                 continue
             if j + 1 < len(body) and body[j + 1].startswith("#line "):
                 continue                                   # an inserted prototype
-            self.assertEqual(line, src[cur - 1])
+            self.assertEqual(line.replace("FixLocal__retail", "FixLocal"), src[cur - 1])
             seen.add(cur)
             cur += 1
         gaps = [src[k - 1] for k in range(1, len(src)) if k not in seen]
-        self.assertEqual(gaps, ["s32 FixLoad(const char *name)", "{", "    return name[0];", "}",
-                                "s32", "FixLocal(s32 v)", "{", "    return v;", "}"])
+        self.assertEqual(gaps, ["s32 FixLoad(const char *name)", "{", "    return name[0];", "}"])
 
     def test_prelude_skips_sdk_units(self):
         self.assertTrue(tu_filter.wants_prelude(nwunits.Unit(0, "game/main", "")))
@@ -428,7 +432,8 @@ class ListOutputs(unittest.TestCase):
 
     def test_generators(self):
         self.assertEqual(self.outputs("tu_filter.py"),
-                         ["nucore/fixcore.wrap.c", "game/fixgame.wrap.c", "game/fixdata.wrap.c"])
+                         ["nucore/fixcore.wrap.c", "game/fixgame.wrap.c", "game/fixdata.wrap.c",
+                          "nucore/fixcore.retail.h"])
         self.assertEqual(self.outputs("gen_stubs.py"),
                          ["nucore/fixcore.stubs.inc", "numath/fixasm.stubs.c",
                           "game/fixgame.stubs.inc", "game/fixdead.stubs.c", "game/fixdata.stubs.inc"])

@@ -4,6 +4,8 @@
 # override/keep: globs the port implements instead of the decomp C (the decomp definition is
 #   dropped; without a port definition the function is a stub); rename: decomp -> host name, for
 #   the function's declarations, definition and calls in its unit
+# wrap: functions whose decomp C stays, renamed <name>__retail (declared in the generated <unit>.retail.h); the
+#   port defines <name>, which takes every call and runs code before, after or instead of <name>__retail
 # runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
 #   build; the rest of the unit stays editor-only
 # called: stubs of an editor or dead unit that compiled code calls behind a guard retail never passes (or until
