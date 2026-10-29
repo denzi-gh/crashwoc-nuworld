@@ -1,0 +1,32 @@
+--- a/src/game/edwumpa.c
++++ b/src/game/edwumpa.c
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/nuvec.h"
+ #include "game/gametypes.h"
+@@ -45,7 +46,12 @@ extern void eduiMenuDestroy(void *menu);
+ extern void ResetWumpa(void);
+ extern void SaveWumpa(void);
+ extern void ResetTimeTrial(void);
++#ifdef NW_HOST /* retail's prototype passes pos as an int before fALONG; the EE passes them in a2 and $f12 either way */
++extern void ResetCheckpoint(s32 iRAIL, s32 iALONG, f32 fALONG, struct nuvec_s *pos);
++#define ResetCheckpoint(a, b, c, d) ResetCheckpoint(a, b, d, (struct nuvec_s *)(c))
++#else
+ extern void ResetCheckpoint(s32 a, s32 b, s32 c, f32 d);
++#endif
+ extern void ResetBonus(void);
+ extern void ResetDeath(void);
+ extern void ResetGemPath(void);
+@@ -340,7 +346,7 @@ s32 edwmpProc(struct nupad_s *pad)
+     if (screendump) {
+         return 0;
+     }
+-    edwmp_count += 6;
++    edwmp_count += NW_HZ(6, 5);
+     if (edwmp_active_menu) {
+         eduiMenuProcess(edwmp_active_menu, pad);
+         return 0;

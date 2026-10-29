@@ -37,6 +37,14 @@ ctest --test-dir build/release
 
 On Windows, the executable is `build/release/crashwoc-nuworld.exe`.
 
+## Changing the game
+
+The `decomp/` submodule is the original game and is never edited here. What the port changes in its code lives in
+`port/patches/`: unified diffs per concern, applied in the order of `series.toml`, with new files in `files/`. The
+build copies the decomp to `build/<preset>/decomp` and applies them; the tools in `tools/` use `build/decomp`
+(`python tools/patches.py apply`). Every hunk must match exactly, so a decomp update that touches patched code
+stops the build at that patch.
+
 ## Game data
 
 Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):

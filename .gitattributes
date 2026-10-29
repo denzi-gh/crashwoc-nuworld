@@ -1,0 +1,2 @@
+# tools/patches.py reads the port patches byte for byte: LF on every checkout.
+port/patches/** text eol=lf

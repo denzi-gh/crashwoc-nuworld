@@ -95,6 +95,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="validate only, write nothing")
     parser.add_argument("--list", action="store_true", help="print every stub")
     args = parser.parse_args()
+    args.decomp = nwunits.decomp_tree(args.decomp)
 
     model = nwunits.load(args.decomp, args.units, args.port_src, args.editor)
     if not nwunits.report(model, sys.stderr):

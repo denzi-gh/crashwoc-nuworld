@@ -118,14 +118,15 @@ def render(model: nwunits.Model, hits: dict[int, Hit], nruns: int) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("logs", nargs="+", help="captured output of runs, in order ('-' reads stdin)")
-    parser.add_argument("--decomp", type=Path, default=nwunits.DEFAULT_DECOMP,
-                        help="decomp checkout (default: the decomp/ submodule)")
+    parser.add_argument("--decomp", type=Path, default=None,
+                        help="decomp tree (default: the patched tree build/decomp, refreshed first)")
     parser.add_argument("--units", type=Path, default=nwunits.DEFAULT_UNITS,
                         help="unit treatments (default: port/units.toml)")
     parser.add_argument("--port-src", type=Path, default=nwunits.DEFAULT_PORT_SRC,
                         help="the port's sources, scanned for definitions (default: src/)")
     parser.add_argument("--editor", action="store_true", help="the runs used an editor build")
     args = parser.parse_args()
+    args.decomp = nwunits.decomp_tree(args.decomp)
 
     runs = []
     for log in args.logs:

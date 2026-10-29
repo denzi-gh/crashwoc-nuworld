@@ -45,6 +45,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=nwunits.REPO / "build" / "gen")
     parser.add_argument("--check", action="store_true", help="validate only, write nothing")
     args = parser.parse_args()
+    args.decomp = nwunits.decomp_tree(args.decomp)
 
     model = nwunits.load(args.decomp, args.units, args.port_src, args.editor)
     built = [u for u in model.units if u.kind != "none"]

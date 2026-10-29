@@ -1,0 +1,8 @@
+# The port patches over the decomp, applied in this order by tools/patches.py (PLAN.md §2.3). A concern is a
+# directory of <decomp path>.patch files; new files live in files/. Every patch keeps the PS2 build unchanged: its
+# seams expand to the decomp's own text without NW_HOST.
+schema = 1
+
+[[concern]]
+name = "00-nuworld-host"
+reason = "The host seams of the retired nuworld-host branch (decomp bbe44da over main 4c95847), not yet split by concern."
