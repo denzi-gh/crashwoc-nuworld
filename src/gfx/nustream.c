@@ -502,6 +502,8 @@ static void nw_rndr_snap(NwPacket *p)
             memcpy(s->row, sb->vuattr + 9, sizeof(s->row));
             s->tex = nw_rndr_texture(m->tid);
             s->surf = nw_ps2tx_surf(m->tid);
+            s->key = m;
+            s->wrap = (uint8_t)((m->uanmmode == 2) | (m->vanmmode == 2) << 1);
         }
         c->mtl = nw_snap_index[h];
     }

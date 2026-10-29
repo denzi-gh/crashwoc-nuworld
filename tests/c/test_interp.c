@@ -219,12 +219,46 @@ static void test_skin(void)
     }
 }
 
+/* A material's UV scroll: u wraps the short way round 1, v lerps; a texture swap shows at once. */
+static void test_uv(void)
+{
+    NwPacket p[2] = { 0 };
+    static int mtl[2], tex[2];
+    const float u[2] = { 0.95f, 0.05f }, v[2] = { 0.2f, 0.4f };
+    for (int k = 0; k < 2; k++) {
+        uint32_t index;
+        for (int m = 0; m < 2; m++) {
+            NwMtlSnap *s = nw_packet_mtl(&p[k], &index);
+            memset(s, 0, sizeof(*s));
+            s->key = &mtl[m];
+            s->wrap = 1;
+            s->tex = (const NwGpuTex *)&tex[m ? k : 0];
+            s->vu[0] = u[k];
+            s->vu[1] = v[k];
+            s->row[0] = (int32_t)(u[k] * 4096.0f);
+            s->row[1] = (int32_t)(v[k] * 4096.0f);
+        }
+        p[k].seq = 20 + (uint64_t)k;
+        p[k].edge = 40 + (uint64_t)k;
+    }
+    const NwPacket *out = nw_interp_blend(&p[0], &p[1], 0.25f);
+    CHECK(fabsf(out->mtls[0].vu[0] - 0.975f) < 1e-5f && fabsf(out->mtls[0].vu[1] - 0.25f) < 1e-5f);
+    CHECK(out->mtls[0].row[0] == (int32_t)(out->mtls[0].vu[0] * 4096.0f));
+    out = nw_interp_blend(&p[0], &p[1], 0.75f);
+    CHECK(fabsf(out->mtls[0].vu[0] - 0.025f) < 1e-5f);
+    CHECK(out->mtls[1].vu[0] == 0.05f && out->mtls[1].row[1] == p[1].mtls[1].row[1]);
+    for (int k = 0; k < 2; k++) {
+        SDL_free(p[k].mtls);
+    }
+}
+
 int main(void)
 {
     test_mtx();
     test_keys();
     test_snaps();
     test_skin();
+    test_uv();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

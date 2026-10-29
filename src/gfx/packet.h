@@ -127,6 +127,8 @@ typedef struct NwMtlSnap {
     int32_t row[2]; /* the STROW row: the offset x4096, for geoms that unpack their texcoords under STMOD 1 */
     const NwGpuTex *tex;
     NwSurf surf; /* a texture in GS memory instead of tex */
+    const void *key; /* the material, for interpolation */
+    uint8_t wrap;    /* 1 u, 2 v: the offset scrolls, kept in 0-1 (NuMtlAnimate's mode 2) */
 } NwMtlSnap;
 
 #define NW_MTL_NONE UINT32_MAX   /* NwCmd.mtl of a command with no material */

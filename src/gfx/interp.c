@@ -294,6 +294,9 @@ static struct {
     uint32_t jointcap;
     float *weights;
     uint32_t weightcap;
+    uint32_t *mpair, mpaircap; /* b's material -> a's */
+    NwMtlSnap *mtls;
+    uint32_t mtlcap;
 } nw_ir;
 
 static bool nw_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
@@ -350,11 +353,12 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
         return true;
     }
     uint32_t cap = 16;
-    while (cap < a->ncmds * 2) {
+    while (cap < a->ncmds * 2 || cap < a->nmtls * 2) {
         cap *= 2;
     }
     if (!nw_grow((void **)&nw_ir.pair, &nw_ir.paircap, b->ncmds, sizeof(*nw_ir.pair)) ||
         !nw_grow((void **)&nw_ir.vpair, &nw_ir.vpaircap, b->nviews, sizeof(*nw_ir.vpair)) ||
+        !nw_grow((void **)&nw_ir.mpair, &nw_ir.mpaircap, b->nmtls, sizeof(*nw_ir.mpair)) ||
         !nw_grow((void **)&nw_ir.at, &nw_ir.atcap, cap, sizeof(*nw_ir.at)) ||
         !nw_grow((void **)&nw_ir.keys, &nw_ir.keycap, cap, sizeof(*nw_ir.keys))) {
         return false;
@@ -408,6 +412,25 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
                 break;
             }
         }
+    }
+    memset(nw_ir.keys, 0, cap * sizeof(*nw_ir.keys));
+    for (uint32_t i = 0; i < a->nmtls; i++) {
+        uint64_t k = (uintptr_t)a->mtls[i].key;
+        uint32_t h = (uint32_t)nw_mix(0, k) & (cap - 1);
+        while (nw_ir.keys[h]) {
+            h = (h + 1) & (cap - 1);
+        }
+        nw_ir.keys[h] = k;
+        nw_ir.at[h] = i;
+    }
+    for (uint32_t i = 0; i < b->nmtls; i++) {
+        uint64_t k = (uintptr_t)b->mtls[i].key;
+        uint32_t h = (uint32_t)nw_mix(0, k) & (cap - 1);
+        while (nw_ir.keys[h] && nw_ir.keys[h] != k) {
+            h = (h + 1) & (cap - 1);
+        }
+        /* A texture animation's swap shows at once. */
+        nw_ir.mpair[i] = k && nw_ir.keys[h] == k && a->mtls[nw_ir.at[h]].tex == b->mtls[i].tex ? nw_ir.at[h] : NW_NONE;
     }
     nw_ir.a = a->seq;
     nw_ir.b = b->seq;
@@ -494,6 +517,26 @@ static void nw_interp_view_blend(NwView *out, const NwView *a, const NwView *b, 
     out->faceon[2] = -sinf(y);
 }
 
+/* NuMtlAnimate's UV offset from a's to b's, a scrolling one the short way round 1. */
+static void nw_interp_uv(NwMtlSnap *out, const NwMtlSnap *a, const NwMtlSnap *b, float t)
+{
+    for (int i = 0; i < 2; i++) {
+        if (a->vu[i] == b->vu[i] && a->row[i] == b->row[i]) {
+            continue;
+        }
+        float d = b->vu[i] - a->vu[i];
+        if (out->wrap & (1 << i)) {
+            d -= floorf(d + 0.5f);
+        }
+        float uv = a->vu[i] + d * t;
+        if (out->wrap & (1 << i)) {
+            uv -= floorf(uv);
+        }
+        out->vu[i] = uv;
+        out->row[i] = (int32_t)(uv * 4096.0f);
+    }
+}
+
 const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
 {
     if (!a || !b || t >= 1.0f || !nw_interp_pair(a, b) ||
@@ -501,7 +544,8 @@ const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
         !nw_grow((void **)&nw_ir.views, &nw_ir.viewcap, b->nviews, sizeof(*nw_ir.views)) ||
         !nw_grow((void **)&nw_ir.ptllists, &nw_ir.ptllistcap, b->nptllists, sizeof(*nw_ir.ptllists)) ||
         !nw_grow((void **)&nw_ir.joints, &nw_ir.jointcap, b->njoints, sizeof(*nw_ir.joints)) ||
-        !nw_grow((void **)&nw_ir.weights, &nw_ir.weightcap, b->nweights, sizeof(*nw_ir.weights))) {
+        !nw_grow((void **)&nw_ir.weights, &nw_ir.weightcap, b->nweights, sizeof(*nw_ir.weights)) ||
+        !nw_grow((void **)&nw_ir.mtls, &nw_ir.mtlcap, b->nmtls, sizeof(*nw_ir.mtls))) {
         return b;
     }
     nw_ir.out = *b;
@@ -510,11 +554,18 @@ const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
     nw_ir.out.ptllists = nw_ir.ptllists;
     nw_ir.out.joints = nw_ir.joints;
     nw_ir.out.weights = nw_ir.weights;
+    nw_ir.out.mtls = nw_ir.mtls;
     memcpy(nw_ir.cmds, b->cmds, b->ncmds * sizeof(*b->cmds));
     memcpy(nw_ir.views, b->views, b->nviews * sizeof(*b->views));
     memcpy(nw_ir.ptllists, b->ptllists, b->nptllists * sizeof(*b->ptllists));
     memcpy(nw_ir.joints, b->joints, b->njoints * sizeof(*b->joints));
     memcpy(nw_ir.weights, b->weights, b->nweights * sizeof(*b->weights));
+    memcpy(nw_ir.mtls, b->mtls, b->nmtls * sizeof(*b->mtls));
+    for (uint32_t i = 0; i < b->nmtls; i++) {
+        if (nw_ir.mpair[i] != NW_NONE) {
+            nw_interp_uv(&nw_ir.mtls[i], &a->mtls[nw_ir.mpair[i]], &b->mtls[i], t);
+        }
+    }
     uint32_t palette = NW_NONE; /* the SKIN draws of a layer share their palette */
     for (uint32_t i = 0; i < b->ncmds; i++) {
         if (nw_ir.pair[i] == NW_NONE) {
