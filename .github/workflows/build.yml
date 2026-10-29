@@ -25,6 +25,8 @@ jobs:
         run: python3 -m pip install -r tools/requirements.txt
       - name: Check port/units.toml against the decomp
         run: python3 tools/gen_stubs.py --check
+      - name: Count the host-only blocks of the port patches
+        run: python3 tools/ee_gate.py --lint
       - name: Generate wrappers, stubs and function map
         run: |
           python3 tools/tu_filter.py --out build/gen
@@ -68,6 +70,23 @@ jobs:
         run: git config --global --add safe.directory '*'
       - name: Check the type DB against the PS2 compiler
         run: python3 tools/typedb_probe.py
+
+  ee-gate:
+    runs-on: ubuntu-latest
+    container: ghcr.io/denzi-gh/crashwoc-decomp:latest
+    env:
+      NUWORLD_EE_DIRECT: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install the decomp toolchain
+        working-directory: decomp
+        run: python3 tools/setup_toolchain.py --download
+      - name: Trust the checkout
+        run: git config --global --add safe.directory '*'
+      - name: The port patches leave the PS2 build unchanged
+        run: python3 tools/ee_gate.py
 
   linux:
     runs-on: ubuntu-22.04
