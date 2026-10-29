@@ -182,6 +182,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "auto or WxH pixels: the window's size, or fullscreen the display's mode (auto: the desktop's)" },
     { .table = "video", .name = "vsync", .kind = NW_SETTING_ENUM, NW_FIELD(vsync), .hi = NW_VSYNC_MODES,
       .names = nw_settings_vsyncs, .help = "off, on, or adaptive (a late frame shows at once; on where unsupported)" },
+    { .table = "video", .name = "fps", .kind = NW_SETTING_INT, NW_FIELD(fps), .lo = 0, .hi = NW_FPS_MAX,
+      .zero = "refresh", .help = "refresh (the display's rate) or the most frames a second: 60, 120, 240, ..." },
     { .table = "video", .name = "scale", .kind = NW_SETTING_INT, NW_FIELD(scale), .lo = 0, .hi = NW_BACKEND_SCALE_MAX,
       .zero = "auto", .help = "internal resolution: auto (the screen's or more) or 1-8 times the PS2's" },
     { .table = "video", .name = "msaa", .kind = NW_SETTING_INT, NW_FIELD(msaa), .lo = 0, .hi = 16,
@@ -211,6 +213,7 @@ void nw_settings_defaults(NwSettings *s)
     s->window = NW_WINDOW_WINDOWED;
     s->resolution = (NwResolution){ 0, 0 };
     s->vsync = NW_VSYNC_ON;
+    s->fps = 0;
     s->scale = 0;
     s->msaa = 0;
     s->filter = NW_FILTER_RETAIL;

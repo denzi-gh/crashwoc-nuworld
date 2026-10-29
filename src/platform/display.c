@@ -91,6 +91,12 @@ int nw_display_sizes(SDL_Window *window, NwWindowMode mode, NwResolution *sizes,
     return n;
 }
 
+float nw_display_refresh(SDL_Window *window)
+{
+    const SDL_DisplayMode *m = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+    return m && m->refresh_rate > 0.0f ? m->refresh_rate : 0.0f;
+}
+
 NwVsync nw_display_set_vsync(NwVsync vsync)
 {
     static const int intervals[NW_VSYNC_MODES] = { 0, 1, -1 };

@@ -1,5 +1,24 @@
 #include "platform/clock.h"
 
+uint64_t nw_pacer_next(uint64_t next, uint64_t now, uint64_t period)
+{
+    return next && now < next + period ? next + period : now + period;
+}
+
+void nw_pacer_wait(NwPacer *p, unsigned hz)
+{
+    if (!hz) {
+        p->next = 0;
+        return;
+    }
+    uint64_t now = SDL_GetTicksNS();
+    if (p->next > now) {
+        SDL_DelayPrecise(p->next - now);
+        now = SDL_GetTicksNS();
+    }
+    p->next = nw_pacer_next(p->next, now, SDL_NS_PER_SECOND / hz);
+}
+
 unsigned nw_clock_due(NwClockTiming *t, uint64_t now)
 {
     uint64_t passed = now > t->t0 ? (now - t->t0) / t->period : 0;

@@ -175,6 +175,10 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.scale == 4);
 
+    CHECK(read_text("[video]\nfps = 120\n", &s) && s.fps == 120);
+    CHECK(read_text("[video]\nfps = \"refresh\"\n", &s) && s.fps == 0);
+    CHECK(read_text("[video]\nfps = 5000\n", &s) && s.fps == NW_FPS_MAX);
+
     CHECK(read_text("[video]\nmsaa = 4\n", &s) && s.msaa == 4);
     CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
 

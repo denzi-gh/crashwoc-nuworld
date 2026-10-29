@@ -165,6 +165,20 @@ static void nw_video_panel(void *user)
     if (nw_video.vsync != s->vsync) {
         nw_debug_text("not supported here: %s", vsyncs[nw_video.vsync]);
     }
+    static const int rates[] = { 0, 60, 120, 240 };
+    static char custom[16];
+    const char *rate_names[5] = { "Display refresh", "60", "120", "240" };
+    int rate = 0, nrates = 4;
+    while (rate < nrates && rates[rate] != s->fps) {
+        rate++;
+    }
+    if (rate == nrates) {
+        SDL_snprintf(custom, sizeof(custom), "%d", s->fps);
+        rate_names[nrates++] = custom;
+    }
+    if (nw_debug_combo("Frame rate", &rate, rate_names, nrates) && rate < 4) {
+        s->fps = rates[rate];
+    }
     if (nw_debug_combo("Internal scale", &scale, scales, NW_BACKEND_SCALE_MAX + 1)) {
         s->scale = scale;
     }
@@ -187,6 +201,18 @@ static void nw_video_panel(void *user)
         s->hud = huds[hud];
     }
     nw_debug_text("frame %d px wide", nw_wide_width());
+}
+
+unsigned nw_video_fps(const NwSettings *s)
+{
+    if (s->fps > 0) {
+        return (unsigned)s->fps;
+    }
+    if (nw_video.vsync != NW_VSYNC_OFF) {
+        return 0;
+    }
+    float hz = nw_display_refresh(nw_video.platform->window);
+    return hz > 0.0f ? (unsigned)SDL_lroundf(hz) : 60;
 }
 
 static void nw_video_toggle(void *user)

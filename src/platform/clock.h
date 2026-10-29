@@ -19,6 +19,16 @@ typedef struct NwClockTiming {
     uint64_t k;      /* edges since t0 */
 } NwClockTiming;
 
+/* A frame cap: the earliest a frame may start, period after the last one's start; a frame more than a period late
+   starts the count from now. */
+typedef struct NwPacer {
+    uint64_t next; /* ns, 0 before the first frame */
+} NwPacer;
+
+uint64_t nw_pacer_next(uint64_t next, uint64_t now, uint64_t period);
+/* Waits for the next frame's start at hz frames a second (0: no cap). */
+void nw_pacer_wait(NwPacer *p, unsigned hz);
+
 /* The edges due at `now` (0 before the next deadline); advances the timing past them. */
 unsigned nw_clock_due(NwClockTiming *t, uint64_t now);
 uint64_t nw_clock_deadline(const NwClockTiming *t);

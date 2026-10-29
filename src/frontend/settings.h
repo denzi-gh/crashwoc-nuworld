@@ -8,6 +8,8 @@
 #include "gfx/backend.h"
 #include "platform/display.h"
 
+#define NW_FPS_MAX 1000
+
 typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
@@ -17,6 +19,7 @@ typedef struct NwSettings {
     NwWindowMode window;
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
     NwVsync vsync;
+    int fps;   /* the most frames a second the window shows, 0 = the display's refresh */
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;

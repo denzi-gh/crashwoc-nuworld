@@ -690,8 +690,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         return 1;
     }
     uint64_t titled = 0;
+    NwPacer pacer = { 0 };
     bool running = true;
     while (running) {
+        nw_pacer_wait(&pacer, nw_video_fps(&settings));
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (!nw_debug_event(&event) && event.type == SDL_EVENT_QUIT) {
