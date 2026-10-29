@@ -176,6 +176,14 @@ class Fixture(unittest.TestCase):
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("fixnowhere has no retail address", errors[0])
 
+    def test_reads(self):
+        # FixDataHidden's own data is read again, here a name the fixture's registry lacks.
+        image, _outputs = self.generate(data={**self.data, "reads": {"FixDataHidden": "the port's copy"}})
+        self.assertEqual(len(image.errors), 1, image.errors)
+        self.assertIn("fixhidden has no retail address", image.errors[0])
+        image, _outputs = self.generate(data={**self.data, "reads": {"FixDataUse": "not overridden"}})
+        self.assertEqual(image.errors, ["data.toml: reads.FixDataUse is no overridden function"])
+
     def test_inside_a_package(self):
         errors = self.broken([("src/game/fixdata.c", "extern char D_00100680[];",
                                "extern char D_00100680[];\nextern char D_00100684[];"),

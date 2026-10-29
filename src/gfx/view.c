@@ -148,7 +148,7 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
 
         int width, height;
         SDL_GetWindowSizeInPixels(p->window, &width, &height);
-        nw_backend_frame(width, height);
+        nw_backend_frame(width, height, -1.0);
         nw_debug_frame();
         SDL_GL_SwapWindow(p->window);
         if (max_frames > 0 && ++frames >= max_frames) {

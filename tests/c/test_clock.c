@@ -61,6 +61,16 @@ static void test_due(void)
     CHECK(nw_clock_due(&t, 2080 * MS) == 4);
 }
 
+static void test_pacer(void)
+{
+    CHECK(nw_pacer_next(0, 1000 * MS, 10 * MS) == 1010 * MS);
+    /* On time or a little late: the next start on the grid. */
+    CHECK(nw_pacer_next(1010 * MS, 1010 * MS, 10 * MS) == 1020 * MS);
+    CHECK(nw_pacer_next(1020 * MS, 1027 * MS, 10 * MS) == 1030 * MS);
+    /* A period late: the grid starts again from now. */
+    CHECK(nw_pacer_next(1030 * MS, 1045 * MS, 10 * MS) == 1055 * MS);
+}
+
 static unsigned edge_calls, edge_total;
 
 static void count_edges(void *user, unsigned edges)
@@ -98,6 +108,22 @@ static void test_realtime(void)
     CHECK(seen >= 3);
     nw_clock_stop(&c);
     CHECK(edge_total >= seen);
+}
+
+/* At 60 Hz an edge is a sixtieth of a second, and the game's time counts it so. */
+static void test_ntsc(void)
+{
+    NwClock c;
+    CHECK(nw_clock_start(&c, NW_CLOCK_STEPPED, 60, count_edges, NULL));
+    CHECK(c.timing.period == 16666666);
+    nw_clock_stop(&c);
+    CHECK(nw_game_init(NW_CLOCK_STEPPED, 60));
+    uint64_t edges = nw_game_edges();
+    sceGsSyncV(0);
+    sceGsSyncV(0);
+    sceGsSyncV(0);
+    CHECK(nw_game_edges() == edges + 3 && nw_game_us() == (edges + 3) * 16666666 / 1000);
+    nw_game_shutdown();
 }
 
 static char order[64];
@@ -248,8 +274,10 @@ static int spin_entry(int argc, char **argv)
 int main(void)
 {
     test_due();
+    test_pacer();
     test_stepped();
     test_realtime();
+    test_ntsc();
 
     CHECK(nw_game_init(NW_CLOCK_STEPPED, 50));
     CHECK(nw_game_state() == NW_GAME_IDLE);

@@ -10,6 +10,7 @@
 #include "data/image_tables.h"
 #include "frontend/debug.h"
 #include "gfx/gl.h"
+#include "gfx/interp.h"
 #include "gfx/vu.h"
 #include "platform/paths.h"
 
@@ -40,6 +41,7 @@ static struct {
     int width, height;     /* the target's pixels */
     int shown_w, shown_h;  /* those of the back buffer */
     uint64_t drawn;        /* the last packet run */
+    float drawn_t;         /* at that blend */
     NwGpuJob *jobs;
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo; /* the packet's sprites, four vertices each */
@@ -1113,9 +1115,16 @@ static void nw_be_present(NwBeSurf *back, int bw, int bh, int x, int y, int w, i
                       y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 }
 
-const NwPacket *nw_backend_frame(int width, int height)
+const NwPacket *nw_backend_frame(int width, int height, double now)
 {
-    const NwPacket *p = nw_packet_take();
+    const NwPacket *prev;
+    const NwPacket *p = nw_packet_take_pair(&prev);
+    const NwPacket *run = p;
+    float t = 1.0f;
+    if (p && now >= 0.0 && nw_interp_redraws(p)) {
+        t = nw_interp_t(prev, p, now);
+        run = nw_interp_blend(prev, p, t);
+    }
     uint32_t njobs = nw_gpu_take(p ? p->seq : 0, &nw_be.jobs, &nw_be.jobcap);
     for (uint32_t i = 0; i < njobs; i++) {
         nw_be_job(&nw_be.jobs[i]);
@@ -1149,8 +1158,9 @@ const NwPacket *nw_backend_frame(int width, int height)
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE); /* the last pass's masks, which glClear honours */
     glDepthMask(GL_TRUE);
     NwBeSurf *back = nw_be_surf(NW_SURF_BACK, tw, th);
-    if (back && p && p->seq != nw_be.drawn) {
-        nw_be_run(p, back);
+    if (back && p && (p->seq != nw_be.drawn || t != nw_be.drawn_t)) {
+        nw_be_run(run, back);
+        nw_be.drawn_t = t;
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
     }

@@ -24,8 +24,9 @@ int nw_backend_scale(void);
 /* Its MSAA samples, 0 without. */
 int nw_backend_msaa(void);
 /* Runs the GPU jobs due, draws the newest packet (or the last one again) and shows it in a width x height window;
-   returns the packet drawn, NULL before the first. */
-const NwPacket *nw_backend_frame(int width, int height);
+   returns the packet drawn, NULL before the first. now >= 0 (clock edges) draws it blended from the one before as
+   it is at that time (src/gfx/interp.h), again each frame until it is all there. */
+const NwPacket *nw_backend_frame(int width, int height, double now);
 /* The back buffer at its own size (the GS frame's at the scale), without the overlay, as a PNG; false with SDL's
    error. */
 bool nw_backend_save(const char *path);

@@ -1,5 +1,24 @@
 #include "platform/clock.h"
 
+uint64_t nw_pacer_next(uint64_t next, uint64_t now, uint64_t period)
+{
+    return next && now < next + period ? next + period : now + period;
+}
+
+void nw_pacer_wait(NwPacer *p, unsigned hz)
+{
+    if (!hz) {
+        p->next = 0;
+        return;
+    }
+    uint64_t now = SDL_GetTicksNS();
+    if (p->next > now) {
+        SDL_DelayPrecise(p->next - now);
+        now = SDL_GetTicksNS();
+    }
+    p->next = nw_pacer_next(p->next, now, SDL_NS_PER_SECOND / hz);
+}
+
 unsigned nw_clock_due(NwClockTiming *t, uint64_t now)
 {
     uint64_t passed = now > t->t0 ? (now - t->t0) / t->period : 0;
@@ -28,6 +47,7 @@ static void nw_clock_emit(NwClock *c, unsigned n)
     }
     SDL_LockMutex(c->lock);
     c->edges += n;
+    c->edge_ns = SDL_GetTicksNS();
     SDL_BroadcastCondition(c->cond);
     SDL_UnlockMutex(c->lock);
 }
@@ -98,6 +118,16 @@ uint64_t nw_clock_edges(NwClock *c)
     uint64_t edges = c->edges;
     SDL_UnlockMutex(c->lock);
     return edges;
+}
+
+double nw_clock_time(NwClock *c)
+{
+    uint64_t now = SDL_GetTicksNS();
+    SDL_LockMutex(c->lock);
+    uint64_t edges = c->edges, at = c->edge_ns;
+    SDL_UnlockMutex(c->lock);
+    double part = now > at && c->timing.period ? (double)(now - at) / (double)c->timing.period : 0.0;
+    return (double)edges + (part < 1.0 ? part : 1.0);
 }
 
 void nw_clock_step(NwClock *c, unsigned n)

@@ -35,6 +35,8 @@ const SDL_DisplayMode *nw_display_pick(SDL_DisplayMode *const *modes, int count,
 int nw_display_sizes(SDL_Window *window, NwWindowMode mode, NwResolution *sizes, int max);
 /* What fullscreen at res shows: the mode's pixels, the desktop's for auto or borderless. */
 NwResolution nw_display_fullscreen(SDL_Window *window, NwWindowMode mode, NwResolution res);
+/* The refresh rate of window's display mode in Hz, 0 when unknown. */
+float nw_display_refresh(SDL_Window *window);
 /* The current GL context's swap interval; returns the one in effect: adaptive falls back to on. */
 NwVsync nw_display_set_vsync(NwVsync vsync);
 

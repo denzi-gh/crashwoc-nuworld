@@ -9,6 +9,8 @@
 float nw_video_start(NwPlatform *p, NwSettings *s);
 /* A new window shape the auto aspect follows; a drag that resizes the window becomes its resolution. */
 void nw_video_event(const SDL_Event *e);
+/* The frame cap the window loop keeps: s's, else the display's refresh when VSync is off; 0 none (VSync paces). */
+unsigned nw_video_fps(const NwSettings *s);
 /* What changed in s since was, applied. */
 void nw_video_apply(const NwSettings *s, const NwSettings *was);
 

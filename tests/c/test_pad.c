@@ -54,15 +54,30 @@ static void test_shim(void)
     nw_pad_set(&idle);
     NuPs2ReadPad(pad);
     CHECK(pad->valid && pad->paddata == 0 && pad->ldx == 0);
-    NuPs2PadSetMotors(pad, 1, 200);
+    uint8_t small, big;
+    NuPs2PadSetMotors(pad, 3, 200);
+    nw_pad_motors(&small, &big);
+    CHECK(small == 1 && big == 200);
 
     struct nupad_s *second = NuPs2OpenPad(1, 0);
     CHECK(second != NULL);
     if (second) {
         read_until_valid(second);
         CHECK(!second->valid && second->paddata == 0);
-        NuPs2PadSetMotors(second, 1, 200);
+        NuPs2PadSetMotors(second, 0, 0);
+        nw_pad_motors(&small, &big);
+        CHECK(small == 1 && big == 200);
     }
+}
+
+static Uint16 rumble_low, rumble_high;
+
+static bool rumble(void *user, Uint16 low, Uint16 high)
+{
+    (void)user;
+    rumble_low = low;
+    rumble_high = high;
+    return true;
 }
 
 static void test_gamepad(void)
@@ -78,6 +93,7 @@ static void test_gamepad(void)
     desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
     desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
     desc.name = "nuworld test pad";
+    desc.Rumble = rumble;
     SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
     SDL_Gamepad *gamepad = id ? SDL_OpenGamepad(id) : NULL;
     CHECK(gamepad != NULL);
@@ -99,11 +115,83 @@ static void test_gamepad(void)
     SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, SDL_JOYSTICK_AXIS_MAX);
     SDL_UpdateGamepads();
 
+    NwControls c;
+    nw_controls_defaults(&c);
     NwPadInput in;
-    nw_input_gamepad(gamepad, &in);
+    nw_input_gamepad(gamepad, &c, &in);
     CHECK(in.buttons == (NW_PAD_CROSS | NW_PAD_SQUARE | NW_PAD_START | NW_PAD_LEFT | NW_PAD_R2));
     CHECK(in.lx == 0xFF && in.ly == 0x00 && in.rx == 0x80 && in.ry == 0x80);
     CHECK(in.l2 == 0x00 && in.r2 == 0xFF);
+
+    /* Remapped: the right trigger is cross (and off R2), L2 is south at full pressure, square has north too. */
+    nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 0, NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 6, 1 + SDL_GAMEPAD_BUTTON_SOUTH);
+    c.pad[2][1] = 1 + SDL_GAMEPAD_BUTTON_NORTH;
+    CHECK(c.pad[7][0] == 0 && c.pad[0][1] == 0);
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.buttons == (NW_PAD_CROSS | NW_PAD_L2 | NW_PAD_SQUARE | NW_PAD_START | NW_PAD_LEFT));
+    CHECK(in.l2 == 0xFF && in.r2 == 0x00);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_WEST, false);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, true);
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.buttons & NW_PAD_SQUARE);
+
+    /* Deadzones: inside one a stick is centred, outside it stretches to the full reach; the press point moves. */
+    nw_controls_defaults(&c);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 6000);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTY, SDL_JOYSTICK_AXIS_MAX);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 0); /* half way */
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx == (6000 + 32768) >> 8 && in.ly == 0x80 && in.ry == 0xFF);
+    CHECK(in.r2 >= 0x7F && in.r2 <= 0x80 && (in.buttons & NW_PAD_R2));
+    c.left_deadzone = c.right_deadzone = 20;
+    c.trigger_press = 60;
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx == 0x80 && in.ly == 0x80 && in.rx == 0x80 && in.ry == 0xFF);
+    CHECK(in.r2 >= 0x7F && in.r2 <= 0x80 && !(in.buttons & NW_PAD_R2));
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 16384);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTY, 0);
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx > 0xA0 && in.lx < 0xC0 && in.ry == 0x80); /* (0.5 - 0.2) / 0.8 of the reach */
+
+    /* A listen hears the open gamepad's next button or trigger; Escape cancels. */
+    SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
+    nw_input_event(&e);
+    CHECK(nw_input_pad_name() != NULL && SDL_strcmp(nw_input_pad_label(1 + SDL_GAMEPAD_BUTTON_SOUTH), "A") == 0);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .gbutton = { .type = SDL_EVENT_GAMEPAD_BUTTON_DOWN, .which = id,
+                                  .button = SDL_GAMEPAD_BUTTON_EAST } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == 1 + SDL_GAMEPAD_BUTTON_EAST && nw_input_heard() == -1);
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .gaxis = { .type = SDL_EVENT_GAMEPAD_AXIS_MOTION, .which = id,
+                                .axis = SDL_GAMEPAD_AXIS_LEFT_TRIGGER, .value = SDL_JOYSTICK_AXIS_MAX } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .key = { .type = SDL_EVENT_KEY_DOWN, .scancode = SDL_SCANCODE_ESCAPE } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == 0);
+
+    /* The motors test_shim left on (small, big 200) rumble the gamepad at the rumble setting's strength. */
+    nw_controls_defaults(&c);
+    c.rumble = 50;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(rumble_low == 200 * 0x101 / 2 && rumble_high == 0xFFFF / 2);
+    c.rumble = 0;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(rumble_low == 0 && rumble_high == 0);
+    nw_input_shutdown();
 
     SDL_CloseGamepad(gamepad);
     SDL_DetachVirtualJoystick(id);
@@ -113,15 +201,17 @@ static void test_gamepad(void)
 static void test_keyboard(void)
 {
     static bool keys[SDL_SCANCODE_COUNT];
+    NwControls c;
+    nw_controls_defaults(&c);
     NwPadInput in = idle;
     keys[SDL_SCANCODE_SPACE] = true;
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == NW_PAD_CROSS && in.lx == 0x80 && in.ly == 0x80);
 
     keys[SDL_SCANCODE_SPACE] = false;
     keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = true;
     in = idle;
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == NW_PAD_R2 && in.r2 == 0xFF && in.l2 == 0);
     CHECK(in.lx == 0xFF && in.ly == 0x00);
 
@@ -129,15 +219,42 @@ static void test_keyboard(void)
     keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = false;
     keys[SDL_SCANCODE_A] = keys[SDL_SCANCODE_RETURN] = true;
     in = (NwPadInput){ NW_PAD_SQUARE, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == (NW_PAD_SQUARE | NW_PAD_START));
     CHECK(in.lx == 0x00 && in.ly == 0x40);
 
     /* Opposite keys cancel out and leave the gamepad's axis. */
     keys[SDL_SCANCODE_D] = true;
     in = (NwPadInput){ 0, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.lx == 0xC0);
+
+    /* Remapped: Space is triangle and off cross, L the right stick's right, Escape alone is no longer start. */
+    SDL_zeroa(keys);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, 3, SDL_SCANCODE_SPACE);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, NW_CONTROL_STICKS + 7, SDL_SCANCODE_L);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, 11, SDL_SCANCODE_P);
+    CHECK(c.keys[0][0] == 0 && c.keys[3][0] == SDL_SCANCODE_SPACE && c.keys[3][1] == 0);
+    keys[SDL_SCANCODE_SPACE] = keys[SDL_SCANCODE_L] = keys[SDL_SCANCODE_ESCAPE] = keys[SDL_SCANCODE_W] = true;
+    in = idle;
+    nw_input_keyboard(keys, &c, &in);
+    CHECK(in.buttons == NW_PAD_TRIANGLE && in.rx == 0xFF && in.ry == 0x80 && in.ly == 0x00);
+    keys[SDL_SCANCODE_P] = true;
+    nw_input_keyboard(keys, &c, &in);
+    CHECK(in.buttons == (NW_PAD_TRIANGLE | NW_PAD_START));
+
+    /* A key listen hears keys only, not their repeats; a gamepad listen no keys but Escape. */
+    nw_input_listen(NW_INPUT_LISTEN_KEYS);
+    SDL_Event e = { .key = { .type = SDL_EVENT_KEY_DOWN, .scancode = SDL_SCANCODE_Q, .repeat = true } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    e.key.repeat = false;
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == SDL_SCANCODE_Q);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_OFF);
 }
 
 /* --pad-script without --level: the steps loop from the first read; a recording plays once, then the pad idles. */
@@ -177,11 +294,52 @@ static void test_script(void)
     CHECK(!nw_pad_script_read(&f));
 }
 
+/* The prompts follow the open gamepad's kind (a DualSense here) unless the setting names a style. */
+static void test_prompts(void)
+{
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        fprintf(stderr, "test_pad: SDL_Init: %s\n", SDL_GetError());
+        failures++;
+        return;
+    }
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.vendor_id = 0x054C;
+    desc.product_id = 0x0CE6;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "nuworld test dualsense";
+    SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+    SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
+    nw_input_event(&e);
+    CHECK(nw_input_pad_name() != NULL);
+    NwControls c;
+    nw_controls_defaults(&c);
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_PLAYSTATION);
+    c.prompts = NW_PROMPTS_DECK;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_DECK);
+    nw_input_shutdown();
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_DECK);
+    c.prompts = NW_PROMPTS_AUTO;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_KEYBOARD);
+    SDL_DetachVirtualJoystick(id);
+    SDL_Quit();
+}
+
 int main(void)
 {
     test_shim();
     test_gamepad();
     test_keyboard();
+    test_prompts();
     test_script();
     if (failures) {
         fprintf(stderr, "test_pad: %d check(s) failed\n", failures);

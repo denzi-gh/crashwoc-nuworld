@@ -1,5 +1,6 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, what the reader does not take, a file that is not TOML, and keys a save keeps.
+   and the HUD's forms, the [pad] and [keyboard] bindings, the prompts' style, what the reader does not take, a
+   file that is not TOML, and keys a save keeps.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -56,6 +57,13 @@ static int read_speed(const char *text)
 {
     NwSettings s;
     return read_text(text, &s) ? s.hardware_speed : -1;
+}
+
+/* hz as root's settings.toml with text reads it; -1 when it does not load. */
+static int read_hz(const char *text)
+{
+    NwSettings s;
+    return read_text(text, &s) ? s.hz : -1;
 }
 
 /* master_volume * 1000 + voice_volume; -1 when it does not load. */
@@ -117,6 +125,18 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[audio]\nmaster_volume = \"5\"\nvoice_volume = 0x10\n") == 100016);
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
+    nw_settings_defaults(&s);
+    CHECK(s.hz == 60);
+    s.hz = 50;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.hz == 50);
+    CHECK(read_hz("[game]\nhz = 50\n") == 50);
+    CHECK(read_hz("[game]\nhz = 55\n") == 60); /* off the step: the default stays */
+    CHECK(read_hz("[game]\nhz = 240\n") == 60);
+    CHECK(read_hz("[game]\nhz = 0\n") == 50);
+    CHECK(read_hz("[game]\nhz = \"60\"\n") == 60);
+
     float a = -1.0f;
     char name[16];
     CHECK(nw_settings_aspect("auto", &a) && a == 0.0f);
@@ -175,6 +195,10 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.scale == 4);
 
+    CHECK(read_text("[video]\nfps = 120\n", &s) && s.fps == 120);
+    CHECK(read_text("[video]\nfps = \"refresh\"\n", &s) && s.fps == 0);
+    CHECK(read_text("[video]\nfps = 5000\n", &s) && s.fps == NW_FPS_MAX);
+
     CHECK(read_text("[video]\nmsaa = 4\n", &s) && s.msaa == 4);
     CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
 
@@ -193,6 +217,51 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nresolution = \"1280x800\"\n", &s) && s.resolution.w == 1280 &&
           s.resolution.h == 800);
     CHECK(read_text("[video]\nresolution = \"big\"\n", &s) && s.resolution.w == 0);
+
+    /* [pad]: a name or an array of names a button, names it does not know passed over; [] unbinds. */
+    CHECK(read_text("[pad]\ncross = \"east\"\ncircle = [\"south\", \"jump\", \"righttrigger\", \"south\"]\n"
+                    "l2 = []\nr2 = 7\n",
+                    &s));
+    CHECK(s.controls.pad[0][0] == 1 + SDL_GAMEPAD_BUTTON_EAST && s.controls.pad[0][1] == 0);
+    CHECK(s.controls.pad[1][0] == 1 + SDL_GAMEPAD_BUTTON_SOUTH &&
+          s.controls.pad[1][1] == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER && s.controls.pad[1][2] == 0);
+    CHECK(s.controls.pad[6][0] == 0 && s.controls.pad[7][0] == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    CHECK(s.controls.pad[3][0] == 1 + SDL_GAMEPAD_BUTTON_NORTH);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "[pad]\ncross = [\"east\"]\ncircle = [\"south\", \"righttrigger\"]\n") &&
+          SDL_strstr(saved, "l2 = []\n") && SDL_strstr(saved, "# pad.<button>: "));
+    SDL_free(saved);
+
+    /* [input]: the deadzones, clamped, and the press point, 25 % (0x40) by default. */
+    CHECK(s.controls.left_deadzone == 0 && s.controls.right_deadzone == 0 && s.controls.trigger_press == 25);
+    CHECK(read_text("[input]\nleft_deadzone = 15\nright_deadzone = 95\ntrigger_press = 0\n", &s) &&
+          s.controls.left_deadzone == 15 && s.controls.right_deadzone == 90 && s.controls.trigger_press == 1);
+    /* The button prompts: auto by default, a style by name. */
+    CHECK(s.controls.prompts == NW_PROMPTS_AUTO);
+    CHECK(read_text("[input]\nprompts = \"nintendo\"\n", &s) && s.controls.prompts == NW_PROMPTS_NINTENDO);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "prompts = \"nintendo\"\n"));
+    SDL_free(saved);
+    CHECK(read_text("[input]\nprompts = \"gamecube\"\n", &s) && s.controls.prompts == NW_PROMPTS_AUTO);
+
+    /* [keyboard]: keys by SDL's names, the sticks' directions too. */
+    CHECK(s.controls.keys[2][0] == SDL_SCANCODE_E && s.controls.keys[2][1] == SDL_SCANCODE_J);
+    CHECK(read_text("[keyboard]\nsquare = [\"Left Shift\", \"no such key\"]\nright_stick_up = \"I\"\nstart = []\n",
+                    &s));
+    CHECK(s.controls.keys[2][0] == SDL_SCANCODE_LSHIFT && s.controls.keys[2][1] == 0);
+    CHECK(s.controls.keys[NW_CONTROL_STICKS + 4][0] == SDL_SCANCODE_I && s.controls.keys[11][0] == 0);
+    CHECK(s.controls.keys[NW_CONTROL_STICKS][0] == SDL_SCANCODE_W);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "[keyboard]\nsquare = [\"Left Shift\"]\n") &&
+          SDL_strstr(saved, "cross = [\"Space\"]\ncircle = [\"C\", \"K\"]\n") &&
+          SDL_strstr(saved, "right_stick_up = [\"I\"]\n") && SDL_strstr(saved, "right_stick_down = []\n"));
+    SDL_free(saved);
+    NwSettings u;
+    nw_settings_defaults(&u);
+    CHECK(!nw_settings_equal(&s, &u) && nw_settings_load(&u, root) && nw_settings_equal(&s, &u));
 
     /* A save keeps what it does not know, writes the keys' help first and leaves no .tmp. */
     NwSettings t;

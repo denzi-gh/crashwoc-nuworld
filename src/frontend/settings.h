@@ -6,10 +6,14 @@
 #include <stdbool.h>
 
 #include "gfx/backend.h"
+#include "platform/controls.h"
 #include "platform/display.h"
+
+#define NW_FPS_MAX 1000
 
 typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
+    int hz;              /* the game logic's rate: 60 (NTSC) or 50 (PAL), taken at the start */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
     float aspect;        /* [video]: the picture's width over its height, 0 = the screen's or window's */
@@ -17,9 +21,12 @@ typedef struct NwSettings {
     NwWindowMode window;
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
     NwVsync vsync;
+    int fps;   /* the most frames a second the window shows, 0 = the display's refresh */
+    bool interpolation; /* frames between the game's blended from the two newest */
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;
+    NwControls controls; /* [input], [pad], [keyboard] */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

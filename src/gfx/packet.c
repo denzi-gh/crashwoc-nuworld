@@ -4,9 +4,10 @@
 
 #include <SDL3/SDL.h>
 
-/* Three packets: the game thread builds one, the newest published one waits, the render thread draws one. */
-static NwPacket nw_slots[3];
-static int nw_building = 0, nw_ready = 1, nw_drawing = 2;
+/* Four packets: the game thread builds one, the newest published one waits, the render thread draws one and keeps
+   the one it drew before. */
+static NwPacket nw_slots[4];
+static int nw_building = 0, nw_ready = 1, nw_drawing = 2, nw_drew = 3;
 static bool nw_fresh;      /* the ready slot holds a packet the render thread has not taken */
 static uint64_t nw_seq;    /* of the last published packet */
 static NwGpuJob *nw_jobs;
@@ -159,6 +160,8 @@ void nw_packet_reset(NwPacket *p)
 {
     p->seq = 0;
     p->vbcnt = 0;
+    p->edge = 0;
+    p->snap = false;
     p->ncmds = 0;
     p->nviews = 0;
     p->nmtls = 0;
@@ -193,18 +196,26 @@ uint64_t nw_packet_publish(int32_t vbcnt)
     return seq;
 }
 
-const NwPacket *nw_packet_take(void)
+const NwPacket *nw_packet_take_pair(const NwPacket **prev)
 {
     nw_packet_lock();
     if (nw_fresh) {
-        int drawing = nw_drawing;
+        int drew = nw_drew;
+        nw_drew = nw_drawing;
         nw_drawing = nw_ready;
-        nw_ready = drawing;
+        nw_ready = drew;
         nw_fresh = false;
     }
     const NwPacket *p = nw_slots[nw_drawing].seq ? &nw_slots[nw_drawing] : NULL;
+    *prev = nw_slots[nw_drew].seq ? &nw_slots[nw_drew] : NULL;
     SDL_UnlockMutex(nw_lock);
     return p;
+}
+
+const NwPacket *nw_packet_take(void)
+{
+    const NwPacket *prev;
+    return nw_packet_take_pair(&prev);
 }
 
 void nw_gpu_queue(NwGpuOp op, void *obj)

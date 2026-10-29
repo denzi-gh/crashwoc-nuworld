@@ -124,6 +124,11 @@ uint64_t nw_game_edges(void)
     return nw_clock_edges(&nw_game.clock);
 }
 
+double nw_game_edge_time(void)
+{
+    return nw_clock_time(&nw_game.clock);
+}
+
 uint64_t nw_game_us(void)
 {
     uint64_t edges = nw_clock_edges(&nw_game.clock);

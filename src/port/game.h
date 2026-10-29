@@ -33,6 +33,8 @@ bool nw_game_start(NwGameEntry entry, int argc, char **argv);
 /* Any thread. */
 NwGameState nw_game_state(void);
 uint64_t nw_game_edges(void);
+/* The edges with the part of a period since the last (nw_clock_time). */
+double nw_game_edge_time(void);
 /* The game's time in microseconds: the edges at the clock's rate, plus what the running EE thread spent since the
    last of them. */
 uint64_t nw_game_us(void);

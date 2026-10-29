@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "app.h"
+#include "gfx/interp.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nugobj.h"
@@ -656,6 +657,7 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
     int clip = -1;
     int n = gobj->ngobjs;
     int instanced = n > 1;
+    NwInterpScope scope = nw_interp_begin(wm, gobj);
     while (n-- != 0) {
         struct numtx_s *m = wm;
         if (instanced) {
@@ -675,12 +677,14 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
         if (vis) {
             nurndr_tritot_this_frame += gobj->tricount;
             NuRndrSetLocalMtx(m, vis);
-            for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+            uint32_t g = 0;
+            for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next, g++) {
                 struct numtl_s *mtl = nurndr_forced_mtl ? nurndr_forced_mtl : geom->mtl;
                 if (nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
                     mtl = nurndr_forced_mtl_table[mtl->special_id];
                 }
-                for (; mtl; mtl = mtl->next) {
+                for (uint32_t pass = 0; mtl; mtl = mtl->next, pass++) {
+                    nw_interp_at((uint32_t)n, g, pass);
                     rndrstream_3d = &mtl->rs;
                     if (geom->tristream) {
                         nw_rndr_ot_batch(m, mtl, geom->dmastream, geom->tristream);
@@ -690,7 +694,9 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
                     }
                 }
             }
-            for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next) {
+            g = 0x10000;
+            for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next, g++) {
+                nw_interp_at((uint32_t)n, g, 0);
                 rndrstream_3d = &fgeom->mtl->rs;
                 if (fgeom->dmastream) {
                     NwCmd *c = nw_rndr_cmd(rndrstream_3d, NW_CMD_SPRITES);
@@ -700,6 +706,7 @@ int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
         }
         gobj++;
     }
+    nw_interp_end(scope);
     return clip;
 }
 
@@ -711,7 +718,8 @@ int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
     struct numtx_s offset;
     int clip = -1;
     int instanced = gobj->next_gobj != 0;
-    for (; gobj; gobj = gobj->next_gobj) {
+    NwInterpScope scope = nw_interp_begin(wm, gobj);
+    for (uint32_t link = 0; gobj; gobj = gobj->next_gobj, link++) {
         struct numtx_s *m = wm;
         if (instanced) {
             NuMtxSetIdentity(&offset);
@@ -731,25 +739,30 @@ int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
             continue;
         }
         NuRndrSetLocalMtx(m, vis);
-        for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+        uint32_t g = 0;
+        for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next, g++) {
             struct numtl_s *mtl = geom->mtl;
             if (mtl && nurndr_forced_mtl) {
                 mtl = nurndr_forced_mtl;
             } else if (mtl && nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
                 mtl = nurndr_forced_mtl_table[mtl->special_id];
             }
-            for (; mtl && geom->dmastream; mtl = mtl->next) {
+            for (uint32_t pass = 0; mtl && geom->dmastream; mtl = mtl->next, pass++) {
+                nw_interp_at(link, g, pass);
                 rndrstream_3d = &mtl->rs;
                 nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW)->mesh = geom->dmastream;
             }
         }
-        for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next) {
+        g = 0x10000;
+        for (struct nufaceongeom_s *fgeom = gobj->faceon_geom; fgeom; fgeom = fgeom->next, g++) {
+            nw_interp_at(link, g, 0);
             rndrstream_3d = &fgeom->mtl->rs;
             if (fgeom->dmastream) {
                 nw_rndr_cmd(rndrstream_3d, NW_CMD_SPRITES)->sprites = fgeom->dmastream;
             }
         }
     }
+    nw_interp_end(scope);
     return clip;
 }
 
@@ -766,16 +779,20 @@ int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struc
     }
     NuRndrSetLocalMtx(wm, vis);
     nw_rndr_blend(weights);
-    for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next) {
+    NwInterpScope scope = nw_interp_begin(wm, gobj);
+    uint32_t g = 0;
+    for (struct nugeom_s *geom = gobj->geom; geom; geom = geom->next, g++) {
         struct numtl_s *mtl = nurndr_forced_mtl ? nurndr_forced_mtl : geom->mtl;
         if (mtl && nurndr_forced_mtl_table && mtl->special_id && nurndr_forced_mtl_table[mtl->special_id]) {
             mtl = nurndr_forced_mtl_table[mtl->special_id];
         }
-        for (; mtl && geom->skindma; mtl = mtl->next) {
+        for (uint32_t pass = 0; mtl && geom->skindma; mtl = mtl->next, pass++) {
+            nw_interp_at(g, pass, 0);
             rndrstream_3d = &mtl->rs;
             nw_rndr_cmd(rndrstream_3d, NW_CMD_SKIN)->skin = (const NwGpuSkin *)geom->skindma;
         }
     }
+    nw_interp_end(scope);
     return vis;
 }
 
@@ -787,8 +804,10 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
 {
     struct numtx_s mtx;
     int rv = 0;
+    NwInterpScope scope = nw_interp_begin(wm, hobj);
     int vis = NuCameraClipTestExtents(&hobj->bbox_min, &hobj->bbox_max, wm);
     if (vis == 0) {
+        nw_interp_end(scope);
         return 0;
     }
     if (hobj->shadow && (u8)hobj->pad81[0] == 0) {
@@ -821,6 +840,7 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
             struct nugobj_s **gobjs = set ? l->blend_gobjs : l->gobjs;
             for (int j = 0; gobjs && j < hobj->num_joints; j++) {
                 if (gobjs[j]) {
+                    nw_interp_at((uint32_t)ix, (uint32_t)set, (uint32_t)j);
                     NuMtxMulVU0(&mtx, &mtx_array[j], wm);
                     rv |= NuRndrGobj(gobjs[j], &mtx);
                 }
@@ -829,13 +849,16 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
         if (l->skin_gobj || l->blend_skin_gobj) {
             NuMtxMulArrayVU0(nw_rndr_joints(hobj->num_joints), hobj->INV_WT, mtx_array, hobj->num_joints);
             if (l->skin_gobj) {
+                nw_interp_at((uint32_t)ix, 2, 0);
                 rv |= NuRndrGobjSkin(l->skin_gobj, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
             }
             if (l->blend_skin_gobj) {
+                nw_interp_at((uint32_t)ix, 3, 0);
                 rv |= NuRndrGobjSkin(l->blend_skin_gobj, wm, hobj->num_joints, mtx_array, (u32 *)weights, vis);
             }
         }
     }
+    nw_interp_end(scope);
     return rv;
 }
 
@@ -891,7 +914,11 @@ NwCmd *nw_rndr_strip(struct nuvtx_tc1_s *verts, int count, struct numtx_s *mtx, 
         n += batch >= 3 ? (uint32_t)(batch - 2) * 3 : 0;
     }
     NuRndrSetLocalMtx(mtx ? mtx : &numtx_identity, 2);
+    NwInterpScope scope = mtx ? nw_interp_begin(mtx, stream->mtl) : (NwInterpScope){ 0 };
     NwCmd *c = nw_rndr_verts(stream, NW_VERTS_TRIS, n, &v);
+    if (mtx) {
+        nw_interp_end(scope);
+    }
     for (int b = 0; b < count; b += 42) {
         for (int i = b + 2; i < b + 42 && i < count; i++) {
             for (int k = i - 2; k <= i; k++, v++) {
@@ -1117,7 +1144,9 @@ void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct
     }
     NuRndrSetLocalMtx(mtx, 1);
     NuRndrStreamAddMtl(rndrstream_ptl, mtl);
+    NwInterpScope scope = nw_interp_begin(chunk, list);
     nw_rndr_particles(rndrstream_ptl, n * 32, &l, &ptls);
+    nw_interp_end(scope);
     memset(l, 0, sizeof(*l));
     l->head[1] = list->grav;
     l->head[3] = list->time;

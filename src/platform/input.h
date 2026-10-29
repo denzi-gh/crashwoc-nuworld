@@ -4,6 +4,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "platform/controls.h"
 #include "shim/shim.h"
 
 /* Opens the first gamepad that connects; when it goes, the next one still connected. */
@@ -12,9 +13,30 @@ void nw_input_event(const SDL_Event *event);
 void nw_input_poll(bool keyboard);
 void nw_input_shutdown(void);
 
-/* One gamepad's state as the pad: buttons by position (south is cross). */
-void nw_input_gamepad(SDL_Gamepad *gamepad, NwPadInput *in);
-/* Adds the held keys (SDL_GetKeyboardState) to in; WASD replaces the left stick's axis it pushes. */
-void nw_input_keyboard(const bool *keys, NwPadInput *in);
+typedef enum NwInputListen {
+    NW_INPUT_LISTEN_OFF,
+    NW_INPUT_LISTEN_PAD,  /* a gamepad button or trigger */
+    NW_INPUT_LISTEN_KEYS, /* a key */
+} NwInputListen;
+
+/* The controls the poll maps through. */
+void nw_input_set_controls(const NwControls *c);
+/* The next press is heard instead of played, the game's pad idles meanwhile; Escape cancels. */
+void nw_input_listen(NwInputListen what);
+/* -1 while listening or not, else (once) what was heard: a source, 0 for Escape. */
+int nw_input_heard(void);
+/* What the poll handed the game last. */
+NwPadInput nw_input_last(void);
+/* The open gamepad's name, NULL without one. */
+const char *nw_input_pad_name(void);
+/* Its label for a source: the face buttons' (Cross, A, ...), else nw_controls_pad_label's. */
+const char *nw_input_pad_label(uint16_t source);
+/* The style the game's button prompts are in (auto resolved), as of the last poll. */
+NwPromptStyle nw_input_prompt_style(void);
+
+/* One gamepad's state as the pad, through c. */
+void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in);
+/* Adds the held keys (SDL_GetKeyboardState) to in, through c; a stick's keys replace the axis they push. */
+void nw_input_keyboard(const bool *keys, const NwControls *c, NwPadInput *in);
 
 #endif

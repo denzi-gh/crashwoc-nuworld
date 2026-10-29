@@ -2,12 +2,13 @@
 instant loads for VBLANKS vblanks after it runs (--level), and passes when it got there, the game thread parked
 and it hit no stub. Near-match hits are listed, not failed. A route ("intro,farm,hub") passes when every leg ran and
 a level that runs twice has as many scene GPU objects alive both times. The pad follows --pad-script (default auto:
-the level's retail recording, else the sweep script; none: an idle pad); --aspect runs them in a wider view. A
+the level's retail recording, else the sweep script; none: an idle pad); --aspect runs them in a wider view, --hz at
+NTSC's 60 Hz (a retail recording still plays at 50). A
 floating-point trap (NUWORLD_FP_TRAPS=all unless the environment sets it, as an ASan build needs 0: a NaN or a divide
 by zero, which the EE never makes) fails the level. -j runs that many levels at once.
 
     run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] [--pad-script S] [-j N]
-        [--aspect A]
+        [--aspect A] [--hz 50|60]
         <level> ...
 """
 import argparse
@@ -25,9 +26,11 @@ ARRIVAL = re.compile(r"^boot-check: level (\d+) ran with (\d+) scene GPU objects
 FP_TRAP = re.compile(r"fp trap: (invalid operation|divide by zero) at \S+ \(.*?\+(0x[0-9a-f]+)\)")
 
 
-def check(exe: str, root: str, level: str, vblanks: int, script: str, aspect: str | None) -> tuple[bool, str]:
+def check(exe: str, root: str, level: str, vblanks: int, script: str, aspect: str | None,
+          hz: str | None) -> tuple[bool, str]:
     pad = ["--pad-script", script] if script != "none" else []
     pad += ["--aspect", aspect] if aspect else []
+    pad += ["--hz", hz] if hz else []
     out = subprocess.run([exe, "--data-dir", root, "--stepped", "--hardware-speed", "off", "--boot-check",
                           str(vblanks), "--level", level, *pad], capture_output=True, text=True,
                          env={"NUWORLD_FP_TRAPS": "all", **os.environ})
@@ -60,10 +63,12 @@ def main() -> int:
     ap.add_argument("--pad-script", default="auto")
     ap.add_argument("-j", type=int, default=1)
     ap.add_argument("--aspect")
+    ap.add_argument("--hz", choices=("50", "60"))
     args = ap.parse_args()
     failed = 0
     with ThreadPoolExecutor(args.j) as pool:
-        for ok, report in pool.map(lambda level: check(args.exe, args.root, level, args.vblanks, args.pad_script, args.aspect),
+        for ok, report in pool.map(lambda level: check(args.exe, args.root, level, args.vblanks, args.pad_script,
+                                                       args.aspect, args.hz),
                                    args.levels):
             print(report, end="", flush=True)
             failed += not ok

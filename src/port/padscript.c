@@ -214,6 +214,11 @@ static uint8_t *nw_pad_script_level(const NwVfs *vfs, int level, size_t *size)
     return data;
 }
 
+bool nw_pad_script_is_recording(const char *spec)
+{
+    return SDL_strcmp(spec, "auto") == 0 || nw_pad_script_ppd(spec);
+}
+
 bool nw_pad_script_start(const NwVfs *vfs, const char *spec, int level)
 {
     size_t size = 0;

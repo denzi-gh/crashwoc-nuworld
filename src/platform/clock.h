@@ -19,6 +19,16 @@ typedef struct NwClockTiming {
     uint64_t k;      /* edges since t0 */
 } NwClockTiming;
 
+/* A frame cap: the earliest a frame may start, period after the last one's start; a frame more than a period late
+   starts the count from now. */
+typedef struct NwPacer {
+    uint64_t next; /* ns, 0 before the first frame */
+} NwPacer;
+
+uint64_t nw_pacer_next(uint64_t next, uint64_t now, uint64_t period);
+/* Waits for the next frame's start at hz frames a second (0: no cap). */
+void nw_pacer_wait(NwPacer *p, unsigned hz);
+
 /* The edges due at `now` (0 before the next deadline); advances the timing past them. */
 unsigned nw_clock_due(NwClockTiming *t, uint64_t now);
 uint64_t nw_clock_deadline(const NwClockTiming *t);
@@ -41,6 +51,7 @@ typedef struct NwClock {
     SDL_Condition *cond;
     SDL_Thread *thread;
     uint64_t edges; /* under lock */
+    uint64_t edge_ns; /* under lock: when the last edges came */
     uint64_t wakes; /* under lock: nw_clock_wake calls */
     bool quit;      /* under lock */
 } NwClock;
@@ -48,6 +59,8 @@ typedef struct NwClock {
 bool nw_clock_start(NwClock *c, NwClockMode mode, unsigned hz, NwClockEdge on_edge, void *user);
 void nw_clock_stop(NwClock *c);
 uint64_t nw_clock_edges(NwClock *c);
+/* The edges and the part of a period since the last of them (at most 1). */
+double nw_clock_time(NwClock *c);
 /* Emits `n` edges now (any mode). */
 void nw_clock_step(NwClock *c, unsigned n);
 /* Blocks until the clock has emitted more than `seen` edges, `timeout_ms` passes (-1: never) or nw_clock_wake;

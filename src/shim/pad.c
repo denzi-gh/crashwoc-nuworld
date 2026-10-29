@@ -21,6 +21,7 @@ static SDL_Mutex *nw_pad_mutex;
 static SDL_InitState nw_pad_init;
 static NwPadInput nw_pad_input = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
 static bool nw_pad_open[NW_PAD_PORTS];
+static uint8_t nw_pad_act[NW_PAD_ACTUATORS];
 
 static void nw_pad_lock(void)
 {
@@ -58,12 +59,32 @@ int scePadPortOpen(int port, int slot, void *addr)
     return 1;
 }
 
+void nw_pad_motors(uint8_t *small, uint8_t *big)
+{
+    nw_pad_lock();
+    *small = nw_pad_act[0];
+    *big = nw_pad_act[1];
+    SDL_UnlockMutex(nw_pad_mutex);
+}
+
+/* The motors of port 0 as data has them. */
+static void nw_pad_set_motors(const unsigned char *data)
+{
+    nw_pad_lock();
+    nw_pad_act[0] = data[0];
+    nw_pad_act[1] = data[1];
+    SDL_UnlockMutex(nw_pad_mutex);
+}
+
 int scePadPortClose(int port, int slot)
 {
     if (port < 0 || port >= NW_PAD_PORTS || slot != 0 || !nw_pad_open[port]) {
         return 0;
     }
     nw_pad_open[port] = false;
+    if (port == 0) {
+        nw_pad_set_motors((const unsigned char[NW_PAD_ACTUATORS]){ 0, 0 });
+    }
     return 1;
 }
 
@@ -153,11 +174,14 @@ int scePadSetMainMode(int port, int slot, int offs, int lock)
     return nw_pad_live(port, slot);
 }
 
-/* The motors stay off. */
+/* data[0] the small motor (0 or 1), data[1] the big one's speed; the window's gamepad rumbles with them. */
 int scePadSetActDirect(int port, int slot, unsigned char *data)
 {
-    (void)data;
-    return nw_pad_live(port, slot);
+    if (!nw_pad_live(port, slot)) {
+        return 0;
+    }
+    nw_pad_set_motors(data);
+    return 1;
 }
 
 int scePadSetActAlign(int port, int slot, unsigned char *data)
