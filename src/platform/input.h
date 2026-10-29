@@ -31,6 +31,8 @@ NwPadInput nw_input_last(void);
 const char *nw_input_pad_name(void);
 /* Its label for a source: the face buttons' (Cross, A, ...), else nw_controls_pad_label's. */
 const char *nw_input_pad_label(uint16_t source);
+/* The style the game's button prompts are in (auto resolved), as of the last poll. */
+NwPromptStyle nw_input_prompt_style(void);
 
 /* One gamepad's state as the pad, through c. */
 void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in);

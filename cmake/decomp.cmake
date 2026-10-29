@@ -137,13 +137,15 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
-  src/port/cloudfx.c src/port/crate.c src/port/nubridge.c src/port/terrain.c src/port/trace.c src/port/wide.c
+  src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/nubridge.c src/port/terrain.c
+  src/port/trace.c src/port/wide.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
   src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
+nw_embed_dir(nuworld_game nw_prompt_icons ${CMAKE_CURRENT_SOURCE_DIR}/assets/prompts)
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
@@ -444,7 +446,8 @@ if(NUWORLD_TESTS)
   add_test(NAME ee COMMAND nuworld_test_ee)
 
   # The pad shim under the decomp's NuPs2ReadPad, and a virtual gamepad and the keyboard as the pad.
-  add_executable(nuworld_test_pad tests/c/test_pad.c src/platform/controls.c src/platform/input.c)
+  add_executable(nuworld_test_pad tests/c/test_pad.c src/platform/controls.c src/platform/input.c
+    src/platform/prompts.c)
   target_include_directories(nuworld_test_pad PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_pad PRIVATE NW_HOST)
   target_compile_options(nuworld_test_pad PRIVATE -Wall -Wextra)

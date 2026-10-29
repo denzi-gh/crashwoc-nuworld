@@ -1,5 +1,8 @@
 #include "platform/input.h"
 
+#include "platform/prompts.h"
+#include "port/font3d.h"
+
 /* By target (platform/controls.h). */
 static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
     NW_PAD_CROSS, NW_PAD_CIRCLE, NW_PAD_SQUARE, NW_PAD_TRIANGLE, NW_PAD_L1,     NW_PAD_R1,   NW_PAD_L2,   NW_PAD_R2,
@@ -10,12 +13,17 @@ static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
 #define NW_INPUT_TRIGGER_HEARD 16384
 /* How long one rumble call lasts; the poll renews it while the motors run. */
 #define NW_INPUT_RUMBLE_MS 250
+/* A stick's travel off centre that makes the gamepad the device used last. */
+#define NW_INPUT_STICK_USED 0x40
 
 static SDL_Gamepad *nw_input_pad;
 static NwControls nw_input_controls;
 static NwInputListen nw_input_listening;
 static int nw_input_heard_source = -1;
 static NwPadInput nw_input_sent = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
+static bool nw_input_keys_used;
+static int nw_input_deck = -1;
+static NwPromptStyle nw_input_style;
 static struct {
     uint16_t low, high;
     uint64_t at;
@@ -222,15 +230,52 @@ static void nw_input_rumble(void)
     }
 }
 
+static bool nw_input_stick_used(uint8_t axis)
+{
+    return axis < 0x80 - NW_INPUT_STICK_USED || axis > 0x80 + NW_INPUT_STICK_USED;
+}
+
+NwPromptStyle nw_input_prompt_style(void)
+{
+    return nw_input_style;
+}
+
+/* The glyphs of the style the device used last stands for, to Text3D. */
+static void nw_input_prompts(void)
+{
+    if (nw_input_deck < 0) {
+        nw_input_deck = nw_prompts_on_deck();
+    }
+    NwPromptDevice d = { nw_input_keys_used || !nw_input_pad, SDL_GAMEPAD_TYPE_UNKNOWN, 0, 0, nw_input_deck };
+    if (nw_input_pad) {
+        d.type = SDL_GetGamepadType(nw_input_pad);
+        d.vendor = SDL_GetGamepadVendor(nw_input_pad);
+        d.product = SDL_GetGamepadProduct(nw_input_pad);
+    }
+    NwPrompts p;
+    nw_input_style = nw_prompts_style(nw_input_controls.prompts, &d);
+    nw_prompts_build(nw_input_style, &nw_input_controls, &p);
+    nw_font3d_prompts(&p);
+}
+
 void nw_input_poll(bool keyboard)
 {
     NwPadInput in = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
     if (nw_input_pad && !nw_input_listening) {
         nw_input_gamepad(nw_input_pad, &nw_input_controls, &in);
+        if (in.buttons || in.l2 || in.r2 || nw_input_stick_used(in.lx) || nw_input_stick_used(in.ly) ||
+            nw_input_stick_used(in.rx) || nw_input_stick_used(in.ry)) {
+            nw_input_keys_used = false;
+        }
     }
     if (keyboard && !nw_input_listening) {
+        NwPadInput pad = in;
         nw_input_keyboard(SDL_GetKeyboardState(NULL), &nw_input_controls, &in);
+        if (SDL_memcmp(&pad, &in, sizeof(in)) != 0) {
+            nw_input_keys_used = true;
+        }
     }
+    nw_input_prompts();
     nw_input_sent = in;
     nw_pad_set(&in);
     if (nw_input_pad) {

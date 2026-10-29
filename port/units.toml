@@ -161,7 +161,7 @@ schema = 1
 "game/ai" = { treatment = "compile" }
 "game/edwumpa" = { treatment = "editor" }
 "game/edai" = { treatment = "editor" }
-"game/font3d" = { treatment = "compile" }
+"game/font3d" = { treatment = "compile", override = ["Text3D"] }
 "game/glass" = { treatment = "compile" }
 "game/panel" = { treatment = "compile" }
 "game/text" = { treatment = "compile" }

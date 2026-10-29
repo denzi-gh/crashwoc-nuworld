@@ -1,7 +1,7 @@
 /* game/font3d's Text3D under the port: glyph specials of a scene drawn by NuRndrGScnObj at the panel's place, the
-   colour codes switching the forced material table. Usage: test_font3d <scratch dir> | retail. Local only, with your
-   own disc: `retail` loads STUFF\FONT.GSC with the boot ELF's data image as LoadFont3D does and pins its glyphs;
-   exits 77 without NUWORLD_TEST_DATA. */
+   colour codes switching the forced material table, the button prompts as letters or an icon. Usage: test_font3d
+   <scratch dir> | retail. Local only, with your own disc: `retail` loads STUFF\FONT.GSC with the boot ELF's data
+   image as LoadFont3D does and pins its glyphs; exits 77 without NUWORLD_TEST_DATA. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +23,7 @@
 #include "nu3d/nuvport.h"
 #include "nucore/nufile.h"
 #include "numath/nutrig.h"
+#include "port/font3d.h"
 #include "port/game.h"
 #include "shim/shim.h"
 #include "vfs/extract.h"
@@ -40,6 +41,7 @@ extern struct numtl_s *Font3DMtlTab[5][2];
 extern struct nugscn_s *font3d_scene;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern float FONT3DSIZE, FONT3DYMUL, D_0062E358, PANEL3DMULX, PANEL3DMULY;
+extern float font3d_xleft, font3d_xright;
 
 /* Declared by no header. */
 void NuRndrInitWorld(void);
@@ -156,6 +158,35 @@ static void test_synthetic(const char *scratch)
     }
     CHECK(first == 3 && second == 2 && other == 0);
     NuRndrSwapStreamBuffers();
+
+    /* L1 (q) handed as two letters, cross (x) as an icon: three cells from the left, the icon a VERTS record. */
+    NwPrompts prompts;
+    nw_prompts_retail(&prompts);
+    strcpy(prompts.glyph[4].text, "AA");
+    strcpy(prompts.glyph[0].icon, "xbox_button_a");
+    nw_font3d_prompts(&prompts);
+    Text3D("qx", 0.0f, 1.0f, 5.0f, 1.0f, 1.0f, 1.0f, 2, 0);
+    CHECK(SDL_fabsf(font3d_xleft) < 1e-6f && SDL_fabsf(font3d_xright - 0.3f) < 1e-6f);
+    NuRndrEndScene();
+    p = nw_rndr_packet();
+    unsigned letters[2] = { 0, 0 }, icons = 0;
+    other = 0;
+    for (uint32_t i = 0; i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        if (c->op == NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.5f) < 1e-6f && c->material && c->material->tid) {
+            icons++;
+        } else if (c->op != NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.1f) < 1e-6f) {
+            letters[0]++;
+        } else if (c->op != NW_CMD_VERTS && SDL_fabsf(c->local[12] - 0.3f) < 1e-6f) {
+            letters[1]++;
+        } else {
+            other++;
+        }
+    }
+    CHECK(letters[0] == 3 && letters[1] == 3 && icons == 1 && other == 0);
+    NuRndrSwapStreamBuffers();
+    nw_prompts_retail(&prompts);
+    nw_font3d_prompts(&prompts);
 
     nw_shim_file_init(NULL);
     nw_vfs_shutdown(&vfs);

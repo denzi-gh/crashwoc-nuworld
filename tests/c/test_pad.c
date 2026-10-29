@@ -294,11 +294,52 @@ static void test_script(void)
     CHECK(!nw_pad_script_read(&f));
 }
 
+/* The prompts follow the open gamepad's kind (a DualSense here) unless the setting names a style. */
+static void test_prompts(void)
+{
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        fprintf(stderr, "test_pad: SDL_Init: %s\n", SDL_GetError());
+        failures++;
+        return;
+    }
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.vendor_id = 0x054C;
+    desc.product_id = 0x0CE6;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "nuworld test dualsense";
+    SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+    SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
+    nw_input_event(&e);
+    CHECK(nw_input_pad_name() != NULL);
+    NwControls c;
+    nw_controls_defaults(&c);
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_PLAYSTATION);
+    c.prompts = NW_PROMPTS_DECK;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_DECK);
+    nw_input_shutdown();
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_DECK);
+    c.prompts = NW_PROMPTS_AUTO;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(nw_input_prompt_style() == NW_PROMPTS_KEYBOARD);
+    SDL_DetachVirtualJoystick(id);
+    SDL_Quit();
+}
+
 int main(void)
 {
     test_shim();
     test_gamepad();
     test_keyboard();
+    test_prompts();
     test_script();
     if (failures) {
         fprintf(stderr, "test_pad: %d check(s) failed\n", failures);

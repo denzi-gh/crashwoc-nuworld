@@ -209,10 +209,10 @@ def load_data_toml(path: Path) -> tuple[dict, list[str]]:
     errors = []
     if data.get("schema") != 1:
         errors.append(f"{path.name}: schema must be 1")
-    unknown = set(data) - {"schema", "owned", "conflicts"}
+    unknown = set(data) - {"schema", "owned", "conflicts", "reads"}
     if unknown:
         errors.append(f"{path.name}: unknown tables {sorted(unknown)}")
-    out = {"owned": data.get("owned", {}), "conflicts": data.get("conflicts", {})}
+    out = {table: data.get(table, {}) for table in ("owned", "conflicts", "reads")}
     for table, entries in out.items():
         for key, value in entries.items():
             if not isinstance(value, str) or not value.strip():
@@ -553,9 +553,10 @@ class Scan:
 
 
 class Scanner:
-    def __init__(self, decomp: Path, types: Types):
+    def __init__(self, decomp: Path, types: Types, reads: set[str]):
         self.clang = nwclang.Clang(decomp, "host")
         self.types = types
+        self.reads = reads
         self.files: dict[str, str] = {}
 
     def close(self) -> None:
@@ -620,7 +621,7 @@ class Scanner:
             f = c.location.file
             in_main = f is not None and self.norm(f.name) == main
             if c.kind == K.FUNCTION_DECL and c.is_definition():
-                if in_main and unit.is_overridden(c.spelling):
+                if in_main and unit.is_overridden(c.spelling) and c.spelling not in self.reads:
                     continue                # tu_filter drops it
                 walk(c, in_main)
             elif c.kind == K.VAR_DECL:
@@ -733,6 +734,9 @@ class Image:
                        "defines it)")
         for name in sorted(set(self.data["conflicts"]) - set(refs)):
             self.error(f"data.toml: conflicts.{name} is no root")
+        for name in sorted(self.data.get("reads", {})):
+            if not any(u.is_overridden(name) for u in self.units.values()):
+                self.error(f"data.toml: reads.{name} is no overridden function")
         for name in sorted(refs):
             if name in owned:
                 continue
@@ -1151,7 +1155,7 @@ def generate(model: nwunits.Model, decomp: Path, db: dict, annotations: dict,
         raise GenError("typedb/convert.toml: " + gen.errors[0])
     types = Types(db, gen)
     reg = Registry(decomp)
-    scanner = Scanner(decomp, types)
+    scanner = Scanner(decomp, types, set(data.get("reads", {})))
     scans: dict[str, Scan] = {}
     try:
         for unit in model.units:

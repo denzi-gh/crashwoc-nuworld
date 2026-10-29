@@ -2,6 +2,7 @@
 # owned: data roots the port defines itself (src/shim, src/port), so the image leaves them out
 # conflicts: roots declared as plain data in one unit and with pointer slots in another, accepted with
 #   the reason (fix the declaration upstream instead whenever possible)
+# reads: overridden functions whose data stays in the image, for the port's copy of them
 # Every entry must match a root, so a decomp bump cannot leave a stale one.
 
 schema = 1
@@ -13,3 +14,6 @@ schema = 1
 "nw_hz" = "the game logic's rate (src/port/hz.c) the NW_HZ seams read; retail has none"
 
 [conflicts]
+
+[reads]
+"Text3D" = "src/port/font3d.c is retail's Text3D with the button prompts; it reads the same font tables"
