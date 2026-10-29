@@ -35,7 +35,6 @@ static struct {
     int route[NW_LEVEL_ROUTE], nroute, leg;
     NwLevelArrival arrivals[NW_LEVEL_ROUTE];
     SDL_AtomicInt arrived; /* 1 once the last runs */
-    SDL_AtomicInt unused_title;
 } nw_level = { .entering = -1, .arrival = -1 };
 
 int nw_level_count(void)
@@ -181,9 +180,17 @@ static void nw_level_enter(int level)
     nw_level_cut();
 }
 
-void nw_level_set_unused_title(bool on)
+bool nw_level_routing(void)
 {
-    SDL_SetAtomicInt(&nw_level.unused_title, on);
+    return nw_level.intro || nw_level_pending() >= 0;
+}
+
+void nw_level_titles(void)
+{
+    Level = NW_LEVEL_TITLES;
+    new_level = NW_LEVEL_TITLES;
+    Hub = -1;
+    nw_level_cut();
 }
 
 /* Steady: the load thread is done and the screen faded in, at this swap and the one before, which BGLoad's loading
@@ -192,14 +199,6 @@ void nw_level_set_unused_title(bool on)
    the warp room's intro) is skipped as Start skips it. */
 void nw_level_poll(void)
 {
-    /* Every title cut (boot, quit, demo end, game over) ends at its first swap, still black, into TITLES' own level;
-       a route's NEW GAME and an asked level keep the cut. */
-    if (SDL_GetAtomicInt(&nw_level.unused_title) && cutmovie == 0 && !nw_level.intro && nw_level_pending() < 0) {
-        Level = NW_LEVEL_TITLES;
-        new_level = NW_LEVEL_TITLES;
-        Hub = -1;
-        nw_level_cut();
-    }
     /* The title keeps the new_level that led to it until its level starts. */
     bool steady = bgload_complete && fadeval == 0 && (new_level == -1 || cutmovie == 0) && new_mode == -1 &&
                   cutmovie <= 0 && !Demo && !editor_active;

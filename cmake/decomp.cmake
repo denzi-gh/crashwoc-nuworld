@@ -163,6 +163,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/nubridge.c src/port/terrain.c src/port/text.c
   src/port/trace.c src/port/wide.c
+  src/gameplay/gameplay.c src/gameplay/title.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c

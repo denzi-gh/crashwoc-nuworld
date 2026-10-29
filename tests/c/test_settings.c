@@ -126,6 +126,10 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
     nw_settings_defaults(&s);
+    CHECK(s.unused_title);
+    CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
+
+    nw_settings_defaults(&s);
     CHECK(s.hz == 60);
     s.hz = 50;
     CHECK(nw_settings_save(&s, root));

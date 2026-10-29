@@ -19,6 +19,7 @@
 #include "frontend/debug.h"
 #include "frontend/settings.h"
 #include "frontend/video.h"
+#include "gameplay/gameplay.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -678,9 +679,6 @@ static void nw_boot_levels(void *user)
     }
 }
 
-/* Bool if the unused title menu is shown instead of the retail main menu */
-#define NW_UNUSED_TITLE true
-
 /* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
    end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
    menu changes and saves, like the buses; aspect -1 likewise. Returns the exit code. */
@@ -706,7 +704,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
-    nw_level_set_unused_title(NW_UNUSED_TITLE);
+    if (nw_pad_script) {
+        fprintf(stderr, NW_APP_NAME ": --pad-script plays the retail game: no [game] switches\n");
+    } else {
+        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title });
+    }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);

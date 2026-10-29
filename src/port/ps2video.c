@@ -6,6 +6,7 @@
 
 #include "nucore/nuerror.h"
 #include "nu3d/nuvport.h"
+#include "gameplay/gameplay.h"
 #include "nups2/ps2video.h"
 #include "port/capture.h"
 #include "port/dump.h"
@@ -567,6 +568,7 @@ int NuPs2ScreenSwap(int vsync)
     half_offset = swap_elapsed <= nw_video_size && !nw_progressive_scan;
     if (vsync) {
         nw_game_swap();
+        nw_gameplay_swap();
         nw_level_poll();
     } else {
         half_offset = 1;

@@ -63,6 +63,11 @@ A patch must leave the PS2 build unchanged: host behaviour goes behind a `nu_por
 EE compilers with and without the patches and compares the objects. Host-only blocks are invisible to it, so their
 count per concern is kept in `port/ee_gate.toml`; change it together with the patch that needs it.
 
+Changes to how the game plays or what it shows live in `src/gameplay/`, each behind a `[game]` setting in
+`NwProfile` (`gameplay/gameplay.h`). With every switch off the profile is the retail game: only the windowed boot
+fills it from `settings.toml`, so every check, test and pad-script run plays retail. A feature marks its code with
+`NW_DEVIATION("name")`, which stops the game if it runs without its switch.
+
 To run code before, after or instead of a decomp function, list it under `wrap` in `port/units.toml` and define it
 in NuWorld: the decomp's definition stays as `<name>__retail` (declared in the generated `<unit>.retail.h`), and
 NuWorld's takes every call, the decomp's own included. A file `static` that NuWorld code must reach goes under

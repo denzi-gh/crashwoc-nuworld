@@ -204,6 +204,9 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "true simulates original hardware speed: the PS2's disc and sound load times" },
     { .table = "game", .name = "hz", .kind = NW_SETTING_INT, NW_FIELD(hz), .lo = 50, .hi = 60, .step = 10,
       .help = "the game's speed: 60 (NTSC) or 50 (PAL, the original's); from the next start" },
+    { .table = "game", .name = "unused_title", .kind = NW_SETTING_BOOL, NW_FIELD(unused_title),
+      .help = "true starts in the game's unused title menu, false with the logos and the title cut as the PS2; "
+              "from the next start" },
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -234,6 +237,7 @@ void nw_settings_defaults(NwSettings *s)
 {
     s->hardware_speed = false;
     s->hz = 60;
+    s->unused_title = true;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;

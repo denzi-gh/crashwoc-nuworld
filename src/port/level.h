@@ -33,8 +33,10 @@ typedef struct NwLevelArrival {
 /* The route's levels that ran so far, in order. */
 int nw_level_arrivals(const NwLevelArrival **out);
 
-/* On: the game's unused title menu (TITLES' own level) instead of the logos and the title cut. Any thread. */
-void nw_level_set_unused_title(bool on);
+/* A route's NEW GAME or an asked level is on its way. */
+bool nw_level_routing(void);
+/* Ends the running title cut, still black, into TITLES' own level (gameplay/title.c). The game thread. */
+void nw_level_titles(void);
 
 /* The game thread, at each swap. */
 void nw_level_poll(void);
