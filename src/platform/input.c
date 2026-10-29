@@ -8,12 +8,18 @@ static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
 
 /* A trigger's travel that a listen hears. */
 #define NW_INPUT_TRIGGER_HEARD 16384
+/* How long one rumble call lasts; the poll renews it while the motors run. */
+#define NW_INPUT_RUMBLE_MS 250
 
 static SDL_Gamepad *nw_input_pad;
 static NwControls nw_input_controls;
 static NwInputListen nw_input_listening;
 static int nw_input_heard_source = -1;
 static NwPadInput nw_input_sent = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
+static struct {
+    uint16_t low, high;
+    uint64_t at;
+} nw_input_rumbling;
 
 /* -32768..32767 as 0x00..0xFF, 0 as 0x80. */
 static uint8_t nw_input_axis(int v)
@@ -194,7 +200,25 @@ void nw_input_event(const SDL_Event *event)
                SDL_GetGamepadID(nw_input_pad) == event->gdevice.which) {
         SDL_CloseGamepad(nw_input_pad);
         nw_input_pad = NULL;
+        nw_input_rumbling.low = nw_input_rumbling.high = 0;
         nw_input_open_next();
+    }
+}
+
+/* The pad's motors on the gamepad: the big one is the low frequency rumble, the small one the high. */
+static void nw_input_rumble(void)
+{
+    uint8_t small, big;
+    nw_pad_motors(&small, &big);
+    uint16_t low = (uint16_t)(big * 0x101 * nw_input_controls.rumble / 100);
+    uint16_t high = (uint16_t)(small ? 0xFFFF * nw_input_controls.rumble / 100 : 0);
+    uint64_t now = SDL_GetTicks();
+    if (low != nw_input_rumbling.low || high != nw_input_rumbling.high ||
+        ((low || high) && now - nw_input_rumbling.at >= NW_INPUT_RUMBLE_MS / 2)) {
+        SDL_RumbleGamepad(nw_input_pad, low, high, NW_INPUT_RUMBLE_MS);
+        nw_input_rumbling.low = low;
+        nw_input_rumbling.high = high;
+        nw_input_rumbling.at = now;
     }
 }
 
@@ -209,6 +233,9 @@ void nw_input_poll(bool keyboard)
     }
     nw_input_sent = in;
     nw_pad_set(&in);
+    if (nw_input_pad) {
+        nw_input_rumble();
+    }
 }
 
 void nw_input_shutdown(void)

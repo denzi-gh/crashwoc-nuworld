@@ -54,15 +54,30 @@ static void test_shim(void)
     nw_pad_set(&idle);
     NuPs2ReadPad(pad);
     CHECK(pad->valid && pad->paddata == 0 && pad->ldx == 0);
-    NuPs2PadSetMotors(pad, 1, 200);
+    uint8_t small, big;
+    NuPs2PadSetMotors(pad, 3, 200);
+    nw_pad_motors(&small, &big);
+    CHECK(small == 1 && big == 200);
 
     struct nupad_s *second = NuPs2OpenPad(1, 0);
     CHECK(second != NULL);
     if (second) {
         read_until_valid(second);
         CHECK(!second->valid && second->paddata == 0);
-        NuPs2PadSetMotors(second, 1, 200);
+        NuPs2PadSetMotors(second, 0, 0);
+        nw_pad_motors(&small, &big);
+        CHECK(small == 1 && big == 200);
     }
+}
+
+static Uint16 rumble_low, rumble_high;
+
+static bool rumble(void *user, Uint16 low, Uint16 high)
+{
+    (void)user;
+    rumble_low = low;
+    rumble_high = high;
+    return true;
 }
 
 static void test_gamepad(void)
@@ -78,6 +93,7 @@ static void test_gamepad(void)
     desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
     desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
     desc.name = "nuworld test pad";
+    desc.Rumble = rumble;
     SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
     SDL_Gamepad *gamepad = id ? SDL_OpenGamepad(id) : NULL;
     CHECK(gamepad != NULL);
@@ -164,6 +180,17 @@ static void test_gamepad(void)
     e = (SDL_Event){ .key = { .type = SDL_EVENT_KEY_DOWN, .scancode = SDL_SCANCODE_ESCAPE } };
     nw_input_event(&e);
     CHECK(nw_input_heard() == 0);
+
+    /* The motors test_shim left on (small, big 200) rumble the gamepad at the rumble setting's strength. */
+    nw_controls_defaults(&c);
+    c.rumble = 50;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(rumble_low == 200 * 0x101 / 2 && rumble_high == 0xFFFF / 2);
+    c.rumble = 0;
+    nw_input_set_controls(&c);
+    nw_input_poll(false);
+    CHECK(rumble_low == 0 && rumble_high == 0);
     nw_input_shutdown();
 
     SDL_CloseGamepad(gamepad);

@@ -45,6 +45,8 @@ typedef struct NwPadInput {
 
 /* Any thread: the pad the game reads from now on. Until the first call it is idle. */
 void nw_pad_set(const NwPadInput *in);
+/* Any thread: the motors the game set last, the small one 0 or 1, the big one 0-255. */
+void nw_pad_motors(uint8_t *small, uint8_t *big);
 /* The frame scePadRead gives for `in`. */
 struct nupadframe_s;
 void nw_pad_frame(const NwPadInput *in, struct nupadframe_s *data);

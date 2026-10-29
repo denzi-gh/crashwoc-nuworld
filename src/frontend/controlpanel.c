@@ -57,6 +57,7 @@ static void nw_control_panel_draw(void *user)
     nw_debug_slider_int("Left stick deadzone %", &c->left_deadzone, 0, 90);
     nw_debug_slider_int("Right stick deadzone %", &c->right_deadzone, 0, 90);
     nw_debug_slider_int("Trigger press point %", &c->trigger_press, 1, 100);
+    nw_debug_slider_int("Rumble %", &c->rumble, 0, 100);
     nw_debug_text("sticks now %+4d %+4d, %+4d %+4d; triggers %3d %3d", in.lx - 0x80, in.ly - 0x80, in.rx - 0x80,
                   in.ry - 0x80, in.l2, in.r2);
     const char *pad = nw_input_pad_name();

@@ -101,6 +101,7 @@ void nw_controls_defaults(NwControls *c)
         c->keys[i][1] = nw_controls_key_defaults[i][1];
     }
     c->trigger_press = 25;
+    c->rumble = 100;
 }
 
 static const NwControlTarget *nw_controls_pad(uint16_t source)

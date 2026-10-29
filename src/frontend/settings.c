@@ -214,6 +214,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .hi = 90, .help = "0-90, the right stick's" },
     { .table = "input", .name = "trigger_press", .kind = NW_SETTING_INT, NW_FIELD(controls.trigger_press), .lo = 1,
       .hi = 100, .help = "1-100: how far (percent) a trigger goes down before it presses its button" },
+    { .table = "input", .name = "rumble", .kind = NW_SETTING_INT, NW_FIELD(controls.rumble), .lo = 0, .hi = 100,
+      .help = "0-100: the gamepad's rumble strength; the game's Vibration option turns it on and off" },
     { .table = "pad", .name = "<button>", .kind = NW_SETTING_BINDS, NW_FIELD(controls.pad), .hi = NW_CONTROL_BUTTONS,
       .source = nw_controls_pad_source, .source_name = nw_controls_pad_name,
       .help = "the gamepad's buttons for it, by position: south (cross), east, west, north, leftshoulder, "
