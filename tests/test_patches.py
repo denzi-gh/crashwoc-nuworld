@@ -1,5 +1,7 @@
-"""tools/patches.py on synthetic decomp trees and series (no git, no libclang)."""
+"""tools/patches.py on synthetic decomp trees and series (git for the work repository, no libclang)."""
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -137,6 +139,108 @@ class Series(unittest.TestCase):
         self.assertEqual(stamp["files"], ["src/a.c"])
         self.assertEqual(patches.tree_id(self.out), f"None+{stamp['series'][:12]}")
         self.assertIsNone(patches.tree_id(self.decomp))
+
+
+def git(repo: Path, *args: str) -> str:
+    env = {**os.environ, **patches.IDENTITY, "GIT_EDITOR": ":"}
+    return subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", *args], capture_output=True,
+                          check=True, env=env).stdout.decode()
+
+
+class Work(unittest.TestCase):
+    """setup, fixup, rebuild and rebase on a decomp git repository with one concern."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.decomp, self.patches, self.work = root / "decomp", root / "patches", root / "work"
+        (self.decomp / "src").mkdir(parents=True)
+        git(self.decomp, "init", "-q", "-b", "main")
+        (self.decomp / "src" / "a.c").write_bytes(BASE)
+        self.commit("retail")
+        (self.patches / "10-x" / "src").mkdir(parents=True)
+        (self.patches / "series.toml").write_text('schema = 1\n\n[[concern]]\nname = "10-x"\nreason = "x"\n',
+                                                  newline="\n")
+        (self.patches / "10-x" / "src" / "a.c.patch").write_bytes(hunk_patch("src/a.c", """
+            @@ -4,3 +4,4 @@
+             line 4
+             line 5
+            +host
+             line 6
+            """))
+        patches.setup(self.decomp, self.patches, self.work)
+        patches.rebuild(self.work, self.patches)  # series.toml in rebuild's form, as in the repository
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def commit(self, message):
+        git(self.decomp, "add", "-A")
+        git(self.decomp, "commit", "-q", "-m", message)
+        return git(self.decomp, "rev-parse", "HEAD").strip()
+
+    def upstream(self, data, message):
+        """A newer decomp commit; the checkout stays on the pinned one, as a fetched submodule does."""
+        (self.decomp / "src" / "a.c").write_bytes(data)
+        sha = self.commit(message)
+        git(self.decomp, "checkout", "-q", "--detach", "HEAD~1")
+        return sha
+
+    def tree(self):
+        return patches.patch_tree(patches.worktree_files(self.decomp), self.patches)["src/a.c"]
+
+    def edit(self, old, new):
+        f = self.work / "src" / "a.c"
+        f.write_bytes(f.read_bytes().replace(old, new))
+
+    def test_rebuild_is_stable(self):
+        patches.rebuild(self.work, self.patches)
+        before = patches.current_outputs(self.patches)
+        self.assertEqual(patches.rebuild(self.work, self.patches), 0)
+        self.assertEqual(patches.current_outputs(self.patches), before)
+        self.assertIn(b"+host\n", before["10-x/src/a.c.patch"])
+        self.assertIn(b'reason = "x"', before["series.toml"])
+
+    def test_fixup_and_new_concern(self):
+        self.edit(b"line 12\n", b"line 12 host\n")
+        patches.fixup("10-x", work=self.work, patches=self.patches)
+        self.assertIn(b"line 5\nhost\nline 6\n", self.tree())
+        self.assertIn(b"line 12 host\n", self.tree())
+        self.edit(b"line 18\n", b"line 18 wide\n")
+        patches.fixup("20-y", "the y concern", self.work, self.patches)
+        self.assertIn("20-y/src/a.c.patch", patches.current_outputs(self.patches))
+        self.assertIn(b'name = "20-y"\nreason = "the y concern"', (self.patches / "series.toml").read_bytes())
+        self.assertIn(b"line 18 wide\n", self.tree())
+        with self.assertRaisesRegex(patches.PatchError, "no edits"):
+            patches.fixup("10-x", work=self.work, patches=self.patches)
+
+    def test_setup_keeps_unsaved_work(self):
+        self.edit(b"line 2\n", b"edited\n")
+        with self.assertRaisesRegex(patches.PatchError, "uncommitted edits"):
+            patches.setup(self.decomp, self.patches, self.work)
+        patches.setup(self.decomp, self.patches, self.work, force=True)
+        self.assertNotIn(b"edited", (self.work / "src" / "a.c").read_bytes())
+
+    def test_rebase_clean(self):
+        patch = self.patches / "10-x" / "src" / "a.c.patch"
+        self.assertIn(b"@@ -3,6 +3,7 @@", patch.read_bytes())
+        sha = self.upstream(b"new first line\n" + BASE, "retail moves")
+        self.assertTrue(patches.rebase(sha, self.decomp, self.patches, self.work))
+        self.assertIn(b"@@ -4,6 +4,7 @@", patch.read_bytes())
+        git(self.decomp, "checkout", "-q", sha)
+        self.assertEqual(self.tree(), b"new first line\n" + BASE.replace(b"line 5\n", b"line 5\nhost\n"))
+
+    def test_rebase_conflict_resolves(self):
+        sha = self.upstream(BASE.replace(b"line 5\n", b"line five\n"), "retail renames")
+        self.assertFalse(patches.rebase(sha, self.decomp, self.patches, self.work))
+        with self.assertRaisesRegex(patches.PatchError, "rebase is in progress"):
+            patches.rebuild(self.work, self.patches)
+        (self.work / "src" / "a.c").write_bytes(BASE.replace(b"line 5\n", b"line five\nhost\n"))
+        git(self.work, "add", "-A")
+        git(self.work, "rebase", "--continue")
+        patches.rebuild(self.work, self.patches)
+        git(self.decomp, "checkout", "-q", sha)
+        self.assertEqual(self.tree(), BASE.replace(b"line 5\n", b"line five\nhost\n"))
 
 
 if __name__ == "__main__":

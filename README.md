@@ -45,6 +45,19 @@ build copies the decomp to `build/<preset>/decomp` and applies them; the tools i
 (`python tools/patches.py apply`). Every hunk must match exactly, so a decomp update that touches patched code
 stops the build at that patch.
 
+Edit code, not diffs:
+
+```sh
+python tools/patches.py setup                # build/patch-work: the decomp, files, then one commit per concern
+# edit the files in build/patch-work
+python tools/patches.py fixup 70-widescreen  # fold the edits into that concern and rewrite port/patches
+python tools/patches.py rebase <decomp sha>  # move the series and the submodule to another decomp commit
+```
+
+`fixup <name> --new "<reason>"` starts a concern at the end of the series. When `fixup` or `rebase` stops at a
+conflict, resolve it in `build/patch-work`, `git add` the files, `git rebase --continue`, then run
+`python tools/patches.py rebuild`.
+
 ## Game data
 
 Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):
