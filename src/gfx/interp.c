@@ -537,6 +537,14 @@ static void nw_interp_uv(NwMtlSnap *out, const NwMtlSnap *a, const NwMtlSnap *b,
     }
 }
 
+/* memcpy that takes an empty array's NULL. */
+static void nw_copy(void *dst, const void *src, size_t size)
+{
+    if (size) {
+        memcpy(dst, src, size);
+    }
+}
+
 const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
 {
     if (!a || !b || t >= 1.0f || !nw_interp_pair(a, b) ||
@@ -555,12 +563,12 @@ const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
     nw_ir.out.joints = nw_ir.joints;
     nw_ir.out.weights = nw_ir.weights;
     nw_ir.out.mtls = nw_ir.mtls;
-    memcpy(nw_ir.cmds, b->cmds, b->ncmds * sizeof(*b->cmds));
-    memcpy(nw_ir.views, b->views, b->nviews * sizeof(*b->views));
-    memcpy(nw_ir.ptllists, b->ptllists, b->nptllists * sizeof(*b->ptllists));
-    memcpy(nw_ir.joints, b->joints, b->njoints * sizeof(*b->joints));
-    memcpy(nw_ir.weights, b->weights, b->nweights * sizeof(*b->weights));
-    memcpy(nw_ir.mtls, b->mtls, b->nmtls * sizeof(*b->mtls));
+    nw_copy(nw_ir.cmds, b->cmds, b->ncmds * sizeof(*b->cmds));
+    nw_copy(nw_ir.views, b->views, b->nviews * sizeof(*b->views));
+    nw_copy(nw_ir.ptllists, b->ptllists, b->nptllists * sizeof(*b->ptllists));
+    nw_copy(nw_ir.joints, b->joints, b->njoints * sizeof(*b->joints));
+    nw_copy(nw_ir.weights, b->weights, b->nweights * sizeof(*b->weights));
+    nw_copy(nw_ir.mtls, b->mtls, b->nmtls * sizeof(*b->mtls));
     for (uint32_t i = 0; i < b->nmtls; i++) {
         if (nw_ir.mpair[i] != NW_NONE) {
             nw_interp_uv(&nw_ir.mtls[i], &a->mtls[nw_ir.mpair[i]], &b->mtls[i], t);
