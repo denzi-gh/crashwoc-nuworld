@@ -233,6 +233,11 @@ int main(int argc, char *argv[])
           SDL_strstr(saved, "l2 = []\n") && SDL_strstr(saved, "# pad.<button>: "));
     SDL_free(saved);
 
+    /* [input]: the deadzones, clamped, and the press point, 25 % (0x40) by default. */
+    CHECK(s.controls.left_deadzone == 0 && s.controls.right_deadzone == 0 && s.controls.trigger_press == 25);
+    CHECK(read_text("[input]\nleft_deadzone = 15\nright_deadzone = 95\ntrigger_press = 0\n", &s) &&
+          s.controls.left_deadzone == 15 && s.controls.right_deadzone == 90 && s.controls.trigger_press == 1);
+
     /* [keyboard]: keys by SDL's names, the sticks' directions too. */
     CHECK(s.controls.keys[2][0] == SDL_SCANCODE_E && s.controls.keys[2][1] == SDL_SCANCODE_J);
     CHECK(read_text("[keyboard]\nsquare = [\"Left Shift\", \"no such key\"]\nright_stick_up = \"I\"\nstart = []\n",

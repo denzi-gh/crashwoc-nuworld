@@ -26,7 +26,7 @@ typedef struct NwSettings {
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;
-    NwControls controls; /* [pad], [keyboard] */
+    NwControls controls; /* [input], [pad], [keyboard] */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

@@ -1,8 +1,5 @@
 #include "platform/input.h"
 
-/* Trigger pressure (0-255) from which a trigger presses its button. */
-#define NW_INPUT_TRIGGER_PRESSED 0x40
-
 /* By target (platform/controls.h). */
 static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
     NW_PAD_CROSS, NW_PAD_CIRCLE, NW_PAD_SQUARE, NW_PAD_TRIANGLE, NW_PAD_L1,     NW_PAD_R1,   NW_PAD_L2,   NW_PAD_R2,
@@ -16,11 +13,26 @@ static SDL_Gamepad *nw_input_pad;
 static NwControls nw_input_controls;
 static NwInputListen nw_input_listening;
 static int nw_input_heard_source = -1;
+static NwPadInput nw_input_sent = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
 
 /* -32768..32767 as 0x00..0xFF, 0 as 0x80. */
-static uint8_t nw_input_axis(SDL_Gamepad *gamepad, SDL_GamepadAxis axis)
+static uint8_t nw_input_axis(int v)
 {
-    return (uint8_t)((SDL_GetGamepadAxis(gamepad, axis) + 32768) >> 8);
+    return (uint8_t)((v + 32768) >> 8);
+}
+
+/* A stick from its x axis on, with deadzone percent of its reach centred and the rest stretched over all of it. */
+static void nw_input_stick(SDL_Gamepad *gamepad, SDL_GamepadAxis x, int deadzone, uint8_t *px, uint8_t *py)
+{
+    int ix = SDL_GetGamepadAxis(gamepad, x), iy = SDL_GetGamepadAxis(gamepad, (SDL_GamepadAxis)(x + 1));
+    if (deadzone > 0) {
+        float fx = (float)ix / 32767.0f, fy = (float)iy / 32767.0f, r = SDL_sqrtf(fx * fx + fy * fy);
+        float dz = (float)deadzone / 100.0f, k = r > dz ? (r - dz) / (1.0f - dz) / r : 0.0f;
+        ix = (int)SDL_lroundf(SDL_clamp(fx * k, -1.0f, 1.0f) * 32767.0f);
+        iy = (int)SDL_lroundf(SDL_clamp(fy * k, -1.0f, 1.0f) * 32767.0f);
+    }
+    *px = nw_input_axis(ix);
+    *py = nw_input_axis(iy);
 }
 
 /* 0..32767 as 0x00..0xFF. */
@@ -41,6 +53,7 @@ static uint8_t nw_input_source(SDL_Gamepad *gamepad, uint16_t source)
 
 void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in)
 {
+    int press = (c->trigger_press * 0xFF + 50) / 100;
     in->buttons = 0;
     for (int i = 0; i < NW_CONTROL_BUTTONS; i++) {
         uint8_t most = 0;
@@ -48,7 +61,7 @@ void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in)
             uint8_t v = nw_input_source(gamepad, c->pad[i][j]);
             most = v > most ? v : most;
         }
-        if (most >= NW_INPUT_TRIGGER_PRESSED) {
+        if (most && most >= press) {
             in->buttons |= nw_input_bits[i];
         }
         if (nw_input_bits[i] == NW_PAD_L2) {
@@ -57,10 +70,8 @@ void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in)
             in->r2 = most;
         }
     }
-    in->lx = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_LEFTX);
-    in->ly = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_LEFTY);
-    in->rx = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX);
-    in->ry = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY);
+    nw_input_stick(gamepad, SDL_GAMEPAD_AXIS_LEFTX, c->left_deadzone, &in->lx, &in->ly);
+    nw_input_stick(gamepad, SDL_GAMEPAD_AXIS_RIGHTX, c->right_deadzone, &in->rx, &in->ry);
 }
 
 /* -1, 0 or 1 as 0x00, keep or 0xFF. */
@@ -123,6 +134,11 @@ int nw_input_heard(void)
     int heard = nw_input_heard_source;
     nw_input_heard_source = -1;
     return heard;
+}
+
+NwPadInput nw_input_last(void)
+{
+    return nw_input_sent;
 }
 
 const char *nw_input_pad_name(void)
@@ -191,6 +207,7 @@ void nw_input_poll(bool keyboard)
     if (keyboard && !nw_input_listening) {
         nw_input_keyboard(SDL_GetKeyboardState(NULL), &nw_input_controls, &in);
     }
+    nw_input_sent = in;
     nw_pad_set(&in);
 }
 

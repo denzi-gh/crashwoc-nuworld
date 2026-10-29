@@ -121,6 +121,28 @@ static void test_gamepad(void)
     nw_input_gamepad(gamepad, &c, &in);
     CHECK(in.buttons & NW_PAD_SQUARE);
 
+    /* Deadzones: inside one a stick is centred, outside it stretches to the full reach; the press point moves. */
+    nw_controls_defaults(&c);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 6000);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTY, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTY, SDL_JOYSTICK_AXIS_MAX);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 0); /* half way */
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx == (6000 + 32768) >> 8 && in.ly == 0x80 && in.ry == 0xFF);
+    CHECK(in.r2 >= 0x7F && in.r2 <= 0x80 && (in.buttons & NW_PAD_R2));
+    c.left_deadzone = c.right_deadzone = 20;
+    c.trigger_press = 60;
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx == 0x80 && in.ly == 0x80 && in.rx == 0x80 && in.ry == 0xFF);
+    CHECK(in.r2 >= 0x7F && in.r2 <= 0x80 && !(in.buttons & NW_PAD_R2));
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 16384);
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTY, 0);
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.lx > 0xA0 && in.lx < 0xC0 && in.ry == 0x80); /* (0.5 - 0.2) / 0.8 of the reach */
+
     /* A listen hears the open gamepad's next button or trigger; Escape cancels. */
     SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
     nw_input_event(&e);

@@ -208,6 +208,12 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
       .help = "0-100, the cutscene and hint voices" },
+    { .table = "input", .name = "left_deadzone", .kind = NW_SETTING_INT, NW_FIELD(controls.left_deadzone), .lo = 0,
+      .hi = 90, .help = "0-90: how far (percent) the left stick counts as centred; the game has its own after it" },
+    { .table = "input", .name = "right_deadzone", .kind = NW_SETTING_INT, NW_FIELD(controls.right_deadzone), .lo = 0,
+      .hi = 90, .help = "0-90, the right stick's" },
+    { .table = "input", .name = "trigger_press", .kind = NW_SETTING_INT, NW_FIELD(controls.trigger_press), .lo = 1,
+      .hi = 100, .help = "1-100: how far (percent) a trigger goes down before it presses its button" },
     { .table = "pad", .name = "<button>", .kind = NW_SETTING_BINDS, NW_FIELD(controls.pad), .hi = NW_CONTROL_BUTTONS,
       .source = nw_controls_pad_source, .source_name = nw_controls_pad_name,
       .help = "the gamepad's buttons for it, by position: south (cross), east, west, north, leftshoulder, "

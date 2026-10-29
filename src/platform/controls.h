@@ -1,4 +1,5 @@
-/* The controls settings.toml keeps: which gamepad buttons and keys press each of the pad's buttons. */
+/* The controls settings.toml keeps: which gamepad buttons and keys press each of the pad's buttons, and the sticks'
+   deadzones. */
 #ifndef NUWORLD_PLATFORM_CONTROLS_H
 #define NUWORLD_PLATFORM_CONTROLS_H
 
@@ -13,6 +14,8 @@
 typedef struct NwControls {
     uint16_t pad[NW_CONTROL_BUTTONS][NW_CONTROL_BINDS];  /* gamepad sources, 0 none */
     uint16_t keys[NW_CONTROL_TARGETS][NW_CONTROL_BINDS]; /* SDL_Scancodes, 0 none */
+    int left_deadzone, right_deadzone; /* percent of a stick's reach that counts as centred */
+    int trigger_press;                 /* percent of a trigger's travel that presses its button */
 } NwControls;
 
 /* Target i's settings.toml key ("cross") and label ("Cross"). */

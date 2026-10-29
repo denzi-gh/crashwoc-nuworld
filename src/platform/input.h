@@ -25,6 +25,8 @@ void nw_input_set_controls(const NwControls *c);
 void nw_input_listen(NwInputListen what);
 /* -1 while listening or not, else (once) what was heard: a source, 0 for Escape. */
 int nw_input_heard(void);
+/* What the poll handed the game last. */
+NwPadInput nw_input_last(void);
 /* The open gamepad's name, NULL without one. */
 const char *nw_input_pad_name(void);
 /* Its label for a source: the face buttons' (Cross, A, ...), else nw_controls_pad_label's. */
