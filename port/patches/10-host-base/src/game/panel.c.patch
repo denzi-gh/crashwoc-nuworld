@@ -1,0 +1,10 @@
+--- a/src/game/panel.c
++++ b/src/game/panel.c
+@@ -27,6 +27,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "nu3d/nucamera.h"
+ #include "nu3d/nugscn.h"

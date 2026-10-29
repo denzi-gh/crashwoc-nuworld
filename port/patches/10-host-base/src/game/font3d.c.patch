@@ -1,0 +1,10 @@
+--- a/src/game/font3d.c
++++ b/src/game/font3d.c
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "nu3d/numtl.h"
+ #include "nu3d/nugscn.h"

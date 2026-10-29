@@ -1,0 +1,26 @@
+--- a/src/game/vehicle.c
++++ b/src/game/vehicle.c
+@@ -3895,12 +3895,12 @@ inline s32 PossIntersect(struct nuvec_s *PosA, struct nuvec_s *VelA, struct nuve
+     MagVelA = NuVecMag(VelA);
+     NuVecMag(&AV); /* result unused, but retail makes the call */
+ 
+-    Angle = -DotProduct(&A, VelA) / (MagA * MagVelA);
++    Angle = NW_EE_DIV(-DotProduct(&A, VelA), MagA * MagVelA);
+     if (Angle < 0.866f) {
+         return 0;
+     }
+ 
+-    Time = DotProduct(&A, &A) / DotProduct(&A, &AV);
++    Time = NW_EE_DIV(DotProduct(&A, &A), DotProduct(&A, &AV));
+     if (Time > 0.0f && Time < MaxTime) {
+         if (DotProduct(VelA, VelB) <= 0.0f) {
+             return 1;
+@@ -8628,7 +8628,7 @@ void ProcessFireFlyIntro(void)
+         GliderIntroCamPos.x = PlayerGlider.Position.x;
+         GliderIntroCamPos.z = PlayerGlider.Position.z;
+         NuVecScaleAccum(&GliderIntroCamPos, &dir,
+-                        MatchMinDist + (Timer / MatchTimer) * (MatchMaxDist - MatchMinDist));
++                        MatchMinDist + NW_EE_DIV(Timer, MatchTimer) * (MatchMaxDist - MatchMinDist));
+         if (ProcessTimer(&Timer) != 0) {
+             FireFlyIntroAction = 3;
+         }

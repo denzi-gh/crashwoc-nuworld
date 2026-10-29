@@ -1,0 +1,10 @@
+--- a/src/nu3d/nuanim.c
++++ b/src/nu3d/nuanim.c
+@@ -42,6 +42,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "nu3d/nustream.h"
+ #include "nucore/nuerror.h"

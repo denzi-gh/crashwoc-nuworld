@@ -1,0 +1,10 @@
+--- a/src/game/ai.c
++++ b/src/game/ai.c
+@@ -36,6 +36,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "nu3d/nugscn.h"
+ #include "nu3d/nulight.h"

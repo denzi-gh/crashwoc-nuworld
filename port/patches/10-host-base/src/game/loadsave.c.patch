@@ -1,0 +1,10 @@
+--- a/src/game/loadsave.c
++++ b/src/game/loadsave.c
+@@ -11,6 +11,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ #include "nu_types.h"
+ 
+ #include "nu3d/nugscn.h"

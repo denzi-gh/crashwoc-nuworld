@@ -1,0 +1,10 @@
+--- a/src/game/deb3.c
++++ b/src/game/deb3.c
+@@ -22,6 +22,7 @@
+  *   0x0024c960 JonMaskFPS
+  */
+ 
++#include "nu_port.h"
+ #include "nu3d/nucamera.h"
+ #include "nu3d/nugscn.h"
+ #include "nu3d/nulight.h"

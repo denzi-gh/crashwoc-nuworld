@@ -4,5 +4,37 @@
 schema = 1
 
 [[concern]]
-name = "00-nuworld-host"
-reason = "The host seams of the retired nuworld-host branch (decomp bbe44da over main 4c95847), not yet split by concern."
+name = "10-host-base"
+reason = "Builds the decomp for the host: the host branches of the platform headers, the nu_port.h includes, host prototypes and module headers, retail's mismatched prototypes in definition order, host-only casts."
+
+[[concern]]
+name = "20-lvalue"
+reason = "Cast-as-lvalue stores and loads (NW_PUT, NW_GET), which clang rejects."
+
+[[concern]]
+name = "30-statics"
+reason = "File statics the port reaches from its own code (NW_STATIC)."
+
+[[concern]]
+name = "40-ee-faithful"
+reason = "The EE's results where the host's differ: float division by zero, saturating float to int, retail's reads past an object (NW_EE_*, NW_RETAIL, NW_PAST, NW_HOST_INIT, ...)."
+
+[[concern]]
+name = "50-host-memory"
+reason = "64-bit layouts and heaps: host records beside the PS2 heaps (NW_HEAP_*), the superbuffer, locals retail hands out, record strides and pointer halves."
+
+[[concern]]
+name = "60-host-loop"
+reason = "Busy-waits that yield to the host (NW_HOST_IDLE)."
+
+[[concern]]
+name = "70-widescreen"
+reason = "Hor+ widescreen (NW_WIDE*)."
+
+[[concern]]
+name = "80-interp"
+reason = "Display-rate interpolation keys and snaps (NW_INTERP_*)."
+
+[[concern]]
+name = "90-hz"
+reason = "50/60 Hz: PAL's values on the PS2, NTSC's on a 60 Hz host (NW_HZ, NW_DEMOS)."

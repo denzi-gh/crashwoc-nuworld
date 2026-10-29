@@ -1,0 +1,10 @@
+--- a/src/game/camera.c
++++ b/src/game/camera.c
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/numtx.h"
+ #include "numath/nutrig.h"

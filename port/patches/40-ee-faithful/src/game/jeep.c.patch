@@ -1,0 +1,10 @@
+--- a/src/game/jeep.c
++++ b/src/game/jeep.c
+@@ -2631,6 +2631,7 @@ s32 DrawFireBoss(struct fireboss_s *Boss) {
+         NuVecAdd(&P1, &WallOfFirePosition, &P1);
+         NuVecSub(&Rel, &P1, &P0);
+     }
++    NW_HOST_RETURN(0);
+ }
+ 
+ 

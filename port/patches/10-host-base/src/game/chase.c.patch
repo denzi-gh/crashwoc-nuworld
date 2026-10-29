@@ -1,0 +1,10 @@
+--- a/src/game/chase.c
++++ b/src/game/chase.c
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/numtx.h"
+ #include "numath/nuvec.h"
