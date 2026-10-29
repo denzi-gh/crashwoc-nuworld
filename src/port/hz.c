@@ -57,3 +57,8 @@ int nw_hz_patch(void)
 {
     return nw_hz_apply(nw_hz_patches, SDL_arraysize(nw_hz_patches), nw_image_host);
 }
+
+int nw_demos(void)
+{
+    return nw_hz != 60;
+}

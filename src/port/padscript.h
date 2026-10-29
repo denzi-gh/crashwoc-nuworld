@@ -16,6 +16,8 @@
 
 struct nupadframe_s;
 
+/* Whether spec replays a retail recording (a .ppd, or "auto"), one pad state per 50 Hz tick. */
+bool nw_pad_script_is_recording(const char *spec);
 /* Before the game starts; `level` is the run's last level, -1 for none. False with SDL_GetError(). */
 bool nw_pad_script_start(const NwVfs *vfs, const char *spec, int level);
 /* A text script (NUL-terminated) or a .ppd image in place of the run's script; false with SDL_GetError(). */

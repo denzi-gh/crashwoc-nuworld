@@ -449,7 +449,10 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
         return 1;
     }
-    int hz = nw_hz_set(nw_run_hz);
+    if (nw_run_hz == 60 && nw_pad_script && nw_pad_script_is_recording(nw_pad_script)) {
+        fprintf(stderr, NW_APP_NAME ": --pad-script %s replays 50 Hz ticks: 50 Hz\n", nw_pad_script);
+    }
+    int hz = nw_hz_set(nw_pad_script && nw_pad_script_is_recording(nw_pad_script) ? 50 : nw_run_hz);
     int kept = hz == 60 ? nw_hz_patch() : 0;
     if (kept) {
         fprintf(stderr, NW_APP_NAME ": 60 Hz: %d data values are not retail's and stay\n", kept);
