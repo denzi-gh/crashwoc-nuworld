@@ -1,6 +1,7 @@
-# The port patches over the decomp, applied in this order by tools/patches.py (PLAN.md §2.3). A concern is a
-# directory of <decomp path>.patch files; new files live in files/. Every patch keeps the PS2 build unchanged: its
-# seams expand to the decomp's own text without NW_HOST.
+# The port patches over the decomp, applied in this order by tools/patches.py (README, "Changing the
+# game"). A concern is a directory of <decomp path>.patch files; new files live in files/. Every
+# patch keeps the PS2 build unchanged: its seams expand to the decomp's own text without NW_HOST.
+# tools/patches.py rebuild writes this file.
 schema = 1
 
 [[concern]]

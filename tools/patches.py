@@ -6,7 +6,13 @@ the patched tree, adds port/patches/files/ and applies the concerns of
 port/patches/series.toml in order. A concern is a directory of
 <decomp path>.patch files (unified diffs); every hunk must match exactly, it
 may move but is never fuzzed. verify proves the series between two decomp
-commits; import writes a concern from a decomp diff.
+commits.
+
+Editing: setup makes build/patch-work, a git repository with the decomp as
+its first commit, then a commit "files" and one commit per concern. Edit the
+code there, then fixup <concern> folds the edits into that concern and
+rebuild writes port/patches back from the commits. rebase <sha> moves the
+series onto another decomp commit (three-way, conflicts stop it).
 """
 from __future__ import annotations
 
@@ -15,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -26,6 +33,7 @@ REPO = Path(__file__).resolve().parent.parent
 PRISTINE = REPO / "decomp"
 TREE = REPO / "build" / "decomp"
 PATCHES = REPO / "port" / "patches"
+WORK = REPO / "build" / "patch-work"
 STAMP = ".nw-tree.json"
 SCHEMA = 1
 HUNK = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
@@ -303,6 +311,228 @@ def tree_id(tree: Path) -> str | None:
     return f"{doc.get('decomp')}+{doc.get('series', '')[:12]}"
 
 
+# -- the work repository: edit, rebuild, rebase -----------------------------------------------------------------------
+
+FILES = "files"  # subject of the commit with the new files
+BASE = "decomp "  # subject prefix of a decomp commit
+SERIES_HEADER = ("# The port patches over the decomp, applied in this order by tools/patches.py (README, "
+                 "\"Changing the\n"
+                 "# game\"). A concern is a directory of <decomp path>.patch files; new files live in files/. Every\n"
+                 "# patch keeps the PS2 build unchanged: its seams expand to the decomp's own text without NW_HOST.\n"
+                 "# tools/patches.py rebuild writes this file.\n")
+IDENTITY = {"GIT_AUTHOR_NAME": "patches", "GIT_AUTHOR_EMAIL": "patches@nuworld.invalid",
+            "GIT_COMMITTER_NAME": "patches", "GIT_COMMITTER_EMAIL": "patches@nuworld.invalid",
+            "GIT_AUTHOR_DATE": "946684800 +0000", "GIT_COMMITTER_DATE": "946684800 +0000"}
+# Settings that change diff output, pinned so every machine writes the same patch files.
+DIFF = ["-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "diff.suppressBlankEmpty=false",
+        "-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "--no-renames", "--no-relative",
+        "--diff-algorithm=myers", "--indent-heuristic", "-U3"]
+
+
+def wgit(work: Path, *args: str, data: bytes | None = None, check: bool = True) -> subprocess.CompletedProcess:
+    env = {**os.environ, **IDENTITY, "GIT_EDITOR": ":", "GIT_SEQUENCE_EDITOR": ":"}
+    proc = subprocess.run(["git", "-C", str(work), "-c", "core.autocrlf=false", "-c", "core.safecrlf=false", *args],
+                          input=data, capture_output=True, env=env)
+    if check and proc.returncode:
+        raise PatchError(f"git {' '.join(args[:2])} in {work}: {proc.stderr.decode(errors='replace').strip()}")
+    return proc
+
+
+def _remove_tree(path: Path) -> None:
+    def force(fn, p, _exc):  # git's read-only objects on Windows
+        os.chmod(p, 0o700)
+        fn(p)
+    shutil.rmtree(path, **({"onexc": force} if sys.version_info >= (3, 12) else {"onerror": force}))
+
+
+def _fast_import_commit(subject: str, body: str, parent: str | None, files: dict[str, bytes],
+                        ref: str = "refs/heads/main", reset: bool = False) -> bytes:
+    """One commit for git fast-import; without `parent` it follows the branch's last commit in the stream."""
+    msg = (subject + ("\n\n" + body if body else "") + "\n").encode()
+    out = [f"commit {ref}\n".encode(), b"author patches <patches@nuworld.invalid> 946684800 +0000\n",
+           b"committer patches <patches@nuworld.invalid> 946684800 +0000\n", b"data %d\n" % len(msg), msg]
+    if parent:
+        out.append(f"from {parent}\n".encode())
+    if reset:
+        out.append(b"deleteall\n")
+    for name, data in sorted(files.items()):
+        out += [f"M 100644 inline {name}\n".encode(), b"data %d\n" % len(data), data, b"\n"]
+    return b"".join(out)
+
+
+def work_commits(work: Path) -> list[tuple[str, str, str]]:
+    """(sha, subject, body) of the first-parent history, oldest first."""
+    log = wgit(work, "log", "--first-parent", "--reverse", "--format=%H%x00%s%x00%b%x01", "main").stdout.decode()
+    out = []
+    for entry in log.split("\x01"):
+        entry = entry.strip("\n")
+        if entry:
+            sha, subject, body = entry.split("\x00")
+            out.append((sha, subject, body.strip()))
+    return out
+
+
+def work_layout(work: Path):
+    """The last decomp commit, the files commit and the concern commits after it."""
+    commits = work_commits(work)
+    bases = [i for i, c in enumerate(commits) if c[1].startswith(BASE)]
+    if not bases or len(commits) <= bases[-1] + 1 or commits[bases[-1] + 1][1] != FILES:
+        raise PatchError(f"{work}: expected a '{BASE}<sha>' commit followed by '{FILES}' and the concerns")
+    b = bases[-1]
+    return commits[b], commits[b + 1], commits[b + 2:]
+
+
+def work_busy(work: Path) -> str | None:
+    """Why the work repository cannot be rebuilt or replaced, or None."""
+    git_dir = work / ".git"
+    if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+        return "a rebase is in progress (finish it with git rebase --continue, or --abort)"
+    if wgit(work, "status", "--porcelain").stdout.strip():
+        return "it has uncommitted edits (fold them into a concern with fixup)"
+    return None
+
+
+def setup(decomp: Path = PRISTINE, patches: Path = PATCHES, work: Path = WORK, force: bool = False) -> int:
+    """(Re)creates the work repository from the decomp's HEAD and the series; returns the concern count."""
+    if work.exists() and not force:
+        why = work_busy(work) if (work / ".git").exists() else None
+        if why is None and (work / ".git").exists() and rebuild_outputs(work) != current_outputs(patches):
+            why = "its commits differ from port/patches (rebuild keeps them)"
+        if why:
+            raise PatchError(f"{work}: {why}; --force throws it away")
+    if work.exists():
+        _remove_tree(work)
+    work.mkdir(parents=True)
+    wgit(work, "init", "-q", "-b", "main")
+    for key, value in (("core.autocrlf", "false"), ("user.name", "patches"), ("user.email", "patches@nuworld.invalid")):
+        wgit(work, "config", key, value)
+    sha = decomp_sha(decomp) or "HEAD"
+    base = commit_files(decomp, "HEAD") if (decomp / ".git").exists() else worktree_files(decomp)
+    concerns, new = load_series(patches)
+    stream = [_fast_import_commit(f"{BASE}{sha}", "", None, base), _fast_import_commit(FILES, "", None, new)]
+    tree = {**base, **new}
+    for c in concerns:
+        changed = {}
+        for p in c.patches:
+            if p.path not in tree:
+                raise PatchError(f"{p.origin}: {p.path} is not in the decomp")
+            tree[p.path] = changed[p.path] = apply_patch(p, tree[p.path])
+        stream.append(_fast_import_commit(c.name, c.reason, None, changed))
+    wgit(work, "fast-import", "--quiet", data=b"".join(stream))
+    wgit(work, "reset", "-q", "--hard", "main")
+    wgit(work, "tag", "-f", "base", "main~%d" % (len(concerns) + 1))
+    return len(concerns)
+
+
+def _split_diff(diff: bytes) -> dict[str, bytes]:
+    """A multi-file git diff as one normalized patch per path."""
+    out = {}
+    for section in re.split(rb"(?m)^diff --git ", diff)[1:]:
+        head, _, rest = section.partition(b"\n--- ")
+        if not rest:
+            raise PatchError(f"not a text change: {section.splitlines()[0].decode(errors='replace')}")
+        if re.search(rb"(?m)^(new|deleted) file mode", head):
+            raise PatchError(f"{section.splitlines()[0].decode(errors='replace')}: a concern only changes decomp "
+                             "files (new files go in the files commit)")
+        body = b"--- " + rest
+        path = body.split(b"\n", 1)[0][len(b"--- a/"):].decode()
+        out[path] = body
+    return out
+
+
+def rebuild_outputs(work: Path) -> dict[str, bytes]:
+    """port/patches as the work repository's commits say: relative path -> bytes."""
+    (base, _, _), (files_sha, _, _), concerns = work_layout(work)
+    out = {}
+    status = wgit(work, "diff", "--name-status", "-z", "--no-renames", base, files_sha).stdout.split(b"\0")
+    for kind, name in zip(status[0::2], status[1::2]):
+        if kind != b"A":
+            raise PatchError(f"{FILES} commit: {name.decode()} is not a new file (patch it in a concern)")
+        out[f"files/{name.decode()}"] = wgit(work, "show", f"{files_sha}:{name.decode()}").stdout
+    series = [SERIES_HEADER, f"schema = {SCHEMA}\n"]
+    parent = files_sha
+    for sha, name, reason in concerns:
+        if not re.fullmatch(r"[0-9]{2}-[a-z0-9-]+", name) or name == FILES:
+            raise PatchError(f"concern commit {sha[:12]}: subject {name!r} is not a concern name like 70-widescreen")
+        for path, body in _split_diff(wgit(work, *DIFF, parent, sha).stdout).items():
+            out[f"{name}/{path}.patch"] = body
+        series.append(f"\n[[concern]]\nname = \"{name}\"\nreason = {json.dumps(reason, ensure_ascii=False)}\n")
+        parent = sha
+    out["series.toml"] = "".join(series).encode()
+    return out
+
+
+def current_outputs(patches: Path) -> dict[str, bytes]:
+    return {p.relative_to(patches).as_posix(): p.read_bytes() for p in patches.rglob("*") if p.is_file()}
+
+
+def rebuild(work: Path = WORK, patches: Path = PATCHES) -> int:
+    """Writes port/patches from the work repository; returns the number of files written or removed."""
+    why = work_busy(work)
+    if why:
+        raise PatchError(f"{work}: {why}")
+    new, old = rebuild_outputs(work), current_outputs(patches)
+    changed = 0
+    for name, data in new.items():
+        if old.get(name) != data:
+            dest = patches / name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            changed += 1
+    for name in sorted(old.keys() - new.keys()):
+        (patches / name).unlink()
+        changed += 1
+    for d in sorted((p for p in patches.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if not any(d.iterdir()):
+            d.rmdir()
+    return changed
+
+
+def fixup(concern: str, reason: str | None = None, work: Path = WORK, patches: Path = PATCHES) -> int:
+    """Commits the work repository's edits into `concern` (a new one at the end with `reason`), then rebuilds."""
+    git_dir = work / ".git"
+    if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+        raise PatchError(f"{work}: a rebase is in progress (finish it with git rebase --continue, or --abort)")
+    wgit(work, "add", "-A")
+    if not wgit(work, "diff", "--cached", "--quiet", check=False).returncode:
+        raise PatchError(f"{work}: no edits to fold in")
+    (base, _, _), files_commit, concerns = work_layout(work)
+    target = {c[1]: c[0] for c in [files_commit, *concerns]}.get(concern)
+    if target is None:
+        if reason is None:
+            raise PatchError(f"no concern {concern!r}; pass --new REASON to add it at the end of the series")
+        wgit(work, "commit", "-q", "-m", concern, "-m", reason)
+    else:
+        wgit(work, "commit", "-q", "--fixup", target)
+        if wgit(work, "rebase", "-q", "-i", "--autosquash", base, check=False).returncode:
+            raise PatchError(f"{work}: the edits conflict with a later concern; resolve the files there, "
+                             "git add them, git rebase --continue, then tools/patches.py rebuild")
+    return rebuild(work, patches)
+
+
+def resolve_commit(decomp: Path, sha: str) -> str:
+    try:
+        # ^0, not ^{commit}: MSYS2's git, started from a Windows program, globs the braces away
+        return git(decomp, "rev-parse", "--verify", f"{sha}^0").decode().strip()
+    except subprocess.CalledProcessError:
+        raise PatchError(f"{decomp} has no commit {sha} (git -C decomp fetch)") from None
+
+
+def rebase(sha: str, decomp: Path = PRISTINE, patches: Path = PATCHES, work: Path = WORK) -> bool:
+    """Moves the series onto decomp commit `sha`; False when git stopped at a conflict."""
+    full = resolve_commit(decomp, sha)
+    setup(decomp, patches, work)
+    (old_base, _, _), _, _ = work_layout(work)
+    stream = _fast_import_commit(f"{BASE}{full}", "", old_base, commit_files(decomp, full),
+                                 ref="refs/heads/newbase", reset=True)
+    wgit(work, "fast-import", "--quiet", data=stream)
+    wgit(work, "tag", "-f", "base", "newbase")
+    if wgit(work, "rebase", "-q", "--onto", "newbase", old_base, "main", check=False).returncode:
+        return False
+    rebuild(work, patches)
+    return True
+
+
 def cmd_apply(args) -> int:
     files, written = apply(args.decomp, args.out, args.patches)
     print(f"{files} files in {args.out}, {written} written")
@@ -324,31 +554,40 @@ def cmd_verify(args) -> int:
     return 1 if bad else 0
 
 
-def cmd_import(args) -> int:
-    """Writes --concern from the decomp diff --base..--host: new files to files/, changes as patches."""
-    names = git(args.decomp, "diff", "--name-status", "-z", "--no-renames", args.base, args.host).split(b"\0")
-    new_files = commit_files(args.decomp, args.host)
-    target = args.patches / args.concern
-    count = 0
-    for status, name in zip(names[0::2], names[1::2]):
-        path = name.decode()
-        if path in args.exclude:
-            continue
-        if status == b"A":
-            dest = args.patches / "files" / path
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(new_files[path])
-        elif status == b"M":
-            diff = git(args.decomp, "diff", "--no-color", "--no-ext-diff", "--no-renames", "-U3",
-                       args.base, args.host, "--", path)
-            body = diff[diff.index(b"\n--- ") + 1:]
-            dest = target / f"{path}.patch"
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(normalize(body))
-        else:
-            raise PatchError(f"{path}: status {status.decode()} (only added and changed files)")
-        count += 1
-    print(f"{count} files into {target} and {args.patches / 'files'}")
+def cmd_setup(args) -> int:
+    n = setup(args.decomp, args.patches, args.work, args.force)
+    print(f"{args.work}: the decomp, {FILES} and {n} concerns; edit there, then tools/patches.py fixup <concern>")
+    return 0
+
+
+def cmd_fixup(args) -> int:
+    changed = fixup(args.concern, args.new, args.work, args.patches)
+    print(f"{args.concern}: {changed} files of {args.patches} rewritten")
+    return 0
+
+
+def cmd_rebuild(args) -> int:
+    changed = rebuild(args.work, args.patches)
+    print(f"{changed} files of {args.patches} rewritten")
+    (_, subject, _), _, _ = work_layout(args.work)
+    sha = subject[len(BASE):]
+    if sha != decomp_sha(args.decomp):
+        print(f"the series is on decomp {sha}: git -C {args.decomp} checkout {sha}")
+    return 0
+
+
+def cmd_rebase(args) -> int:
+    full = resolve_commit(args.decomp, args.sha)
+    if not rebase(full, args.decomp, args.patches, args.work):
+        print(f"conflict: resolve the files in {args.work}, git add them, git -C {args.work} rebase --continue "
+              f"(repeat until it ends), then tools/patches.py rebuild and git -C {args.decomp} checkout {full}",
+              file=sys.stderr)
+        return 1
+    if git(args.decomp, "status", "--porcelain").strip():
+        print(f"the series is on decomp {full}; the submodule has local edits: git -C {args.decomp} checkout {full}")
+    else:
+        git(args.decomp, "checkout", "-q", "--detach", full)
+        print(f"the series and the submodule are on decomp {full}")
     return 0
 
 
@@ -356,6 +595,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--decomp", type=Path, default=PRISTINE, help="the decomp checkout (default: decomp/)")
     parser.add_argument("--patches", type=Path, default=PATCHES, help="the series (default: port/patches)")
+    parser.add_argument("--work", type=Path, default=WORK, help="the work repository (default: build/patch-work)")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("apply", help="build or refresh the patched tree")
     p.add_argument("--out", type=Path, default=TREE, help="the patched tree (default: build/decomp)")
@@ -365,12 +605,18 @@ def main() -> int:
     p.add_argument("--expect", required=True)
     p.add_argument("--exclude", nargs="*", default=[])
     p.set_defaults(fn=cmd_verify)
-    p = sub.add_parser("import", help="write a concern from a decomp diff")
-    p.add_argument("--base", required=True)
-    p.add_argument("--host", required=True)
-    p.add_argument("--concern", required=True)
-    p.add_argument("--exclude", nargs="*", default=[])
-    p.set_defaults(fn=cmd_import)
+    p = sub.add_parser("setup", help="make the work repository build/patch-work from port/patches")
+    p.add_argument("--force", action="store_true", help="throw away the work repository's unsaved state")
+    p.set_defaults(fn=cmd_setup)
+    p = sub.add_parser("fixup", help="fold the work repository's edits into a concern, then rebuild")
+    p.add_argument("concern", help=f"a concern of the series, or {FILES} for new files")
+    p.add_argument("--new", metavar="REASON", help="add the concern at the end of the series")
+    p.set_defaults(fn=cmd_fixup)
+    p = sub.add_parser("rebuild", help="write port/patches from the work repository")
+    p.set_defaults(fn=cmd_rebuild)
+    p = sub.add_parser("rebase", help="move the series and the submodule onto another decomp commit")
+    p.add_argument("sha")
+    p.set_defaults(fn=cmd_rebase)
     args = parser.parse_args()
     try:
         return args.fn(args)
