@@ -55,9 +55,12 @@ def generate(out: Path, db: dict | None = None, decomp: Path = DECOMP, units: Pa
             if unit.kind == "wrapper":
                 path = decomp / unit.source
                 wrapper = tu_filter.output_path(out, unit)
-                text, _names = tu_filter.render(unit, path.read_bytes(), parser.definitions(path),
-                                                path.as_posix(), wrapper.as_posix())
+                defs = parser.definitions(path)
+                text, _names = tu_filter.render(unit, path.read_bytes(), defs, path.as_posix(), wrapper.as_posix())
                 tu_filter.write_if_changed(wrapper, text)
+                header = tu_filter.retail_header(unit, defs)
+                if header is not None:
+                    tu_filter.write_if_changed(tu_filter.retail_path(out, unit), header.encode())
     finally:
         parser.close()
 

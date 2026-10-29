@@ -1,4 +1,4 @@
-"""tools/copies.py on the synthetic decomp in tests/fixtures/mini (FixLoad and FixLocal are port overrides)."""
+"""tools/copies.py on the synthetic decomp in tests/fixtures/mini (FixLoad is overridden, FixLocal wrapped)."""
 import shutil
 import sys
 import tempfile
@@ -53,11 +53,15 @@ class Copies(unittest.TestCase):
                          ["nucore/fixcore:FixLocal: the decomp changed it; bring NuWorld's definition in line, "
                           "then --update"])
 
-    def test_a_patch_may_not_edit_a_replaced_function(self):
-        patched = self.edited("patched", "FixLocal(s32 v)\n{", "FixLocal(s32 v)\n{\n    v++;")
+    def test_a_patch_may_not_edit_an_overridden_function(self):
+        patched = self.edited("patched", "FixLoad(const char *name)\n{", "FixLoad(const char *name)\n{\n    name++;")
         _, errors = copies.current(patched, DECOMP, UNITS, PORT_SRC)
         self.assertEqual(len(errors), 1)
-        self.assertRegex(errors[0], "^nucore/fixcore:FixLocal: a port patch edits it")
+        self.assertRegex(errors[0], "^nucore/fixcore:FixLoad: a port patch edits it")
+
+    def test_a_patch_may_edit_a_wrapped_function(self):
+        patched = self.edited("patched", "FixLocal(s32 v)\n{", "FixLocal(s32 v)\n{\n    v++;")
+        self.assertEqual(copies.current(patched, DECOMP, UNITS, PORT_SRC)[1], [])
 
 
 if __name__ == "__main__":
