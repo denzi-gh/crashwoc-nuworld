@@ -35,9 +35,12 @@ void nw_interp_snap(void);
 typedef struct NwInterpStats {
     uint32_t paired, unpaired; /* b's keyed draws with and without one in a */
     uint32_t views;            /* b's views blended */
+    uint32_t snapped;          /* b's draws and views that jumped from a's, drawn as b */
 } NwInterpStats;
 
-/* How far from a toward b the frame at now (clock edges) is: 0 a, 1 b. */
+/* How far from a toward b the frame at now (clock edges) is: 0 a, 1 b; always 1 when b is a cut or comes more than
+   NW_INTERP_GAP edges after a (a load, a stall). */
+#define NW_INTERP_GAP 4
 float nw_interp_t(const NwPacket *a, const NwPacket *b, double now);
 /* p draws over nothing it left before: it clears the back buffer before it draws there, so it can run again. */
 bool nw_interp_redraws(const NwPacket *p);
@@ -48,5 +51,9 @@ NwInterpStats nw_interp_stats(void);
 /* a to b by t: the axes' rotation slerped, their lengths and the position lerped; affine row-vector matrices
    (row-major, rows 0-2 the axes, 3 the position), any other lerped by element. */
 void nw_interp_mtx(float out[16], const float a[16], const float b[16], float t);
+/* b is not where a went in a frame: its position more than NW_INTERP_JUMP away or its axes turned more than 90
+   degrees. */
+#define NW_INTERP_JUMP 16.0f
+bool nw_interp_jump(const float a[16], const float b[16]);
 
 #endif

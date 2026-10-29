@@ -187,7 +187,7 @@ static void nw_video_panel(void *user)
     }
     if (s->interpolation) {
         NwInterpStats st = nw_interp_stats();
-        nw_debug_text("blended %u draws, %u new, %u views", st.paired, st.unpaired, st.views);
+        nw_debug_text("blended %u draws, %u new, %u views, %u snapped", st.paired, st.unpaired, st.views, st.snapped);
     }
     if (nw_debug_combo("Internal scale", &scale, scales, NW_BACKEND_SCALE_MAX + 1)) {
         s->scale = scale;

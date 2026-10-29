@@ -116,7 +116,7 @@ static void test_keys(void)
 {
     NwPacket a = { 0 }, b = { 0 };
     frame(&a, 0, 0.0f);
-    frame(&b, 1, 100.0f);
+    frame(&b, 1, 10.0f);
     a.seq = 1;
     a.edge = 10;
     b.seq = 2;
@@ -132,8 +132,8 @@ static void test_keys(void)
     CHECK(nw_interp_t(NULL, &b, 12.0) == 1.0f);
     const NwPacket *out = nw_interp_blend(&a, &b, 0.5f);
     CHECK(out != &b && out->ncmds == b.ncmds);
-    CHECK(fabsf(out->cmds[1].local[12] - 51.0f) < 1e-4f && fabsf(out->cmds[2].local[12] - 61.0f) < 1e-4f);
-    CHECK(b.cmds[1].local[12] == 101.0f);
+    CHECK(fabsf(out->cmds[1].local[12] - 6.0f) < 1e-4f && fabsf(out->cmds[2].local[12] - 16.0f) < 1e-4f);
+    CHECK(b.cmds[1].local[12] == 11.0f);
     NwInterpStats st = nw_interp_stats();
     CHECK(st.paired == 2 && st.unpaired == 0);
     CHECK(nw_interp_blend(&a, &b, 1.0f) == &b);
@@ -147,10 +147,43 @@ static void test_keys(void)
     SDL_free(b.cmds);
 }
 
+/* Cuts, gaps and jumps are drawn as the newer packet. */
+static void test_snaps(void)
+{
+    NwPacket a = { 0 }, b = { 0 };
+    frame(&a, 0, 0.0f);
+    nw_interp_snap();
+    frame(&b, 0, 1.0f);
+    a.seq = 3;
+    a.edge = 20;
+    b.seq = 4;
+    b.edge = 21;
+    CHECK(b.snap && !a.snap && nw_interp_t(&a, &b, 21.0) == 1.0f);
+    b.snap = false;
+    CHECK(nw_interp_t(&a, &b, 21.0) == 0.0f);
+    b.edge = 20 + NW_INTERP_GAP + 1;
+    CHECK(nw_interp_t(&a, &b, (double)b.edge) == 1.0f);
+
+    float m[16], turned[16];
+    yaw(m, 0.0f, 1.0f, 0, 0, 0);
+    yaw(turned, 1.7f, 1.0f, 0, 0, 0);
+    CHECK(!nw_interp_jump(m, m) && nw_interp_jump(m, turned));
+    yaw(turned, 0.5f, 1.0f, NW_INTERP_JUMP + 1.0f, 0, 0);
+    CHECK(nw_interp_jump(m, turned));
+    /* The first draw jumps away: drawn as b, the others blended. */
+    b.cmds[1].local[12] += 100.0f;
+    nw_interp_blend(&a, &b, 0.5f);
+    NwInterpStats st = nw_interp_stats();
+    CHECK(st.snapped == 1 && st.paired == 3);
+    SDL_free(a.cmds);
+    SDL_free(b.cmds);
+}
+
 int main(void)
 {
     test_mtx();
     test_keys();
+    test_snaps();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;

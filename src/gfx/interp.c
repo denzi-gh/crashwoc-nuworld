@@ -258,6 +258,20 @@ void nw_interp_mtx(float out[16], const float a[16], const float b[16], float t)
     }
 }
 
+bool nw_interp_jump(const float a[16], const float b[16])
+{
+    float dx = b[12] - a[12], dy = b[13] - a[13], dz = b[14] - a[14];
+    if (dx * dx + dy * dy + dz * dz > NW_INTERP_JUMP * NW_INTERP_JUMP) {
+        return true;
+    }
+    NwPose pa, pb;
+    if (!nw_pose(&pa, a) || !nw_pose(&pb, b)) {
+        return false;
+    }
+    float d = pa.q[0] * pb.q[0] + pa.q[1] * pb.q[1] + pa.q[2] * pb.q[2] + pa.q[3] * pb.q[3];
+    return fabsf(d) < 0.70710678f;
+}
+
 /* Render thread. */
 #define NW_NONE UINT32_MAX
 
@@ -298,7 +312,7 @@ static bool nw_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
 
 float nw_interp_t(const NwPacket *a, const NwPacket *b, double now)
 {
-    if (!a || !b || b->edge <= a->edge) {
+    if (!a || !b || b->snap || b->edge <= a->edge || b->edge - a->edge > NW_INTERP_GAP) {
         return 1.0f;
     }
     double t = (now - (double)b->edge) / (double)(b->edge - a->edge);
@@ -367,19 +381,26 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
         while (nw_ir.keys[h] && nw_ir.keys[h] != c->key) {
             h = (h + 1) & (cap - 1);
         }
-        if (nw_ir.keys[h] && a->cmds[nw_ir.at[h]].op == c->op) {
+        const NwCmd *ca = nw_ir.keys[h] ? &a->cmds[nw_ir.at[h]] : NULL;
+        if (!ca || ca->op != c->op) {
+            nw_ir.stats.unpaired++;
+        } else if (nw_interp_jump(ca->local, c->local)) {
+            nw_ir.stats.snapped++;
+        } else {
             nw_ir.pair[i] = nw_ir.at[h];
             nw_ir.stats.paired++;
-        } else {
-            nw_ir.stats.unpaired++;
         }
     }
     for (uint32_t i = 0; i < b->nviews; i++) {
         nw_ir.vpair[i] = NW_NONE;
         for (uint32_t j = 0; b->views[i].key && j < a->nviews; j++) {
             if (a->views[j].key == b->views[i].key) {
-                nw_ir.vpair[i] = j;
-                nw_ir.stats.views++;
+                if (nw_interp_jump(a->views[j].cam, b->views[i].cam)) {
+                    nw_ir.stats.snapped++;
+                } else {
+                    nw_ir.vpair[i] = j;
+                    nw_ir.stats.views++;
+                }
                 break;
             }
         }
