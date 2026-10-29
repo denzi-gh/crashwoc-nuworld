@@ -47,6 +47,7 @@ static void nw_clock_emit(NwClock *c, unsigned n)
     }
     SDL_LockMutex(c->lock);
     c->edges += n;
+    c->edge_ns = SDL_GetTicksNS();
     SDL_BroadcastCondition(c->cond);
     SDL_UnlockMutex(c->lock);
 }
@@ -117,6 +118,16 @@ uint64_t nw_clock_edges(NwClock *c)
     uint64_t edges = c->edges;
     SDL_UnlockMutex(c->lock);
     return edges;
+}
+
+double nw_clock_time(NwClock *c)
+{
+    uint64_t now = SDL_GetTicksNS();
+    SDL_LockMutex(c->lock);
+    uint64_t edges = c->edges, at = c->edge_ns;
+    SDL_UnlockMutex(c->lock);
+    double part = now > at && c->timing.period ? (double)(now - at) / (double)c->timing.period : 0.0;
+    return (double)edges + (part < 1.0 ? part : 1.0);
 }
 
 void nw_clock_step(NwClock *c, unsigned n)

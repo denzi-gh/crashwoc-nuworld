@@ -184,6 +184,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .names = nw_settings_vsyncs, .help = "off, on, or adaptive (a late frame shows at once; on where unsupported)" },
     { .table = "video", .name = "fps", .kind = NW_SETTING_INT, NW_FIELD(fps), .lo = 0, .hi = NW_FPS_MAX,
       .zero = "refresh", .help = "refresh (the display's rate) or the most frames a second: 60, 120, 240, ..." },
+    { .table = "video", .name = "interpolation", .kind = NW_SETTING_BOOL, NW_FIELD(interpolation),
+      .help = "true draws the frames between the game's 50 Hz ones blended, one game frame later; false as the PS2" },
     { .table = "video", .name = "scale", .kind = NW_SETTING_INT, NW_FIELD(scale), .lo = 0, .hi = NW_BACKEND_SCALE_MAX,
       .zero = "auto", .help = "internal resolution: auto (the screen's or more) or 1-8 times the PS2's" },
     { .table = "video", .name = "msaa", .kind = NW_SETTING_INT, NW_FIELD(msaa), .lo = 0, .hi = 16,
@@ -214,6 +216,7 @@ void nw_settings_defaults(NwSettings *s)
     s->resolution = (NwResolution){ 0, 0 };
     s->vsync = NW_VSYNC_ON;
     s->fps = 0;
+    s->interpolation = true;
     s->scale = 0;
     s->msaa = 0;
     s->filter = NW_FILTER_RETAIL;

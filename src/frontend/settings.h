@@ -20,6 +20,7 @@ typedef struct NwSettings {
     NwResolution resolution; /* windowed the window's, fullscreen the display mode's; borderless the desktop's */
     NwVsync vsync;
     int fps;   /* the most frames a second the window shows, 0 = the display's refresh */
+    bool interpolation; /* frames between the game's blended from the two newest */
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;

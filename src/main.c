@@ -728,7 +728,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         }
         int width, height;
         SDL_GetWindowSizeInPixels(platform.window, &width, &height);
-        nw_backend_frame(width, height);
+        nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
     }
@@ -785,7 +785,7 @@ static int nw_capture(const char *data_dir, const char *list, const char *dir, b
         }
         int width, height, vblank;
         SDL_GetWindowSizeInPixels(platform.window, &width, &height);
-        const NwPacket *p = nw_backend_frame(width, height);
+        const NwPacket *p = nw_backend_frame(width, height, -1.0);
         uint64_t seq = nw_capture_wanted(&vblank);
         if (seq && p && p->seq == seq) {
             char *path = NULL;

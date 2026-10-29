@@ -125,6 +125,7 @@ target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
 # Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state, the frame packets.
 add_library(nuworld_gfx STATIC
   src/gfx/gsc.c
+  src/gfx/interp.c
   src/gfx/mtl.c
   src/gfx/packet.c
   src/gfx/tex.c
@@ -180,6 +181,10 @@ if(NUWORLD_TESTS)
   add_test(NAME audio COMMAND nuworld_test_audio ${CMAKE_CURRENT_BINARY_DIR}/test-audio)
   add_test(NAME audio-retail COMMAND nuworld_test_audio retail)
   set_tests_properties(audio-retail PROPERTIES SKIP_RETURN_CODE 77)
+  add_executable(nuworld_test_interp tests/c/test_interp.c)
+  target_compile_options(nuworld_test_interp PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_interp PRIVATE nuworld_gfx)
+  add_test(NAME interp COMMAND nuworld_test_interp)
   add_executable(nuworld_test_settings tests/c/test_settings.c)
   target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)

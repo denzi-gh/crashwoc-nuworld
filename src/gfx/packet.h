@@ -114,6 +114,9 @@ typedef struct NwView {
     int32_t xyoffset[2]; /* GS 12.4 */
     int32_t scissor[4];  /* x0, y0, x1, y1 */
     float faceon[4];     /* VU 0x16 (FaceYDirStream): cos yaw, viewport width / 10240, -sin yaw, height / 3584 */
+    float cam[16];       /* the camera vs was made from (global_camera's matrix and scale), for interpolation */
+    float camscale[3];
+    uint32_t key; /* which SetViewMtx of the frame it is, from 1 */
 } NwView;
 
 /* A material's state block as the frame's DMA reads it. */
@@ -131,6 +134,7 @@ typedef struct NwMtlSnap {
 
 typedef struct NwCmd {
     uint8_t op;
+    uint64_t key;                   /* the same draw in the frame before has it (src/gfx/interp.h); 0 none */
     uint32_t view;                  /* into NwPacket.views */
     uint32_t mtl;                   /* into NwPacket.mtls, from material when the packet is published */
     uint32_t light;                 /* into NwPacket.lights */
@@ -186,6 +190,8 @@ typedef struct NwCmd {
 typedef struct NwPacket {
     uint64_t seq;  /* 1 for the first published packet */
     int32_t vbcnt; /* nuvideo_global_vbcnt when it was published */
+    uint64_t edge; /* the clock's edges then */
+    bool snap;     /* a cut: drawn without blending from the packet before */
     NwCmd *cmds;
     uint32_t ncmds, cmdcap;
     NwView *views;
@@ -235,6 +241,8 @@ NwPacket *nw_packet_building(void);
 uint64_t nw_packet_publish(int32_t vbcnt);
 /* Render thread: the newest published packet, the one it took last if none is newer; NULL before the first. */
 const NwPacket *nw_packet_take(void);
+/* The same, and the packet it took before that one at *prev (NULL: none). */
+const NwPacket *nw_packet_take_pair(const NwPacket **prev);
 
 /* The frees come last: nw_gpu_take fences every op from NW_GPU_FREE_MESH on. */
 typedef enum NwGpuOp {

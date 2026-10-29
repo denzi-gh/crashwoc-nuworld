@@ -8,6 +8,7 @@
 #include <SDL3/SDL.h>
 
 #include "app.h"
+#include "gfx/interp.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/numtl.h"
@@ -18,6 +19,7 @@
 #include "numath/nuvec.h"
 #include "nu_port.h"
 #include "port/capture.h"
+#include "port/game.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
 #define NW_STREAMS 32
@@ -160,6 +162,7 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, int m
     NwRecord *r = nw_rndr_alloc(sizeof(*r));
     memset(r, 0, sizeof(*r));
     r->cmd.op = (uint8_t)op;
+    r->cmd.key = nw_interp_cmd(op);
     r->cmd.material = mtl;
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
@@ -509,6 +512,8 @@ static void nw_rndr_snap(NwPacket *p)
 void NuRndrVu1Draw(void)
 {
     nw_rndr_snap(nw_packet_building());
+    nw_packet_building()->edge = nw_game_edges();
+    nw_interp_publish(nw_packet_building());
     nw_capture_published(nw_packet_publish(nuvideo_global_vbcnt), nuvideo_global_vbcnt);
 }
 
@@ -568,6 +573,9 @@ int NuRndrSetViewMtx(struct numtx_s *vm, struct numtx_s *pm, struct numtx_s *cli
     (void)pm;
     (void)clip_pm;
     memcpy(nw_view.vs, vm, sizeof(nw_view.vs));
+    memcpy(nw_view.cam, &global_camera.mtx, sizeof(nw_view.cam));
+    memcpy(nw_view.camscale, &global_camera.scale, sizeof(nw_view.camscale));
+    nw_view.key = nw_interp_view();
     nw_view_snap = NULL;
     return 1;
 }

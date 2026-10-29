@@ -4,6 +4,7 @@
 
 #include "app.h"
 #include "frontend/debug.h"
+#include "gfx/interp.h"
 #include "port/wide.h"
 
 #define NW_VIDEO_SIZES 32  /* resolutions the panel lists */
@@ -178,6 +179,15 @@ static void nw_video_panel(void *user)
     }
     if (nw_debug_combo("Frame rate", &rate, rate_names, nrates) && rate < 4) {
         s->fps = rates[rate];
+    }
+    static const char *const offon[] = { "Off", "On" };
+    int interp = s->interpolation;
+    if (nw_debug_combo("Interpolation", &interp, offon, 2)) {
+        s->interpolation = interp;
+    }
+    if (s->interpolation) {
+        NwInterpStats st = nw_interp_stats();
+        nw_debug_text("blended %u draws, %u new, %u views", st.paired, st.unpaired, st.views);
     }
     if (nw_debug_combo("Internal scale", &scale, scales, NW_BACKEND_SCALE_MAX + 1)) {
         s->scale = scale;
