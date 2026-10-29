@@ -44,7 +44,7 @@ class Series(unittest.TestCase):
         dest.write_bytes(hunk_patch(path, body))
 
     def apply(self):
-        return patches.apply(self.decomp, self.out, self.patches)
+        return patches.apply(self.decomp, self.out, self.patches, self.decomp.parent / "values")
 
     def test_plain_copy_is_lf(self):
         self.assertEqual(self.apply(), (2, 2))
@@ -141,6 +141,51 @@ class Series(unittest.TestCase):
         self.assertIsNone(patches.tree_id(self.decomp))
 
 
+SOURCE = b"""int f(int x)
+{
+    /* 25 in a comment does not count */
+    return x * 25 + 25 / 2.0f / 50.0f;
+}
+
+int g(void)
+{
+    return 25;
+}
+"""
+
+
+class Values(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.values = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def rules(self, sites):
+        lines = ['schema = 1', 'macro = "NW_HZ"', "", "[[file]]", 'path = "src/a.c"', "sites = ["]
+        lines += [f"  {s}," for s in sites] + ["]"]
+        (self.values / "hz.toml").write_text("\n".join(lines) + "\n")
+        return patches.load_values(self.values)[0]
+
+    def test_sites_wrap_their_value(self):
+        rules = self.rules(['{ fn = "f", pal = "25", nth = 1, of = 2, ntsc = "30" }',
+                            '{ fn = "f", pal = "2.0f / 50.0f", nth = 0, of = 1, ntsc = "0.033f" }',
+                            '{ fn = "g", pal = "25", nth = 0, of = 1, ntsc = "30" }'])
+        out = patches.apply_values(rules, "src/a.c", SOURCE)
+        self.assertIn(b"return x * 25 + NW_HZ(25, 30) / NW_HZ(2.0f / 50.0f, 0.033f);", out)
+        self.assertIn(b"return NW_HZ(25, 30);", out)
+        self.assertIn(b"/* 25 in a comment does not count */", out)
+
+    def test_a_count_that_differs_stops(self):
+        rules = self.rules(['{ fn = "f", pal = "25", nth = 0, of = 3, ntsc = "30" }'])
+        with self.assertRaisesRegex(patches.PatchError, "2 in the function, the rule counts 3"):
+            patches.apply_values(rules, "src/a.c", SOURCE)
+        rules = self.rules(['{ fn = "h", pal = "25", nth = 0, of = 1, ntsc = "30" }'])
+        with self.assertRaisesRegex(patches.PatchError, "no function h"):
+            patches.apply_values(rules, "src/a.c", SOURCE)
+
+
 def git(repo: Path, *args: str) -> str:
     env = {**os.environ, **patches.IDENTITY, "GIT_EDITOR": ":"}
     return subprocess.run(["git", "-C", str(repo), "-c", "core.autocrlf=false", *args], capture_output=True,
@@ -187,7 +232,8 @@ class Work(unittest.TestCase):
         return sha
 
     def tree(self):
-        return patches.patch_tree(patches.worktree_files(self.decomp), self.patches)["src/a.c"]
+        values = self.decomp.parent / "values"
+        return patches.patch_tree(patches.worktree_files(self.decomp), self.patches, values)["src/a.c"]
 
     def edit(self, old, new):
         f = self.work / "src" / "a.c"

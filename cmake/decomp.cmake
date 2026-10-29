@@ -21,7 +21,8 @@ set(nw_decomp_src ${CMAKE_CURRENT_SOURCE_DIR}/decomp)
 set(nw_decomp ${CMAKE_CURRENT_BINARY_DIR}/decomp)
 file(GLOB_RECURSE nw_decomp_pristine CONFIGURE_DEPENDS ${nw_decomp_src}/src/*.c ${nw_decomp_src}/include/*.h
   ${nw_decomp_src}/config/pal103/*)
-file(GLOB_RECURSE nw_patch_inputs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/port/patches/*)
+file(GLOB_RECURSE nw_patch_inputs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/port/patches/*
+  ${CMAKE_CURRENT_SOURCE_DIR}/port/values/*)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${nw_tools}/patches.py --decomp ${nw_decomp_src} apply --out ${nw_decomp}
   OUTPUT_QUIET ERROR_VARIABLE err RESULT_VARIABLE result)
 if(NOT result EQUAL 0)

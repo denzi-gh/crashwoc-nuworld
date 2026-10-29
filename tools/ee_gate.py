@@ -68,7 +68,7 @@ def lint(series: Path = patches.PATCHES, counts: Path = COUNTS) -> list[str]:
 
 def exports() -> str:
     """Exports the plain and the patched decomp under build/ee; returns the plain export's content hash."""
-    patches.apply(patches.PRISTINE, EE / "pristine", EE / "no-patches")
+    patches.apply(patches.PRISTINE, EE / "pristine", EE / "no-patches", EE / "no-values")
     patches.apply(patches.PRISTINE, EE / "patched")
     stamp = json.loads((EE / "pristine" / patches.STAMP).read_text(encoding="utf-8"))
     h = hashlib.sha256()

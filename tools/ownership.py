@@ -2,7 +2,8 @@
 """Who owns each retail function on the host: the map for the engine rewrite.
 
 retail   the decomp's C, compiled as it is
-patched  the decomp's C, changed by port patches (the concerns are named)
+patched  the decomp's C, changed by port patches or value rules (named: the
+         concern, or values/<file>)
 copy     NuWorld's definition in place of the decomp's (port/units.toml override)
 wrap     NuWorld's definition in front of the decomp's (port/units.toml wrap)
 port     NuWorld's definition of a function the decomp has no C for
@@ -34,19 +35,25 @@ def bodies(text: bytes, path: str) -> dict[str, str]:
     return {d.name: d.body for d in nwunits.scan_c(code, path).decls if d.is_def}
 
 
-def touched(pristine: Path, series: Path) -> dict[tuple[str, str], list[str]]:
-    """{(source, function): the concerns whose patches change its body}, in series order."""
+def touched(pristine: Path, series: Path, values: Path = patches.VALUES) -> dict[tuple[str, str], list[str]]:
+    """{(source, function): the concerns and value files that change its body}, in the order they apply."""
     concerns, _ = patches.load_series(series)
     tree = patches.worktree_files(pristine)
     out: dict[tuple[str, str], list[str]] = defaultdict(list)
+
+    def step(name: str, path: str, after: bytes) -> None:
+        old, new = bodies(tree[path], path), bodies(after, path)
+        tree[path] = after
+        for fn in sorted(old.keys() | new.keys()):
+            if old.get(fn) != new.get(fn):
+                out[(path, fn)].append(name)
+
     for c in concerns:
         for p in c.patches:
-            before = tree[p.path]
-            after = tree[p.path] = patches.apply_patch(p, before)
-            old, new = bodies(before, p.path), bodies(after, p.path)
-            for name in sorted(old.keys() | new.keys()):
-                if old.get(name) != new.get(name):
-                    out[(p.path, name)].append(c.name)
+            step(c.name, p.path, patches.apply_patch(p, tree[p.path]))
+    for rules in patches.load_values(values):
+        for path in rules.sites:
+            step(f"values/{rules.origin.stem}", path, patches.apply_values(rules, path, tree[path]))
     return out
 
 

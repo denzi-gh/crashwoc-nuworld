@@ -5,8 +5,9 @@ The decomp submodule stays retail. apply copies its files (LF line endings) to
 the patched tree, adds port/patches/files/ and applies the concerns of
 port/patches/series.toml in order. A concern is a directory of
 <decomp path>.patch files (unified diffs); every hunk must match exactly, it
-may move but is never fuzzed. verify proves the series between two decomp
-commits.
+may move but is never fuzzed. Then the value rules of port/values/*.toml wrap
+single retail values in a macro (NW_HZ). verify proves the series between two
+decomp commits.
 
 Editing: setup makes build/patch-work, a git repository with the decomp as
 its first commit, then a commit "files" and one commit per concern. Edit the
@@ -33,6 +34,7 @@ REPO = Path(__file__).resolve().parent.parent
 PRISTINE = REPO / "decomp"
 TREE = REPO / "build" / "decomp"
 PATCHES = REPO / "port" / "patches"
+VALUES = REPO / "port" / "values"
 WORK = REPO / "build" / "patch-work"
 STAMP = ".nw-tree.json"
 SCHEMA = 1
@@ -227,8 +229,8 @@ def load_series(patches: Path = PATCHES) -> tuple[list[Concern], dict[str, bytes
     return concerns, files
 
 
-def patch_tree(files: dict[str, bytes], patches: Path = PATCHES) -> dict[str, bytes]:
-    """The decomp files with the series applied."""
+def patch_tree(files: dict[str, bytes], patches: Path = PATCHES, values: Path = VALUES) -> dict[str, bytes]:
+    """The decomp files with the series and the value rules applied."""
     concerns, new = load_series(patches)
     tree = dict(files)
     for name, data in new.items():
@@ -240,15 +242,21 @@ def patch_tree(files: dict[str, bytes], patches: Path = PATCHES) -> dict[str, by
             if p.path not in tree:
                 raise PatchError(f"{p.origin}: {p.path} is not in the decomp")
             tree[p.path] = apply_patch(p, tree[p.path])
+    for rules in load_values(values):
+        for path in rules.sites:
+            if path not in tree:
+                raise PatchError(f"{rules.origin}: {path} is not in the decomp")
+            tree[path] = apply_values(rules, path, tree[path])
     return tree
 
 
-def series_hash(patches: Path = PATCHES) -> str:
+def series_hash(patches: Path = PATCHES, values: Path = VALUES) -> str:
     h = hashlib.sha256()
-    for p in sorted(patches.rglob("*")):
-        if p.is_file():
-            h.update(p.relative_to(patches).as_posix().encode() + b"\0")
-            h.update(normalize(p.read_bytes()) + b"\0")
+    files = [(p.relative_to(patches).as_posix(), p) for p in sorted(patches.rglob("*")) if p.is_file()]
+    files += [("values/" + p.name, p) for p in sorted(values.glob("*.toml"))]
+    for name, p in files:
+        h.update(name.encode() + b"\0")
+        h.update(normalize(p.read_bytes()) + b"\0")
     return h.hexdigest()
 
 
@@ -288,10 +296,11 @@ def write_tree(tree: dict[str, bytes], out: Path, stamp: dict) -> int:
     return written
 
 
-def apply(decomp: Path = PRISTINE, out: Path = TREE, patches: Path = PATCHES) -> tuple[int, int]:
+def apply(decomp: Path = PRISTINE, out: Path = TREE, patches: Path = PATCHES,
+          values: Path = VALUES) -> tuple[int, int]:
     """Builds or refreshes the patched tree; returns (files, written)."""
-    tree = patch_tree(worktree_files(decomp), patches)
-    stamp = {"schema": SCHEMA, "decomp": decomp_sha(decomp), "series": series_hash(patches)}
+    tree = patch_tree(worktree_files(decomp), patches, values)
+    stamp = {"schema": SCHEMA, "decomp": decomp_sha(decomp), "series": series_hash(patches, values)}
     return len(tree), write_tree(tree, out, stamp)
 
 
@@ -309,6 +318,110 @@ def tree_id(tree: Path) -> str | None:
         return None
     doc = json.loads(stamp.read_text(encoding="utf-8"))
     return f"{doc.get('decomp')}+{doc.get('series', '')[:12]}"
+
+
+# -- value rules: single retail values wrapped in a macro ----------------------------------------------------------------
+
+C_TOKEN = re.compile(r"""
+    (?P<skip>\s+|/\*.*?\*/|//[^\n]*)
+  | (?P<tok>[A-Za-z_]\w*
+    | \.?[0-9](?:[eEpP][+-]|[\w.])*
+    | "(?:\\.|[^"\\\n])*"
+    | '(?:\\.|[^'\\\n])*'
+    | ->|\+\+|--|<<=|>>=|<<|>>|<=|>=|==|!=|&&|\|\||[-+*/%&|^]=|\.\.\.|\#\#
+    | .)""", re.S | re.X)
+
+
+@dataclass
+class Site:
+    fn: str
+    pal: str
+    nth: int
+    of: int
+    ntsc: str
+
+
+@dataclass
+class Values:
+    origin: Path
+    macro: str
+    sites: dict[str, list[Site]]  # by decomp path
+
+
+def c_tokens(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, spelling) of each token; comments and spacing are skipped."""
+    return [(m.start(), m.end(), m.group("tok")) for m in C_TOKEN.finditer(text) if m.group("tok") is not None]
+
+
+def function_bodies(toks) -> dict[str, tuple[int, int]]:
+    """{function: (index of its "{", index of its "}")} for the definitions at file scope."""
+    out, depth, i = {}, 0, 0
+    while i < len(toks):
+        s = toks[i][2]
+        if s == "{" and depth == 0 and i > 0 and toks[i - 1][2] == ")":
+            j, d = i - 1, 0
+            while j >= 0:
+                d += {")": 1, "(": -1}.get(toks[j][2], 0)
+                if d == 0:
+                    break
+                j -= 1
+            k, d = i, 0
+            while k < len(toks):
+                d += {"{": 1, "}": -1}.get(toks[k][2], 0)
+                if d == 0:
+                    break
+                k += 1
+            if j > 0:
+                out.setdefault(toks[j - 1][2], (i, k))
+            i = k + 1
+            continue
+        depth += {"{": 1, "}": -1}.get(s, 0)
+        i += 1
+    return out
+
+
+def matches(spellings: list[str], pal: list[str]) -> list[int]:
+    return [i for i in range(len(spellings) - len(pal) + 1) if spellings[i:i + len(pal)] == pal]
+
+
+def load_values(values: Path = VALUES) -> list[Values]:
+    out = []
+    for path in sorted(values.glob("*.toml")) if values.is_dir() else []:
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+        if doc.get("schema") != SCHEMA or not doc.get("macro"):
+            raise PatchError(f"{path}: needs schema = {SCHEMA} and a macro")
+        sites = {}
+        for entry in doc.get("file", []):
+            sites[entry["path"]] = [Site(s["fn"], s["pal"], s["nth"], s["of"], s["ntsc"]) for s in entry["sites"]]
+        out.append(Values(path, doc["macro"], sites))
+    return out
+
+
+def apply_values(rules: Values, path: str, data: bytes) -> bytes:
+    """Each site's value, the nth of the `of` in its function, as macro(value, ntsc); a count that differs stops."""
+    text = data.decode("latin-1")
+    toks = c_tokens(text)
+    bodies = function_bodies(toks)
+    edits = []
+    for site in rules.sites[path]:
+        where = f"{rules.origin.name}: {path} {site.fn} {site.pal}"
+        if site.fn not in bodies:
+            raise PatchError(f"{where}: no function {site.fn}")
+        first, last = bodies[site.fn]
+        spellings = [s for _, _, s in toks[first:last + 1]]
+        pal = [s for _, _, s in c_tokens(site.pal)]
+        found = matches(spellings, pal)
+        if len(found) != site.of:
+            raise PatchError(f"{where}: {len(found)} in the function, the rule counts {site.of}")
+        start, end = toks[first + found[site.nth]][0], toks[first + found[site.nth] + len(pal) - 1][1]
+        edits.append((start, end, f"{rules.macro}({text[start:end]}, {site.ntsc})"))
+    edits.sort()
+    for (_, e0, _), (s1, _, _) in zip(edits, edits[1:]):
+        if s1 < e0:
+            raise PatchError(f"{rules.origin.name}: {path}: two sites overlap at offset {s1}")
+    for start, end, insert in reversed(edits):
+        text = text[:start] + insert + text[end:]
+    return text.encode("latin-1")
 
 
 # -- the work repository: edit, rebuild, rebase -----------------------------------------------------------------------

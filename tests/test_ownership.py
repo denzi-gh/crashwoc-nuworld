@@ -30,7 +30,7 @@ class Ownership(unittest.TestCase):
             (series / "40-x" / "src" / "nucore").mkdir(parents=True)
             (series / "series.toml").write_text('schema = 1\n\n[[concern]]\nname = "40-x"\nreason = "x"\n')
             (series / "40-x" / "src" / "nucore" / "fixcore.c.patch").write_bytes(PATCH)
-            changes = ownership.touched(DECOMP, series)
+            changes = ownership.touched(DECOMP, series, series / "values")
         model = nwunits.load(DECOMP, UNITS, PORT_SRC)
         rows = {r["name"]: r for r in ownership.report(model, changes, ownership.port_definitions(PORT_SRC))}
         self.assertEqual((rows["FixAdd"]["kind"], rows["FixAdd"]["concerns"]), ("patched", ["40-x"]))
