@@ -1,0 +1,10 @@
+--- a/src/game/bug.c
++++ b/src/game/bug.c
+@@ -10,6 +10,7 @@
+  *   0x0025fa88 DrawBug
+  */
+ 
++#include "nu_port.h"
+ #include "nu3d/nulight.h"
+ #include "numath/nutrig.h"
+ #include "numath/nuvec.h"

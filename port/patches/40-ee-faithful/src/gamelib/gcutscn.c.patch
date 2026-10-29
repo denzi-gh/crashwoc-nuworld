@@ -1,0 +1,12 @@
+--- a/src/gamelib/gcutscn.c
++++ b/src/gamelib/gcutscn.c
+@@ -1153,6 +1153,9 @@ void instNuGCutRigidSysRender(struct instNUGCUTSCENE_s *scene, float time) {
+     int i;
+     int j;
+ 
++#ifdef NW_HOST /* retail reads a stack word it never writes: 0 under PlayCutMovie */
++    draw = 0;
++#endif
+     def = scene->def;
+     sys = scene->rigidsys;
+     rigiddef = def->rigiddef;

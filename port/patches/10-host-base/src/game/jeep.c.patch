@@ -1,0 +1,32 @@
+--- a/src/game/jeep.c
++++ b/src/game/jeep.c
+@@ -77,6 +77,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/numtx.h"
+ #include "numath/nuquat.h"
+@@ -321,7 +322,12 @@ extern void SeekAngHalfLife360f(f32 *dest, f32 target, f32 halflife, f32 dt);
+ extern f32 Rationalise360f(f32 a);
+ extern void JeepCamFollowAng(struct cammtx_s *cam, s32 blend);
+ extern s32 AddBalloon(struct nuvec_s *Pos, struct nuvec_s *Vel);
++#ifdef NW_HOST /* retail's prototype puts size before colour; the EE passes them in $f12 and a1 either way */
++extern void DrawCross(struct nuvec_s *pos, s32 colour, f32 size);
++#define DrawCross(pos, size, colour) DrawCross(pos, colour, size)
++#else
+ extern void DrawCross(struct nuvec_s *pos, f32 size, s32 colour);
++#endif
+ extern void DrawLine(struct nuvec_s *p0, struct nuvec_s *p1, s32 colour);
+ extern void MoveRailPosition(struct nuvec_s *dst, RailPosition *rpos,
+                              f32 distance, s32 direction);
+@@ -1743,7 +1749,7 @@ void DrawEnemyJeep(struct enemyjeep_s *Jeep) {
+             aDelta = TempAf;
+             aWheel = aDelta + Temp;
+             TempAf = Jeep->PlayBackTime * 196608.0f;
+-            aRot = TempAf;
++            aRot = (s32)TempAf;
+             aSteer = aWheel * 9 / 8;
+             Jeep->Joints[0].rz = (u16)-aSteer * 9.587380191e-05f;
+             Jeep->Joints[1].rz = aSteer * 9.587380191e-05f;

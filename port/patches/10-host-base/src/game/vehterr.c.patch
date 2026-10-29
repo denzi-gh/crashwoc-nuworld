@@ -1,0 +1,10 @@
+--- a/src/game/vehterr.c
++++ b/src/game/vehterr.c
+@@ -14,6 +14,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/nutrig.h"
+ #include "numath/nuvec.h"

@@ -1,0 +1,10 @@
+--- a/src/game/lights.c
++++ b/src/game/lights.c
+@@ -25,6 +25,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "nu3d/nustream.h"
+ #include "numath/nuvec.h"

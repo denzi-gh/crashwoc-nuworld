@@ -1,0 +1,11 @@
+--- a/src/game/glass.c
++++ b/src/game/glass.c
+@@ -15,6 +15,8 @@
+  *   0x00239cb8 DrawGlassCreatures
+  */
+ 
++#include "nu_port.h"
++
+ #include "nu3d/numtl.h"
+ #include "nu3d/nustream.h"
+ #include "nu3d/nutex.h"

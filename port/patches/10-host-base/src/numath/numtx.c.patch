@@ -1,0 +1,10 @@
+--- a/src/numath/numtx.c
++++ b/src/numath/numtx.c
+@@ -52,6 +52,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/nufloat.h"
+ #include "numath/numtx.h"

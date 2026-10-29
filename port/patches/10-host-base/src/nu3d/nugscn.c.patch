@@ -1,0 +1,10 @@
+--- a/src/nu3d/nugscn.c
++++ b/src/nu3d/nugscn.c
+@@ -62,6 +62,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ #include "nu_stdarg.h"
+ 
+ #include "nu3d/nugobj.h"

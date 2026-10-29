@@ -1,0 +1,11 @@
+--- a/src/game/game_deb.c
++++ b/src/game/game_deb.c
+@@ -558,7 +558,7 @@ void AddAnimDebris(struct CharacterModel *model, struct numtx_s *mtxLOCATOR,
+                   && (adeb->time2 <= 1.0f
+                       || (adeb->time2 > adeb->time && time <= adeb->time2)))
+               || (time > adeb->time
+-                  && time - model->animlist[action]->speed * 0.59999996f
++                  && time - model->animlist[action]->speed * NW_HZ(0.59999996f, 0.5f)
+                          <= adeb->time))) {
+             continue;
+         }

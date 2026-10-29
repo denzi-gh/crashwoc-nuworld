@@ -1,0 +1,11 @@
+--- a/src/game/edcrate.c
++++ b/src/game/edcrate.c
+@@ -1124,7 +1124,7 @@ static inline s32 edcrtProc(struct nupad_s *pad)
+ {
+     if (screendump)
+         return 0;
+-    edcrt_count += 6;
++    edcrt_count += NW_HZ(6, 5);
+     if (edcrt_active_menu) {
+         eduiMenuProcess(edcrt_active_menu, pad);
+         return 0;

@@ -1,0 +1,38 @@
+--- a/src/nu3d/nugscn.c
++++ b/src/nu3d/nugscn.c
+@@ -2457,7 +2457,7 @@ void NuGScnUpdate(struct nugscn_s *scene, float dt)
+         if (gscn_dbg != 0 && gscn_dbg != i) {
+             continue;
+         }
+-        if (!(inst->flags.visible & inst->flags.visitest)) {
++        if (!(inst->flags.visible & NW_WIDE_ANIM(inst, inst->flags.visitest))) {
+             continue;
+         }
+         anim = inst->anim;
+@@ -2526,7 +2526,7 @@ void NuGScnRndr3(struct nugscn_s *scene)
+         if (gscn_dbg != 0 && gscn_dbg != i) {
+             continue;
+         }
+-        if (inst->flags.visible & inst->flags.visitest) {
++        if (inst->flags.visible & NW_WIDE_PVS(inst->flags.visitest)) {
+             if (inst->anim != 0) {
+                 inst->flags.onscreen = NuRndrGScnObj(scene->gobjs[inst->objid], &inst->anim->mtx);
+             } else {
+@@ -2587,7 +2587,7 @@ void NuGScnRndr2(struct nugscn_s *scene, float dt)
+         if (gscn_dbg != 0 && gscn_dbg != i) {
+             continue;
+         }
+-        if (inst->flags.visible & inst->flags.visitest) {
++        if (inst->flags.visible & NW_WIDE_PVS(inst->flags.visitest)) {
+             anim = inst->anim;
+             if (anim != 0) {
+                 if (scene->instanimdata != 0) {
+@@ -2685,7 +2685,7 @@ void NuGScnRndr(struct nugscn_s *scene)
+         if (gscn_dbg != 0 && gscn_dbg != i) {
+             continue;
+         }
+-        if (inst->flags.visible & inst->flags.visitest) {
++        if (inst->flags.visible & NW_WIDE_PVS(inst->flags.visitest)) {
+             inst->flags.onscreen = NuRndrGScnObj(scene->gobjs[inst->objid], &inst->mtx);
+         }
+     }

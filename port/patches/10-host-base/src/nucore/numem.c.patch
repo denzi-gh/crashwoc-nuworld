@@ -1,0 +1,19 @@
+--- a/src/nucore/numem.c
++++ b/src/nucore/numem.c
+@@ -20,6 +20,7 @@
+ 
+ #include "nu_libc.h"
+ #include "nu_types.h"
++#include "nu_port.h"
+ 
+ #include "nucore/nuerror.h"
+ 
+@@ -432,7 +433,7 @@ void NuMemSetExternal(void *buffer, int *end)
+         memory->cursor = buffer;
+         memexternal = memory;
+         if (end) {
+-            memory->end = *end;
++            memory->end = *(nuintptr *)end; /* the callers pass a heap cursor */
+             return;
+         }
+     } else {
