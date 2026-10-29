@@ -1,6 +1,6 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, the [pad] and [keyboard] bindings, what the reader does not take, a file that is not TOML,
-   and keys a save keeps.
+   and the HUD's forms, the [pad] and [keyboard] bindings, the prompts' style, what the reader does not take, a
+   file that is not TOML, and keys a save keeps.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -237,6 +237,14 @@ int main(int argc, char *argv[])
     CHECK(s.controls.left_deadzone == 0 && s.controls.right_deadzone == 0 && s.controls.trigger_press == 25);
     CHECK(read_text("[input]\nleft_deadzone = 15\nright_deadzone = 95\ntrigger_press = 0\n", &s) &&
           s.controls.left_deadzone == 15 && s.controls.right_deadzone == 90 && s.controls.trigger_press == 1);
+    /* The button prompts: auto by default, a style by name. */
+    CHECK(s.controls.prompts == NW_PROMPTS_AUTO);
+    CHECK(read_text("[input]\nprompts = \"nintendo\"\n", &s) && s.controls.prompts == NW_PROMPTS_NINTENDO);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "prompts = \"nintendo\"\n"));
+    SDL_free(saved);
+    CHECK(read_text("[input]\nprompts = \"gamecube\"\n", &s) && s.controls.prompts == NW_PROMPTS_AUTO);
 
     /* [keyboard]: keys by SDL's names, the sticks' directions too. */
     CHECK(s.controls.keys[2][0] == SDL_SCANCODE_E && s.controls.keys[2][1] == SDL_SCANCODE_J);

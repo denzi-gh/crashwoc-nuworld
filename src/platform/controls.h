@@ -11,12 +11,24 @@
 #define NW_CONTROL_BINDS 4       /* sources one target takes */
 #define NW_CONTROL_TRIGGER 0x100 /* a gamepad source: NW_CONTROL_TRIGGER + an SDL trigger axis, else 1 + an SDL button */
 
+/* Whose buttons the game's prompts show; auto follows the device used last. */
+typedef enum NwPromptStyle {
+    NW_PROMPTS_AUTO,
+    NW_PROMPTS_XBOX,
+    NW_PROMPTS_PLAYSTATION,
+    NW_PROMPTS_NINTENDO,
+    NW_PROMPTS_DECK,
+    NW_PROMPTS_KEYBOARD,
+    NW_PROMPT_STYLES
+} NwPromptStyle;
+
 typedef struct NwControls {
     uint16_t pad[NW_CONTROL_BUTTONS][NW_CONTROL_BINDS];  /* gamepad sources, 0 none */
     uint16_t keys[NW_CONTROL_TARGETS][NW_CONTROL_BINDS]; /* SDL_Scancodes, 0 none */
     int left_deadzone, right_deadzone; /* percent of a stick's reach that counts as centred */
     int trigger_press;                 /* percent of a trigger's travel that presses its button */
     int rumble;                        /* percent of the motors' strength */
+    NwPromptStyle prompts;
 } NwControls;
 
 /* Target i's settings.toml key ("cross") and label ("Cross"). */
@@ -25,6 +37,9 @@ typedef struct NwControlTarget {
 } NwControlTarget;
 
 extern const NwControlTarget nw_control_targets[NW_CONTROL_TARGETS];
+/* By NwPromptStyle: settings.toml's names ("xbox") and labels ("Xbox"). */
+extern const char *const nw_control_prompt_keys[NW_PROMPT_STYLES];
+extern const char *const nw_control_prompt_labels[NW_PROMPT_STYLES];
 
 void nw_controls_defaults(NwControls *c);
 /* A gamepad source's name ("south", "lefttrigger") and label ("South"), NULL for none. */

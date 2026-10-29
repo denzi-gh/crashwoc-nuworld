@@ -13,6 +13,11 @@ const NwControlTarget nw_control_targets[NW_CONTROL_TARGETS] = {
     { "right_stick_left", "Right stick left" }, { "right_stick_right", "Right stick right" },
 };
 
+const char *const nw_control_prompt_keys[NW_PROMPT_STYLES] = { "auto",     "xbox", "playstation",
+                                                                "nintendo", "deck", "keyboard" };
+const char *const nw_control_prompt_labels[NW_PROMPT_STYLES] = { "Auto",     "Xbox",       "PlayStation",
+                                                                  "Nintendo", "Steam Deck", "Keyboard" };
+
 /* By SDL_GamepadButton. */
 static const NwControlTarget nw_controls_buttons[SDL_GAMEPAD_BUTTON_COUNT] = {
     { "south", "South" },

@@ -74,6 +74,17 @@ function(nw_embed target name file)
     VERBATIM)
   target_sources(${target} PRIVATE ${out})
 endfunction()
+# Every PNG of a directory: build/gen/<name>.c defines <name>[] of { name without .png, data, size } and
+# <name>_count.
+function(nw_embed_dir target name dir)
+  file(GLOB files CONFIGURE_DEPENDS ${dir}/*.png)
+  set(out ${CMAKE_CURRENT_BINARY_DIR}/gen/${name}.c)
+  add_custom_command(OUTPUT ${out}
+    COMMAND ${CMAKE_COMMAND} -DDIR=${dir} -DOUT=${out} -DNAME=${name} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_dir.cmake
+    DEPENDS ${files} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_dir.cmake
+    VERBATIM)
+  target_sources(${target} PRIVATE ${out})
+endfunction()
 
 add_executable(crashwoc-nuworld
   src/main.c
@@ -150,7 +161,8 @@ target_link_libraries(nuworld_audio PUBLIC nuworld_vfs)
 add_library(nuworld_frontend STATIC
   src/frontend/import.c
   src/frontend/settings.c
-  src/platform/controls.c)
+  src/platform/controls.c
+  src/platform/prompts.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)
@@ -190,6 +202,10 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)
   add_test(NAME settings COMMAND nuworld_test_settings ${CMAKE_CURRENT_BINARY_DIR}/test-settings)
+  add_executable(nuworld_test_prompts tests/c/test_prompts.c)
+  target_compile_options(nuworld_test_prompts PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_prompts PRIVATE nuworld_frontend)
+  add_test(NAME prompts COMMAND nuworld_test_prompts)
   add_executable(nuworld_test_display tests/c/test_display.c src/platform/display.c)
   target_include_directories(nuworld_test_display PRIVATE src)
   target_compile_options(nuworld_test_display PRIVATE -Wall -Wextra)

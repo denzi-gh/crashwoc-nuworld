@@ -173,7 +173,7 @@ static const char *const nw_settings_windows[NW_WINDOW_MODES] = { "windowed", "b
 static const char *const nw_settings_vsyncs[NW_VSYNC_MODES] = { "off", "on", "adaptive" };
 static const char *const nw_settings_filters[NW_FILTERS] = { "retail", "nearest", "bilinear" };
 _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(int) &&
-                   sizeof(NwTexFilter) == sizeof(int),
+                   sizeof(NwTexFilter) == sizeof(int) && sizeof(NwPromptStyle) == sizeof(int),
                "NW_SETTING_ENUM fields are int-sized");
 
 static const NwSettingKey nw_settings_keys[] = {
@@ -216,6 +216,10 @@ static const NwSettingKey nw_settings_keys[] = {
       .hi = 100, .help = "1-100: how far (percent) a trigger goes down before it presses its button" },
     { .table = "input", .name = "rumble", .kind = NW_SETTING_INT, NW_FIELD(controls.rumble), .lo = 0, .hi = 100,
       .help = "0-100: the gamepad's rumble strength; the game's Vibration option turns it on and off" },
+    { .table = "input", .name = "prompts", .kind = NW_SETTING_ENUM, NW_FIELD(controls.prompts),
+      .hi = NW_PROMPT_STYLES, .names = nw_control_prompt_keys,
+      .help = "the buttons the game shows: auto (the device used last), xbox, playstation, nintendo, deck or "
+              "keyboard" },
     { .table = "pad", .name = "<button>", .kind = NW_SETTING_BINDS, NW_FIELD(controls.pad), .hi = NW_CONTROL_BUTTONS,
       .source = nw_controls_pad_source, .source_name = nw_controls_pad_name,
       .help = "the gamepad's buttons for it, by position: south (cross), east, west, north, leftshoulder, "
