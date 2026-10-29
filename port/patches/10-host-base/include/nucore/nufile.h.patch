@@ -1,6 +1,6 @@
 --- a/include/nucore/nufile.h
 +++ b/include/nucore/nufile.h
-@@ -37,4 +37,24 @@ struct nudathdr_s {
+@@ -37,4 +37,23 @@ struct nudathdr_s {
      int data[0];                  /* 0x28 */
  }; /* 0x28 */
  
@@ -8,8 +8,7 @@
 +/* Retail calls these without a prototype in scope (game/main.c); only the host declares them. */
 +void NuFileInitEx(int deviceid, int rebootiop);
 +
-+/* The port replaces the .DAT layer (NuDat*), so it sees nufile.c's current archive. */
-+extern struct nudathdr_s *curr_dat;
++/* The port replaces the .DAT layer (NuDat*). */
 +struct nudathdr_s *NuDatOpenEx(char *fname, char **mem, int *used, short mode);
 +struct nudathdr_s *NuDatOpen(char *fname, char **mem, int *used);
 +void NuDatSet(struct nudathdr_s *ndh);

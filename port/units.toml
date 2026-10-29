@@ -6,6 +6,8 @@
 #   the function's declarations, definition and calls in its unit
 # wrap: functions whose decomp C stays, renamed <name>__retail (declared in the generated <unit>.retail.h); the
 #   port defines <name>, which takes every call and runs code before, after or instead of <name>__retail
+# expose: file statics (functions or data) the wrapper makes global under their retail names, so the port
+#   reaches them; a static function is exposed before it is wrapped
 # runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
 #   build; the rest of the unit stays editor-only
 # called: stubs of an editor or dead unit that compiled code calls behind a guard retail never passes (or until
@@ -72,7 +74,7 @@ schema = 1
 # The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad; the curve evaluators in
 # the EE's float by src/hle/nuanim.c
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs",
-    "NuAnimCurveCalcVal2", "NuAnimCurve2CalcVal"] }
+    "NuAnimCurveCalcVal2", "NuAnimCurve2CalcVal"], expose = ["isBitCountTable"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
 "nu3d/nugscn" = { treatment = "compile", override = ["NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
@@ -92,7 +94,8 @@ schema = 1
 "nu3d/nutexanm" = { treatment = "compile" }
 "nu3d/nufpatch" = { treatment = "dead" }
 "nu3d/nutexcmp" = { treatment = "dead" }
-"nu3d/nuwater" = { treatment = "compile", override = ["animateWater", "animateWaterTables"] }
+"nu3d/nuwater" = { treatment = "compile", override = ["animateWater", "animateWaterTables"], expose = [
+    "nwater_mtl", "nwater_tables", "water_mtls", "water_mtl_tables", "water_table"] }
 "nu3d/bitconv" = { treatment = "compile" }
 
 # nups2
@@ -170,7 +173,7 @@ schema = 1
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }
 "game/deb3" = { treatment = "compile" }
-"game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"] }
+"game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"], expose = ["palids"] }
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
@@ -178,7 +181,7 @@ schema = 1
 "game/chase" = { treatment = "compile" }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }
-"game/cut" = { treatment = "compile" }
+"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst"] }
 "game/bug" = { treatment = "compile" }
 "game/game_deb" = { treatment = "compile" }
 "game/credits" = { treatment = "compile" }

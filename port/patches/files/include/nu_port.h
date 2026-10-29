@@ -26,14 +26,6 @@
 #define NW_HOST_ALIGNED(n)
 #endif
 
-/* A file-scope static the port's replacement of its accessors must reach: static on the EE, global on
- * the host. */
-#ifdef NW_HOST
-#define NW_STATIC
-#else
-#define NW_STATIC static
-#endif
-
 
 #ifdef NW_HOST
 void nw_ee_idle(void);

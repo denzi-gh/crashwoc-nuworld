@@ -22,7 +22,7 @@ DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
 
 TREATMENTS = ("compile", "editor", "hle", "replace", "dead", "shim")
-UNIT_KEYS = {"treatment", "override", "keep", "rename", "wrap", "runtime", "called"}
+UNIT_KEYS = {"treatment", "override", "keep", "rename", "wrap", "expose", "runtime", "called"}
 HOST_DEFINES = frozenset({"NW_HOST"})
 
 STATE_PROVENANCE = {"matching": "matching", "equivalent": "equivalent", "asm": "near"}
@@ -75,6 +75,7 @@ class Unit:
     keep: tuple[str, ...] = ()
     rename: dict[str, str] = field(default_factory=dict)
     wrap: tuple[str, ...] = ()
+    expose: tuple[str, ...] = ()    # file statics (functions or data) the wrapper makes global
     runtime: tuple[str, ...] = ()   # editor unit: compiled in every build, the rest only with the editor
     editor_dropped: bool = False    # the functions outside runtime are dropped (no editor build)
     called: tuple[str, ...] = ()    # editor/dead unit: stubs compiled code may call (guarded or unreachable)
@@ -463,6 +464,7 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         unit.keep = tuple(entry.get("keep", ()))
         unit.rename = dict(entry.get("rename", {}))
         unit.wrap = tuple(entry.get("wrap", ()))
+        unit.expose = tuple(entry.get("expose", ()))
         unit.runtime = tuple(entry.get("runtime", ()))
         if unit.runtime and unit.treatment != "editor":
             errors.append(f"unit {unit.name}: runtime on a {unit.treatment} unit (editor only)")
@@ -566,7 +568,8 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
             if f.wrapped:
                 why = ("it is also overridden" if f.overridden
                        else "the decomp has no C for it" if f.definition is None
-                       else "it is static in the decomp" if f.definition.static
+                       else "it is static in the decomp (expose it)"
+                       if f.definition.static and f.name not in unit.expose
                        else "it is also renamed" if f.host != f.name
                        else "the port does not define it" if f.host not in port_defs
                        else f"{unit.name} is no wrapper unit" if unit.kind != "wrapper" else None)
@@ -578,7 +581,7 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
             if f.definition and not f.overridden:
                 f.provider = "decomp"
                 f.provenance = STATE_PROVENANCE.get(f.state or "asm", "near")
-                f.static = f.definition.static
+                f.static = f.definition.static and f.name not in unit.expose
                 continue
             if f.host in port_defs:
                 f.provider, f.provenance = "port", "port"
@@ -595,7 +598,7 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
             _choose_proto(f, unit, tu_decls, decls_by_name, typedefs, module_header)
             if f.provider == "port" and f.static:
                 model.warnings.append(f"{unit.name}: the port defines {f.name}, static in the "
-                                      f"decomp; that needs an upstream NW_STATIC seam")
+                                      f"decomp; expose it in port/units.toml")
 
     _check_globals(model, units, port_defs)
     _check_calls(model, units, files)
@@ -606,14 +609,14 @@ def _choose_proto(f: Function, unit: Unit, tu_decls, decls_by_name, typedefs,
                   module_header: str) -> None:
     if f.definition is not None:
         f.proto, f.origin = f.definition, f.definition.where
-        if f.definition.static:
+        if f.definition.static and f.name not in unit.expose:
             f.static = True
         return
     in_tu = tu_decls.get(f.name, [])
     if in_tu:
         in_tu = sorted(in_tu, key=lambda d: not d.prototyped)
         f.proto, f.origin = in_tu[0], in_tu[0].where
-        f.static = any(d.static for d in in_tu) and f.name == f.host
+        f.static = any(d.static for d in in_tu) and f.name == f.host and f.name not in unit.expose
         return
     others = [d for d in decls_by_name.get(f.name, ()) if not d.static]
     headers = sorted((d for d in others if d.path.startswith("include/")),
