@@ -214,6 +214,15 @@ class Work(unittest.TestCase):
         with self.assertRaisesRegex(patches.PatchError, "no edits"):
             patches.fixup("10-x", work=self.work, patches=self.patches)
 
+    def test_a_concern_folded_out_leaves_the_series(self):
+        self.edit(b"line 18\n", b"line 18 wide\n")
+        patches.fixup("20-y", "the y concern", self.work, self.patches)
+        self.edit(b"line 5\nhost\n", b"line 5\n")
+        patches.fixup("10-x", work=self.work, patches=self.patches)
+        self.assertFalse((self.patches / "10-x").exists())
+        self.assertNotIn(b'"10-x"', (self.patches / "series.toml").read_bytes())
+        self.assertEqual(self.tree(), BASE.replace(b"line 18\n", b"line 18 wide\n"))
+
     def test_setup_keeps_unsaved_work(self):
         self.edit(b"line 2\n", b"edited\n")
         with self.assertRaisesRegex(patches.PatchError, "uncommitted edits"):

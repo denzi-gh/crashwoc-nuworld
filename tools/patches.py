@@ -454,10 +454,13 @@ def rebuild_outputs(work: Path) -> dict[str, bytes]:
     for sha, name, reason in concerns:
         if not re.fullmatch(r"[0-9]{2}-[a-z0-9-]+", name) or name == FILES:
             raise PatchError(f"concern commit {sha[:12]}: subject {name!r} is not a concern name like 70-widescreen")
-        for path, body in _split_diff(wgit(work, *DIFF, parent, sha).stdout).items():
+        diffs = _split_diff(wgit(work, *DIFF, parent, sha).stdout)
+        parent = sha
+        if not diffs:  # a concern whose last change was folded out leaves the series
+            continue
+        for path, body in diffs.items():
             out[f"{name}/{path}.patch"] = body
         series.append(f"\n[[concern]]\nname = \"{name}\"\nreason = {json.dumps(reason, ensure_ascii=False)}\n")
-        parent = sha
     out["series.toml"] = "".join(series).encode()
     return out
 
@@ -504,7 +507,13 @@ def fixup(concern: str, reason: str | None = None, work: Path = WORK, patches: P
         wgit(work, "commit", "-q", "-m", concern, "-m", reason)
     else:
         wgit(work, "commit", "-q", "--fixup", target)
-        if wgit(work, "rebase", "-q", "-i", "--autosquash", base, check=False).returncode:
+        proc = wgit(work, "rebase", "-q", "-i", "--autosquash", base, check=False)
+        while (proc.returncode and (git_dir / "rebase-merge").exists()
+               and not wgit(work, "diff", "--name-only", "--diff-filter=U").stdout.strip()):
+            # The edits undo the whole concern: keep it as an empty commit, rebuild leaves it out.
+            wgit(work, "commit", "-q", "--amend", "--allow-empty", "--no-edit")
+            proc = wgit(work, "rebase", "--continue", check=False)
+        if proc.returncode:
             raise PatchError(f"{work}: the edits conflict with a later concern; resolve the files there, "
                              "git add them, git rebase --continue, then tools/patches.py rebuild")
     return rebuild(work, patches)

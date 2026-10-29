@@ -56,7 +56,9 @@ def generate(out: Path, db: dict | None = None, decomp: Path = DECOMP, units: Pa
                 path = decomp / unit.source
                 wrapper = tu_filter.output_path(out, unit)
                 defs = parser.definitions(path)
-                text, _names = tu_filter.render(unit, path.read_bytes(), defs, path.as_posix(), wrapper.as_posix())
+                exposed = parser.static_tokens(path, unit.expose) if unit.expose else []
+                text, _names = tu_filter.render(unit, path.read_bytes(), defs, path.as_posix(), wrapper.as_posix(),
+                                                exposed)
                 tu_filter.write_if_changed(wrapper, text)
                 header = tu_filter.retail_header(unit, defs)
                 if header is not None:

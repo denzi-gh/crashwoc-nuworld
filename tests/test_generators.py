@@ -327,6 +327,37 @@ class TuFilter(unittest.TestCase):
         gaps = [src[k - 1] for k in range(1, len(src)) if k not in seen]
         self.assertEqual(gaps, ["s32 FixLoad(const char *name)", "{", "    return name[0];", "}"])
 
+    def test_expose(self):
+        text = UNITS.read_text().replace('wrap = ["FixLocal"]', 'wrap = ["FixLocal", "FixHelper"], expose = ["FixHelper"]')
+        text = text.replace('"game/fixdata" = { treatment = "compile",',
+                            '"game/fixdata" = { treatment = "compile", expose = ["fixstatic"],')
+        with tempfile.TemporaryDirectory() as tmp:
+            units = Path(tmp) / "units.toml"
+            units.write_text(text)
+            src = Path(tmp) / "src"
+            shutil.copytree(PORT_SRC, src)
+            with (src / "fiximpl.c").open("a") as f:
+                f.write("s32 FixHelper(s32 v) { return v; }\n")
+            model = nwunits.load(DECOMP, units, src)
+        self.assertEqual(model.errors, [])
+        units = {u.name: u for u in model.units}
+        helper = next(f for f in units["nucore/fixcore"].functions if f.name == "FixHelper")
+        self.assertEqual((helper.static, helper.wrapped), (False, True))
+        for unit, line in ((units["game/fixdata"], "s32 fixstatic[4] = { 1, 2, 3, 4 };"),
+                           (units["nucore/fixcore"], "s32 FixHelper__retail(s32 v)")):
+            path = DECOMP / unit.source
+            exposed = self.parser.static_tokens(path, unit.expose)
+            text, changes = tu_filter.render(unit, path.read_bytes(), self.parser.definitions(path),
+                                             path.as_posix(), "w.wrap.c", exposed)
+            out = text.decode().replace("\r\n", "\n").split("\n")
+            self.assertIn(line, out)
+            self.assertIn(f"{unit.expose[0]} exposed", changes)
+        self.assertIn("s32 FixHelper(s32 v);", out)
+        self.assertIn("s32 FixHelper__retail(s32 v);", tu_filter.retail_header(units["nucore/fixcore"],
+                                                                             self.parser.definitions(path)))
+        with self.assertRaisesRegex(tu_filter.FilterError, "no file-scope static FixAdd"):
+            self.parser.static_tokens(DECOMP / units["nucore/fixcore"].source, ["FixAdd"])
+
     def test_prelude_skips_sdk_units(self):
         self.assertTrue(tu_filter.wants_prelude(nwunits.Unit(0, "game/main", "")))
         self.assertFalse(tu_filter.wants_prelude(

@@ -65,7 +65,8 @@ count per concern is kept in `port/ee_gate.toml`; change it together with the pa
 
 To run code before, after or instead of a decomp function, list it under `wrap` in `port/units.toml` and define it
 in NuWorld: the decomp's definition stays as `<name>__retail` (declared in the generated `<unit>.retail.h`), and
-NuWorld's takes every call, the decomp's own included.
+NuWorld's takes every call, the decomp's own included. A file `static` that NuWorld code must reach goes under
+`expose`: the generated wrapper drops its `static`, the name stays.
 
 A decomp function that NuWorld defines itself (an override or a wrap in `port/units.toml`) is locked in
 `port/copies.lock`.

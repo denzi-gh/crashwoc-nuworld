@@ -9,7 +9,8 @@ the port's Foo (or its stub) stays, so callers bind to the port; a `rename`
 entry renames the function's declarations, definition and calls in the
 source; a wrapped Foo keeps its definition as Foo__retail (declared in
 <unit>.retail.h) behind a prototype of the port's Foo, which takes every
-call; a near-match definition starts with an NW_NEAR probe (port/stub.h),
+call; an exposed file static loses its `static`, so the port reaches it;
+a near-match definition starts with an NW_NEAR probe (port/stub.h),
 so the stub telemetry also orders that decomp work. #line keeps diagnostics
 and debug info on the decomp source.
 """
@@ -18,6 +19,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -44,16 +46,50 @@ class Parser:
             self.clang = nwclang.Clang(decomp, "host")
         except nwclang.ClangError as e:
             raise FilterError(str(e)) from None
+        self._last = None
 
     def close(self) -> None:
         self.clang.close()
 
+    def _parse(self, path: Path):
+        if self._last is None or self._last[0] != path:
+            try:
+                self._last = (path, self.clang.parse(path))
+            except nwclang.ClangError as e:
+                raise FilterError(str(e)) from None
+        return self._last[1]
+
+    def static_tokens(self, path: Path, names) -> list[int]:
+        """Offsets of the `static` keywords that keep the named file-scope functions or data local."""
+        tu = self._parse(path)
+        main = Path(tu.spelling).resolve()
+        by_token, seen = defaultdict(set), set()
+        for c in tu.cursor.get_children():
+            if (c.kind not in (cindex.CursorKind.VAR_DECL, cindex.CursorKind.FUNCTION_DECL)
+                    or c.storage_class != cindex.StorageClass.STATIC
+                    or not c.location.file or Path(c.location.file.name).resolve() != main):
+                continue
+            seen.add(c.spelling)
+            token = next((t for t in c.get_tokens() if t.spelling == "static"), None)
+            if token is None:
+                if c.spelling in names:
+                    raise FilterError(f"expose {c.spelling}: its static comes from a macro")
+                continue
+            by_token[token.extent.start.offset].add(c.spelling)
+        for name in sorted(set(names) - seen):
+            raise FilterError(f"expose {name}: no file-scope static {name} in {path.name}")
+        offsets = []
+        for offset, group in sorted(by_token.items()):
+            if group & set(names):
+                if not group <= set(names):
+                    raise FilterError(f"expose {', '.join(sorted(group & set(names)))}: shares its static with "
+                                      f"{', '.join(sorted(group - set(names)))}; expose them too")
+                offsets.append(offset)
+        return offsets
+
     def definitions(self, path: Path) -> dict:
         """Top-level function definitions in the file itself, by name."""
-        try:
-            tu = self.clang.parse(path)
-        except nwclang.ClangError as e:
-            raise FilterError(str(e)) from None
+        tu = self._parse(path)
         main = Path(tu.spelling).resolve()
         out = {}
         for c in tu.cursor.get_children():
@@ -79,8 +115,8 @@ def _join(tokens, swap: dict[int, str]) -> str:
     return "".join(out)
 
 
-def prototype(cursor, host: str) -> str:
-    """Declaration of `host` with the signature of the definition at `cursor`."""
+def prototype(cursor, host: str, exposed: bool = False) -> str:
+    """Declaration of `host` with the signature of the definition at `cursor` (no static when exposed)."""
     body = next((c for c in cursor.get_children()
                  if c.kind == cindex.CursorKind.COMPOUND_STMT), None)
     if body is None:
@@ -88,7 +124,8 @@ def prototype(cursor, host: str) -> str:
     name_at = cursor.location.offset
     head = [t for t in cursor.get_tokens()
             if t.extent.start.offset < body.extent.start.offset
-            and t.kind != cindex.TokenKind.COMMENT and t.spelling not in INLINE_WORDS]
+            and t.kind != cindex.TokenKind.COMMENT and t.spelling not in INLINE_WORDS
+            and not (exposed and t.spelling == "static")]
     i = next((i for i, t in enumerate(head) if t.extent.start.offset == name_at), None)
     if i is None or head[i].spelling != cursor.spelling:
         raise FilterError(f"{cursor.spelling}: the name is not a plain token (macro?)")
@@ -123,7 +160,8 @@ def retail_name(name: str) -> str:
 
 def retail_header(unit: nwunits.Unit, defs: dict) -> str | None:
     """<unit>.retail.h: prototypes of the decomp definitions the unit's wraps keep, or None without wraps."""
-    protos = [prototype(defs[f.name], retail_name(f.name)) for f in unit.functions if f.wrapped and f.name in defs]
+    protos = [prototype(defs[f.name], retail_name(f.name), f.name in unit.expose)
+              for f in unit.functions if f.wrapped and f.name in defs]
     if not protos:
         return None
     guard = "NW_RETAIL_" + re.sub(r"[^A-Za-z0-9]", "_", unit.name).upper() + "_H"
@@ -146,8 +184,9 @@ def probed(unit: nwunits.Unit) -> list[nwunits.Function]:
     return [f for f in unit.functions if f.provider == "decomp" and f.provenance == "near"]
 
 
-def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str) -> tuple[bytes, list[str]]:
-    """Drop overridden definitions, apply renames and probe near-match C; returns (text, changes)."""
+def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str,
+                  exposed: list[int] = ()) -> tuple[bytes, list[str]]:
+    """Drop overridden definitions, wrap, rename, expose and probe near-match C; returns (text, changes)."""
     newline = b"\r\n" if b"\r\n" in data else b"\n"
     edits = []                              # (offset, delete, insert)
     dropped = []                            # (start, end) of removed definitions
@@ -182,19 +221,19 @@ def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str) -> t
             if DIRECTIVE.search(data, start, end):
                 raise FilterError(f"{unit.name}: {f.name}: preprocessor directive inside the "
                                   "definition")
-            insert = (prototype(c, f.host).encode() + newline
+            insert = (prototype(c, f.host, f.name in unit.expose).encode() + newline
                       + _line_directive(c.extent.end.line + 1, source).encode() + newline)
             edits.append((line_start, line_end - line_start, insert))
             dropped.append((line_start, line_end))
             changes.append(f"{f.name} dropped" + ("" if f.host == f.name else f", -> {f.host}"))
         elif f.wrapped:
             # The definition becomes <name>__retail; a prototype of <name> in front of it keeps the calls below
-            # bound to the port's. The rename goes first: both edits may start at the same offset.
+            # bound to the port's.
             line_start = data.rfind(b"\n", 0, c.extent.start.offset) + 1
             if data[line_start:c.extent.start.offset].strip():
                 raise FilterError(f"{unit.name}: {f.name}: the definition does not start a line")
             edits.append((off, len(f.name), retail_name(f.name).encode()))
-            edits.append((line_start, 0, prototype(c, f.name).encode() + newline
+            edits.append((line_start, 0, prototype(c, f.name, f.name in unit.expose).encode() + newline
                           + _line_directive(c.extent.start.line, source).encode() + newline))
             changes.append(f"{f.name} wrapped, the decomp's is {retail_name(f.name)}")
         else:
@@ -207,8 +246,16 @@ def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str) -> t
             renames.extend((o, f.name, f.host) for o in offsets)
     edits.extend((o, len(old), new.encode()) for o, old, new in renames
                  if not any(s <= o < e for s, e in dropped))
+    for off in exposed:
+        if not any(s <= off < e for s, e in dropped):
+            end = off + len(b"static")
+            while data[end:end + 1] in (b" ", b"\t"):
+                end += 1
+            edits.append((off, end - off, b""))
+    changes.extend(f"{name} exposed" for name in unit.expose)
     out = bytearray(data)
-    for off, delete, insert in sorted(edits, key=lambda e: e[0], reverse=True):
+    # Back to front; at one offset a replacement goes before an insertion, which then lands in front of it.
+    for off, delete, insert in sorted(edits, key=lambda e: (e[0], e[1] > 0), reverse=True):
         out[off:off + delete] = insert
     return bytes(out), changes
 
@@ -236,8 +283,8 @@ def prelude(unit: nwunits.Unit) -> str:
 
 
 def render(unit: nwunits.Unit, data: bytes, defs: dict, source: str,
-           wrapper: str) -> tuple[bytes, list[str]]:
-    body, changes = filter_source(data, unit, defs, source)
+           wrapper: str, exposed: list[int] = ()) -> tuple[bytes, list[str]]:
+    body, changes = filter_source(data, unit, defs, source, exposed)
     if not body.endswith(b"\n"):
         body += b"\n"
     probes = '#include "port/stub.h"\n' if probed(unit) else ""
@@ -295,8 +342,9 @@ def main() -> int:
             try:
                 defs = clang.definitions(path)
                 check(unit, defs, errors)
+                exposed = clang.static_tokens(path, unit.expose) if unit.expose else []
                 text, names = render(unit, path.read_bytes(), defs, path.resolve().as_posix(),
-                                     out.resolve().as_posix())
+                                     out.resolve().as_posix(), exposed)
                 header = retail_header(unit, defs)
             except FilterError as e:
                 errors.append(str(e))

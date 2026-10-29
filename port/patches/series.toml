@@ -13,10 +13,6 @@ name = "20-lvalue"
 reason = "Cast-as-lvalue stores and loads (NW_PUT, NW_GET), which clang rejects."
 
 [[concern]]
-name = "30-statics"
-reason = "File statics the port reaches from its own code (NW_STATIC)."
-
-[[concern]]
 name = "40-ee-faithful"
 reason = "The EE's results where the host's differ: float division by zero, saturating float to int, retail's reads past an object (NW_EE_*, NW_RETAIL, NW_PAST, NW_HOST_INIT, ...)."
 
