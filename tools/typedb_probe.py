@@ -30,7 +30,7 @@ PREFIX = "nw_probe_"
 STABS_RE = re.compile(r'^\s*\.stabs\s+"((?:[^"\\]|\\.)*)"')
 
 sys.path.insert(0, str(REPO / "tools"))
-sys.path.insert(0, str(DECOMP / "tools"))  # cc, declib (the decomp's own tools)
+sys.path.insert(0, str(REPO / "decomp" / "tools"))  # declib (the decomp's own tools)
 import patches  # noqa: E402
 import typedb  # noqa: E402
 
@@ -81,6 +81,8 @@ def probe_source(db: dict) -> tuple[str, dict[str, str]]:
 
 
 def compile_probe(text: str, profile: str, keep: Path | None) -> str:
+    # The patched tree's cc.py stages that tree's include/; on the path only once the tree exists.
+    sys.path.insert(0, str(DECOMP / "tools"))
     import cc
     argv, _driver = cc.compiler_command(cc.profile_spec(profile)["compiler"])
     work = Path(tempfile.mkdtemp(prefix=f"nw_probe_{profile}_"))
