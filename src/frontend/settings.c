@@ -13,6 +13,7 @@ typedef enum NwSettingKind {
     NW_SETTING_INT,  /* clamped to lo..hi, kept when off the step from lo; 0 also by the name zero */
     NW_SETTING_ENUM, /* an enum (int-sized) by its names */
     NW_SETTING_TEXT, /* a string, through parse and format */
+    NW_SETTING_BINDS, /* the whole table: hi targets' sources, each a name or an array of names */
 } NwSettingKind;
 
 typedef struct NwSettingKey {
@@ -24,6 +25,8 @@ typedef struct NwSettingKey {
     const char *zero;
     bool (*parse)(const char *text, void *field);
     const char *(*format)(const void *field, char *buf, int size);
+    uint16_t (*source)(const char *name);
+    const char *(*source_name)(uint16_t source);
     const char *help;
 } NwSettingKey;
 
@@ -205,6 +208,10 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
       .help = "0-100, the cutscene and hint voices" },
+    { .table = "pad", .name = "<button>", .kind = NW_SETTING_BINDS, NW_FIELD(controls.pad), .hi = NW_CONTROL_BUTTONS,
+      .source = nw_controls_pad_source, .source_name = nw_controls_pad_name,
+      .help = "the gamepad's buttons for it, by position: south (cross), east, west, north, leftshoulder, "
+              "lefttrigger, leftstick, back, start, dpup, ...; [] none" },
 };
 
 void nw_settings_defaults(NwSettings *s)
@@ -223,6 +230,7 @@ void nw_settings_defaults(NwSettings *s)
     s->scale = 0;
     s->msaa = 0;
     s->filter = NW_FILTER_RETAIL;
+    nw_controls_defaults(&s->controls);
 }
 
 bool nw_settings_equal(const NwSettings *a, const NwSettings *b)
@@ -298,6 +306,35 @@ static void nw_settings_take(const NwSettingKey *k, const NwDocValue *v, NwSetti
     }
 }
 
+/* A target's sources from a name or an array of names; names k does not know are passed over. */
+static void nw_settings_take_binds(const NwSettingKey *k, const NwDocValue *v, uint16_t *binds)
+{
+    uint16_t got[NW_CONTROL_BINDS] = { 0 };
+    const NwDocValue *items = v->type == NW_DOC_ARRAY ? v->items : v;
+    size_t count = v->type == NW_DOC_ARRAY ? v->len : 1;
+    int n = 0;
+    if (v->type != NW_DOC_ARRAY && v->type != NW_DOC_STR) {
+        return;
+    }
+    for (size_t i = 0; i < count && n < NW_CONTROL_BINDS; i++) {
+        char name[32];
+        if (items[i].type != NW_DOC_STR || items[i].len >= sizeof(name)) {
+            continue;
+        }
+        SDL_memcpy(name, items[i].bytes, items[i].len);
+        name[items[i].len] = '\0';
+        uint16_t source = k->source(name);
+        bool seen = false;
+        for (int j = 0; j < n; j++) {
+            seen = seen || got[j] == source;
+        }
+        if (source && !seen) {
+            got[n++] = source;
+        }
+    }
+    SDL_memcpy(binds, got, sizeof(got));
+}
+
 bool nw_settings_load(NwSettings *s, const char *root)
 {
     NwDoc doc;
@@ -310,6 +347,16 @@ bool nw_settings_load(NwSettings *s, const char *root)
     for (size_t i = 0; i < SDL_arraysize(nw_settings_keys); i++) {
         const NwSettingKey *k = &nw_settings_keys[i];
         const NwDocTable *t = nw_doc_table(&doc, &k->table, 1);
+        if (k->kind == NW_SETTING_BINDS) {
+            uint16_t *binds = (uint16_t *)((char *)s + k->offset);
+            for (int j = 0; t && j < k->hi; j++) {
+                const NwDocValue *v = nw_doc_get(t, nw_control_targets[j].key);
+                if (v) {
+                    nw_settings_take_binds(k, v, binds + j * NW_CONTROL_BINDS);
+                }
+            }
+            continue;
+        }
         const NwDocValue *v = t ? nw_doc_get(t, k->name) : NULL;
         if (v) {
             nw_settings_take(k, v, s);
@@ -317,6 +364,32 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     nw_doc_free(&doc);
     return got > 0;
+}
+
+/* Every target's sources as an array of names. */
+static bool nw_settings_put_binds(NwDoc *doc, NwDocTable *t, const NwSettingKey *k, const uint16_t *binds)
+{
+    for (int j = 0; j < k->hi; j++, binds += NW_CONTROL_BINDS) {
+        NwDocValue v;
+        size_t n = 0;
+        while (n < NW_CONTROL_BINDS && binds[n]) {
+            n++;
+        }
+        if (!nw_doc_array(&v, n)) {
+            return false;
+        }
+        for (size_t i = 0; i < n; i++) {
+            const char *name = k->source_name(binds[i]);
+            if (!nw_doc_str(&v.items[i], name, SDL_strlen(name))) {
+                nw_doc_value_free(&v);
+                return false;
+            }
+        }
+        if (!nw_doc_set(doc, t, nw_control_targets[j].key, &v)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings *s)
@@ -327,6 +400,9 @@ static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings 
     char buf[32];
     if (!t) {
         return false;
+    }
+    if (k->kind == NW_SETTING_BINDS) {
+        return nw_settings_put_binds(doc, t, k, (const uint16_t *)field);
     }
     if (k->kind == NW_SETTING_BOOL) {
         v = nw_doc_bool(*(const bool *)field);

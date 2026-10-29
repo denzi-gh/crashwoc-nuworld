@@ -15,6 +15,7 @@
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
+#include "frontend/controlpanel.h"
 #include "frontend/debug.h"
 #include "frontend/settings.h"
 #include "frontend/video.h"
@@ -706,11 +707,13 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
+    nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
     NwSettings applied = settings;
     bool unsaved = false;
     uint64_t changed = 0; /* when the settings last changed */
     nw_audio_set_buses(settings.master_volume, settings.voice_volume);
+    nw_input_set_controls(&settings.controls);
     if (!nw_audio_open()) {
         fprintf(stderr, NW_APP_NAME ": no sound: %s\n", SDL_GetError());
     }
@@ -740,6 +743,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                 nw_nusound_set_hardware_speed(settings.hardware_speed);
             }
             nw_audio_set_buses(settings.master_volume, settings.voice_volume);
+            nw_input_set_controls(&settings.controls);
             nw_video_apply(&settings, &applied);
             applied = settings;
             unsaved = true;

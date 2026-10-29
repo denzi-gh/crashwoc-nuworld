@@ -98,9 +98,20 @@ void nw_debug_text(const char *fmt, ...)
     va_end(ap);
 }
 
+void nw_debug_label(const char *text)
+{
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(text);
+}
+
 bool nw_debug_button(const char *label)
 {
     return ImGui::Button(label);
+}
+
+void nw_debug_same_line(float column)
+{
+    ImGui::SameLine(column * ImGui::GetFontSize());
 }
 
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log)

@@ -34,7 +34,11 @@ void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDe
 char *nw_debug_file(const char *folder, const char *ext);
 
 void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
+/* Text level with the buttons on its line. */
+void nw_debug_label(const char *text);
 bool nw_debug_button(const char *label);
+/* The next item on this line, column font sizes from the window's left edge. */
+void nw_debug_same_line(float column);
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log);
 bool nw_debug_slider_int(const char *label, int *value, int lo, int hi);
 bool nw_debug_combo(const char *label, int *index, const char *const *items, int count);

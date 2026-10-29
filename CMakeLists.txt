@@ -146,10 +146,11 @@ target_include_directories(nuworld_audio PUBLIC src)
 target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_audio PUBLIC nuworld_vfs)
 
-# Frontend logic without the UI: import folder listing, background import job, settings.toml.
+# Frontend logic without the UI: import folder listing, background import job, settings.toml and its controls.
 add_library(nuworld_frontend STATIC
   src/frontend/import.c
-  src/frontend/settings.c)
+  src/frontend/settings.c
+  src/platform/controls.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)

@@ -1,5 +1,6 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, what the reader does not take, a file that is not TOML, and keys a save keeps.
+   and the HUD's forms, the [pad] bindings, what the reader does not take, a file that is not TOML, and keys a
+   save keeps.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -216,6 +217,24 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nresolution = \"1280x800\"\n", &s) && s.resolution.w == 1280 &&
           s.resolution.h == 800);
     CHECK(read_text("[video]\nresolution = \"big\"\n", &s) && s.resolution.w == 0);
+
+    /* [pad]: a name or an array of names a button, names it does not know passed over; [] unbinds. */
+    CHECK(read_text("[pad]\ncross = \"east\"\ncircle = [\"south\", \"jump\", \"righttrigger\", \"south\"]\n"
+                    "l2 = []\nr2 = 7\n",
+                    &s));
+    CHECK(s.controls.pad[0][0] == 1 + SDL_GAMEPAD_BUTTON_EAST && s.controls.pad[0][1] == 0);
+    CHECK(s.controls.pad[1][0] == 1 + SDL_GAMEPAD_BUTTON_SOUTH &&
+          s.controls.pad[1][1] == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER && s.controls.pad[1][2] == 0);
+    CHECK(s.controls.pad[6][0] == 0 && s.controls.pad[7][0] == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    CHECK(s.controls.pad[3][0] == 1 + SDL_GAMEPAD_BUTTON_NORTH);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "[pad]\ncross = [\"east\"]\ncircle = [\"south\", \"righttrigger\"]\n") &&
+          SDL_strstr(saved, "l2 = []\n") && SDL_strstr(saved, "# pad.<button>: "));
+    SDL_free(saved);
+    NwSettings u;
+    nw_settings_defaults(&u);
+    CHECK(!nw_settings_equal(&s, &u) && nw_settings_load(&u, root) && nw_settings_equal(&s, &u));
 
     /* A save keeps what it does not know, writes the keys' help first and leaves no .tmp. */
     NwSettings t;

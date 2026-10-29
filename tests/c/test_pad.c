@@ -99,11 +99,50 @@ static void test_gamepad(void)
     SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, SDL_JOYSTICK_AXIS_MAX);
     SDL_UpdateGamepads();
 
+    NwControls c;
+    nw_controls_defaults(&c);
     NwPadInput in;
-    nw_input_gamepad(gamepad, &in);
+    nw_input_gamepad(gamepad, &c, &in);
     CHECK(in.buttons == (NW_PAD_CROSS | NW_PAD_SQUARE | NW_PAD_START | NW_PAD_LEFT | NW_PAD_R2));
     CHECK(in.lx == 0xFF && in.ly == 0x00 && in.rx == 0x80 && in.ry == 0x80);
     CHECK(in.l2 == 0x00 && in.r2 == 0xFF);
+
+    /* Remapped: the right trigger is cross (and off R2), L2 is south at full pressure, square has north too. */
+    nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 0, NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    nw_controls_bind(c.pad, NW_CONTROL_BUTTONS, 6, 1 + SDL_GAMEPAD_BUTTON_SOUTH);
+    c.pad[2][1] = 1 + SDL_GAMEPAD_BUTTON_NORTH;
+    CHECK(c.pad[7][0] == 0 && c.pad[0][1] == 0);
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.buttons == (NW_PAD_CROSS | NW_PAD_L2 | NW_PAD_SQUARE | NW_PAD_START | NW_PAD_LEFT));
+    CHECK(in.l2 == 0xFF && in.r2 == 0x00);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_WEST, false);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, true);
+    SDL_UpdateGamepads();
+    nw_input_gamepad(gamepad, &c, &in);
+    CHECK(in.buttons & NW_PAD_SQUARE);
+
+    /* A listen hears the open gamepad's next button or trigger; Escape cancels. */
+    SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
+    nw_input_event(&e);
+    CHECK(nw_input_pad_name() != NULL && SDL_strcmp(nw_input_pad_label(1 + SDL_GAMEPAD_BUTTON_SOUTH), "A") == 0);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .gbutton = { .type = SDL_EVENT_GAMEPAD_BUTTON_DOWN, .which = id,
+                                  .button = SDL_GAMEPAD_BUTTON_EAST } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == 1 + SDL_GAMEPAD_BUTTON_EAST && nw_input_heard() == -1);
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .gaxis = { .type = SDL_EVENT_GAMEPAD_AXIS_MOTION, .which = id,
+                                .axis = SDL_GAMEPAD_AXIS_LEFT_TRIGGER, .value = SDL_JOYSTICK_AXIS_MAX } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == NW_CONTROL_TRIGGER + SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    e = (SDL_Event){ .key = { .type = SDL_EVENT_KEY_DOWN, .scancode = SDL_SCANCODE_ESCAPE } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == 0);
+    nw_input_shutdown();
 
     SDL_CloseGamepad(gamepad);
     SDL_DetachVirtualJoystick(id);

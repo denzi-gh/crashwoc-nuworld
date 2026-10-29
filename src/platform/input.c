@@ -1,26 +1,12 @@
 #include "platform/input.h"
 
-/* Trigger pressure (0-255) from which L2/R2 count as pressed. */
+/* Trigger pressure (0-255) from which a trigger presses its button. */
 #define NW_INPUT_TRIGGER_PRESSED 0x40
 
-static const struct {
-    SDL_GamepadButton button;
-    uint16_t bit;
-} nw_input_buttons[] = {
-    { SDL_GAMEPAD_BUTTON_SOUTH, NW_PAD_CROSS },
-    { SDL_GAMEPAD_BUTTON_EAST, NW_PAD_CIRCLE },
-    { SDL_GAMEPAD_BUTTON_WEST, NW_PAD_SQUARE },
-    { SDL_GAMEPAD_BUTTON_NORTH, NW_PAD_TRIANGLE },
-    { SDL_GAMEPAD_BUTTON_BACK, NW_PAD_SELECT },
-    { SDL_GAMEPAD_BUTTON_START, NW_PAD_START },
-    { SDL_GAMEPAD_BUTTON_LEFT_STICK, NW_PAD_L3 },
-    { SDL_GAMEPAD_BUTTON_RIGHT_STICK, NW_PAD_R3 },
-    { SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, NW_PAD_L1 },
-    { SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, NW_PAD_R1 },
-    { SDL_GAMEPAD_BUTTON_DPAD_UP, NW_PAD_UP },
-    { SDL_GAMEPAD_BUTTON_DPAD_DOWN, NW_PAD_DOWN },
-    { SDL_GAMEPAD_BUTTON_DPAD_LEFT, NW_PAD_LEFT },
-    { SDL_GAMEPAD_BUTTON_DPAD_RIGHT, NW_PAD_RIGHT },
+/* By target (platform/controls.h). */
+static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
+    NW_PAD_CROSS, NW_PAD_CIRCLE, NW_PAD_SQUARE, NW_PAD_TRIANGLE, NW_PAD_L1,     NW_PAD_R1,   NW_PAD_L2,   NW_PAD_R2,
+    NW_PAD_L3,    NW_PAD_R3,     NW_PAD_SELECT, NW_PAD_START,    NW_PAD_UP,     NW_PAD_DOWN, NW_PAD_LEFT, NW_PAD_RIGHT,
 };
 
 /* WASD is the left stick. */
@@ -48,7 +34,13 @@ static const struct {
     { SDL_SCANCODE_TAB, NW_PAD_SELECT },
 };
 
+/* A trigger's travel that a listen hears. */
+#define NW_INPUT_TRIGGER_HEARD 16384
+
 static SDL_Gamepad *nw_input_pad;
+static NwControls nw_input_controls;
+static NwInputListen nw_input_listening;
+static int nw_input_heard_source = -1;
 
 /* -32768..32767 as 0x00..0xFF, 0 as 0x80. */
 static uint8_t nw_input_axis(SDL_Gamepad *gamepad, SDL_GamepadAxis axis)
@@ -63,26 +55,37 @@ static uint8_t nw_input_trigger(SDL_Gamepad *gamepad, SDL_GamepadAxis axis)
     return (uint8_t)(v > 0 ? v >> 7 : 0);
 }
 
-void nw_input_gamepad(SDL_Gamepad *gamepad, NwPadInput *in)
+/* A source's pressure: a button's 0x00 or 0xFF, a trigger's travel. */
+static uint8_t nw_input_source(SDL_Gamepad *gamepad, uint16_t source)
+{
+    if (source >= NW_CONTROL_TRIGGER) {
+        return nw_input_trigger(gamepad, (SDL_GamepadAxis)(source - NW_CONTROL_TRIGGER));
+    }
+    return source && SDL_GetGamepadButton(gamepad, (SDL_GamepadButton)(source - 1)) ? 0xFF : 0x00;
+}
+
+void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in)
 {
     in->buttons = 0;
-    for (size_t i = 0; i < SDL_arraysize(nw_input_buttons); i++) {
-        if (SDL_GetGamepadButton(gamepad, nw_input_buttons[i].button)) {
-            in->buttons |= nw_input_buttons[i].bit;
+    for (int i = 0; i < NW_CONTROL_BUTTONS; i++) {
+        uint8_t most = 0;
+        for (int j = 0; j < NW_CONTROL_BINDS; j++) {
+            uint8_t v = nw_input_source(gamepad, c->pad[i][j]);
+            most = v > most ? v : most;
+        }
+        if (most >= NW_INPUT_TRIGGER_PRESSED) {
+            in->buttons |= nw_input_bits[i];
+        }
+        if (nw_input_bits[i] == NW_PAD_L2) {
+            in->l2 = most;
+        } else if (nw_input_bits[i] == NW_PAD_R2) {
+            in->r2 = most;
         }
     }
     in->lx = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_LEFTX);
     in->ly = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_LEFTY);
     in->rx = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_RIGHTX);
     in->ry = nw_input_axis(gamepad, SDL_GAMEPAD_AXIS_RIGHTY);
-    in->l2 = nw_input_trigger(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
-    in->r2 = nw_input_trigger(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
-    if (in->l2 >= NW_INPUT_TRIGGER_PRESSED) {
-        in->buttons |= NW_PAD_L2;
-    }
-    if (in->r2 >= NW_INPUT_TRIGGER_PRESSED) {
-        in->buttons |= NW_PAD_R2;
-    }
 }
 
 /* -1, 0 or 1 as 0x00, keep or 0xFF. */
@@ -120,8 +123,66 @@ static void nw_input_open_next(void)
     SDL_free(ids);
 }
 
+void nw_input_set_controls(const NwControls *c)
+{
+    nw_input_controls = *c;
+}
+
+void nw_input_listen(NwInputListen what)
+{
+    nw_input_listening = what;
+    nw_input_heard_source = -1;
+}
+
+int nw_input_heard(void)
+{
+    int heard = nw_input_heard_source;
+    nw_input_heard_source = -1;
+    return heard;
+}
+
+const char *nw_input_pad_name(void)
+{
+    return nw_input_pad ? SDL_GetGamepadName(nw_input_pad) : NULL;
+}
+
+const char *nw_input_pad_label(uint16_t source)
+{
+    static const char *const faces[] = { NULL, "A", "B", "X", "Y", "Cross", "Circle", "Square", "Triangle" };
+    if (nw_input_pad && source >= 1 && source <= 4) {
+        SDL_GamepadButtonLabel label = SDL_GetGamepadButtonLabel(nw_input_pad, (SDL_GamepadButton)(source - 1));
+        if (label > SDL_GAMEPAD_BUTTON_LABEL_UNKNOWN && (size_t)label < SDL_arraysize(faces)) {
+            return faces[label];
+        }
+    }
+    return nw_controls_pad_label(source);
+}
+
+/* What a listen hears in event, -1 nothing. */
+static int nw_input_hear(const SDL_Event *event)
+{
+    SDL_JoystickID pad = nw_input_pad ? SDL_GetGamepadID(nw_input_pad) : 0;
+    if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE) {
+        return 0;
+    }
+    if (event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && event->gbutton.which == pad) {
+        return 1 + event->gbutton.button;
+    }
+    if (event->type == SDL_EVENT_GAMEPAD_AXIS_MOTION && event->gaxis.which == pad &&
+        (event->gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER || event->gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) &&
+        event->gaxis.value >= NW_INPUT_TRIGGER_HEARD) {
+        return NW_CONTROL_TRIGGER + event->gaxis.axis;
+    }
+    return -1;
+}
+
 void nw_input_event(const SDL_Event *event)
 {
+    int heard = nw_input_listening ? nw_input_hear(event) : -1;
+    if (heard >= 0) {
+        nw_input_heard_source = heard;
+        nw_input_listening = NW_INPUT_LISTEN_OFF;
+    }
     if (event->type == SDL_EVENT_GAMEPAD_ADDED && !nw_input_pad) {
         nw_input_pad = SDL_OpenGamepad(event->gdevice.which);
     } else if (event->type == SDL_EVENT_GAMEPAD_REMOVED && nw_input_pad &&
@@ -135,10 +196,10 @@ void nw_input_event(const SDL_Event *event)
 void nw_input_poll(bool keyboard)
 {
     NwPadInput in = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
-    if (nw_input_pad) {
-        nw_input_gamepad(nw_input_pad, &in);
+    if (nw_input_pad && !nw_input_listening) {
+        nw_input_gamepad(nw_input_pad, &nw_input_controls, &in);
     }
-    if (keyboard) {
+    if (keyboard && !nw_input_listening) {
         nw_input_keyboard(SDL_GetKeyboardState(NULL), &in);
     }
     nw_pad_set(&in);

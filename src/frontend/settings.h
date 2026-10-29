@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #include "gfx/backend.h"
+#include "platform/controls.h"
 #include "platform/display.h"
 
 #define NW_FPS_MAX 1000
@@ -25,6 +26,7 @@ typedef struct NwSettings {
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;
+    NwControls controls; /* [pad] */
 } NwSettings;
 
 void nw_settings_defaults(NwSettings *s);

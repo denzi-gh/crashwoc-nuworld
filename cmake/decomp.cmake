@@ -152,7 +152,7 @@ target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audi
   nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
-target_sources(crashwoc-nuworld PRIVATE src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
+target_sources(crashwoc-nuworld PRIVATE src/frontend/controlpanel.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
 if(NUWORLD_FUZZ)
@@ -444,7 +444,7 @@ if(NUWORLD_TESTS)
   add_test(NAME ee COMMAND nuworld_test_ee)
 
   # The pad shim under the decomp's NuPs2ReadPad, and a virtual gamepad and the keyboard as the pad.
-  add_executable(nuworld_test_pad tests/c/test_pad.c src/platform/input.c)
+  add_executable(nuworld_test_pad tests/c/test_pad.c src/platform/controls.c src/platform/input.c)
   target_include_directories(nuworld_test_pad PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_pad PRIVATE NW_HOST)
   target_compile_options(nuworld_test_pad PRIVATE -Wall -Wextra)
