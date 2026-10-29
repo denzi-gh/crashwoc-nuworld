@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(DECOMP / "tools"))  # declib: the decomp's ELF reader and lui/%lo pairing
 from declib.elf import LOADS, STORES, code_refs, read_elf  # noqa: E402
 import nwunits  # noqa: E402
+import patches  # noqa: E402
 import ps2_diff  # noqa: E402
 
 FUNC, OBJECT = 2, 1
@@ -681,6 +682,7 @@ def in_container() -> bool:
 
 def cmd_compile(args) -> int:
     """In the decomp image: every unit, PAL (no define) and NTSC (-DNW_HZ_NTSC), into --out."""
+    patches.link_compiler(args.decomp)
     sys.path.insert(0, str(args.decomp / "tools"))
     import cc
     for unit in args.units:
@@ -701,7 +703,9 @@ def compile_units(decomp: Path, units: list[str]) -> None:
         args = argparse.Namespace(decomp=decomp, out=out, units=units)
         cmd_compile(args)
         return
-    cmd = ["docker", "run", "--rm", "-v", f"{ROOT}:/nw", "-v", f"{decomp.resolve()}:/decomp", "-w", "/nw", IMAGE,
+    # The patched tree brings the decomp's tools (cc.py); its compiler is the submodule's.
+    cmd = ["docker", "run", "--rm", "-v", f"{ROOT}:/nw", "-v", f"{decomp.resolve()}:/decomp",
+           "-v", f"{(DECOMP / 'compiler').resolve()}:/decomp/compiler", "-w", "/nw", IMAGE,
            "python3", "tools/ntsc_diff.py", "compile", "--decomp", "/decomp", "--out", "build/ntsc_diff", *units]
     if subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode:
         sys.exit("error: the EE compile failed")
@@ -767,7 +771,8 @@ def main() -> int:
         p.add_argument("--pal", help="the PAL ELF (default $NUWORLD_PAL_ELF)")
         p.add_argument("--us", help="the US ELF (default $NUWORLD_US_ELF)")
         p.add_argument("--known", type=Path, default=KNOWN, help=f"differences that are no rate (default {KNOWN})")
-        p.add_argument("--decomp", type=Path, default=DECOMP, help="the decomp checkout (default the submodule)")
+        p.add_argument("--decomp", type=Path, default=None,
+                       help="the decomp tree (default the patched tree build/decomp, refreshed first)")
     sub.choices["functions"].add_argument("--disasm", metavar="NAME", help="a function's PAL and US code side by side")
     sub.choices["check"].add_argument("--units", nargs="*", help="these decomp units (default: every differing one)")
     sub.choices["check"].add_argument("--no-compile", action="store_true", help="reuse build/ntsc_diff's objects")
@@ -778,6 +783,8 @@ def main() -> int:
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("units", nargs="+")
     args = parser.parse_args()
+    if args.cmd != "compile":
+        args.decomp = nwunits.decomp_tree(args.decomp)
     return {"functions": cmd_functions, "data": cmd_data, "check": cmd_check, "table": cmd_table,
             "compile": cmd_compile}[args.cmd](args)
 

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nwclang  # noqa: E402
 import nwunits  # noqa: E402
+import patches  # noqa: E402
 
 cindex = nwclang.cindex
 
@@ -261,7 +262,7 @@ def merge(ps2: View, host: View) -> dict:
 
 def decomp_sha(decomp: Path) -> str | None:
     if not (decomp / ".git").exists():
-        return None
+        return patches.tree_id(decomp)
     try:
         out = subprocess.run(["git", "-C", str(decomp), "rev-parse", "HEAD"],
                              capture_output=True, text=True, check=True)
@@ -293,11 +294,12 @@ def build(decomp: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--decomp", type=Path, default=nwunits.DEFAULT_DECOMP,
-                        help="decomp checkout (default: the decomp/ submodule)")
+    parser.add_argument("--decomp", type=Path, default=None,
+                        help="decomp tree (default: the patched tree build/decomp, refreshed first)")
     parser.add_argument("--out", type=Path, default=nwunits.REPO / "build" / "gen")
     parser.add_argument("--check", action="store_true", help="validate only, write nothing")
     args = parser.parse_args()
+    args.decomp = nwunits.decomp_tree(args.decomp)
 
     try:
         db = build(args.decomp)

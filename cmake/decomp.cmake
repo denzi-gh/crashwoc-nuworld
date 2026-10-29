@@ -13,20 +13,45 @@ if(NOT nw_libclang EQUAL 0)
 endif()
 
 set(nw_tools ${CMAKE_CURRENT_SOURCE_DIR}/tools)
-set(nw_decomp ${CMAKE_CURRENT_SOURCE_DIR}/decomp)
 set(nw_gen ${CMAKE_CURRENT_BINARY_DIR}/gen)
 
-file(GLOB_RECURSE nw_decomp_sources CONFIGURE_DEPENDS ${nw_decomp}/src/*.c ${nw_decomp}/include/*.h)
-file(GLOB_RECURSE nw_decomp_headers CONFIGURE_DEPENDS ${nw_decomp}/include/*.h)
+# The decomp submodule stays retail. The host reads the patched tree tools/patches.py builds from it and
+# port/patches: made at configure time for the globs below, refreshed by the build when either changes.
+set(nw_decomp_src ${CMAKE_CURRENT_SOURCE_DIR}/decomp)
+set(nw_decomp ${CMAKE_CURRENT_BINARY_DIR}/decomp)
+file(GLOB_RECURSE nw_decomp_pristine CONFIGURE_DEPENDS ${nw_decomp_src}/src/*.c ${nw_decomp_src}/include/*.h
+  ${nw_decomp_src}/config/pal103/*)
+file(GLOB_RECURSE nw_patch_inputs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/port/patches/*)
+execute_process(COMMAND ${Python3_EXECUTABLE} ${nw_tools}/patches.py --decomp ${nw_decomp_src} apply --out ${nw_decomp}
+  OUTPUT_QUIET ERROR_VARIABLE err RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "tools/patches.py apply failed:\n${err}")
+endif()
+
+file(GLOB_RECURSE nw_decomp_sources ${nw_decomp}/src/*.c ${nw_decomp}/include/*.h)
+file(GLOB_RECURSE nw_decomp_headers ${nw_decomp}/include/*.h)
 file(GLOB_RECURSE nw_port_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
-file(GLOB_RECURSE nw_registries CONFIGURE_DEPENDS ${nw_decomp}/config/pal103/status/*.toml)
-list(APPEND nw_registries ${nw_decomp}/config/pal103/units.toml ${nw_decomp}/config/pal103/functions.toml
-  ${CMAKE_CURRENT_SOURCE_DIR}/port/units.toml)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${nw_registries} ${nw_tools}/nwunits.py)
+file(GLOB_RECURSE nw_registries ${nw_decomp}/config/pal103/status/*.toml)
+list(APPEND nw_registries ${nw_decomp}/config/pal103/units.toml ${nw_decomp}/config/pal103/functions.toml)
+set(nw_data_registries ${nw_decomp}/config/pal103/data_symbols.toml ${nw_decomp}/config/pal103/data_map.toml
+  ${nw_decomp}/config/pal103/sections.json ${nw_decomp}/config/pal103/symbol_addrs.txt)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/port/units.toml
+  ${nw_tools}/nwunits.py ${nw_tools}/patches.py)
+
+# Every generator depends on the stamp: that, not the byproducts, puts this command into their targets.
+set(nw_tree ${nw_decomp}/.nw-tree.stamp)
+add_custom_command(OUTPUT ${nw_tree}
+  BYPRODUCTS ${nw_decomp_sources} ${nw_registries} ${nw_data_registries}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/patches.py --decomp ${nw_decomp_src} apply --out ${nw_decomp}
+  COMMAND ${CMAKE_COMMAND} -E touch ${nw_tree}
+  DEPENDS ${nw_tools}/patches.py ${nw_patch_inputs} ${nw_decomp_pristine}
+  COMMENT "Applying the port patches to the decomp"
+  VERBATIM)
+list(APPEND nw_registries ${nw_tree} ${CMAKE_CURRENT_SOURCE_DIR}/port/units.toml)
 
 # The files a generator writes, known at configure time (nwunits only, no libclang).
 function(nw_gen_outputs tool var)
-  execute_process(COMMAND ${Python3_EXECUTABLE} ${nw_tools}/${tool} --out ${nw_gen} --list-outputs
+  execute_process(COMMAND ${Python3_EXECUTABLE} ${nw_tools}/${tool} --out ${nw_gen} --list-outputs ${ARGN}
     OUTPUT_VARIABLE out ERROR_VARIABLE err RESULT_VARIABLE result)
   if(NOT result EQUAL 0)
     message(FATAL_ERROR "${tool} --list-outputs failed:\n${err}")
@@ -37,19 +62,17 @@ function(nw_gen_outputs tool var)
   list(TRANSFORM out PREPEND ${nw_gen}/)
   set(${var} ${out} PARENT_SCOPE)
 endfunction()
-nw_gen_outputs(tu_filter.py nw_wrappers)
-nw_gen_outputs(gen_stubs.py nw_stubs)
-nw_gen_outputs(gen_funcmap.py nw_funcmaps)
+nw_gen_outputs(tu_filter.py nw_wrappers --decomp ${nw_decomp})
+nw_gen_outputs(gen_stubs.py nw_stubs --decomp ${nw_decomp})
+nw_gen_outputs(gen_funcmap.py nw_funcmaps --decomp ${nw_decomp})
 nw_gen_outputs(gen_ps2types.py nw_ps2types)
 nw_gen_outputs(gen_converters.py nw_converters)
-nw_gen_outputs(gen_dataimage.py nw_dataimage)
-set(nw_data_registries ${nw_decomp}/config/pal103/data_symbols.toml ${nw_decomp}/config/pal103/data_map.toml
-  ${nw_decomp}/config/pal103/sections.json ${nw_decomp}/config/pal103/symbol_addrs.txt)
+nw_gen_outputs(gen_dataimage.py nw_dataimage --decomp ${nw_decomp})
 
 # The tools rewrite only changed files, so an unchanged wrapper is not recompiled.
 add_custom_command(OUTPUT ${nw_gen}/wrappers.stamp
   BYPRODUCTS ${nw_wrappers}
-  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/tu_filter.py --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/tu_filter.py --decomp ${nw_decomp} --out ${nw_gen}
   COMMAND ${CMAKE_COMMAND} -E touch ${nw_gen}/wrappers.stamp
   DEPENDS ${nw_tools}/tu_filter.py ${nw_tools}/nwunits.py ${nw_tools}/nwclang.py ${nw_decomp_sources} ${nw_registries}
   COMMENT "Generating the decomp wrapper units"
@@ -57,8 +80,8 @@ add_custom_command(OUTPUT ${nw_gen}/wrappers.stamp
 # Port definitions decide port vs stub, so these also follow src/.
 add_custom_command(OUTPUT ${nw_gen}/stubs.stamp
   BYPRODUCTS ${nw_stubs} ${nw_funcmaps}
-  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_stubs.py --out ${nw_gen}
-  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_funcmap.py --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_stubs.py --decomp ${nw_decomp} --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_funcmap.py --decomp ${nw_decomp} --out ${nw_gen}
   COMMAND ${CMAKE_COMMAND} -E touch ${nw_gen}/stubs.stamp
   DEPENDS ${nw_tools}/gen_stubs.py ${nw_tools}/gen_funcmap.py ${nw_tools}/nwunits.py
     ${nw_decomp_sources} ${nw_registries} ${nw_port_sources}
@@ -66,11 +89,11 @@ add_custom_command(OUTPUT ${nw_gen}/stubs.stamp
   VERBATIM)
 add_custom_command(OUTPUT ${nw_gen}/types.stamp
   BYPRODUCTS ${nw_gen}/typedb.json ${nw_ps2types}
-  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/typedb.py --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/typedb.py --decomp ${nw_decomp} --out ${nw_gen}
   COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_ps2types.py --typedb ${nw_gen}/typedb.json --out ${nw_gen}
   COMMAND ${CMAKE_COMMAND} -E touch ${nw_gen}/types.stamp
   DEPENDS ${nw_tools}/typedb.py ${nw_tools}/gen_ps2types.py ${nw_tools}/nwunits.py ${nw_tools}/nwclang.py
-    ${nw_decomp_headers}
+    ${nw_decomp_headers} ${nw_tree}
   COMMENT "Generating the type DB and the PS2 mirror structs"
   VERBATIM)
 add_custom_command(OUTPUT ${nw_gen}/converters.stamp
@@ -85,7 +108,8 @@ add_custom_target(nuworld_types DEPENDS ${nw_gen}/types.stamp ${nw_gen}/converte
 # The data image: root definitions and tables (dataimage*.c) and the <unit>.data.inc every wrapper ends with.
 add_custom_command(OUTPUT ${nw_gen}/dataimage.stamp
   BYPRODUCTS ${nw_dataimage}
-  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_dataimage.py --typedb ${nw_gen}/typedb.json --out ${nw_gen}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/gen_dataimage.py --decomp ${nw_decomp} --typedb ${nw_gen}/typedb.json
+    --out ${nw_gen}
   COMMAND ${CMAKE_COMMAND} -E touch ${nw_gen}/dataimage.stamp
   DEPENDS ${nw_gen}/types.stamp ${nw_tools}/gen_dataimage.py ${nw_tools}/gen_converters.py ${nw_tools}/typedb.py
     ${nw_tools}/nwunits.py ${nw_tools}/nwclang.py ${nw_decomp_sources} ${nw_registries} ${nw_data_registries}

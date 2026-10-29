@@ -54,10 +54,12 @@ def symbols(nm: str, objects: list[str]) -> tuple[set[str], set[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--nm", required=True, help="llvm-nm")
-    parser.add_argument("--decomp", type=Path, default=nwunits.DEFAULT_DECOMP)
+    parser.add_argument("--decomp", type=Path, default=None,
+                        help="decomp tree (default: the patched tree build/decomp, refreshed first)")
     parser.add_argument("--objects", type=Path, required=True,
                         help="file listing the objects of the linked game, one per line")
     args = parser.parse_args()
+    args.decomp = nwunits.decomp_tree(args.decomp)
 
     objects = [line for line in args.objects.read_text().splitlines() if line.strip()]
     defined, undefined = symbols(args.nm, objects)

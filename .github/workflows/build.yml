@@ -63,6 +63,9 @@ jobs:
       - name: Install the decomp toolchain
         working-directory: decomp
         run: python3 tools/setup_toolchain.py --download
+      # The container's user does not own the checkout; tools/patches.py lists the submodule's files with git.
+      - name: Trust the checkout
+        run: git config --global --add safe.directory '*'
       - name: Check the type DB against the PS2 compiler
         run: python3 tools/typedb_probe.py
 

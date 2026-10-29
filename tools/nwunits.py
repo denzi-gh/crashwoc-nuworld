@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_DECOMP = REPO / "decomp"
+DEFAULT_DECOMP = REPO / "build" / "decomp"  # the patched tree (tools/patches.py)
 DEFAULT_UNITS = REPO / "port" / "units.toml"
 DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
@@ -680,9 +680,21 @@ def print_outputs(out: Path, paths) -> None:
         print(p.relative_to(out).as_posix())
 
 
+def decomp_tree(path: Path | None) -> Path:
+    """The decomp tree a tool reads: `path`, else the patched tree, first refreshed from the submodule."""
+    if path is not None:
+        return path
+    import patches
+    try:
+        patches.apply()
+    except patches.PatchError as e:
+        raise SystemExit(f"error: {e}") from None
+    return DEFAULT_DECOMP
+
+
 def add_common_args(parser) -> None:
-    parser.add_argument("--decomp", type=Path, default=DEFAULT_DECOMP,
-                        help="decomp checkout (default: the decomp/ submodule)")
+    parser.add_argument("--decomp", type=Path, default=None,
+                        help="decomp tree (default: the patched tree build/decomp, refreshed first)")
     parser.add_argument("--units", type=Path, default=DEFAULT_UNITS,
                         help="unit treatments (default: port/units.toml)")
     parser.add_argument("--port-src", type=Path, default=DEFAULT_PORT_SRC,

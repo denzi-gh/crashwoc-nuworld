@@ -1,0 +1,32 @@
+--- a/src/game/edcrate.c
++++ b/src/game/edcrate.c
+@@ -42,6 +42,7 @@
+  */
+ 
+ #include "nu_libc.h"
++#include "nu_port.h"
+ 
+ #include "numath/nuvec.h"
+ #include "nu3d/numtl.h"
+@@ -128,7 +129,12 @@ extern void ReadInCrateData(void);
+ extern void RestoreCrateTypeData(void);
+ 
+ extern void ResetTimeTrial(void);
++#ifdef NW_HOST /* retail's prototype passes pos as an int before fALONG; the EE passes them in a2 and $f12 either way */
++extern void ResetCheckpoint(s32 iRAIL, s32 iALONG, f32 fALONG, struct nuvec_s *pos);
++#define ResetCheckpoint(a, b, c, d) ResetCheckpoint(a, b, d, (struct nuvec_s *)(c))
++#else
+ extern void ResetCheckpoint(s32 a, s32 b, s32 c, f32 d);
++#endif
+ extern void ResetBonus(void);
+ extern void ResetDeath(void);
+ extern void ResetGemPath(void);
+@@ -1118,7 +1124,7 @@ static inline s32 edcrtProc(struct nupad_s *pad)
+ {
+     if (screendump)
+         return 0;
+-    edcrt_count += 6;
++    edcrt_count += NW_HZ(6, 5);
+     if (edcrt_active_menu) {
+         eduiMenuProcess(edcrt_active_menu, pad);
+         return 0;

@@ -23,14 +23,15 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-DECOMP = REPO / "decomp"
+DECOMP = REPO / "build" / "decomp"  # the patched tree: its include/ and the decomp's cc.py
 PROFILE = "default"
 IMAGE = os.environ.get("CRASHWOC_IMAGE", "crashwoc-decomp")
 PREFIX = "nw_probe_"
 STABS_RE = re.compile(r'^\s*\.stabs\s+"((?:[^"\\]|\\.)*)"')
 
 sys.path.insert(0, str(REPO / "tools"))
-sys.path.insert(0, str(DECOMP / "tools"))  # cc, declib (the decomp's own tools)
+sys.path.insert(0, str(REPO / "decomp" / "tools"))  # declib (the decomp's own tools)
+import patches  # noqa: E402
 import typedb  # noqa: E402
 
 
@@ -44,7 +45,9 @@ def forward(argv: list[str]) -> int:
         p = Path(a)
         if p.is_absolute():
             sys.exit(f"error: pass paths relative to the repo when running from a host: {a}")
-    cmd = ["docker", "run", "--rm", "-v", f"{REPO}:/nw", "-w", "/nw", IMAGE,
+    patches.apply()
+    cmd = ["docker", "run", "--rm", "-v", f"{REPO}:/nw",
+           "-v", f"{(patches.PRISTINE / 'compiler').resolve()}:/nw/build/decomp/compiler", "-w", "/nw", IMAGE,
            "python3", "tools/typedb_probe.py", *argv]
     return subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
 
@@ -78,6 +81,8 @@ def probe_source(db: dict) -> tuple[str, dict[str, str]]:
 
 
 def compile_probe(text: str, profile: str, keep: Path | None) -> str:
+    # The patched tree's cc.py stages that tree's include/; on the path only once the tree exists.
+    sys.path.insert(0, str(DECOMP / "tools"))
     import cc
     argv, _driver = cc.compiler_command(cc.profile_spec(profile)["compiler"])
     work = Path(tempfile.mkdtemp(prefix=f"nw_probe_{profile}_"))
@@ -269,6 +274,9 @@ def main() -> int:
     if not in_container():
         return forward(sys.argv[1:])
 
+    if not (DECOMP / patches.STAMP).is_file():
+        patches.apply()
+    patches.link_compiler(DECOMP)
     if not (DECOMP / "compiler").is_dir():
         print("error: no decomp toolchain: python3 decomp/tools/setup_toolchain.py --download "
               "(run it in the decomp image)", file=sys.stderr)
