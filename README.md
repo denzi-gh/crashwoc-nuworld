@@ -58,6 +58,11 @@ python tools/patches.py rebase <decomp sha>  # move the series and the submodule
 conflict, resolve it in `build/patch-work`, `git add` the files, `git rebase --continue`, then run
 `python tools/patches.py rebuild`.
 
+Single retail values that a seam wraps are rules, not patches: `port/values/hz.toml` names each 50/60 Hz value
+by file, function, value and which of its matches it is, and the build wraps it as `NW_HZ(pal, ntsc)` after the
+patches. A decomp change that moves such a value stops the build at its rule; `python tools/ntsc_diff.py check`
+proves the NTSC values.
+
 A patch must leave the PS2 build unchanged: host behaviour goes behind a `nu_port.h` seam or `#ifdef NW_HOST`.
 `python tools/ee_gate.py` proves it (Docker with the decomp image and its toolchain): it compiles the decomp with the
 EE compilers with and without the patches and compares the objects. Host-only blocks are invisible to it, so their

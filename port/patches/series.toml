@@ -34,4 +34,4 @@ reason = "Display-rate interpolation keys and snaps (NW_INTERP_*)."
 
 [[concern]]
 name = "90-hz"
-reason = "50/60 Hz: PAL's values on the PS2, NTSC's on a 60 Hz host (NW_HZ, NW_DEMOS)."
+reason = "The attract demos at 60 Hz (NW_DEMOS); the 50/60 Hz values are rules in port/values/hz.toml."
