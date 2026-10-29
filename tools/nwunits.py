@@ -8,6 +8,7 @@ standalone (generated <unit>.stubs.c), none (shim).
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import re
 import tomllib
 from collections import Counter, defaultdict
@@ -199,7 +200,7 @@ class Decl:
     params: str         # "" = unprototyped
     static: bool
     is_def: bool
-    body: int = 0       # hash of a definition's body tokens
+    body: str = ""      # sha256 of a definition's body tokens (comments and spacing ignored)
     calls: frozenset[str] = frozenset()
 
     @property
@@ -239,12 +240,13 @@ def scan_c(text: str, path: str) -> CFile:
         if name in _NOT_A_TYPE or (ret_words and ret_words[0] in _NOT_A_TYPE):
             continue
         line = code.count("\n", 0, m.start(3)) + 1
-        body, calls = 0, frozenset()
+        body, calls = "", frozenset()
         if end == "{":
             if with_strings is None:
                 with_strings = _DIRECTIVE.sub(lambda d: _blank(d.group(0)), active)
             close = _closing_brace(code, m.end() - 1)
-            body = hash(tuple(_C_TOKEN.findall(with_strings, m.end(), close)))
+            tokens = _C_TOKEN.findall(with_strings, m.end(), close)
+            body = hashlib.sha256("\0".join(tokens).encode("utf-8", "surrogateescape")).hexdigest()
             calls = frozenset(_CALL.findall(code, m.end(), close))
         decls.append(Decl(path=path, line=line, name=name, ret=" ".join(ret_words),
                           params=" ".join(params.split()), static="static" in storage.split(),

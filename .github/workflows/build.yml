@@ -27,6 +27,8 @@ jobs:
         run: python3 tools/gen_stubs.py --check
       - name: Count the host-only blocks of the port patches
         run: python3 tools/ee_gate.py --lint
+      - name: Check the decomp functions NuWorld replaces against port/copies.lock
+        run: python3 tools/copies.py --check
       - name: Generate wrappers, stubs and function map
         run: |
           python3 tools/tu_filter.py --out build/gen
