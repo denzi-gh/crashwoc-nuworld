@@ -207,6 +207,11 @@ static int nw_check_data(const char *data_dir)
             fprintf(stderr, NW_APP_NAME ": the data image does not convert back to the ELF\n");
             ok = false;
         }
+        if (ok) {
+            int kept = nw_hz_patch();
+            printf("60 Hz table: %d values not retail's\n", kept);
+            ok = kept == 0;
+        }
     }
     nw_image_free();
     SDL_free(elf);
@@ -444,7 +449,13 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
         return 1;
     }
-    if (!nw_game_init(mode, (unsigned)nw_hz_set(nw_run_hz))) {
+    int hz = nw_hz_set(nw_run_hz);
+    int kept = hz == 60 ? nw_hz_patch() : 0;
+    if (kept) {
+        fprintf(stderr, NW_APP_NAME ": 60 Hz: %d data values are not retail's and stay\n", kept);
+    }
+    nw_run_hz = hz;
+    if (!nw_game_init(mode, (unsigned)hz)) {
         fprintf(stderr, NW_APP_NAME ": no vblank clock: %s\n", SDL_GetError());
         return 1;
     }

@@ -294,7 +294,7 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_wide PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_wide PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME wide COMMAND nuworld_test_wide)
-  # The 50/60 Hz rate and the seams it picks.
+  # The 50/60 Hz rate, the seams it picks and the 60 Hz table's writes.
   add_executable(nuworld_test_hz tests/c/test_hz.c)
   target_include_directories(nuworld_test_hz PRIVATE ${nw_decomp_includes})
   target_compile_definitions(nuworld_test_hz PRIVATE NW_HOST)
