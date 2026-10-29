@@ -290,6 +290,10 @@ static struct {
     uint32_t viewcap;
     NwPtlList *ptllists;
     uint32_t ptllistcap;
+    float (*joints)[16];
+    uint32_t jointcap;
+    float *weights;
+    uint32_t weightcap;
 } nw_ir;
 
 static bool nw_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
@@ -495,16 +499,23 @@ const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
     if (!a || !b || t >= 1.0f || !nw_interp_pair(a, b) ||
         !nw_grow((void **)&nw_ir.cmds, &nw_ir.cmdcap, b->ncmds, sizeof(*nw_ir.cmds)) ||
         !nw_grow((void **)&nw_ir.views, &nw_ir.viewcap, b->nviews, sizeof(*nw_ir.views)) ||
-        !nw_grow((void **)&nw_ir.ptllists, &nw_ir.ptllistcap, b->nptllists, sizeof(*nw_ir.ptllists))) {
+        !nw_grow((void **)&nw_ir.ptllists, &nw_ir.ptllistcap, b->nptllists, sizeof(*nw_ir.ptllists)) ||
+        !nw_grow((void **)&nw_ir.joints, &nw_ir.jointcap, b->njoints, sizeof(*nw_ir.joints)) ||
+        !nw_grow((void **)&nw_ir.weights, &nw_ir.weightcap, b->nweights, sizeof(*nw_ir.weights))) {
         return b;
     }
     nw_ir.out = *b;
     nw_ir.out.cmds = nw_ir.cmds;
     nw_ir.out.views = nw_ir.views;
     nw_ir.out.ptllists = nw_ir.ptllists;
+    nw_ir.out.joints = nw_ir.joints;
+    nw_ir.out.weights = nw_ir.weights;
     memcpy(nw_ir.cmds, b->cmds, b->ncmds * sizeof(*b->cmds));
     memcpy(nw_ir.views, b->views, b->nviews * sizeof(*b->views));
     memcpy(nw_ir.ptllists, b->ptllists, b->nptllists * sizeof(*b->ptllists));
+    memcpy(nw_ir.joints, b->joints, b->njoints * sizeof(*b->joints));
+    memcpy(nw_ir.weights, b->weights, b->nweights * sizeof(*b->weights));
+    uint32_t palette = NW_NONE; /* the SKIN draws of a layer share their palette */
     for (uint32_t i = 0; i < b->ncmds; i++) {
         if (nw_ir.pair[i] == NW_NONE) {
             continue;
@@ -516,6 +527,20 @@ const NwPacket *nw_interp_blend(const NwPacket *a, const NwPacket *b, float t)
             float ta = a->ptllists[ca->ptllist].head[3], tb = b->ptllists[c->ptllist].head[3];
             if (tb >= ta) {
                 nw_ir.ptllists[c->ptllist].head[3] = ta + (tb - ta) * t;
+            }
+        }
+        if (c->op == NW_CMD_SKIN && c->count == ca->count && c->first != palette &&
+            (uint64_t)c->first + c->count <= b->njoints && (uint64_t)ca->first + ca->count <= a->njoints) {
+            for (uint32_t j = 0; j < c->count; j++) {
+                nw_interp_mtx(nw_ir.joints[c->first + j], a->joints[ca->first + j], b->joints[c->first + j], t);
+            }
+            palette = c->first;
+        }
+        if (c->op == NW_CMD_SKIN && c->nweights && c->nweights == ca->nweights &&
+            (uint64_t)c->weights + c->nweights <= b->nweights && (uint64_t)ca->weights + ca->nweights <= a->nweights) {
+            for (uint32_t w = 0; w < c->nweights; w++) {
+                float wa = a->weights[ca->weights + w], wb = b->weights[c->weights + w];
+                nw_ir.weights[c->weights + w] = wa + (wb - wa) * t;
             }
         }
     }

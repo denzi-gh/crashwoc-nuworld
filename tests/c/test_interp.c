@@ -179,11 +179,52 @@ static void test_snaps(void)
     SDL_free(b.cmds);
 }
 
+/* A skin's palette and blend-shape weights, per joint. */
+static void test_skin(void)
+{
+    NwPacket p[2] = { 0 };
+    static int hobj;
+    for (int k = 0; k < 2; k++) {
+        NwInterpScope s = nw_interp_begin(&hobj, &hobj);
+        NwCmd *clear = nw_packet_cmd(&p[k]);
+        clear->op = NW_CMD_CLEAR;
+        clear->clear.mask = 1;
+        NwCmd *c = nw_packet_cmd(&p[k]);
+        c->op = NW_CMD_SKIN;
+        c->key = nw_interp_cmd(NW_CMD_SKIN);
+        yaw(c->local, 0.0f, 1.0f, 0, 0, 0);
+        float(*j)[16] = nw_packet_joints(&p[k], 2, &c->first);
+        c->count = 2;
+        yaw(j[0], k ? 1.0f : 0.0f, 1.0f, 0, 0, 0);
+        yaw(j[1], 0.0f, 1.0f, 0, k ? 2.0f : 0.0f, 0);
+        float *w = nw_packet_weights(&p[k], 1, &c->weights);
+        c->nweights = 1;
+        w[0] = k ? 1.0f : 0.0f;
+        nw_interp_end(s);
+        nw_interp_publish(&p[k]);
+        p[k].seq = 10 + (uint64_t)k;
+        p[k].edge = 30 + (uint64_t)k;
+    }
+    const NwPacket *out = nw_interp_blend(&p[0], &p[1], 0.5f);
+    float want[16];
+    yaw(want, 0.5f, 1.0f, 0, 0, 0);
+    CHECK(near(out->joints[out->cmds[1].first], want, 16, 1e-5f));
+    yaw(want, 0.0f, 1.0f, 0, 1.0f, 0);
+    CHECK(near(out->joints[out->cmds[1].first + 1], want, 16, 1e-5f));
+    CHECK(out->weights[out->cmds[1].weights] == 0.5f && p[1].weights[0] == 1.0f);
+    for (int k = 0; k < 2; k++) {
+        SDL_free(p[k].cmds);
+        SDL_free(p[k].joints);
+        SDL_free(p[k].weights);
+    }
+}
+
 int main(void)
 {
     test_mtx();
     test_keys();
     test_snaps();
+    test_skin();
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
         return 1;
