@@ -152,15 +152,17 @@ static void test_gamepad(void)
 static void test_keyboard(void)
 {
     static bool keys[SDL_SCANCODE_COUNT];
+    NwControls c;
+    nw_controls_defaults(&c);
     NwPadInput in = idle;
     keys[SDL_SCANCODE_SPACE] = true;
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == NW_PAD_CROSS && in.lx == 0x80 && in.ly == 0x80);
 
     keys[SDL_SCANCODE_SPACE] = false;
     keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = true;
     in = idle;
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == NW_PAD_R2 && in.r2 == 0xFF && in.l2 == 0);
     CHECK(in.lx == 0xFF && in.ly == 0x00);
 
@@ -168,15 +170,42 @@ static void test_keyboard(void)
     keys[SDL_SCANCODE_W] = keys[SDL_SCANCODE_D] = keys[SDL_SCANCODE_3] = false;
     keys[SDL_SCANCODE_A] = keys[SDL_SCANCODE_RETURN] = true;
     in = (NwPadInput){ NW_PAD_SQUARE, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.buttons == (NW_PAD_SQUARE | NW_PAD_START));
     CHECK(in.lx == 0x00 && in.ly == 0x40);
 
     /* Opposite keys cancel out and leave the gamepad's axis. */
     keys[SDL_SCANCODE_D] = true;
     in = (NwPadInput){ 0, 0xC0, 0x40, 0x80, 0x80, 0, 0 };
-    nw_input_keyboard(keys, &in);
+    nw_input_keyboard(keys, &c, &in);
     CHECK(in.lx == 0xC0);
+
+    /* Remapped: Space is triangle and off cross, L the right stick's right, Escape alone is no longer start. */
+    SDL_zeroa(keys);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, 3, SDL_SCANCODE_SPACE);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, NW_CONTROL_STICKS + 7, SDL_SCANCODE_L);
+    nw_controls_bind(c.keys, NW_CONTROL_TARGETS, 11, SDL_SCANCODE_P);
+    CHECK(c.keys[0][0] == 0 && c.keys[3][0] == SDL_SCANCODE_SPACE && c.keys[3][1] == 0);
+    keys[SDL_SCANCODE_SPACE] = keys[SDL_SCANCODE_L] = keys[SDL_SCANCODE_ESCAPE] = keys[SDL_SCANCODE_W] = true;
+    in = idle;
+    nw_input_keyboard(keys, &c, &in);
+    CHECK(in.buttons == NW_PAD_TRIANGLE && in.rx == 0xFF && in.ry == 0x80 && in.ly == 0x00);
+    keys[SDL_SCANCODE_P] = true;
+    nw_input_keyboard(keys, &c, &in);
+    CHECK(in.buttons == (NW_PAD_TRIANGLE | NW_PAD_START));
+
+    /* A key listen hears keys only, not their repeats; a gamepad listen no keys but Escape. */
+    nw_input_listen(NW_INPUT_LISTEN_KEYS);
+    SDL_Event e = { .key = { .type = SDL_EVENT_KEY_DOWN, .scancode = SDL_SCANCODE_Q, .repeat = true } };
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    e.key.repeat = false;
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == SDL_SCANCODE_Q);
+    nw_input_listen(NW_INPUT_LISTEN_PAD);
+    nw_input_event(&e);
+    CHECK(nw_input_heard() == -1);
+    nw_input_listen(NW_INPUT_LISTEN_OFF);
 }
 
 /* --pad-script without --level: the steps loop from the first read; a recording plays once, then the pad idles. */

@@ -9,31 +9,6 @@ static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
     NW_PAD_L3,    NW_PAD_R3,     NW_PAD_SELECT, NW_PAD_START,    NW_PAD_UP,     NW_PAD_DOWN, NW_PAD_LEFT, NW_PAD_RIGHT,
 };
 
-/* WASD is the left stick. */
-static const struct {
-    SDL_Scancode key;
-    uint16_t bit;
-} nw_input_keys[] = {
-    { SDL_SCANCODE_UP, NW_PAD_UP },
-    { SDL_SCANCODE_DOWN, NW_PAD_DOWN },
-    { SDL_SCANCODE_LEFT, NW_PAD_LEFT },
-    { SDL_SCANCODE_RIGHT, NW_PAD_RIGHT },
-    { SDL_SCANCODE_SPACE, NW_PAD_CROSS },
-    { SDL_SCANCODE_E, NW_PAD_SQUARE },
-    { SDL_SCANCODE_J, NW_PAD_SQUARE },
-    { SDL_SCANCODE_C, NW_PAD_CIRCLE },
-    { SDL_SCANCODE_K, NW_PAD_CIRCLE },
-    { SDL_SCANCODE_F, NW_PAD_TRIANGLE },
-    { SDL_SCANCODE_I, NW_PAD_TRIANGLE },
-    { SDL_SCANCODE_Q, NW_PAD_L1 },
-    { SDL_SCANCODE_LSHIFT, NW_PAD_R1 },
-    { SDL_SCANCODE_1, NW_PAD_L2 },
-    { SDL_SCANCODE_3, NW_PAD_R2 },
-    { SDL_SCANCODE_RETURN, NW_PAD_START },
-    { SDL_SCANCODE_ESCAPE, NW_PAD_START },
-    { SDL_SCANCODE_TAB, NW_PAD_SELECT },
-};
-
 /* A trigger's travel that a listen hears. */
 #define NW_INPUT_TRIGGER_HEARD 16384
 
@@ -96,11 +71,17 @@ static void nw_input_key_axis(int dir, uint8_t *axis)
     }
 }
 
-void nw_input_keyboard(const bool *keys, NwPadInput *in)
+void nw_input_keyboard(const bool *keys, const NwControls *c, NwPadInput *in)
 {
-    for (size_t i = 0; i < SDL_arraysize(nw_input_keys); i++) {
-        if (keys[nw_input_keys[i].key]) {
-            in->buttons |= nw_input_keys[i].bit;
+    bool held[NW_CONTROL_TARGETS];
+    for (int i = 0; i < NW_CONTROL_TARGETS; i++) {
+        held[i] = false;
+        for (int j = 0; j < NW_CONTROL_BINDS; j++) {
+            uint16_t key = c->keys[i][j];
+            held[i] = held[i] || (key && key < SDL_SCANCODE_COUNT && keys[key]);
+        }
+        if (held[i] && i < NW_CONTROL_BUTTONS) {
+            in->buttons |= nw_input_bits[i];
         }
     }
     if (in->buttons & NW_PAD_L2) {
@@ -109,8 +90,11 @@ void nw_input_keyboard(const bool *keys, NwPadInput *in)
     if (in->buttons & NW_PAD_R2) {
         in->r2 = 0xFF;
     }
-    nw_input_key_axis(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A], &in->lx);
-    nw_input_key_axis(keys[SDL_SCANCODE_S] - keys[SDL_SCANCODE_W], &in->ly);
+    const bool *stick = held + NW_CONTROL_STICKS; /* up, down, left, right */
+    nw_input_key_axis(stick[3] - stick[2], &in->lx);
+    nw_input_key_axis(stick[1] - stick[0], &in->ly);
+    nw_input_key_axis(stick[7] - stick[6], &in->rx);
+    nw_input_key_axis(stick[5] - stick[4], &in->ry);
 }
 
 static void nw_input_open_next(void)
@@ -161,9 +145,14 @@ const char *nw_input_pad_label(uint16_t source)
 /* What a listen hears in event, -1 nothing. */
 static int nw_input_hear(const SDL_Event *event)
 {
-    SDL_JoystickID pad = nw_input_pad ? SDL_GetGamepadID(nw_input_pad) : 0;
+    bool keys = nw_input_listening == NW_INPUT_LISTEN_KEYS;
+    SDL_JoystickID pad = nw_input_pad && !keys ? SDL_GetGamepadID(nw_input_pad) : 0;
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.scancode == SDL_SCANCODE_ESCAPE) {
         return 0;
+    }
+    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && keys && event->key.scancode > SDL_SCANCODE_UNKNOWN &&
+        event->key.scancode < SDL_SCANCODE_COUNT) {
+        return event->key.scancode;
     }
     if (event->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && event->gbutton.which == pad) {
         return 1 + event->gbutton.button;
@@ -200,7 +189,7 @@ void nw_input_poll(bool keyboard)
         nw_input_gamepad(nw_input_pad, &nw_input_controls, &in);
     }
     if (keyboard && !nw_input_listening) {
-        nw_input_keyboard(SDL_GetKeyboardState(NULL), &in);
+        nw_input_keyboard(SDL_GetKeyboardState(NULL), &nw_input_controls, &in);
     }
     nw_pad_set(&in);
 }

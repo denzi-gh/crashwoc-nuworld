@@ -15,7 +15,8 @@ void nw_input_shutdown(void);
 
 typedef enum NwInputListen {
     NW_INPUT_LISTEN_OFF,
-    NW_INPUT_LISTEN_PAD, /* a gamepad button or trigger */
+    NW_INPUT_LISTEN_PAD,  /* a gamepad button or trigger */
+    NW_INPUT_LISTEN_KEYS, /* a key */
 } NwInputListen;
 
 /* The controls the poll maps through. */
@@ -31,7 +32,7 @@ const char *nw_input_pad_label(uint16_t source);
 
 /* One gamepad's state as the pad, through c. */
 void nw_input_gamepad(SDL_Gamepad *gamepad, const NwControls *c, NwPadInput *in);
-/* Adds the held keys (SDL_GetKeyboardState) to in; WASD replaces the left stick's axis it pushes. */
-void nw_input_keyboard(const bool *keys, NwPadInput *in);
+/* Adds the held keys (SDL_GetKeyboardState) to in, through c; a stick's keys replace the axis they push. */
+void nw_input_keyboard(const bool *keys, const NwControls *c, NwPadInput *in);
 
 #endif

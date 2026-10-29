@@ -1,6 +1,6 @@
 /* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, the [pad] bindings, what the reader does not take, a file that is not TOML, and keys a
-   save keeps.
+   and the HUD's forms, the [pad] and [keyboard] bindings, what the reader does not take, a file that is not TOML,
+   and keys a save keeps.
    Usage: test_settings <scratch dir>. */
 #include <stdio.h>
 #include <string.h>
@@ -231,6 +231,20 @@ int main(int argc, char *argv[])
     saved = file_text();
     CHECK(saved && SDL_strstr(saved, "[pad]\ncross = [\"east\"]\ncircle = [\"south\", \"righttrigger\"]\n") &&
           SDL_strstr(saved, "l2 = []\n") && SDL_strstr(saved, "# pad.<button>: "));
+    SDL_free(saved);
+
+    /* [keyboard]: keys by SDL's names, the sticks' directions too. */
+    CHECK(s.controls.keys[2][0] == SDL_SCANCODE_E && s.controls.keys[2][1] == SDL_SCANCODE_J);
+    CHECK(read_text("[keyboard]\nsquare = [\"Left Shift\", \"no such key\"]\nright_stick_up = \"I\"\nstart = []\n",
+                    &s));
+    CHECK(s.controls.keys[2][0] == SDL_SCANCODE_LSHIFT && s.controls.keys[2][1] == 0);
+    CHECK(s.controls.keys[NW_CONTROL_STICKS + 4][0] == SDL_SCANCODE_I && s.controls.keys[11][0] == 0);
+    CHECK(s.controls.keys[NW_CONTROL_STICKS][0] == SDL_SCANCODE_W);
+    CHECK(nw_settings_save(&s, root));
+    saved = file_text();
+    CHECK(saved && SDL_strstr(saved, "[keyboard]\nsquare = [\"Left Shift\"]\n") &&
+          SDL_strstr(saved, "cross = [\"Space\"]\ncircle = [\"C\", \"K\"]\n") &&
+          SDL_strstr(saved, "right_stick_up = [\"I\"]\n") && SDL_strstr(saved, "right_stick_down = []\n"));
     SDL_free(saved);
     NwSettings u;
     nw_settings_defaults(&u);

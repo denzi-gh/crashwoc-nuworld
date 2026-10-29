@@ -2,11 +2,15 @@
 
 #include <SDL3/SDL.h>
 
-const NwControlTarget nw_control_targets[NW_CONTROL_BUTTONS] = {
+const NwControlTarget nw_control_targets[NW_CONTROL_TARGETS] = {
     { "cross", "Cross" },   { "circle", "Circle" }, { "square", "Square" },   { "triangle", "Triangle" },
     { "l1", "L1" },         { "r1", "R1" },         { "l2", "L2" },           { "r2", "R2" },
     { "l3", "L3" },         { "r3", "R3" },         { "select", "Select" },   { "start", "Start" },
     { "up", "D-pad up" },   { "down", "D-pad down" }, { "left", "D-pad left" }, { "right", "D-pad right" },
+    { "left_stick_up", "Left stick up" },     { "left_stick_down", "Left stick down" },
+    { "left_stick_left", "Left stick left" }, { "left_stick_right", "Left stick right" },
+    { "right_stick_up", "Right stick up" },     { "right_stick_down", "Right stick down" },
+    { "right_stick_left", "Right stick left" }, { "right_stick_right", "Right stick right" },
 };
 
 /* By SDL_GamepadButton. */
@@ -62,11 +66,39 @@ static const uint16_t nw_controls_pad_defaults[NW_CONTROL_BUTTONS] = {
     1 + SDL_GAMEPAD_BUTTON_DPAD_RIGHT,
 };
 
+/* By target; WASD is the left stick, the right stick has none. */
+static const uint16_t nw_controls_key_defaults[NW_CONTROL_TARGETS][2] = {
+    { SDL_SCANCODE_SPACE },
+    { SDL_SCANCODE_C, SDL_SCANCODE_K },
+    { SDL_SCANCODE_E, SDL_SCANCODE_J },
+    { SDL_SCANCODE_F, SDL_SCANCODE_I },
+    { SDL_SCANCODE_Q },
+    { SDL_SCANCODE_LSHIFT },
+    { SDL_SCANCODE_1 },
+    { SDL_SCANCODE_3 },
+    { 0 },
+    { 0 },
+    { SDL_SCANCODE_TAB },
+    { SDL_SCANCODE_RETURN, SDL_SCANCODE_ESCAPE },
+    { SDL_SCANCODE_UP },
+    { SDL_SCANCODE_DOWN },
+    { SDL_SCANCODE_LEFT },
+    { SDL_SCANCODE_RIGHT },
+    { SDL_SCANCODE_W },
+    { SDL_SCANCODE_S },
+    { SDL_SCANCODE_A },
+    { SDL_SCANCODE_D },
+};
+
 void nw_controls_defaults(NwControls *c)
 {
     SDL_zerop(c);
     for (int i = 0; i < NW_CONTROL_BUTTONS; i++) {
         c->pad[i][0] = nw_controls_pad_defaults[i];
+    }
+    for (int i = 0; i < NW_CONTROL_TARGETS; i++) {
+        c->keys[i][0] = nw_controls_key_defaults[i][0];
+        c->keys[i][1] = nw_controls_key_defaults[i][1];
     }
 }
 
@@ -107,6 +139,17 @@ uint16_t nw_controls_pad_source(const char *name)
         }
     }
     return 0;
+}
+
+const char *nw_controls_key_name(uint16_t source)
+{
+    const char *name = source ? SDL_GetScancodeName((SDL_Scancode)source) : "";
+    return *name ? name : NULL;
+}
+
+uint16_t nw_controls_key_source(const char *name)
+{
+    return (uint16_t)SDL_GetScancodeFromName(name);
 }
 
 void nw_controls_bind(uint16_t (*binds)[NW_CONTROL_BINDS], int count, int target, uint16_t source)

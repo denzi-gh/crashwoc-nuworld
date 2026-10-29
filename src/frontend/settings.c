@@ -212,6 +212,10 @@ static const NwSettingKey nw_settings_keys[] = {
       .source = nw_controls_pad_source, .source_name = nw_controls_pad_name,
       .help = "the gamepad's buttons for it, by position: south (cross), east, west, north, leftshoulder, "
               "lefttrigger, leftstick, back, start, dpup, ...; [] none" },
+    { .table = "keyboard", .name = "<button>", .kind = NW_SETTING_BINDS, NW_FIELD(controls.keys),
+      .hi = NW_CONTROL_TARGETS, .source = nw_controls_key_source, .source_name = nw_controls_key_name,
+      .help = "the keys for it (\"Space\", \"Left Shift\", \"E\", ...), also for left_stick_up, left_stick_down, "
+              "left_stick_left, left_stick_right and right_stick_*; [] none" },
 };
 
 void nw_settings_defaults(NwSettings *s)
