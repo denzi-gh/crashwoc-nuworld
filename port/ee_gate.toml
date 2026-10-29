@@ -1,0 +1,9 @@
+# The #ifdef NW_HOST / #ifndef NW_HOST blocks each port patch concern adds, checked by tools/ee_gate.py. The PS2
+# build never sees host-only code, so the EE gate cannot vouch for it: change a count only together with the patch
+# that needs it, and say why in that change.
+schema = 1
+
+[host_blocks]
+"10-host-base" = 31
+"40-ee-faithful" = 1
+"50-host-memory" = 9

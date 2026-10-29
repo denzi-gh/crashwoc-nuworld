@@ -58,6 +58,11 @@ python tools/patches.py rebase <decomp sha>  # move the series and the submodule
 conflict, resolve it in `build/patch-work`, `git add` the files, `git rebase --continue`, then run
 `python tools/patches.py rebuild`.
 
+A patch must leave the PS2 build unchanged: host behaviour goes behind a `nu_port.h` seam or `#ifdef NW_HOST`.
+`python tools/ee_gate.py` proves it (Docker with the decomp image and its toolchain): it compiles the decomp with the
+EE compilers with and without the patches and compares the objects. Host-only blocks are invisible to it, so their
+count per concern is kept in `port/ee_gate.toml`; change it together with the patch that needs it.
+
 ## Game data
 
 Import your disc image once (`.iso`, or `.bin`/`.cue`; PAL v1.03 only):
