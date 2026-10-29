@@ -1,7 +1,8 @@
 /* game/font3d's Text3D under the port: glyph specials of a scene drawn by NuRndrGScnObj at the panel's place, the
-   colour codes switching the forced material table, the button prompts as letters or an icon. Usage: test_font3d
-   <scratch dir> | retail. Local only, with your own disc: `retail` loads STUFF\FONT.GSC with the boot ELF's data
-   image as LoadFont3D does and pins its glyphs; exits 77 without NUWORLD_TEST_DATA. */
+   colour codes switching the forced material table, the button prompts as letters or an icon, the power-up texts'
+   shoulder buttons as glyph codes. Usage: test_font3d <scratch dir> | retail. Local only, with your own disc:
+   `retail` loads STUFF\FONT.GSC with the boot ELF's data image as LoadFont3D does and pins its glyphs; exits 77
+   without NUWORLD_TEST_DATA. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,7 @@ extern struct nugscn_s *font3d_scene;
 extern struct numtl_s **nurndr_forced_mtl_table;
 extern float FONT3DSIZE, FONT3DYMUL, D_0062E358, PANEL3DMULX, PANEL3DMULY;
 extern float font3d_xleft, font3d_xright;
+extern struct powerdata_s PData[6];
 
 /* Declared by no header. */
 void NuRndrInitWorld(void);
@@ -49,6 +51,7 @@ void NuRndrEndScene(void);
 void NuCameraSet(struct nucamera_s *cam);
 void InitFont3D(struct nugscn_s *gscn);
 void Text3D(char *txt, float x, float y, float z, float scalex, float scaley, float scalez, int align, int colour);
+void NewLanguage(int lang);
 
 static int failures;
 static char scene_buffer[1 << 20];
@@ -187,6 +190,22 @@ static void test_synthetic(const char *scratch)
     NuRndrSwapStreamBuffers();
     nw_prompts_retail(&prompts);
     nw_font3d_prompts(&prompts);
+
+    /* NewLanguage: the shoulder buttons of the power-up texts are glyph codes in every language. */
+    for (int lang = 0; lang < 6; lang++) {
+        NewLanguage(lang);
+        const struct { int power; char code; } shoulders[3] = { { 0, 'u' }, { 3, 'q' }, { 4, 'v' } };
+        for (int k = 0; k < 3; k++) {
+            int codes = 0;
+            for (int line = 0; line < 7; line++) {
+                const char *s = PData[shoulders[k].power].text[line];
+                CHECK(!strstr(s, "L1") && !strstr(s, "L2") && !strstr(s, "R2"));
+                codes += strchr(s, shoulders[k].code) != NULL;
+            }
+            CHECK(codes == 1);
+        }
+    }
+    NewLanguage(0);
 
     nw_shim_file_init(NULL);
     nw_vfs_shutdown(&vfs);
