@@ -26,6 +26,7 @@
 #include "port/capture.h"
 #include "port/dump.h"
 #include "port/game.h"
+#include "port/hz.h"
 #include "port/level.h"
 #include "port/padscript.h"
 #include "port/options.h"
@@ -398,7 +399,6 @@ int nw_game_main(int argc, char **argv);
 static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
 static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
-#define NW_VBLANK_HZ 50                /* PAL */
 #define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; at the hardware speed BGLoadSfx alone takes 13 s */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
@@ -409,6 +409,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
+static int nw_run_hz;             /* --hz, else the window's setting; 0: PAL's */
 
 /* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
    file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
@@ -443,7 +444,7 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
         return 1;
     }
-    if (!nw_game_init(mode, NW_VBLANK_HZ)) {
+    if (!nw_game_init(mode, (unsigned)nw_hz_set(nw_run_hz))) {
         fprintf(stderr, NW_APP_NAME ": no vblank clock: %s\n", SDL_GetError());
         return 1;
     }
@@ -629,6 +630,19 @@ static void nw_boot_audio(void *user)
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
 }
 
+/* The game's speed, taken at the next start. */
+static void nw_boot_speed(void *user)
+{
+    static const char *const rates[] = { "60 Hz (NTSC)", "50 Hz (PAL, the original's)" };
+    NwSettings *s = user;
+    int i = s->hz == 50;
+
+    if (nw_debug_combo("Speed", &i, rates, 2)) {
+        s->hz = i ? 50 : 60;
+    }
+    nw_debug_text("running at %d Hz; a change takes effect at the next start", nw_run_hz);
+}
+
 /* The disc's levels; a click takes Crash there at once. */
 static void nw_boot_levels(void *user)
 {
@@ -663,6 +677,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     if (aspect >= 0.0f) {
         settings.aspect = aspect;
     }
+    if (!nw_run_hz) {
+        nw_run_hz = settings.hz;
+    }
     int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
         return code;
@@ -673,6 +690,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
+    nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
     NwSettings applied = settings;
@@ -1028,7 +1046,7 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
              strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
-             strcmp(argv[i], "--aspect") == 0) &&
+             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -1100,6 +1118,13 @@ int main(int argc, char *argv[])
             hardware_speed = strcmp(value, "on") == 0;
         } else if (strcmp(argv[i], "--aspect") == 0) {
             aspect_arg = argv[++i];
+        } else if (strcmp(argv[i], "--hz") == 0) {
+            const char *value = argv[++i];
+            if (strcmp(value, "50") != 0 && strcmp(value, "60") != 0) {
+                fprintf(stderr, NW_APP_NAME ": --hz takes 50 or 60\n");
+                return 2;
+            }
+            nw_run_hz = atoi(value);
         }
     }
     if (import) {
@@ -1139,7 +1164,8 @@ int main(int argc, char *argv[])
         /* The runs compared with PCSX2's keep its load times and the game window takes settings.toml's; the checks
            load at once, so they never depend on the player's settings. --hardware-speed decides for all of them. */
         int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
-        /* Likewise the picture: the checks and comparisons keep the PS2's 4:3 unless --aspect names another. */
+        /* Likewise the picture and the rate: the checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless
+           --aspect or --hz names another. */
         float aspect = -1.0f;
         if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
             fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");

@@ -10,6 +10,7 @@
 #include "port/capture.h"
 #include "port/dump.h"
 #include "port/game.h"
+#include "port/hz.h"
 #include "port/level.h"
 #include "port/ps2video.h"
 #include "port/trace.h"
@@ -314,13 +315,11 @@ void NuDisableVBlank(void)
     NuDisableVBlankS();
 }
 
-/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits): PAL lines, 15625 a second, in the game's
-   time (stepped: its own). The swap timing and the timer bars read it. */
-#define NW_T1_NS_PER_LINE 64000u
-
+/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits): the rate's lines (PAL 15625 a second, NTSC
+   15734), in the game's time (stepped: its own). The swap timing and the timer bars read it. */
 static unsigned int nw_t1_count(void)
 {
-    return (unsigned int)(nw_game_time_ns() / NW_T1_NS_PER_LINE) & 0xffffu;
+    return (unsigned int)(nw_game_time_ns() / nw_hz_line_ns()) & 0xffffu;
 }
 
 /* What NuPs2InitVideo and the swaps keep; the rest of retail's state programs the GS. */

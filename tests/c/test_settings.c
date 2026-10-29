@@ -58,6 +58,13 @@ static int read_speed(const char *text)
     return read_text(text, &s) ? s.hardware_speed : -1;
 }
 
+/* hz as root's settings.toml with text reads it; -1 when it does not load. */
+static int read_hz(const char *text)
+{
+    NwSettings s;
+    return read_text(text, &s) ? s.hz : -1;
+}
+
 /* master_volume * 1000 + voice_volume; -1 when it does not load. */
 static int read_volumes(const char *text)
 {
@@ -116,6 +123,18 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[audio]\nmaster_volume = 250\nvoice_volume = -3\n") == 100000);
     CHECK(read_volumes("[audio]\nmaster_volume = \"5\"\nvoice_volume = 0x10\n") == 100016);
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
+
+    nw_settings_defaults(&s);
+    CHECK(s.hz == 60);
+    s.hz = 50;
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.hz == 50);
+    CHECK(read_hz("[game]\nhz = 50\n") == 50);
+    CHECK(read_hz("[game]\nhz = 55\n") == 60); /* off the step: the default stays */
+    CHECK(read_hz("[game]\nhz = 240\n") == 60);
+    CHECK(read_hz("[game]\nhz = 0\n") == 50);
+    CHECK(read_hz("[game]\nhz = \"60\"\n") == 60);
 
     float a = -1.0f;
     char name[16];

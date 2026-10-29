@@ -10,7 +10,7 @@
 
 typedef enum NwSettingKind {
     NW_SETTING_BOOL,
-    NW_SETTING_INT,  /* clamped to lo..hi; 0 also by the name zero */
+    NW_SETTING_INT,  /* clamped to lo..hi, kept when off the step from lo; 0 also by the name zero */
     NW_SETTING_ENUM, /* an enum (int-sized) by its names */
     NW_SETTING_TEXT, /* a string, through parse and format */
 } NwSettingKind;
@@ -19,7 +19,7 @@ typedef struct NwSettingKey {
     const char *table, *name;
     NwSettingKind kind;
     size_t offset, size;
-    int lo, hi;
+    int lo, hi, step;
     const char *const *names; /* NW_SETTING_ENUM: hi of them */
     const char *zero;
     bool (*parse)(const char *text, void *field);
@@ -185,7 +185,7 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "fps", .kind = NW_SETTING_INT, NW_FIELD(fps), .lo = 0, .hi = NW_FPS_MAX,
       .zero = "refresh", .help = "refresh (the display's rate) or the most frames a second: 60, 120, 240, ..." },
     { .table = "video", .name = "interpolation", .kind = NW_SETTING_BOOL, NW_FIELD(interpolation),
-      .help = "true draws the frames between the game's 50 Hz ones blended, one game frame later; false as the PS2" },
+      .help = "true draws the frames between the game's own blended, one game frame later; false as the PS2" },
     { .table = "video", .name = "scale", .kind = NW_SETTING_INT, NW_FIELD(scale), .lo = 0, .hi = NW_BACKEND_SCALE_MAX,
       .zero = "auto", .help = "internal resolution: auto (the screen's or more) or 1-8 times the PS2's" },
     { .table = "video", .name = "msaa", .kind = NW_SETTING_INT, NW_FIELD(msaa), .lo = 0, .hi = 16,
@@ -199,6 +199,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .format = nw_settings_hud_format, .help = "how far out the HUD goes: edges, or an aspect it stays inside, centred" },
     { .table = "game", .name = "hardware_speed", .kind = NW_SETTING_BOOL, NW_FIELD(hardware_speed),
       .help = "true simulates original hardware speed: the PS2's disc and sound load times" },
+    { .table = "game", .name = "hz", .kind = NW_SETTING_INT, NW_FIELD(hz), .lo = 50, .hi = 60, .step = 10,
+      .help = "the game's speed: 60 (NTSC) or 50 (PAL, the original's); from the next start" },
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -208,6 +210,7 @@ static const NwSettingKey nw_settings_keys[] = {
 void nw_settings_defaults(NwSettings *s)
 {
     s->hardware_speed = false;
+    s->hz = 60;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;
@@ -273,7 +276,10 @@ static void nw_settings_take(const NwSettingKey *k, const NwDocValue *v, NwSetti
     if (k->kind == NW_SETTING_BOOL && v->type == NW_DOC_BOOL) {
         *(bool *)field = v->i != 0;
     } else if (k->kind == NW_SETTING_INT && v->type == NW_DOC_INT) {
-        *(int *)field = v->i < k->lo ? k->lo : v->i > k->hi ? k->hi : (int)v->i;
+        int i = v->i < k->lo ? k->lo : v->i > k->hi ? k->hi : (int)v->i;
+        if (!k->step || (i - k->lo) % k->step == 0) {
+            *(int *)field = i;
+        }
     } else if (k->kind == NW_SETTING_INT && k->zero && v->type == NW_DOC_STR && v->len == SDL_strlen(k->zero) &&
                SDL_memcmp(v->bytes, k->zero, v->len) == 0) {
         *(int *)field = 0;

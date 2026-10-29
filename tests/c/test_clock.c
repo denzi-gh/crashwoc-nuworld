@@ -110,6 +110,22 @@ static void test_realtime(void)
     CHECK(edge_total >= seen);
 }
 
+/* At 60 Hz an edge is a sixtieth of a second, and the game's time counts it so. */
+static void test_ntsc(void)
+{
+    NwClock c;
+    CHECK(nw_clock_start(&c, NW_CLOCK_STEPPED, 60, count_edges, NULL));
+    CHECK(c.timing.period == 16666666);
+    nw_clock_stop(&c);
+    CHECK(nw_game_init(NW_CLOCK_STEPPED, 60));
+    uint64_t edges = nw_game_edges();
+    sceGsSyncV(0);
+    sceGsSyncV(0);
+    sceGsSyncV(0);
+    CHECK(nw_game_edges() == edges + 3 && nw_game_us() == (edges + 3) * 16666666 / 1000);
+    nw_game_shutdown();
+}
+
 static char order[64];
 static size_t order_len;
 
@@ -261,6 +277,7 @@ int main(void)
     test_pacer();
     test_stepped();
     test_realtime();
+    test_ntsc();
 
     CHECK(nw_game_init(NW_CLOCK_STEPPED, 50));
     CHECK(nw_game_state() == NW_GAME_IDLE);
