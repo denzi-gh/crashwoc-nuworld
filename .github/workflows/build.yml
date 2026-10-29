@@ -45,6 +45,12 @@ jobs:
         with:
           name: typedb
           path: build/gen/typedb.json
+      - name: Ownership of the retail functions
+        run: python3 tools/ownership.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ownership
+          path: build/gen/ownership.*
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
         env:
