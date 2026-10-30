@@ -1,9 +1,5 @@
-/* The fx2 microcode's shadow volume programs on the CPU, as nu3d/nurndr's NuRndrShadowCylinderCap (ShadCyl,
-   MSCAL 0x300), NuRndrShadowEllipse (ShadElp, 0x302) and NuRndrShadowPols (ShadPol, 0x304) start them (port/units.toml
-   overrides): each builds a strip of quads in world space from points P about the shape to P + light, and fx2 tints
-   each quad 1 or 0xFF, +1 or -1 under COLCLAMP off, by whether the camera is behind it (n . (P - camera) at least
-   0.01), then ShadCyl and ShadElp a cap over the points P the other way (ShadPol's is 0); ClipTri draws them. Here
-   the triangles count into the stencil instead, a VERTS record each way in the fx stream. */
+/* The fx2 microcode's shadow volumes (ShadCyl, ShadElp, ShadPol at MSCAL 0x300, 0x302, 0x304) on the CPU, for
+   nurndr's port/units.toml overrides; quads fx2 tints +1 or -1 count into the stencil as VERTS records instead. */
 #include <math.h>
 #include <string.h>
 

@@ -1,6 +1,5 @@
-/* nu3d/nuhgobj's .ghg loader (port/units.toml override): retail's NuGHGRead with host copies of the records it fixes
-   in place. They live outside the caller's buffer with the object's meshes until NuHGobjDestroy; the object and the
-   texanim envs, which retail carves off the buffer, take their PS2 size there and live beside it (src/port/heap.h). */
+/* Overrides nu3d/nuhgobj's .ghg loader (port/units.toml): host copies of the records retail fixes in place live with
+   the object's meshes until NuHGobjDestroy; carved records keep their PS2 size in the buffer (src/port/heap.h). */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -139,8 +138,8 @@ static void nw_ghg_gpu(NwGhgLoad *ld, void *obj, bool ok, NwGpuOp upload, NwGpuO
     nw_gpu_queue(upload, obj);
 }
 
-/* The geom chain of a gobj: its next, its material's index and its rigid and skin DMA, decoded once. The DMA carries
-   no size: the image's end bounds it. */
+/* A gobj's geom chain (next, material index, rigid and skin DMA), decoded once; the DMA has no size, so the image's
+   end bounds it. */
 static struct nugeom_s *nw_ghg_geoms(NwGhgLoad *ld, int32_t off)
 {
     struct nugeom_s *first = NULL, **link = &first;
@@ -176,9 +175,8 @@ static struct nugeom_s *nw_ghg_geoms(NwGhgLoad *ld, int32_t off)
     return first;
 }
 
-/* NuGHGFixupGobj's work (its int base cannot hold a host address): the gobj chain along next_gobj. A file gobj is
-   nugobj_s up to origin, so blend, tricount and faceon_blend, which overlay the next geom record on the PS2, stay 0,
-   as do the writer's sysnext and syslast. */
+/* NuGHGFixupGobj's work along next_gobj (its int base cannot hold a host address); a file gobj is nugobj_s up to
+   origin, so blend, tricount and faceon_blend (the next geom record on the PS2) and sysnext/syslast stay 0. */
 static struct nugobj_s *nw_ghg_gobjs(NwGhgLoad *ld, int32_t off)
 {
     struct nugobj_s *first = NULL, **link = &first;
@@ -444,8 +442,7 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
     return hobj;
 }
 
-/* Retail's, then the object's meshes and records go once the frames that drew it are on the screen; the object
-   draws nothing after. */
+/* Retail's; the meshes and records are freed once the frames that drew the object are on screen. */
 void NuHGobjDestroy(struct NUHGOBJ_s *hobj)
 {
     if (!hobj) {

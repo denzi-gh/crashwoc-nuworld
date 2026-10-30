@@ -1,6 +1,5 @@
-/* nu3d/nulight's effect draws (port/units.toml overrides): retail's tables and passes, their GS packets as VERTS
-   records; where retail reads the Z buffer back byte by byte through palette render targets, a depth CLUT
-   (NwZClut) reads the GS Z under each pixel instead. */
+/* nu3d/nulight's effect draws as VERTS records (port/units.toml overrides); depth CLUTs (NwZClut) replace retail's
+   byte-by-byte Z read-back through palette targets. */
 #include <math.h>
 #include <string.h>
 
@@ -104,8 +103,7 @@ struct nulgtpolyhaze_s {
 };
 extern struct nulgtpolyhaze_s NuLgtPolyHazeData[32];
 
-/* The fog's depth CLUT of this frame: NuLgtHSurf[4]'s alpha, which the haze composite reads back unless the haze
-   polys drew their masks over it this frame. */
+/* This frame's fog depth CLUT (NuLgtHSurf[4]'s alpha), which the haze composite reads unless haze polys masked it. */
 static NwZClut nw_lgt_fog;
 static bool nw_lgt_polyhaze;
 
@@ -120,10 +118,8 @@ static void nw_lgt_stream(struct numtl_s *mtl)
     NuRndrStreamAddMtl(rndrstream_3d, mtl);
 }
 
-/* Each frame's GS memory for the light passes: the temporary surfaces and the views that alias them (NuLgtSurf[5],
-   [9], [12] and [15] are NuLgtHSurf[4]). Retail also copies the Z buffer into NuLgtHSurf[1], [8] and [7] there, and
-   splits its bytes through the fx microcode's sprite programs (NuRndrFxCode), for the passes that read Z back; the
-   depth CLUTs read the frame's Z instead. */
+/* The light passes' surfaces and aliases (NuLgtSurf[5], [9], [12], [15] are NuLgtHSurf[4]); retail's Z copies and byte
+   splits (NuRndrFxCode) here are left to the depth CLUTs. */
 void NuLightFxSetup(void)
 {
     static const int8_t clones[12][2] = { { 3, 1 }, { 6, 1 }, { 8, 1 },  { 13, 1 }, { 17, 1 }, { 7, 2 },
@@ -150,11 +146,9 @@ static void nw_lgt_corner(NwVuSpriteVertex *v, int x, int y, float s, float t, u
     memcpy(v->col, &colour, 4);
 }
 
-/* The haze passes' copy of the frame (NuLgtBackBuff) into the current target, in grey with alpha a, at z 0xFFFFFF:
-   a strip of quads per column of 64 pixels, rows of 16, each corner moved by Hazetab's phase (Hazeampx, Hazeampy
-   in 1/16 pixels, less half a pixel) over the frame's texel there; then retail's undistorted strips over the left
-   and right four pixels and the top and bottom three rows. A frame wider than retail's 640 pixels takes Hazetab's
-   20 columns mirrored, so that neighbouring strips still share their corners. */
+/* The haze copy of the frame (NuLgtBackBuff) in grey, alpha a, at z 0xFFFFFF: 64x16-pixel quads with corners moved by
+   Hazetab's phase (in 1/16 pixels, less half a pixel), plus retail's undistorted border strips. Past 640 pixels
+   Hazetab's 20 columns repeat mirrored so neighbouring strips share corners. */
 static void nw_lgt_haze_copy(u32 a)
 {
     const float p2h = (float)NuPower2(PS2_REZ_H), p2w = (float)NuPower2(PS2_REZ_W);
@@ -214,9 +208,8 @@ static void nw_lgt_haze_step(void)
     }
 }
 
-/* The heat haze (HazeColour's alpha, water_r's and volcano's): the warped copy into NuLgtHSurf[5], which is
-   NuLgtHSurf[4] as 24 bits and so keeps the fog's alpha there, then that blended over the frame in the haze colour
-   at half its alpha (ALPHA 0x44) where the frame is beyond z, fog-near; the alpha is the fog's depth CLUT's. */
+/* The heat haze (water_r, volcano): the warped copy into NuLgtHSurf[5] (NuLgtHSurf[4] as 24 bits, keeping the fog's
+   alpha), blended over the frame beyond z (fog-near) in HazeColour at half its alpha (ALPHA 0x44). */
 void NuLightHaze(int z, int paused)
 {
     if (!(HazeColour >> 24)) {
@@ -264,10 +257,8 @@ static float nw_lgt_arc_point(struct nuvec4_s *out, const struct nuvec4_s *p, co
     return scale;
 }
 
-/* The arc lasers (NuLgtArcLaser): each from start to end, cut where it nears the camera (w 0.5), in screen-space
-   ribbons sizew wide of segments sizel long, bowed by mid at wobspeed and jittered across by sizewob from NuLgtSeed
-   (but the last), in NuLgtArcMtl's UV box, as retail's DIRECT GIF strips of four vertices; a segment wholly off one
-   side of the guard band is dropped (its triangles left degenerate). Paused, the last frame's lasers again. */
+/* The arc lasers as retail's DIRECT GIF ribbons: cut where they near the camera (w 0.5), jittered from NuLgtSeed but
+   not at the end, a segment wholly off one side of the guard band left degenerate. Paused, last frame's again. */
 void NuLgtArcLaserDraw(int paused)
 {
     struct nuvec4_s pnts[11];
@@ -432,14 +423,10 @@ static void nw_lgt_spot_edge(int i, NwVuSpriteVertex *v)
     }
 }
 
-/* The spot lights (NuLightAddSpot): each a glow about its point, size * 1.2 deep, in front of the frame's Z there,
-   by a CLUT of the GS Z from its far side to its near side (squared, then eased back past 192, a cosine ramp of
-   its alpha; xspan dims the colour and adds itself to every entry's alpha). Retail reads the CLUT through the Z
-   buffer's bytes into NuLgtHSurf[4] in the spot's screen box, clears entries of 0x80 or more behind fogz (the
-   first over 0x40) and, fading, in front of where it eases back, and draws NuLgtSurf[9] of it as a fan of 64
-   triangles over the spot at its near Z; a depth CLUT does the reading here, the GS blend in the program. Mode 0
-   adds (Cd - Cs) * As to the frame, 2 adds Cs * As; 1 multiplies the frame by As and adds Cs, over the whole
-   screen with a ring out to its edges, a light in the dark. mode 1 replays the last frame's spots (paused). */
+/* The spot lights (NuLightAddSpot): a glow size * 1.2 deep in front of the frame's Z, from a depth CLUT (squared,
+   eased back past 192; xspan dims the colour and adds to alpha; entries of 0x80+ cleared behind fogz and, fading, in
+   front of the ease-back) drawn as retail's 64-triangle fan. Mode 0 adds (Cd - Cs) * As, 2 adds Cs * As, 1
+   multiplies the frame by As and adds Cs over the whole screen and replays the last frame's spots (paused). */
 void NuLightProcessSpot(int mode)
 {
     struct nuvec4_s pnts[8];
@@ -661,11 +648,9 @@ void NuLightProcessSpot(int mode)
     NuLightSpotCnt = 0;
 }
 
-/* The haze polys (the candles' flames, LDATA flags 0x10): the warped copy into NuLgtHSurf[4] with alpha 0, then
-   each poly from its point up by rot, size wide at its distance, in NuLightHazePolymtl under ALPHA 0x48 with colour
-   0 and alpha 0xA0, which leaves the copy and writes the texture's shape as its alpha where the poly is in front of
-   the frame's Z; that blended over the frame (ALPHA 0x44). Retail drops a poly with a corner behind w 0.2 or off
-   the GS area. */
+/* The haze polys (candle flames, LDATA flags 0x10): the warped copy into NuLgtHSurf[4] with alpha 0, each poly writing
+   its texture's shape as alpha where in front of the frame's Z (ALPHA 0x48), then that over the frame (ALPHA 0x44).
+   Retail drops a poly with a corner behind w 0.2 or off the GS area. */
 void NuLightPolyHaze(int paused)
 {
     struct nuvec4_s pnts[6];
@@ -745,11 +730,9 @@ void NuLightPolyHaze(int paused)
     txupload_on = 1;
 }
 
-/* The fog CLUT by GS Z from fog-near to fog-far, a cosine ramp to the fog colour; retail builds the index (Z >> shift)
-   & 0xFF in NuLgtHSurf[4] from the Z buffer's bytes, clamped to the far end below the 256 entries from Zfar's top
-   byte, and draws NuLgtFogMat[1]'s CLUT of it into NuLgtSurf[9], which the composite reads. Seashell's
-   NuLightFogClear masks its alpha to a band of Z. The composite and the blur, which moves the frame two pixels where
-   its alpha is the fog's, are retail's; FogMat[0] and [2] are the byte passes' CLUTs and not needed. */
+/* The fog as a depth CLUT from fog-near to fog-far, a cosine ramp to the fog colour, instead of retail's byte passes
+   (FogMat[0], [2]) and NuLgtFogMat[1]'s CLUT into NuLgtSurf[9]; Seashell's NuLightFogClear masks its alpha to a band
+   of Z. The composite and the two-pixel blur where the alpha is the fog's are retail's. */
 void NuLightFogDraw(int paused)
 {
     u32 clut[256];

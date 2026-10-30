@@ -1,9 +1,6 @@
-"""Shared model for gen_stubs.py and gen_funcmap.py: one record per retail
-function with its unit's treatment and who provides it on the host (decomp C,
-port or stub). Reads only committed decomp files, never game data.
+"""Shared model: each retail function with its unit's treatment and host provider (decomp C, port or stub).
 
-Unit kinds: wrapper (decomp source + <unit>.stubs.inc + <unit>.funcmap.inc),
-standalone (generated <unit>.stubs.c), none (shim).
+Unit kinds: wrapper (decomp source + <unit>.stubs.inc + <unit>.funcmap.inc), standalone (<unit>.stubs.c), none (shim).
 """
 from __future__ import annotations
 
@@ -647,8 +644,7 @@ def _choose_proto(f: Function, unit: Unit, tu_decls, decls_by_name, typedefs,
 
 
 def _check_calls(model: Model, units: list[Unit], files: dict[str, CFile]) -> None:
-    """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called.
-    Walks each wrapper's kept definitions and the file's helpers outside the registry they call."""
+    """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called."""
     stubs = {f.name: f for u in units if u.treatment in ("editor", "dead")
              for f in u.functions if f.provider == "stub"}
     used = set()

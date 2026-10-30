@@ -1,6 +1,5 @@
-/* nu3d/nugscn's loader (port/units.toml override): retail's, with the host records beside the caller's buffer
-   (src/port/heap.h): a record retail carves off the buffer still takes its PS2 size there, one it fixes in place
-   none. */
+/* Overrides nu3d/nugscn's loader (port/units.toml) with host records beside the caller's buffer (src/port/heap.h); the
+   buffer still advances by each carved record's PS2 size. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -54,7 +53,6 @@ static struct nugscn_s *gscene;
 static struct nugscnload_s gsc_load_context;
 static NwHeapSide *gscene_side; /* the scene being loaded */
 
-/* Carves size bytes off the scene load buffer. */
 static void *GScnBufferAlloc(size_t size, size_t align)
 {
     char *ptr = (char *)(((uintptr_t)*buffer_freeptr + align - 1) & ~(uintptr_t)(align - 1));
@@ -66,7 +64,7 @@ static void *GScnBufferAlloc(size_t size, size_t align)
     return 0;
 }
 
-/* Host records of ps2size bytes retail carves off the buffer: that size there, the host records beside. */
+/* Advances the buffer by ps2size and returns size bytes of host records beside it. */
 static void *nw_gscn_new(size_t ps2size, size_t size, size_t align)
 {
     return nw_heap_side_at(gscene_side, size, align, GScnBufferAlloc(ps2size, 4));
@@ -291,9 +289,8 @@ void ReadObjSet(int fh)
                     if (size & 0xF) {
                         NuErrorProlog(nugscn_srcfile, 0xB95)("invalid qwc");
                     }
-                    /* No in-place block->data = block->qw: a host pointer does not fit the 32-bit field. An OT
-                       geom keeps its batch, which XFormVuTriZ reads, and its triangles as a mesh in dmastream,
-                       which NuRndrGScnObj draws through the ordering table. */
+                    /* No in-place block->data = block->qw (a host pointer does not fit the 32-bit field); an OT geom
+                       keeps its batch for XFormVuTriZ and its triangles as a mesh in dmastream for NuRndrGScnObj. */
                     if (geom->mtl->attrib.ot == 1) {
                         geom->tristream = NuMemFileAddr(fh);
                     }

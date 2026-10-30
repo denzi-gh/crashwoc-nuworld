@@ -162,8 +162,8 @@ static void nw_level_cut(void)
     nw_level.steady = false;
 }
 
-/* As retail's level select and demo start enter a level. The title (PlayCutMovie) loads Level once it ends, past the
-   main loop's turn of TITLES into the title: there TITLES is the title already, and only there its own level loads. */
+/* As retail's level select and demo start; the title loads Level when it ends, past the main loop's turn of TITLES
+   into the title, so only there TITLES' own level can load. */
 static void nw_level_enter(int level)
 {
     if (cutmovie == 0) {
@@ -193,10 +193,8 @@ void nw_level_titles(void)
     nw_level_cut();
 }
 
-/* Steady: the load thread is done and the screen faded in, at this swap and the one before, which BGLoad's loading
-   screen never is (it fades out right after the load), and nothing else is changing the level. InitGameMode would
-   drop a new_level set before the level loop. A cutscene on arrival (a hub's, played in space before its level, or
-   the warp room's intro) is skipped as Start skips it. */
+/* Acts after two steady swaps (loads done, faded in, which BGLoad's loading screen never is, no other level change),
+   since InitGameMode drops a new_level set before the level loop; an arrival cutscene is skipped as Start skips it. */
 void nw_level_poll(void)
 {
     /* The title keeps the new_level that led to it until its level starts. */

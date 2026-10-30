@@ -1,5 +1,4 @@
-/* The .cut loader override (src/port/gcutscn.c) on a synthetic file; locally on every .cut of the imported disc.
-   Usage: test_nucut <scratch dir> | retail. */
+/* The .cut loader override (src/port/gcutscn.c) on a synthetic file; with `retail`, every .cut of the disc. */
 #include <float.h>
 #include <math.h>
 #include <stdint.h>
@@ -439,10 +438,8 @@ static int retail_main(int argc, char **argv)
     return 0;
 }
 
-/* Every .cut loads to the pinned counts, every keyed curve reads keys inside its file at every frame, no anim is
-   shared (retail would relocate it twice), and the joint anims cover their characters' joints. ICEBERG's joint anim
-   reads the exporter's FLT_MAX padding as a slope before its first key (frames 1-5): IEEE float overflows to inf,
-   the EE saturates. */
+/* Pinned counts for every .cut; no anim is shared, as retail would relocate it twice. ICEBERG's joint anim reads the
+   exporter's FLT_MAX padding as a slope before its first key (frames 1-5): IEEE float overflows, the EE saturates. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");

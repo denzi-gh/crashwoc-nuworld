@@ -4,9 +4,8 @@
      [slot.N.options]        the options a record carries (loading a game applies them)
      [slot.N.hub.<key>]      one per hub
      [slot.N.level.<key>]    one per level: flags, pad, time = [[name, itime] x3]
-   Levels and hubs are keyed by a registry, not by their position, so a level keeps its record whatever is added or
-   removed around it. Decoding what was encoded gives the same bytes; what the codec does not write (other keys,
-   tables, slots, levels the registry does not have) stays in the document. */
+   Levels and hubs are keyed by a registry, not by position, so a level keeps its record whatever is added around it.
+   Encoding round-trips byte for byte; what the codec does not write stays in the document. */
 #ifndef NUWORLD_SAVE_SAVECODEC_H
 #define NUWORLD_SAVE_SAVECODEC_H
 

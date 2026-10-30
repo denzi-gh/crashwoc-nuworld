@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Type DB: every struct/union, typedef and enum of decomp/include with its
-PS2 layout (mipsel, as the decomp compiles) and host layout (x86_64, NW_HOST).
+"""Type DB: every struct/union, typedef and enum of decomp/include with its PS2 (mipsel) and host (x86_64) layout.
 
-Writes typedb.json under --out. Records are keyed by tag (`struct nuvec_s`),
-unnamed ones by `<parent>$<n>` in declaration order. Offsets are bytes; a
-bitfield also has `bit` (from the record start), `bits` and `unit`. Lint:
-`long` (8 bytes on the EE, 4 in o32, so not modelled) and u128 fields.
+Records are keyed by tag (`struct nuvec_s`), unnamed ones by `<parent>$<n>`; offsets in bytes, a bitfield also has
+`bit` (from the record start), `bits` and `unit`. Lint: `long` (8 bytes on the EE, 4 in o32, not modelled) and u128.
 """
 from __future__ import annotations
 

@@ -1,7 +1,5 @@
-/* nu3d/nutexanm under the port: a script read through the kept nufpar layer steps a material's texture, and the frame
-   packet draws the new one. Usage: test_texanim <scratch dir> | retail. Local only, with your own disc: `retail`
-   reads ATS.DAT's title.ats and LEVELS\B\LOGOS\TITLE.GHG of NUWORLD_TEST_DATA as the title cut does and pins the
-   logo's flipbook; exits 77 without it. */
+/* nu3d/nutexanm: a script read through nufpar steps a material's texture and the frame packet draws the new one;
+   `retail` pins the title logo's flipbook. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -9,9 +9,8 @@
 /* The decomp's newlib srand (decomp src/sdk/newlib/libc/stdlib/rand.c, renamed by port/nw_newlib.h). */
 void nw_srand(unsigned int seed);
 
-/* newlib's reent block: rand/srand keep their seed in it (decomp src/sdk/newlib/libc/stdlib/rand.c), errno of
-   the decomp's libm is its first member. Retail impure_data holds an SDK code pointer (_cleanup_r), so the port
-   owns it (port/data.toml [owned]). */
+/* newlib's reent block (rand's seed, the decomp libm's errno as first member); retail's impure_data holds an SDK code
+   pointer (_cleanup_r), so the port owns it (port/data.toml [owned]). */
 static _Alignas(16) unsigned char nw_reent[1024];
 void *_impure_ptr[1] = { nw_reent };
 

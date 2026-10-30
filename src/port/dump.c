@@ -383,7 +383,6 @@ static void nw_dump_root(const NwImageObj *o, void *user)
                   t ? (size_t)o->count * t->host_size : o->size);
 }
 
-/* The PS2 offset of a host offset into block b. */
 static uint32_t nw_dump_ps2_off(NwDump *d, const NwDumpBlock *b, size_t host_off)
 {
     if (!b->type) {

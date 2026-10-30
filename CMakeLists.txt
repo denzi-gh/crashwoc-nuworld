@@ -74,8 +74,7 @@ function(nw_embed target name file)
     VERBATIM)
   target_sources(${target} PRIVATE ${out})
 endfunction()
-# Every PNG of a directory: build/gen/<name>.c defines <name>[] of { name without .png, data, size } and
-# <name>_count.
+# Every PNG of a directory: build/gen/<name>.c defines <name>[] ({ name, data, size }) and <name>_count.
 function(nw_embed_dir target name dir)
   file(GLOB files CONFIGURE_DEPENDS ${dir}/*.png)
   set(out ${CMAKE_CURRENT_BINARY_DIR}/gen/${name}.c)
@@ -221,8 +220,7 @@ if(NUWORLD_FUZZ)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang" OR MINGW)
     message(FATAL_ERROR "NUWORLD_FUZZ needs clang on Linux or macOS (libFuzzer does not support MinGW).")
   endif()
-  # The VFS readers, the VIF decoder and the save readers again, instrumented for libFuzzer, and the seed corpus from
-  # the synthetic test builders.
+  # The VFS, VIF and save readers instrumented for libFuzzer, seeded from the synthetic test builders.
   set(nw_fuzz_flags -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
   add_library(nuworld_vfs_fuzz STATIC ${NW_VFS_SOURCES} ${NW_SAVE_SOURCES} src/gfx/vif.c)
   target_include_directories(nuworld_vfs_fuzz PUBLIC src)

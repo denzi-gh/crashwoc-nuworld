@@ -1,10 +1,6 @@
-/* NuDat* (port/units.toml override) on the port's .DAT reader (src/vfs/dat.c): the directory comes from
-   nw_dat_parse and lookups from nw_dat_find, the archive's bytes through the kept nufile layer on ndh->fh,
-   so the device, the working directory and the buffering stay retail. Everything a caller can see is
-   retail's (decomp src/nucore/nufile.c), quirks included; the one difference is nw_dat_find's: the root's
-   back link is a miss, so a nonsense path like "ats\ats\x" no longer resolves. An entry an --overlay replaces
-   (vfs/vfs.h) is read from the overlay's file, its size in the directory the loose file's, unpacked, and without
-   the hardware speed's disc timing. */
+/* Overrides NuDat* (port/units.toml) on the port's .DAT reader (src/vfs/dat.c), reading through the kept nufile layer,
+   so callers see retail's behaviour, quirks included. Differences: the root's back link is a miss ("ats\ats\x" no
+   longer resolves), and an --overlay entry is read unpacked from its loose file, without the disc timing. */
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>

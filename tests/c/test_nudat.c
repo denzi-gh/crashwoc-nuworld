@@ -1,8 +1,5 @@
-/* The NuDat* override (src/port/nudat.c) and the sce file shim under the kept nufile layer, on a synthetic
-   archive with a real RNC2 entry. Usage: test_nudat <scratch dir>.
-   Local only, with your own disc: `test_nudat retail` loads every entry of ATS.DAT and CHARS.DAT from the
-   extracted disc dir NUWORLD_TEST_DATA through NuFileLoadBuffer (packed ones unpacked by the decomp's NuPPUnpack,
-   checked against the CRC in their RNC header); exits 77 without it. */
+/* The NuDat* override (src/port/nudat.c) and the sce file shim on a synthetic archive with a real RNC2 entry;
+   `retail` loads every entry of ATS.DAT and CHARS.DAT and checks packed ones against their RNC header's CRC. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

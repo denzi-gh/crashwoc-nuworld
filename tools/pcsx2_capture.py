@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """Capture frames of the title cut from a running PCSX2, for a side by side with crashwoc-nuworld --capture.
 
-Waits over PINE for the trace's start (tools/pcsx2_trace.py: the vblank on which
-the logos cut first holds for its audio), then saves a state at each requested
-vblank (PINE MsgSaveState, slots 4-10 in turn) and takes from it the screen
-(Screenshot.png, written to <out>/<vblank>.png) and the labels the port prints
-for its frames: the vblank the state holds, cutworldix, the time of that cut and
-the title logo's texanim frame. The label lines on stdout are the fixture
-tests/fixtures/pcsx2_title_frames.txt; the PNGs are game imagery and stay local.
-A state is saved after its request, so a label's vblank can be later than asked.
-
-  python tools/pcsx2_capture.py --out <data root>/captures/pcsx2 > frames.txt
-
-Needs Python 3.14 (the states' zstd entries). Refuses to start while PCSX2's
-state folder holds a state in one of the slots it uses.
+Saves a state per vblank from the trace's start and takes its screen and the port's frame labels. The label lines are
+tests/fixtures/pcsx2_title_frames.txt; the PNGs are game imagery and stay local. A state can land later than asked.
 """
 from __future__ import annotations
 

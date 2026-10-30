@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 """Port patches over the decomp: the patched tree every host tool reads.
 
-The decomp submodule stays retail. apply copies its files (LF line endings) to
-the patched tree, adds port/patches/files/ and applies the concerns of
-port/patches/series.toml in order. A concern is a directory of
-<decomp path>.patch files (unified diffs); every hunk must match exactly, it
-may move but is never fuzzed. Then the value rules of port/values/*.toml wrap
-single retail values in a macro (NW_HZ).
-
-Editing: setup makes build/patch-work, a git repository with the decomp as
-its first commit, then a commit "files" and one commit per concern. Edit the
-code there, then fixup <concern> folds the edits into that concern and
-rebuild writes port/patches back from the commits. rebase <sha> moves the
-series onto another decomp commit (three-way, conflicts stop it).
+The submodule stays retail. apply copies it (LF), adds port/patches/files/, applies each concern's unified diffs in
+series order (a hunk may move but is never fuzzed), then wraps the port/values rules' retail values in a macro.
 """
 from __future__ import annotations
 
@@ -440,11 +430,7 @@ def apply_values(rules: Values, path: str, data: bytes) -> bytes:
 
 FILES = "files"  # subject of the commit with the new files
 BASE = "decomp "  # subject prefix of a decomp commit
-SERIES_HEADER = ("# The port patches over the decomp, applied in this order by tools/patches.py (README, "
-                 "\"Changing the\n"
-                 "# game\"). A concern is a directory of <decomp path>.patch files; new files live in files/. Every\n"
-                 "# patch keeps the PS2 build unchanged: its seams expand to the decomp's own text without NW_HOST.\n"
-                 "# tools/patches.py rebuild writes this file.\n")
+SERIES_HEADER = "# The port patch concerns in the order they apply; written by tools/patches.py rebuild.\n"
 IDENTITY = {"GIT_AUTHOR_NAME": "patches", "GIT_AUTHOR_EMAIL": "patches@nuworld.invalid",
             "GIT_COMMITTER_NAME": "patches", "GIT_COMMITTER_EMAIL": "patches@nuworld.invalid",
             "GIT_AUTHOR_DATE": "946684800 +0000", "GIT_COMMITTER_DATE": "946684800 +0000"}

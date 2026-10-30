@@ -1,22 +1,8 @@
 #!/usr/bin/env python3
 """Order the remaining decomp work by stub hits.
 
-Reads the hit lists that `--boot-check` and `--boot` print (one line per
-stub or near-match probe: order, stub|near, unit, function, retail address,
-hits; other lines are skipped, a list that starts again at 1 is the next run)
-and prints
-
-  - every hit, in first-hit order over the runs as given, with what is left
-    to do for it: `decomp:stub` (no C in a compiled unit), `decomp:near`
-    (near-match C to finish), `port:override|hle|replace|shim` (NuWorld),
-    `dead`/`editor` (retail should not get there), `done` (matching C or the
-    port since that run);
-  - the remaining decomp worklist (`decomp:stub` and `decomp:near` of the
-    build), the hit ones first in that order, then the rest by unit and
-    address.
-
-  crashwoc-nuworld --boot-check > run1.txt
-  python tools/stub_hits.py run1.txt [run2.txt ...]
+Reads the hit lists `--boot-check` and `--boot` print (a list restarting at 1 is the next run); prints every hit with
+what is left for it, then the decomp worklist: the hit functions in first-hit order, the rest by unit and address.
 """
 from __future__ import annotations
 
@@ -62,8 +48,7 @@ def parse_runs(text: str) -> list[list[tuple[int, str, str, int, int]]]:
 
 
 def merge(runs) -> dict[int, Hit]:
-    """Hits by retail address; rank 1 is the first hit of the first run, then that run's next ones, then the
-    new ones of the next run, ..."""
+    """Hits by retail address, ranked by first hit over the runs in order."""
     hits: dict[int, Hit] = {}
     for run in runs:
         for _order, unit, name, address, count in run:

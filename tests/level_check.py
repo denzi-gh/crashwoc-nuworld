@@ -1,15 +1,11 @@
-"""Levels entered headless (local only; run_local.py passes the data root): each runs on the stepped clock with
-instant loads for VBLANKS vblanks after it runs (--level), and passes when it got there, the game thread parked
-and it hit no stub. Near-match hits are listed, not failed. A route ("intro,farm,hub") passes when every leg ran and
-a level that runs twice has as many scene GPU objects alive both times. The pad follows --pad-script (default auto:
-the level's retail recording, else the sweep script; none: an idle pad); --aspect runs them in a wider view, --hz at
-NTSC's 60 Hz (a retail recording still plays at 50). A
-floating-point trap (NUWORLD_FP_TRAPS=all unless the environment sets it, as an ASan build needs 0: a NaN or a divide
-by zero, which the EE never makes) fails the level. -j runs that many levels at once.
+"""Levels entered headless (local only): each must run, park the game thread and hit no stub or floating-point trap.
+
+Stepped clock, instant loads; near-match hits are listed, not failed. A route ("intro,farm,hub") needs every leg, and a
+repeated level the same scene GPU object count. --pad-script auto: the retail recording (still 50 Hz under --hz 60),
+else the sweep script; none: an idle pad. NUWORLD_FP_TRAPS defaults to all (an ASan build needs 0).
 
     run_local.py python tests/level_check.py <crashwoc-nuworld> {root} [--vblanks N] [--pad-script S] [-j N]
-        [--aspect A] [--hz 50|60]
-        <level> ...
+        [--aspect A] [--hz 50|60] <level> ...
 """
 import argparse
 from concurrent.futures import ThreadPoolExecutor

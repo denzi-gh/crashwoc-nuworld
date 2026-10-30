@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 """Lock the retail functions NuWorld depends on by their decomp text.
 
-copies: an override in port/units.toml drops the decomp's definition and
-compiles NuWorld's copy. values: a rule of port/values/*.toml finds its value
-by its count in the function, so a reordered body moves it unseen.
-port/copies.lock holds a hash of each such decomp definition (its tokens;
-comments and spacing ignored). --check fails when the decomp changes one, so it
-gets a look (then --update), and when a port patch or value rule edits an
-overridden one: that edit never compiles, drop it. A wrap needs no lock: its
-decomp C compiles, and <unit>.retail.h makes the compiler check the signature.
+Overrides replace the decomp's definition and value rules find values by count, so a decomp change needs a look.
+A wrap needs no lock: its decomp C compiles and <unit>.retail.h makes the compiler check its signature.
 """
 from __future__ import annotations
 
@@ -22,11 +16,8 @@ import nwunits  # noqa: E402
 import patches  # noqa: E402
 
 LOCK = nwunits.REPO / "port" / "copies.lock"
-HEADER = ("# The decomp functions NuWorld depends on by their text, with a hash of the decomp's definition: [copies]\n"
-          "# the port/units.toml overrides, [values] the functions with port/values rules. tools/copies.py --check\n"
-          "# fails when the decomp changes one: bring NuWorld's copy in line or prove the rules with\n"
-          "# tools/ntsc_diff.py check, then --update. A port patch must not edit an overridden one (that never\n"
-          "# compiles).\n")
+HEADER = ("# Hashes of the decomp functions NuWorld depends on by their text: [copies] overrides, [values] value\n"
+          "# rules. Written by tools/copies.py --update.\n")
 # table: (what its functions are, the look a decomp change needs)
 TABLES = {"copies": ("replaced by NuWorld", "bring NuWorld's definition in line"),
           "values": ("with value rules", "prove its rules with tools/ntsc_diff.py check")}
@@ -42,7 +33,7 @@ def bodies(tree: Path, source: str, cache: dict) -> dict[str, str]:
 
 
 def replaced(model: nwunits.Model) -> list[nwunits.Function]:
-    """The functions with decomp C whose NuWorld copy takes the calls (overrides)."""
+    """Overridden functions with decomp C whose NuWorld copy takes the calls."""
     return [f for u in model.units if u.kind == "wrapper" for f in u.functions
             if f.overridden and f.provider == "port" and f.definition is not None]
 

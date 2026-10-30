@@ -1,6 +1,4 @@
-"""libclang setup shared by the tools: the decomp as the PS2 compiles it
-(`ps2`: mipsel, no NW_HOST) or as the host does (`host`: x86_64, NW_HOST,
-stand-in libc headers, so no system headers are needed)."""
+"""libclang views of the decomp: `ps2` (mipsel, no NW_HOST) or `host` (x86_64, NW_HOST, stand-in libc headers)."""
 from __future__ import annotations
 
 import tempfile

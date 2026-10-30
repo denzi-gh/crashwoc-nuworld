@@ -1,7 +1,6 @@
-/* nu3d/nustream, which the port overrides whole (port/units.toml): the render streams. A stream keeps records of
-   its draws instead of DMA packets, in t_base and t_ptr (retail's path-3 texture chain, unused on the host); a flush
-   copies them to the frame packet in retail's stream order. base and ptr still point into retail's two output
-   buffers for the compiled decomp code that writes raw packets; a stream holding some is reported, not drawn. */
+/* nu3d/nustream overridden whole (port/units.toml): streams keep draw records in t_base and t_ptr (retail's unused
+   path-3 texture chain) for a flush to copy in retail's order; raw packets from compiled decomp code via base and ptr
+   are reported, not drawn. */
 #include <stdio.h>
 #include <string.h>
 
@@ -458,8 +457,7 @@ void NuRndrStreamFlush(void)
     NuRndrStreamResetStreams(1);
 }
 
-/* The packet's materials as their state blocks read now, as the frame's DMA reads them after the frame is built;
-   each once, through an open-addressed table by address. */
+/* Each material's state block read once, now, as the frame's DMA reads them after the frame is built. */
 static void nw_rndr_snap(NwPacket *p)
 {
     uint32_t cap = 64;

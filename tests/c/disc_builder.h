@@ -1,6 +1,4 @@
-/* A synthetic PS2 disc for the tests and the fuzz seeds (no game data): an ISO9660 image of LSN_END 2048-byte
-   sectors with DUMMY.DAT, EMPTY.BIN, SLES_503.86, SYSTEM.CNF and LEVELS/B/HUB/HUB.GSC, and its raw 2352-byte
-   Mode 1 / Mode 2 form. */
+/* A synthetic PS2 disc (no game data): an ISO9660 image and its raw 2352-byte Mode 1 / Mode 2 form. */
 #ifndef NUWORLD_TESTS_DISC_BUILDER_H
 #define NUWORLD_TESTS_DISC_BUILDER_H
 

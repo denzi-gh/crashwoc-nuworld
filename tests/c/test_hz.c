@@ -1,5 +1,4 @@
-/* src/port/hz.c: the rate taken, the H-line length, the attract demos, and the 60 Hz table written only where the
-   PAL value is: floats and ints of 1, 2 and 4 bytes, a value that is not PAL's and an address with no host. */
+/* src/port/hz.c: the rate, H-line length, attract demos, and the 60 Hz table written only where the PAL value is. */
 #include <stdio.h>
 #include <string.h>
 

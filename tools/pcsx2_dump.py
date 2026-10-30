@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 """Save PCSX2's EE RAM at chosen vblanks of the running game for tools/ps2_diff.py, poking it at others.
 
-Waits over PINE for the trace's start (tools/pcsx2_trace.py: the vblank on which the logos cut first holds), makes
-each --poke write (PINE MsgWrite32) once its vblank has come, and saves a state at each requested vblank (PINE
-MsgSaveState, slots 4-10 in turn by default), keeping its eeMemory.bin as <out>/<vblank>.ee, named by the vblank
-the state holds. With --after symbol=value those vblanks count from the first vblank it holds on; the pokes' still
-count from the title cut. Prints the pokes as they landed ("poke <vblank>:<symbol>=<value>", for the port's --poke)
-and the states' vblanks ("vblank N", for its --dump). A state is saved after its request, so its vblank can be
-later than asked.
-
-  python tools/pcsx2_dump.py --out <dir> --vblanks 100,200 [--poke 300:next_cut_movie=1] [--after GameMode=1]
-
-Needs Python 3.14 (the states' zstd entries). Refuses to start while PCSX2's state folder holds a state in one
-of the slots it uses.
+Vblanks count from the title cut's start (pokes always, states unless --after). Prints the pokes as they landed (for
+the port's --poke) and the vblanks the states hold (for its --dump); a state can land later than asked.
 """
 from __future__ import annotations
 

@@ -1,8 +1,5 @@
-/* game/font3d's Text3D under the port: glyph specials of a scene drawn by NuRndrGScnObj at the panel's place, the
-   colour codes switching the forced material table, the button prompts as letters or an icon, the power-up texts'
-   shoulder buttons as glyph codes. Usage: test_font3d <scratch dir> | retail. Local only, with your own disc:
-   `retail` loads STUFF\FONT.GSC with the boot ELF's data image as LoadFont3D does and pins its glyphs; exits 77
-   without NUWORLD_TEST_DATA. */
+/* game/font3d's Text3D: glyph specials, colour codes, button prompts and the power-up texts' shoulder buttons;
+   `retail` pins STUFF\FONT.GSC's glyphs. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

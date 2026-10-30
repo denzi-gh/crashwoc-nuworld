@@ -1,9 +1,5 @@
-/* The SPU2 as NUSOUND.IRX drives it through libsd: two cores of 24 voices. Register ids are libsd's: the core in
-   bit 0, the voice in bits 1-5, the register in bits 8+. Voices run in time as PCSX2's SPU2 runs them (Mixer.cpp,
-   ADSR.cpp): a sample every 768 IOP cycles moves each voice's address through its ADPCM blocks at its pitch,
-   follows their loop flags and steps its envelope; KON and KOFF take effect at the next sample. With an output set,
-   each sample is mixed: core 0's dry voices and reverb, through its master volume, into core 1's, through its own.
-   The reverb runs in sound RAM as PCSX2's does (Reverb.cpp); its registers come from libsd's presets. */
+/* The SPU2 as NUSOUND.IRX drives it through libsd, timed and mixed as PCSX2's (Mixer.cpp, ADSR.cpp, Reverb.cpp).
+   Register ids are libsd's: the core in bit 0, the voice in bits 1-5, the register in bits 8+. */
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
@@ -36,8 +32,8 @@
 #define NW_SD_S_VMIXR 0x1a00
 #define NW_SD_S_VMIXER 0x1b00
 
-/* sceSdSetAddr / sceSdGetAddr: the core's reverb work area, then voice addresses (bit 6), in bytes. EEA keeps its
-   128 KB: the area ends at the last byte of it. */
+/* sceSdSetAddr / sceSdGetAddr, in bytes: the core's reverb work area (it ends at the last byte of EEA's 128 KB),
+   then voice addresses (bit 6). */
 #define NW_SD_A_ESA 0x1c00
 #define NW_SD_A_EEA 0x1d00
 #define NW_SD_VA_SSA 0x2040

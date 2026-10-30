@@ -1,6 +1,5 @@
-# 50/60 Hz: the retail values that are NTSC's at 60 Hz, wrapped as NW_HZ(pal, ntsc) by tools/patches.py after
-# the patches (nu_port.h: PAL's on the PS2 and at 50 Hz). A site is the nth of the `of` matches of pal's tokens
-# in function fn, so a decomp change there stops the build. tools/ntsc_diff.py check proves the values.
+# 50/60 Hz values, wrapped as NW_HZ(pal, ntsc) after the patches; a site is the nth of `of` matches of pal in fn.
+# tools/ntsc_diff.py check proves the NTSC values.
 schema = 1
 macro = "NW_HZ"
 

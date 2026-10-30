@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""ctest decomp-closure: every retail name the linked decomp objects leave undefined comes from the port
-(the SDK shims, the data image, port definitions) or is a libc function the host provides on purpose.
+"""ctest decomp-closure: every retail name the decomp objects leave undefined must come from the port or HOST_LIBC.
 
-The link proves that everything resolves; this proves nothing resolved to a host library by accident
-(kernel32's CreateThread, the C runtime's rand or sin when a rename is missing).
+The link proves it resolves; this catches a missing rename binding a host library (kernel32's CreateThread, CRT rand).
 """
 from __future__ import annotations
 
@@ -17,8 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nwunits  # noqa: E402
 
-# libc functions the decomp and the port call and the host provides. strtod and strtol: glibc's optimized
-# stdlib.h inlines atof and atoi into them.
+# strtod and strtol: glibc's stdlib.h inlines atof and atoi into them.
 HOST_LIBC = frozenset("""
     abort abs atof atoi calloc exit fflush fprintf fputs free fwrite getenv malloc memcmp memcpy memmove memset
     printf putchar puts qsort realloc snprintf sprintf strcasecmp strcat strchr strcmp strcpy strlen strncasecmp

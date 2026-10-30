@@ -1,7 +1,4 @@
-/* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, the [pad] and [keyboard] bindings, the prompts' style, what the reader does not take, a
-   file that is not TOML, and keys a save keeps.
-   Usage: test_settings <scratch dir>. */
+/* settings.toml: defaults, round trips, clamps, bindings, rejected values, a file that is not TOML, kept keys. */
 #include <stdio.h>
 #include <string.h>
 
@@ -36,7 +33,6 @@ static bool read_text(const char *text, NwSettings *s)
     return write_text(text) && nw_settings_load(s, root);
 }
 
-/* Whether root holds name. */
 static bool exists(const char *name)
 {
     char path[1200];

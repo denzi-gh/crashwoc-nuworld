@@ -1,6 +1,5 @@
-/* SIF: the IOP reboot, module loads and the NUSOUND RPC. There is no IOP: the reboot NuFileInitEx waits for
-   is done at once (both loops spin until a non-zero return), and the RPC runs src/audio/nusound.c on the
-   calling thread. */
+/* SIF without an IOP: the reboot NuFileInitEx waits for is done at once (both loops spin until a non-zero return), and
+   the NUSOUND RPC runs src/audio/nusound.c on the calling thread. */
 #include "audio/nusound.h"
 #include "port/game.h"
 #include "shim/shim.h"

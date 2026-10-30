@@ -1,6 +1,4 @@
-"""Runner of the local-only ctests (game data never reaches CI): exits 77, which ctest reports as skipped, unless
-NUWORLD_TEST_DATA names an imported disc folder (<data root>/disc). Otherwise runs the command with {root}
-replaced by that data root and exits with its code.
+"""Runner of the local-only ctests: skipped (77) unless NUWORLD_TEST_DATA names <data root>/disc, which fills {root}.
 
     run_local.py <program> [args with {root}]
 """

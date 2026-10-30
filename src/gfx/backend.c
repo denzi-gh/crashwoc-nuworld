@@ -16,9 +16,8 @@
 
 #define NW_BE_SURFS 16
 
-/* GS memory the packets draw into and read back: the back and front buffers and the render targets, by GS address.
-   Each is a texture of the power-of-two size the GS addresses it at, n pixels across a GS pixel, drawn with GS row y
-   at rows from n * (th - 1 - y). */
+/* A GS surface (back or front buffer, render target) as a power-of-two texture at scale n, GS row y at rows from
+   n * (th - 1 - y). */
 typedef struct NwBeSurf {
     int32_t addr; /* NW_SURF_BACK, NW_SURF_FRONT, a GS address, 0 for the targets the port does not draw */
     int tw, th;   /* GS pixels */
@@ -129,14 +128,12 @@ static void nw_be_surf_free(NwBeSurf *s)
     memset(s, 0, sizeof(*s));
 }
 
-/* The framebuffer s's draws go to. */
 static GLuint nw_be_fbo(const NwBeSurf *s)
 {
     return s->ms ? s->ms_fbo : s->fbo;
 }
 
-/* s's multisampled draws into its texture and Z, the same size, so the blit resolves them; then the target's
-   framebuffer again. */
+/* Same-size blit, as a resolving blit needs; rebinds the target's framebuffer after. */
 static void nw_be_resolve(NwBeSurf *s)
 {
     if (!s->dirty) {
@@ -151,8 +148,7 @@ static void nw_be_resolve(NwBeSurf *s)
     glBindFramebuffer(GL_FRAMEBUFFER, nw_be.target ? nw_be_fbo(nw_be.target) : 0);
 }
 
-/* s's multisampled buffers at its size and the frame's samples, black, under its own Z or shared's (the back
-   buffer's); leaves them bound. */
+/* s's multisampled buffers, black, under its own Z or shared's (the back buffer's); leaves them bound. */
 static void nw_be_ms(NwBeSurf *s, const NwBeSurf *shared)
 {
     int w = s->tw * s->n, h = s->th * s->n;
@@ -211,7 +207,7 @@ void nw_backend_shutdown(void)
     memset(&nw_be, 0, sizeof(nw_be));
 }
 
-/* A face-on geom's sprites as quads of corners (two triangles each), their s and t from (0, 0) to (1, 1). */
+/* Each sprite as a quad of two triangles, s and t from (0, 0) to (1, 1), its size in tex.zw. */
 static void nw_be_sprites_upload(NwGpuSprites *s)
 {
     uint32_t n = s->sprites.count;
@@ -334,8 +330,8 @@ static void nw_be_job(const NwGpuJob *job)
     }
 }
 
-/* (Re)makes a surface tw x th at the frame's scale, black: colour and a 24-bit Z, as the GS has, the Z a texture a
-   depth CLUT reads (with a stencil); one that only changes scale keeps its picture. Leaves its framebuffer bound. */
+/* A black surface with a 24-bit Z like the GS's, as a texture a depth CLUT can read (plus stencil); a rescale keeps
+   the picture. Leaves its framebuffer bound. */
 static void nw_be_surf_make(NwBeSurf *s, int32_t addr, int tw, int th)
 {
     int n = nw_be.scale;
@@ -414,9 +410,8 @@ static void nw_be_bind(NwBeSurf *s, int width, int height)
     }
 }
 
-/* A render target takes the back buffer's Z when it is drawn under it and its size, else its own; under a
-   multisampled back buffer's it is multisampled too, the front buffer aside (the back buffer is copied into its
-   texture). */
+/* A target drawn under the back buffer's Z at its size shares it (and its MSAA, except the front buffer, which the
+   back buffer is copied into); otherwise it has its own. */
 static void nw_be_target(const NwCmd *c)
 {
     NwSurf surf = c->target.surf;
@@ -520,8 +515,7 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     return &vz;
 }
 
-/* The matrix from GS coordinates (12.4 pixels from XYOFFSET, Z 0 .. 2^23 - 1 with the nearer point larger) to GL
-   clip space for a width x height target, where the nearer point is the smaller. */
+/* GS coordinates (12.4 from XYOFFSET, Z 0 .. 2^23 - 1, larger nearer) to GL clip space (smaller nearer). */
 static void nw_be_gs(const NwView *v, int width, int height, float g[16])
 {
     memset(g, 0, 16 * sizeof(float));
@@ -544,7 +538,6 @@ static void nw_be_screen(const NwView *v, int width, int height, float out[16])
     memcpy(out, o.lv, sizeof(o.lv));
 }
 
-/* The material a command draws with: its snapshot, or GS defaults (untextured) without one. */
 static NwVuMaterial nw_be_material(const NwPacket *p, const NwCmd *c, bool uvrow)
 {
     NwVuMaterial m = nw_be_default;
@@ -573,8 +566,7 @@ static void nw_be_passes(NwVuProgram program, const NwVuObject *o, const NwVuMat
     }
 }
 
-/* The GS clears by drawing sprites over the scissor rectangle with ZTST ALWAYS and the alpha test keeping colour or
-   Z alone; the alpha written is the colour's, 0x80 = 1.0. */
+/* As the GS clears: sprites over the scissor with ZTST ALWAYS, the alpha test masking colour or Z; 0x80 alpha = 1.0. */
 static void nw_be_clear(const NwPacket *p, const NwCmd *c)
 {
     const int32_t *sc = p->views[c->view].scissor;
@@ -591,8 +583,7 @@ static void nw_be_clear(const NwPacket *p, const NwCmd *c)
     glDisable(GL_SCISSOR_TEST);
 }
 
-/* The packet's sprites into one vertex buffer, a quad of two triangles each, before they are drawn: GS coordinates
-   as positions under the unlit program, s and t x4096 as texcoords. */
+/* Uploads the packet's sprites as quads: GS coordinates for the unlit program, s and t x4096. */
 static void nw_be_rects(const NwPacket *p)
 {
     uint32_t n = 0;
@@ -661,7 +652,6 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
 }
 
-/* The packet's VERTS triangles into one vertex buffer before they are drawn. */
 static void nw_be_verts(const NwPacket *p)
 {
     if (!p->nverts) {
@@ -677,7 +667,6 @@ static void nw_be_verts(const NwPacket *p)
     nw_vu_sprite_attribs();
 }
 
-/* The packet's particles into one vertex buffer before they are drawn. */
 static void nw_be_ptls(const NwPacket *p)
 {
     if (!p->nptls) {
@@ -692,7 +681,6 @@ static void nw_be_ptls(const NwPacket *p)
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)p->nptls * (GLsizeiptr)sizeof(*p->ptls), p->ptls, GL_STREAM_DRAW);
 }
 
-/* A package whose program the port does not draw, once per package and kind of geom. */
 static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
 {
     static const NwVuProg *seen[2][16];
@@ -706,9 +694,8 @@ static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
     }
 }
 
-/* What vu1init leaves for a draw: the local times screen matrix, and the stream's block at VU 0x0C, the lights or for
-   the xuv and glass programs the UV matrix; and where the target's pixels are in GS coordinates, the GS pixel at
-   12.4 (x, y) from XYOFFSET being GL's (x, th - 1 - y) about its centre, each n x n pixels at scale n. */
+/* vu1init's state for a draw: local times screen, the VU 0x0C block (lights, or the UV matrix for xuv and glass), and
+   frag mapping GS 12.4 (x, y) from XYOFFSET to GL (x, th - 1 - y), pixel centres, n x n pixels each. */
 static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program, NwVuObject *o)
 {
     float screen[16];
@@ -727,8 +714,7 @@ static void nw_be_object(const NwPacket *p, const NwCmd *c, NwVuProgram program,
     }
 }
 
-/* A VERTS command's triangles: GS coordinates under the GS matrix and unlit, sprites as faceon draws them with GS
-   units, or points through the command's program. */
+/* A VERTS command's triangles, drawn by its NwVertsMode. */
 static void nw_be_tris(const NwPacket *p, const NwCmd *c)
 {
     NwVuObject o;
@@ -787,8 +773,8 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     glDisable(GL_STENCIL_TEST);
 }
 
-/* Retail's NuLgtHSurf[1], the back buffer's Z squeezed to width pixels as the volumes' viewport is, into the target's
-   own Z; and the stencil the volumes count in at 0x7F, as retail's sprites of 0x7F start its colour. */
+/* Retail's NuLgtHSurf[1]: the back buffer's Z squeezed to the volumes' width into the target's Z, and the stencil at
+   0x7F, as retail's 0x7F sprites start its colour. */
 static void nw_be_volumes(const NwCmd *c)
 {
     NwBeSurf *back = NULL, *s = nw_be.target;
@@ -808,8 +794,7 @@ static void nw_be_volumes(const NwCmd *c)
     glClear(GL_STENCIL_BUFFER_BIT);
 }
 
-/* A particle group, a quad of each particle: its corners in GS units before the divide, its texel coordinates in
-   1/16 of the material texture's level 0. */
+/* A quad per particle: corners in GS units before the divide, texel coordinates in 1/16 of the texture's level 0. */
 static void nw_be_particles(const NwPacket *p, const NwCmd *c)
 {
     _Static_assert(sizeof(NwPtlList) == 132 * 16, "NwPtlList is VU 0x3C-0xBF");
@@ -892,7 +877,6 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     }
 }
 
-/* The packet's blend-shape weights as R32F texels. */
 static void nw_be_weights(const NwPacket *p)
 {
     if (!p->nweights) {
@@ -931,8 +915,8 @@ static void nw_be_pool(const NwPacket *p)
     glActiveTexture(GL_TEXTURE0);
 }
 
-/* faceon's corners, sizes in GS units before the divide scaled by VU 0x16; facey's quads, along VF15, the camera's
-   right (cos yaw, 0, -sin yaw) dotted with the local matrix's rows and normalised (faceinit). */
+/* faceon: corner sizes in GS units before the divide, scaled by VU 0x16; facey: quads along VF15, the camera's right
+   (cos yaw, 0, -sin yaw) dotted with the local rows and normalised (faceinit). */
 static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
 {
     const NwGpuSprites *s = c->sprites;
@@ -962,8 +946,7 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
     nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL);
 }
 
-/* A packet runs once into GS memory, which keeps what it drew; it starts on the back buffer, and the front buffer
-   is the back buffer as it ends. */
+/* Runs once into GS memory, which keeps what it drew; the front buffer is the back buffer as it ends. */
 static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
     back->ms = nw_be.samples > 1;
@@ -1067,7 +1050,6 @@ int nw_backend_msaa(void)
     return nw_be.samples;
 }
 
-/* The options' MSAA as the GPU has it: a power of two, at most GL_MAX_SAMPLES; 0 below 2. */
 static int nw_be_samples(void)
 {
     int n = 1;
@@ -1077,8 +1059,7 @@ static int nw_be_samples(void)
     return n > 1 ? n : 0;
 }
 
-/* The scale for a frame tw x th GS pixels (powers of two) shown h pixels high: the options', or auto the least that
-   covers h with bh GS rows; at most what the GPU's textures hold. */
+/* Auto (scale 0) is the least that covers h window rows with bh GS rows. */
 static int nw_be_scale(int h, int bh, int tw, int th)
 {
     int n = nw_be.opts.scale ? nw_be.opts.scale : (h + bh - 1) / bh;
@@ -1089,8 +1070,7 @@ static int nw_be_scale(int h, int bh, int tw, int th)
     return n;
 }
 
-/* The back buffer's bw x bh into the window's w x h at (x, y): a mip level at least that size when it shrinks more
-   than twice (glGenerateMipmap averages), then a linear blit. */
+/* Shrinking more than 2x blits from a mip level at least the window's size, as glGenerateMipmap averages. */
 static void nw_be_present(NwBeSurf *back, int bw, int bh, int x, int y, int w, int h)
 {
     int n = back->n, level = 0;
@@ -1141,7 +1121,7 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
     nw_be.shown_w = bw;
     nw_be.shown_h = bh;
 
-    /* The PS2 shows a 640-wide frame at 4:3 whatever its height; a wider one (port/wide.h) keeps those pixels' shape.
+    /* The PS2 shows 640 pixels across at 4:3 whatever the height; a wider frame (port/wide.h) keeps that pixel shape.
        Within 1% of the window's aspect it fills the window. */
     float aspect = 4.0f / 3.0f * (float)bw / 640.0f;
     int w = width, h = height;

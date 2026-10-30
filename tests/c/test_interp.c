@@ -1,5 +1,4 @@
-/* Display-rate interpolation (src/gfx/interp.c): the matrix blend, the keys a frame's draws get, their pairing with
-   the frame before and the blend factor. Synthetic packets only. */
+/* Display-rate interpolation (src/gfx/interp.c): matrix blend, draw keys, pairing and blend factor. */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>

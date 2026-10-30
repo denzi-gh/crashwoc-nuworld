@@ -1,8 +1,5 @@
-/* The data image: fills the decomp's data roots (gen/dataimage.c, tools/gen_dataimage.py) from the user's
-   retail ELF at startup. Plain roots are the retail bytes in the mirror, copied roots a byte copy; converted
-   roots go through the generated converters with every pointer translated to its host object. Objects only
-   pointers reach are converted on demand; code addresses go through the funcmap, .vutext addresses become the
-   token of their microcode package; a pointer that resolves to nothing is fatal. */
+/* The data image: fills the decomp's data roots (gen/dataimage.c) from the user's retail ELF at startup, every
+   pointer translated to its host object; a pointer that resolves to nothing is fatal. */
 #ifndef NUWORLD_DATA_IMAGE_H
 #define NUWORLD_DATA_IMAGE_H
 
@@ -47,8 +44,8 @@ typedef struct NwImageObj {
     uint32_t count;
 } NwImageObj;
 
-/* fn for every sized object in address order (roots with storage, C definitions at retail addresses, objects only
-   pointers reach), with the game's current host bytes; objects with no type to convert them back are left out. */
+/* Calls fn for every sized object in address order with its current host bytes, except objects with no type to
+   convert them back. */
 void nw_image_each(void (*fn)(const NwImageObj *o, void *user), void *user);
 
 /* Whether a host pointer slot holds what the image kept as an integer: a small value or -1. */
@@ -69,9 +66,8 @@ typedef struct NwImageTrip {
     unsigned untyped;    /* C definitions with no type to convert them back, not compared */
 } NwImageTrip;
 
-/* Converts everything back to PS2 bytes and compares it with the ELF, which stays in the mirror until the game
-   runs: call it right after nw_image_load. Lists every difference on out; false with the message in err when
-   the way back itself fails. */
+/* Converts everything back and lists its differences from the ELF on out; call it right after nw_image_load, while
+   the ELF is still in the mirror. False with the message in err when the way back itself fails. */
 bool nw_image_roundtrip(NwImageTrip *trip, FILE *out, char *err, size_t err_size);
 void nw_image_trip_report(const NwImageTrip *trip, FILE *out);
 

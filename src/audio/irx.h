@@ -19,8 +19,7 @@ typedef struct NwIrxFilename {
     int ID; /* >= 0x1000 resident, else streamed */
 } NwIrxFilename;
 
-/* Where a sample's VAG lies. Only cdrom0: is served, whose sectors here are the DAT's own; so datfile, which the
-   IRX keeps for host0: only, is kept. */
+/* Where a sample's VAG lies; lsn counts the DAT's own sectors, so datfile (host0: only in the IRX) is used here. */
 typedef struct ADPCMFILE {
     int16_t ID;
     uint32_t size; /* 0: not found */

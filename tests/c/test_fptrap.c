@@ -1,5 +1,5 @@
-/* src/port/fptrap.c: with NUWORLD_FP_TRAPS set a NaN on the game thread stops the program with where it was made
-   (ctest fp-traps expects that line); without it the game thread goes on (ctest fp-traps-off). */
+/* src/port/fptrap.c: with NUWORLD_FP_TRAPS a NaN on the game thread stops the program and reports where (ctest
+   fp-traps); without it the thread goes on (ctest fp-traps-off). */
 #include <stdio.h>
 
 #include <SDL3/SDL.h>

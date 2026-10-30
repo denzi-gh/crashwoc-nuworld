@@ -131,7 +131,7 @@ void nw_interp_snap(void)
     nw_ik.snap = true;
 }
 
-/* Matrices. */
+/* An affine matrix as rotation, axis lengths and position. */
 typedef struct NwPose {
     float q[4]; /* x, y, z, w */
     float s[3]; /* the axes' lengths, the first negative for a mirror */
@@ -437,7 +437,6 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
     return true;
 }
 
-/* A 4x4 row-vector product in double. */
 static void nw_mul(double out[16], const double a[16], const double b[16])
 {
     for (int i = 0; i < 4; i++) {

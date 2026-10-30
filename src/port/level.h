@@ -14,10 +14,8 @@ int nw_level_current(void);
 int nw_level_pending(void);
 void nw_level_load(int level);
 
-/* --level: the run's level, by LData index or its file's name ("farm"), asked for at once; false when the disc lacks
-   it. A comma-separated route asks for each next level once the one before runs; "intro" first is NEW GAME on the
-   title's menu, whose movies lead to the hub. Once the last runs, the trace (port/trace.h) numbers vblanks from
-   there. */
+/* --level: LData indices or file names ("farm"), comma-separated as a route ("intro" first is NEW GAME), each asked for
+   once the one before runs; false when the disc lacks one. The trace numbers vblanks from the last. */
 bool nw_level_start(const char *names);
 /* The route's last level, -1 for none. */
 int nw_level_final(void);
@@ -35,7 +33,7 @@ int nw_level_arrivals(const NwLevelArrival **out);
 
 /* A route's NEW GAME or an asked level is on its way. */
 bool nw_level_routing(void);
-/* Ends the running title cut, still black, into TITLES' own level (gameplay/title.c). The game thread. */
+/* Game thread: ends the running title cut, still black, into TITLES' own level (gameplay/title.c). */
 void nw_level_titles(void);
 
 /* The game thread, at each swap. */

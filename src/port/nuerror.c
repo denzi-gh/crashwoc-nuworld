@@ -1,6 +1,5 @@
-/* nucore/nuerror's fatal path (port/units.toml): retail prints the message and spins forever; the port prints it
-   the same way and stops the game thread for good (nw_game_fatal). The file and line are nuerror.c statics, so
-   NuErrorProlog comes along; the warning and debug prologs keep retail's. */
+/* nucore/nuerror's fatal path (port/units.toml): prints as retail does, then stops the game thread (nw_game_fatal)
+   instead of spinning; NuErrorProlog comes along because the file and line are nuerror.c statics. */
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>

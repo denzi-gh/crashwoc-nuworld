@@ -1,6 +1,5 @@
-/* Game file system: maps the PS2 devices onto the data folder. cdrom0: reads go through a mount list (the
-   --overlay folders, the newest first, then the imported disc) with case-insensitive lookups; host0: is the
-   writable <root>host0/ folder. Errors via SDL_GetError(). */
+/* Maps the PS2 devices onto the data folder: cdrom0: looks up the --overlay folders (newest first), then the imported
+   disc, case-insensitively; host0: is the writable <root>host0/. Errors via SDL_GetError(). */
 #ifndef NUWORLD_VFS_VFS_H
 #define NUWORLD_VFS_VFS_H
 
@@ -57,11 +56,9 @@ bool nw_vfs_init(NwVfs *vfs, const char *root);
 bool nw_vfs_mount(NwVfs *vfs, NwVfsSlot slot, const char *dir);
 void nw_vfs_shutdown(NwVfs *vfs);
 
-/* --overlay: mounts dir in front of the overlays mounted before, so the newest wins. It only replaces: each file
-   stands for a disc file, or, in a folder named after an archive (ATS.DAT/LEVELS/...), for one of its entries
-   (not SFX.DAT's: the sound driver reads that archive whole); the boot ELF, SYSTEM.CNF, the IRX modules and
-   DUMMY.DAT are never replaced. A file an older overlay also has goes to conflict (the newest wins). Needs the disc
-   mounted. */
+/* --overlay: mounts dir in front of earlier overlays; the newest wins and shadowed files go to conflict. Each file
+   replaces a disc file or, in a folder named after an archive (ATS.DAT/LEVELS/...), one of its entries (not SFX.DAT's);
+   the boot ELF, SYSTEM.CNF, the IRX modules and DUMMY.DAT stay. Needs the disc mounted. */
 bool nw_vfs_overlay(NwVfs *vfs, const char *dir, void (*conflict)(void *user, const char *key), void *user);
 /* Calls fn with the overlays' files under prefix (an archive's key and '/'), the newest overlay's for a key, with
    the key's rest and the host path. */

@@ -1,6 +1,4 @@
-/* Saves without the game: the TOML document, the records in it (lossless, keyed, what it does not know kept), the
-   saves folder (.bak, .corrupt, delete, import) and PS2 card images (synthetic, mc_builder.h).
-   Usage: test_savefile <scratch dir>. */
+/* Saves without the game: the TOML document, the records in it, the saves folder and synthetic PS2 card images. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

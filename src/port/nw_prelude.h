@@ -1,7 +1,5 @@
-/* Included first by the wrapper of every engine and game unit (tools/tu_filter.py):
- * the host libc, so a unit that calls libc without including nu_libc.h still
- * sees the real prototypes, then the renames of SDK names the host has or
- * lacks under another meaning. */
+/* Included first by every engine and game unit's wrapper (tools/tu_filter.py): the host libc, so units that skip
+ * nu_libc.h still see real prototypes, then renames of SDK names the host has or lacks under another meaning. */
 #ifndef NUWORLD_PORT_NW_PRELUDE_H
 #define NUWORLD_PORT_NW_PRELUDE_H
 

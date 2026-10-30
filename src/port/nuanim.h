@@ -1,5 +1,4 @@
-/* The anim v1 records (nuanimdata_s and below) as host copies, for the .ani loader and the .gsc animation library
-   (src/port/nuanim.c). */
+/* Host copies of the anim v1 records (nuanimdata_s and below) for the .ani loader and the .gsc animation library. */
 #ifndef NUWORLD_PORT_NUANIM_H
 #define NUWORLD_PORT_NUANIM_H
 

@@ -1,6 +1,5 @@
-/* game/shadcom (port/units.toml override): retail's ShadDataLoad with the table and the entries, which hold a
-   material pointer, as host records beside the caller's buffer (src/port/heap.h; the native textures stay in the file,
-   where their TexList slots point), and ShadRndr's quad as a record with its palette as a CLUT. */
+/* Overrides game/shadcom (port/units.toml): the shadow table and entries (they hold a material pointer) are host
+   records beside the caller's buffer, native textures stay in the file, and ShadRndr's palette becomes a CLUT. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>

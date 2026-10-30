@@ -1,5 +1,4 @@
-"""The saves the C tests wrote (src/save/savecodec.h), read with Python's tomllib as a mod tool would: every *.toml of
-each folder parses and follows the save schema, and each folder has one.
+"""Check the saves the C tests wrote (src/save/savecodec.h) with tomllib, as a mod tool would read them.
 
     python tests/save_toml.py <dir>...
 """

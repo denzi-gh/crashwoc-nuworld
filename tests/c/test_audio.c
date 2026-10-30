@@ -1,9 +1,5 @@
-/* Audio tests: the VAG header and the PS-ADPCM decoder on hand-built blocks, expected values worked out by hand
-   from PCSX2's XA_decode_block, the SPU2 voices in time, their mix and reverb, and SFX.DAT access on a synthetic
-   archive. Usage: test_audio <scratch dir>.
-   Local only, with your own disc: `test_audio retail` finds every sample of SFX.DAT in the extracted disc dir
-   NUWORLD_TEST_DATA by its game name, decodes it and checks the pinned census, and libsd's reverb presets; exits
-   77 without it. */
+/* Audio: the VAG header and PS-ADPCM decoder, the SPU2 voices, mix and reverb, and SFX.DAT on a synthetic archive,
+   with expected values worked out by hand from PCSX2; `retail` pins SFX.DAT's census and libsd's reverb presets. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -587,9 +583,8 @@ static void test_spu_reverb(void)
     nw_spu2_init();
 }
 
-/* Loops as the decoder plays them: START latches the loop block, END|REPEAT goes back to it with the ADPCM history
-   going on, an LSAX written after the key-on's sample wins over START, END alone ends the voice. Filters 1-3, so the
-   history shows. */
+/* Loops: START latches the loop block, END|REPEAT goes back to it keeping the ADPCM history, an LSAX written after the
+   key-on's sample beats START, END alone ends the voice; filters 1-3 make the history show. */
 static void test_spu_loop(void)
 {
     const uint32_t loop = 0x4000, one_shot = 0x4100;

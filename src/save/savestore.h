@@ -1,7 +1,6 @@
-/* The saves folder (<data root>saves/): card slot N's save is BESLES-50386slotNN.toml (save/savecodec.h). A write
-   goes through .tmp, keeps the previous file as .bak and moves a file that does not load to .corrupt; a delete moves
-   the file to .bak. A slot with neither file imports a PS2 save once, from the folder: a raw BESLES-50386slotNN,
-   else the first *.ps2 card image (by name) that holds /BESLES-50386/BESLES-50386slotNN. */
+/* The saves folder: card slot N is BESLES-50386slotNN.toml, written via .tmp with the previous file kept as .bak (an
+   unloadable one goes to .corrupt, a deleted one to .bak). A slot with neither file imports a PS2 save once from the
+   folder: a raw BESLES-50386slotNN, else the first *.ps2 card image by name that holds it. */
 #ifndef NUWORLD_SAVE_SAVESTORE_H
 #define NUWORLD_SAVE_SAVESTORE_H
 

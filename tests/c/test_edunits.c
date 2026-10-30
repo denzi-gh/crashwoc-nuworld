@@ -1,7 +1,5 @@
-/* The runtime half of the editor units (port/units.toml `runtime`) on the imported disc: every level's file loads
-   into the tables the game reads, as InitWorld loads it over the level scene, and the update InitWorld then runs
-   leaves them finite; edptl's effects resolve each placed emitter, which then starts on the particle sets. Usage:
-   test_edunits edobj|edanim|edgra|edptl. Local only: exits 77 without NUWORLD_TEST_DATA. */
+/* The runtime half of the editor units (port/units.toml `runtime`): every level's file loads as InitWorld loads it
+   and InitWorld's update leaves it finite; edptl's placed emitters start on the particle sets. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>

@@ -1,8 +1,7 @@
-"""The title cut's frames against PCSX2's (local only; run_local.py passes the data root). Runs the port with
---capture at the vblanks of PCSX2's frames (tools/pcsx2_capture.py) and checks that each frame's labels are
-PCSX2's: the cut (world) and the logo's texanim frame exactly, the cut's time within 0.05 (the EE rounds every
-time step toward zero, so PCSX2's time drifts 0.02 below the port's; #91). With PCSX2's screens in <root>/captures/pcsx2, also pairs them with the port's
-(tools/title_frames.py) into <out>/pairs; the pixels are reported, never checked.
+"""The title cut's frame labels against PCSX2's (local only): world and texanim frame exact, time within 0.05.
+
+The EE rounds every time step toward zero, so PCSX2's time drifts 0.02 below the port's (#91). PCSX2 screens in
+<root>/captures/pcsx2 are paired with the port's into <out>/pairs; the pixels are reported, never checked.
 
     run_local.py python tests/title_capture.py <crashwoc-nuworld> {root} <fixture> <out>
 """

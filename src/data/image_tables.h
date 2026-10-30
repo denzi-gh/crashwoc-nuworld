@@ -1,6 +1,5 @@
-/* Tables of the data image (tools/gen_dataimage.py -> gen/dataimage.c and gen/<unit>.data.inc). No
-   includes and no typedef'd integers: every decomp wrapper ends with a .data.inc, after the unit's own
-   declarations. */
+/* Tables of the data image (tools/gen_dataimage.py -> gen/dataimage.c and gen/<unit>.data.inc). No includes and no
+   typedef'd integers: every decomp wrapper ends with a .data.inc, after the unit's own declarations. */
 #ifndef NUWORLD_DATA_IMAGE_TABLES_H
 #define NUWORLD_DATA_IMAGE_TABLES_H
 
@@ -48,9 +47,8 @@ typedef struct NwDataUnit {
     unsigned int count;
 } NwDataUnit;
 
-/* A VU1 microcode package in .vutext. The EE code only takes its address (mtl->rs.mpg = vu_load_tri_mpg) for
-   DMA tags to call, so on the host the package's name is this token, never its bytes; the renderer maps it to
-   its own behaviour. Data addresses of a package start resolve to the same token. */
+/* A VU1 microcode package in .vutext. The EE only takes its address (mtl->rs.mpg) for DMA tags to call, so on the
+   host it, and any data address of its start, is this token; the renderer maps it to its own behaviour. */
 typedef struct NwVuProg {
     const char *name;
     unsigned int addr, size; /* the retail package */

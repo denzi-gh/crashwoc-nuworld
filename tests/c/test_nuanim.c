@@ -1,5 +1,4 @@
-/* The .ani loader override (src/port/nuanim.c) on a synthetic file; locally on every .ani and .bsa of the imported
-   disc. Usage: test_nuanim <scratch dir> | retail. */
+/* The .ani loader override (src/port/nuanim.c) on a synthetic file; with `retail`, every .ani and .bsa. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -244,10 +243,8 @@ static int retail_main(int argc, char **argv)
     return 0;
 }
 
-/* Every .ani and .bsa loads to the pinned counts, every curve reads keys inside its file at every frame, every .ani
-   set has the nine curves the joint appliers read, and the bgload falls fit their buffer. Coco's slamland and
-   flckhair have two keys on one frame, whose dtime the exporter wrote as 1/0: finite on the EE FPU, so the 5 reads
-   of it give the key's value. */
+/* Pinned counts for every .ani and .bsa. infdt == 5: Coco's slamland and flckhair have two keys on one frame, whose
+   1/0 dtime is finite on the EE FPU and gives the key's value. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");

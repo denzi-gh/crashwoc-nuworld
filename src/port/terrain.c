@@ -1,6 +1,5 @@
-/* gamelib/terrain's .ter loader (port/units.toml override): retail's ReadTerrain, with each linked wall spline copied
-   beside the caller's buffer (src/port/heap.h), so that its link to the previous one holds a host pointer instead of
-   the file's 4-byte slot. */
+/* Overrides gamelib/terrain's .ter loader (port/units.toml): each linked wall spline is copied beside the caller's
+   buffer (src/port/heap.h) so its link to the previous one can be a host pointer, not the file's 4-byte slot. */
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>

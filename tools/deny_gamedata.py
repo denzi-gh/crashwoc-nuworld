@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Fail if any tracked file looks like data from the game disc.
-
-CrashWOC: NuWorld never ships game content; everything comes from the user's own disc
-at runtime. This check runs in CI on every push and pull request.
-"""
+"""Fail if any tracked file looks like data from the game disc (CI, every push and pull request)."""
 import os
 import subprocess
 import sys
 
-# Disc file types and disc images.
 DENY_EXTENSIONS = {
     ".iso", ".cue", ".chd", ".cso", ".mdf", ".img",
     ".gsc", ".ghg", ".cut", ".ani", ".anm", ".bsa", ".shd", ".vag",
@@ -19,8 +14,7 @@ DENY_EXTENSIONS = {
 }
 DENY_NAMES = {"sles_503.86", "slus_202.38", "sceu_000.01", "system.cnf"}
 
-# (offset, magic): ELF (game executable, IRX modules), RNC-packed files,
-# NU20 scenes, PS VAG audio, PS2 memory card images, raw CD sectors, ISO9660 volume descriptors.
+# (offset, magic): ELF, RNC, NU20 scene, VAG, memory card image, raw CD sector, ISO9660 volume descriptor.
 DENY_MAGIC = [
     (0, b"\x7fELF"),
     (0, b"RNC\x02"),

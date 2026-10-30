@@ -1,6 +1,5 @@
-/* Runtime of the generated converters (gen/nw_convert.h, tools/gen_converters.py): PS2 bytes in the
-   nw_ps2types.h layout <-> host structs. Data pointers go through the context, code pointers through the
-   funcmap. */
+/* Runtime of the generated converters (gen/nw_convert.h): PS2 bytes in the nw_ps2types.h layout <-> host structs,
+   data pointers through the context, code pointers through the funcmap. */
 #ifndef NUWORLD_DATA_CONVERT_H
 #define NUWORLD_DATA_CONVERT_H
 

@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Generate aborting stubs for decomp functions with no C on the host yet.
 
-Writes <unit>.stubs.inc (wrapper units) or <unit>.stubs.c (standalone units)
-under --out. Prototypes: the one visible in the unit's TU, else include/, else
-the most common one elsewhere with types erased; none at all gives
-`static void f(void)`.
+Prototype: the unit's TU, else include/, else the most common one with types erased, else `static void f(void)`.
 """
 from __future__ import annotations
 

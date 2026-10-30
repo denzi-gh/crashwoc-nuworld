@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
-"""Generate the wrapper TU of every compiled decomp unit.
+"""Generate the wrapper TU of every compiled decomp unit (prelude, edited source, <unit>.stubs/.funcmap/.data.inc).
 
-Writes <unit>.wrap.c under --out: the port prelude (engine and game units),
-the unit's source, then <unit>.stubs.inc, <unit>.funcmap.inc and
-<unit>.data.inc (tools/gen_dataimage.py). libclang
-locates the definitions: an overridden Foo is dropped and only a prototype of
-the port's Foo (or its stub) stays, so callers bind to the port; a `rename`
-entry renames the function's declarations, definition and calls in the
-source; a wrapped Foo keeps its definition as Foo__retail (declared in
-<unit>.retail.h) behind a prototype of the port's Foo, which takes every
-call; an exposed file static loses its `static`, so the port reaches it;
-a near-match definition starts with an NW_NEAR probe (port/stub.h),
-so the stub telemetry also orders that decomp work. #line keeps diagnostics
-and debug info on the decomp source.
+Overridden and wrapped functions leave a prototype of the port's one, so callers bind to the port (a wrapped body
+stays as Foo__retail); #line keeps diagnostics and debug info on the decomp source.
 """
 from __future__ import annotations
 
@@ -159,8 +149,7 @@ def retail_name(name: str) -> str:
 
 
 def retail_header(unit: nwunits.Unit, defs: dict) -> str | None:
-    """<unit>.retail.h: the decomp's prototype of each function the unit wraps, which NuWorld's definition must
-    keep, and of the definition it keeps as <name>__retail; None without wraps."""
+    """<unit>.retail.h: the decomp's prototypes of each wrapped function and its <name>__retail; None without wraps."""
     protos = [p for f in unit.functions if f.wrapped and f.name in defs
               for p in (prototype(defs[f.name], f.name, f.name in unit.expose),
                         prototype(defs[f.name], retail_name(f.name), f.name in unit.expose))]

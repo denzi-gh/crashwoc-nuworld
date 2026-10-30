@@ -1,5 +1,4 @@
-"""The fixture program of tests/fixtures/mini, as the build makes the real one: wrappers, stubs, function map,
-PS2 mirror structs, converters and the data image, compiled and linked with clang or $CC around a harness."""
+"""The fixture program of tests/fixtures/mini, generated as the build makes the real one and linked around a harness."""
 import copy
 import os
 import shutil
@@ -82,7 +81,6 @@ def generate(out: Path, db: dict | None = None, decomp: Path = DECOMP, units: Pa
 
 
 def build(cc: str, out: Path, harness: Path, exe: Path) -> subprocess.CompletedProcess:
-    """Compiles the generated program around harness into exe."""
     model = nwunits.load(DECOMP, UNITS, PORT_SRC)
     sources = [out / "funcmap.c", out / "nw_convert.c", out / "dataimage.c", out / "dataimage_types.c",
                REPO / "src" / "port" / "stub.c", REPO / "src" / "port" / "funcmap.c",

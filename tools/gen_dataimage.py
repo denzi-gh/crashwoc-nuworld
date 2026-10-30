@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the data image: host definitions for the decomp data that compiled code references but no
-compiled unit defines (the roots), and the tables src/data/image.c fills them from at startup.
+"""Generate the data image: host definitions of the roots, decomp data compiled code uses but no compiled unit defines.
 
-Writes dataimage.c, dataimage_types.c and <unit>.data.inc (every wrapper ends with it) under --out.
-Reads only committed files: the decomp sources and registries, port/units.toml, port/data.toml and
-typedb.json.
-
-Root kinds (src/data/image_tables.h):
-  mirror   plain data (no pointer slots, the same layout on both sides): an alias at its PS2 offset
-           into nw_ps2_mirror, the retail image from .vutext to the end of .bss
-  copy     plain data that a host declaration needs aligned better than its PS2 address allows
+Root kinds (src/data/image_tables.h; src/data/image.c fills them at startup):
+  mirror   plain data, same layout on both sides: an alias into nw_ps2_mirror (retail .vutext to the end of .bss)
+  copy     plain data a host declaration needs aligned better than its PS2 address allows
   convert  data with pointer, function pointer or nuintptr slots, converted element by element
   alias    inside a copied or converted root, or inside data a compiled unit defines in C
-  vu       a VU1 microcode package in .vutext: the code only takes its address, so the host name is a
-           token (NwVuProg) the renderer recognises, never the bytes; every package symbol_addrs.txt names
-           gets one
+  vu       a VU1 microcode package (code only takes its address): a token (NwVuProg) the renderer recognises
 """
 from __future__ import annotations
 
@@ -147,8 +139,7 @@ class Registry:
             m = re.match(r"\s*([A-Za-z_][\w.$]*)\s*=\s*0x([0-9A-Fa-f]+)\s*;(.*)$", line)
             if m and "type:func" not in m.group(3):
                 self.addrs[m.group(1)] = int(m.group(2), 16)
-        # VU1 microcode packages: (name, address, size), the names symbol_addrs.txt gives in .vutext, each up
-        # to the next one
+        # VU1 microcode packages (name, address, size): each .vutext name of symbol_addrs.txt, up to the next one
         named: dict[int, str] = {}
         for name, addr in sorted(self.addrs.items()):
             if self.vutext[0] <= addr < self.vutext[1]:
@@ -231,8 +222,7 @@ class Types:
         self.gen = gen
         self.converted = set(gen.named)
         self.derived: dict[str, tuple] = {}     # nw_rt_* -> (spelling, kind, data)
-        # Records a .c file defines (not in typedb): plain ones work like POD records, the PS2 layout
-        # from a parse of their file in the ps2 view (resolve_locals)
+        # Records a .c file defines (not in typedb); plain ones work like POD, PS2 layout from resolve_locals
         self.local: dict[str, dict] = {}
 
     def local_host(self, rid: str, canon) -> None:

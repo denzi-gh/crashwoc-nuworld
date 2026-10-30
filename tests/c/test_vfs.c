@@ -1,11 +1,5 @@
-/* VFS tests: SHA-256 vectors, synthetic disc images built at run time (.iso, raw Mode 2 / Mode 1 .bin, .cue),
-   disc verification and import against an injected manifest, data folder resolution, game path mapping and a
-   synthetic .DAT archive, the import folder listing and the wizard's background import job.
-   Usage: test_vfs <scratch dir>.
-   Local only, with your own disc:
-   NUWORLD_TEST_DISC=<image or cue> hashes every file of a real PAL v1.03 disc against the committed manifest;
-   NUWORLD_TEST_DATA=<extracted disc dir> checks ATS.DAT, CHARS.DAT and SFX.DAT, and NUWORLD_TEST_DAT_LIST=<file>
-   writes their listings (archive, index, path, offset, size, unpacked size, flags). */
+/* VFS: SHA-256, synthetic disc images, verification and import, data folders, game paths, overlays, .DAT archives and
+   the import wizard; NUWORLD_TEST_DISC and NUWORLD_TEST_DATA add checks against your own PAL v1.03 disc. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -159,8 +153,6 @@ static void manifest_build(TestManifest *t)
     manifest_add(t, "SLES_503.86", elf_data, ELF_SIZE, 0);
     manifest_add(t, "SYSTEM.CNF", pal_cnf, strlen(pal_cnf), 0);
 }
-
-/* ---- Tests ------------------------------------------------------------------------------------------------ */
 
 static void check_tree(NwDisc *disc)
 {
@@ -1014,8 +1006,6 @@ static void test_real_dats(const char *dir)
     }
     nw_vfs_shutdown(&vfs);
 }
-
-/* ---- Main ----------------------------------------------------------------------------------------------- */
 
 int main(int argc, char *argv[])
 {

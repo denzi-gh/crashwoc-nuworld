@@ -1,7 +1,5 @@
-/* NUWORLD_FP_TRAPS: the game's threads trap on an invalid operation (a NaN, which the EE FPU never makes) and a
-   divide by zero (FLT_MAX on the EE). 1 prints the first trap and exits; all prints each instruction that traps
-   once and goes on (it runs again with the traps masked, single-stepped, then unmasks them). llvm-symbolizer reads
-   the offsets. */
+/* NUWORLD_FP_TRAPS: trap invalid operations (a NaN, which the EE FPU never makes) and divides by zero (FLT_MAX on the
+   EE); 1 exits on the first, all reports each trapping instruction once (llvm-symbolizer offsets) and steps past it. */
 #ifndef _WIN32
 #define _GNU_SOURCE /* dladdr, REG_EFL */
 #endif

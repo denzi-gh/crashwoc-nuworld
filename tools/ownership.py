@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Who owns each retail function on the host: the map for the engine rewrite.
 
-retail   the decomp's C, compiled as it is
-patched  the decomp's C, changed by port patches or value rules (named: the
-         concern, or values/<file>)
+retail   the decomp's C as it is
+patched  the decomp's C changed by port patches or value rules (named: the concern, or values/<file>)
 copy     NuWorld's definition in place of the decomp's (port/units.toml override)
 wrap     NuWorld's definition in front of the decomp's (port/units.toml wrap)
 port     NuWorld's definition of a function the decomp has no C for
-stub     no definition yet (or a dead or editor unit): an aborting stub
+stub     an aborting stub: no definition yet, or a dead or editor unit
 shim     a unit the port replaces as a whole (sdk)
 
-copy, wrap and port are the game layer when NuWorld's definition is under
-src/gameplay/, else the port layer. Writes ownership.json and ownership.md
-under --out.
+copy, wrap and port are the game layer when NuWorld's definition is under src/gameplay/, else the port layer.
 """
 from __future__ import annotations
 

@@ -82,9 +82,8 @@ void nw_wide_request(float aspect, float hud)
     SDL_SetAtomicInt(&nw_wide_asked, 1);
 }
 
-/* For a frame now nw_wide.width wide, from was: main's SWIDTH, MAXVPSIZEX and video size, the camera's aspect and
-   MaxVP's viewport; the level's frame-sized targets and the VU words InitGlass, GlassGivenMaterial and the water
-   materials took from the width, as they compute them. */
+/* Recomputes from the old width `was` what the game derived from it: main's SWIDTH, MAXVPSIZEX and video size, the
+   camera's aspect, MaxVP's viewport, the level's frame-sized targets and the glass and water materials' VU words. */
 static void nw_wide_frame(int was)
 {
     int w = nw_wide.width;

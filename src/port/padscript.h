@@ -1,10 +1,8 @@
-/* --pad-script: what pad port 0 reads, one step per read once the run's level runs (port/level.h; at once without
-   --level). A script is a text file, a retail pad recording (.ppd, played once, then the pad idles), "sweep" (the
-   built-in script: every button and stick direction in a loop) or "auto" (the level's own .ppd when the disc has
-   one, else "sweep").
-
-   Text: one step per line, `<reads> <buttons> [<lx> <ly> [<rx> <ry>]]`, buttons `-` or names joined by `|`
-   (cross, square, ...), sticks 0-255 (128 centred); `#` starts a comment. The script loops. */
+/* --pad-script: pad port 0's reads, one step each once the run's level runs (at once without --level), from a text
+   file, a retail .ppd recording (played once, then idle), "sweep" (every button and stick direction in a loop) or
+   "auto" (the level's own .ppd if the disc has one, else "sweep").
+   Text: one step per line, looping, `<reads> <buttons> [<lx> <ly> [<rx> <ry>]]`, buttons `-` or names joined by `|`
+   (cross, square, ...), sticks 0-255 (128 centred); `#` starts a comment. */
 #ifndef NUWORLD_PORT_PADSCRIPT_H
 #define NUWORLD_PORT_PADSCRIPT_H
 

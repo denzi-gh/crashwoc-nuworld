@@ -1,13 +1,5 @@
-/* libFuzzer target for the game's loaders and the port's decoders (no game data). The first byte picks the reader,
-   the rest is its input:
-     0  a .gsc scene (NuGScnRead)      1  a .ghg character (NuGHGRead)    2  a .cut cutscene (NuGCutSceneLoad)
-     3  a .ani anim (NuAnimDataLoadBuff) 4  a .shd shadow set (ShadDataLoad) 5  a .ter terrain (ReadTerrain)
-     6  the viewer's .gsc reader (nw_gsc_open)  7  a texture (nw_tex_decode)
-     8  an ordering-table batch, 9  face-on sprites, 10  a skin list (nw_vif_otbatch, _sprites, _skin)
-     11  a .vag sound (nw_vag_header, nw_vag_decode)  12  settings.toml (nw_settings_load)
-   The loaders read files, so each input is written to a scratch folder first. A load's fatal error (NuErrorProlog)
-   is the loader rejecting the file: the hook returns from it, leaving what that load held (retail never recovers),
-   so leak detection is off for this target. Built with -DNUWORLD_FUZZ=ON; nuworld_fuzz_seeds writes its seeds. */
+/* libFuzzer target (-DNUWORLD_FUZZ=ON) for the game's loaders and the port's decoders; the first byte picks the reader.
+   A fatal load error returns from its hook and leaks what the load held, so leak detection is off. */
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdlib.h>

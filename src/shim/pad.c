@@ -67,7 +67,6 @@ void nw_pad_motors(uint8_t *small, uint8_t *big)
     SDL_UnlockMutex(nw_pad_mutex);
 }
 
-/* The motors of port 0 as data has them. */
 static void nw_pad_set_motors(const unsigned char *data)
 {
     nw_pad_lock();

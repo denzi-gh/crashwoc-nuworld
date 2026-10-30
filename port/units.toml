@@ -1,19 +1,12 @@
 # Host treatment per decomp unit; checked by `python tools/gen_stubs.py --check`.
-# treatment: compile | editor (stubs unless built with the editor) | hle |
-#            replace | dead (stubs) | shim
-# override/keep: globs the port implements instead of the decomp C (the decomp definition is
-#   dropped; without a port definition the function is a stub); rename: decomp -> host name, for
-#   the function's declarations, definition and calls in its unit
-# wrap: functions whose decomp C stays, renamed <name>__retail (declared in the generated <unit>.retail.h); the
-#   port defines <name>, which takes every call and runs code before, after or instead of <name>__retail
-# expose: file statics (functions or data) the wrapper makes global under their retail names, so the port
-#   reaches them; a static function is exposed before it is wrapped
-# runtime: globs of an editor unit's functions that retail calls outside the editor, compiled in every
-#   build; the rest of the unit stays editor-only
-# called: stubs of an editor or dead unit that compiled code calls behind a guard retail never passes (or until
-#   their issue); any other call into an editor or dead unit is an error
-# Overrides marked "dead" are functions retail never reaches, or reaches only through overridden
-# code, whose C does not build for the host: stubs instead of upstream fixes in dead code.
+# treatment: compile | editor (stubs unless built with the editor) | hle | replace | dead (stubs) | shim
+# override/keep: globs NuWorld defines instead of the decomp (without a NuWorld definition: a stub)
+# rename: decomp -> host name within the unit, for symbol collisions
+# wrap: the decomp C stays as <name>__retail (<unit>.retail.h); NuWorld's <name> takes every call
+# expose: file statics (functions or data) made global; a static function is exposed before it is wrapped
+# runtime: globs of an editor unit that retail calls outside the editor, compiled in every build
+# called: stubs of an editor or dead unit behind guards retail never passes; any other call into one is an error
+# Overrides marked "dead": code retail never reaches whose C does not build for the host.
 
 schema = 1
 
@@ -58,10 +51,8 @@ schema = 1
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
-# kept: the shadow, footprint and water-ripple bookkeeping, the shadow and ripple draws over the port's quad writers,
-# the volume shadows' light and screen box, and the bodies retail leaves empty; NuRndrFx calls the overridden shadow,
-# water and light packet writers. NuRndrFxCode and its sprite sets (the fx microcode) split the Z buffer's bytes for the
-# light passes, which read Z through depth CLUTs here; nothing reaches them.
+# kept: shadow, footprint and ripple bookkeeping and draws, volume-shadow boxes, bodies retail leaves empty.
+# NuRndrFxCode's Z-byte light passes are unreachable here (depth CLUTs instead).
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",
     "NuRndrEndSceneEx", "NuHGobjRndrMtx", "NuRndrSplineSearch", "NuRndrInitWorld", "NuRndrShadowInit",
     "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
@@ -71,8 +62,7 @@ schema = 1
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw",
     "NuLgtArcLaserDraw", "NuLightProcessSpot", "NuLightFxSetup"] }
-# The *FixPtrs (an int base) are done by the port's NuAnimDataLoadBuff and NuGCutSceneLoad; the curve evaluators in
-# the EE's float by src/hle/nuanim.c
+# *FixPtrs (an int base): done by NuAnimDataLoadBuff and NuGCutSceneLoad; curve evaluators: src/hle/nuanim.c
 "nu3d/nuanim" = { treatment = "compile", override = ["NuAnimDataLoadBuff", "NuAnimDataFixPtrs", "NuAnimData2FixPtrs",
     "NuAnimCurveCalcVal2", "NuAnimCurve2CalcVal"], expose = ["isBitCountTable"] }
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
@@ -80,15 +70,15 @@ schema = 1
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
     "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
 "nu3d/asmstrm" = { treatment = "hle" }
-# NuGHGFixupGobj (an int base) is done by the port's NuGHGRead; NuHGobjDestroy frees the port's meshes and records;
-# dead: the NuGHGWrite* writer, ReadNuIFFCollideData
+# NuGHGFixupGobj (an int base): done by NuGHGRead; NuHGobjDestroy frees the port's records; dead: NuGHGWrite*,
+# ReadNuIFFCollideData
 "nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
     "ReadNuIFFCollideData"] }
-# called: ReadNuIFFGeom's, reached only from the .nus/.hgo readers, which nothing calls on the PS2 (InstSceneLoad,
-# NuHGobjLoad, NuHGobjReadForCutScene); NuPs2DestroyRenderStream leaves the port's meshes to their scene
+# called: ReadNuIFFGeom's, reached only from .nus/.hgo readers the PS2 never calls; NuPs2DestroyRenderStream leaves
+# the port's meshes to their scene
 "nu3d/nucvtgeo" = { treatment = "dead", override = ["NuPs2DestroyRenderStream"], called = ["NuPs2CreateRenderStream",
     "NuPs2CreateFaceOn"] }
-# NuCvtSknInstFix: the port's NuGHGRead decodes the skin DMA, resolving its CALLs against the list as the fix does
+# NuCvtSknInstFix: done by NuGHGRead's skin DMA decode
 "nu3d/nucvtskn" = { treatment = "dead", called = ["NuPs2CreateSkin"] }
 "nu3d/asmgobj" = { treatment = "hle" }
 "nu3d/nutexanm" = { treatment = "compile" }

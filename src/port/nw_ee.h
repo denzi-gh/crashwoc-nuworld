@@ -1,6 +1,5 @@
-/* EE kernel names the decomp calls, renamed for the host: kernel32 exports CreateThread, ResumeThread,
- * TerminateThread and GetThreadId, so the plain names would bind to Windows. src/shim/ee.c defines the
- * nw_ee_* functions. Included by nw_prelude.h. */
+/* EE kernel names renamed to nw_ee_* (src/shim/ee.c), since kernel32 exports CreateThread, ResumeThread,
+ * TerminateThread and GetThreadId. */
 #ifndef NUWORLD_PORT_NW_EE_H
 #define NUWORLD_PORT_NW_EE_H
 

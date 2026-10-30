@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
-"""Check typedb.json against the PS2 compiler: compile every named record
-with the decomp's `default` profile (SN ee-gcc 2.95.2, which built the game
-and engine units) at -O0 -g and compare its STABS layouts and types with
-libclang's.
-The `sce` profile (EE GCC 2.9, Sony SDK units only) cannot parse the game
-headers: its C front end has no anonymous struct/union members.
+"""Check typedb.json against the PS2 compiler: STABS of every named record under SN ee-gcc 2.95.2 (`default`).
 
-Runs in the decomp container image (the EE compilers are Linux-only); on a
-host it re-runs itself there with docker. Needs the decomp toolchain once:
-python decomp/tools/setup_toolchain.py --download (in the container).
+The `sce` profile (EE GCC 2.9) cannot parse the game headers: its C front end has no anonymous struct/union members.
+Runs in the decomp image (the EE compilers are Linux-only); from a host it re-runs itself there with docker.
 """
 from __future__ import annotations
 

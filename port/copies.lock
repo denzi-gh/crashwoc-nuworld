@@ -1,8 +1,5 @@
-# The decomp functions NuWorld depends on by their text, with a hash of the decomp's definition: [copies]
-# the port/units.toml overrides, [values] the functions with port/values rules. tools/copies.py --check
-# fails when the decomp changes one: bring NuWorld's copy in line or prove the rules with
-# tools/ntsc_diff.py check, then --update. A port patch must not edit an overridden one (that never
-# compiles).
+# Hashes of the decomp functions NuWorld depends on by their text: [copies] overrides, [values] value
+# rules. Written by tools/copies.py --update.
 schema = 1
 
 [copies]

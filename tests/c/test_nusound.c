@@ -1,10 +1,6 @@
-/* The NUSOUND.IRX port (src/audio/nusound.c) behind the SIF shim, driven by the decomp's own nusound.c, on a
-   synthetic SFX.DAT and the game's clock, stepped: a vblank is sceGsSyncV, nw_game_spend_us the EE's time between
-   them, and every SIF call spends its own. Usage: test_nusound <scratch dir>.
-   Local only, with your own disc: `test_nusound retail` runs InitGlobalSfx on the data image and SFX.DAT of the
-   extracted disc dir NUWORLD_TEST_DATA, checks the resident bank in SPU RAM, plays the logos' audio stream, the
-   title theme in stereo and each language's voices, `test_nusound retail instant` the same off the hardware speed;
-   exits 77 without it. */
+/* The NUSOUND.IRX port (src/audio/nusound.c) under the decomp's nusound.c on a synthetic SFX.DAT and a stepped clock:
+   a vblank is sceGsSyncV, nw_game_spend_us the EE's time between them, and every SIF call spends its own. `retail`
+   (`retail instant` off the hardware speed) checks the real bank, the logos' stream, the title theme and the voices. */
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -787,10 +783,9 @@ static void test_play_stream_instant(void)
     nusound_irx_loaded = 0;
 }
 
-/* A loop longer than its buffer, on slot 0: each refill of a half carries the flags that close the ring (the second
-   half's ends on END|REPEAT), so the voice goes round the buffer, 3440 blocks at 0xeb3 (109 frames) a turn. The
-   file is a one-shot: at its end the read clears the END block's flags and goes on from the file's start, so the
-   voice decodes the whole file (with its last two blocks) over and over, without a gap. */
+/* A loop longer than its buffer: each half's refill carries the flags that close the ring (the second half ends on
+   END|REPEAT), 3440 blocks at 0xeb3 (109 frames) a turn; at the one-shot file's end the read clears the END flags and
+   starts over, so the voice decodes the file over and over without a gap. */
 static void test_stream_ring(void)
 {
     const NwIrx *irx = nw_nusound_irx();
@@ -868,9 +863,8 @@ static void stereo_out(void *user, const int16_t *frames, unsigned count)
     }
 }
 
-/* Music as NuSoundPlayStereo plays it, with the same file on both sides: channel 0 only left, channel 1 only right,
-   released at once, so from then on every frame is the same left and right and both voices decode the file in step.
-   GameAudioUpdate's volumes (SOUND_SetChannelVolume 0 left, 1 right) reach the mix. */
+/* Music as NuSoundPlayStereo plays it, the same file on channel 0 (left only) and 1 (right only), released at once, so
+   every frame is the same left and right; GameAudioUpdate's volumes reach the mix. */
 static void test_stereo_music(void)
 {
     nusound_irx_loaded = 1;
@@ -1089,10 +1083,8 @@ static bool voice_row(const NwIrx *irx, const GameSound *row, int l)
     return true;
 }
 
-/* The voices are picked by Game.language alone: a cut movie's audio is its sfx + language * 4 (cut.c, the
-   intro/outro rows from 0xad), a hub cut's gamecut_sfx + language * 12 (the frontend table). Every one of them is
-   that language's file, and each language's INTRO1 streams on channel 4 (GameSfx's channel for cuts) as its file
-   says. */
+/* Voices follow Game.language alone: a cut movie's audio is its sfx + language * 4 (cut.c, intro/outro rows from 0xad),
+   a hub cut's gamecut_sfx + language * 12; each language's INTRO1 streams on channel 4 as its file says. */
 static void retail_languages(const NwIrx *irx)
 {
     int rows = 0;
@@ -1215,9 +1207,8 @@ static int test_retail(bool hardware)
     printf("logos stream: played out %d frames after its key-on\n", frames - keyed);
     CHECK(frames - keyed == 1812);
 
-    /* GameMusic's title theme at full music volume: THEMEL and THEMER (sfx 0xaa, 0xab) as a stereo pair on channels
-       0 and 1, panned hard left and right, released together at the table's pitch (0xeb3, 44100 Hz). Each voice
-       decodes its own file, in step with the other. */
+    /* GameMusic's title theme at full music volume: THEMEL and THEMER (sfx 0xaa, 0xab) on channels 0 and 1, panned
+       hard left and right at the table's pitch (0xeb3, 44100 Hz); each voice decodes its own file in step. */
     uint8_t *theme[2] = { NULL, NULL };
     for (int i = 0; i < 2; i++) {
         const char *name = irx->ADPCM_FileNames[0xaa + i].Filename;

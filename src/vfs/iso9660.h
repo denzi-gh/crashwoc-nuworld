@@ -29,7 +29,6 @@ void nw_iso_free(NwIso *iso);
 /* Case-insensitive; accepts '\' separators and a ";1" suffix. */
 const NwIsoFile *nw_iso_find(const NwIso *iso, const char *path);
 
-/* Reads size bytes of a file from offset. */
 bool nw_iso_read(NwDisc *disc, const NwIsoFile *file, uint64_t offset, void *dst, size_t size);
 
 #endif

@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """Trace the sound key status and the title cut of a running PCSX2, per vblank.
 
-Reads over PINE (PCSX2: Settings > Advanced > Enable PINE) the EE's
-SOUND_SPUKeyStatus of channels 0-5, the cut movie state the game keeps, the
-EE's copies of the sound module's stream loads (the load request, the busy
-flag, the CD stages of slots 0-3) and the frame the title logo's texanim
-shows, polling faster than the vblank, and
-prints a line whenever one of them changes, numbered by nuvideo_global_vbcnt
-from the first vblank on which the cut holds for its audio (cutmovie_hold
-0 -> 1: StartCutMovie). Addresses come by name from the decomp's
-symbol_addrs.txt. `crashwoc-nuworld --trace-sound` prints the same lines, so
-the two traces compare with diff. A vblank the poll missed is reported on
-stderr.
-
-  python tools/pcsx2_trace.py --vblanks 1900 > pcsx2.txt
+Polls FIELDS over PINE (Settings > Advanced > Enable PINE) faster than the vblank and prints a line per change, counted
+from StartCutMovie (cutmovie_hold 0 -> 1); `crashwoc-nuworld --trace-sound` prints the same lines, for a diff.
 """
 from __future__ import annotations
 
@@ -138,8 +127,7 @@ def state_line(vblank: int, values: dict[str, int]) -> str:
 
 
 class TexWatch:
-    """The address of the title flipbook's tex_ix (the env running the program "title"), found again whenever the
-    texanim list head moves; None while there is none."""
+    """Address of the title flipbook's tex_ix (the env running "title"), re-found when the texanim list head moves."""
 
     def __init__(self, pine: Pine):
         self.pine = pine

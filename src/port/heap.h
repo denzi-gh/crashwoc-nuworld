@@ -1,6 +1,5 @@
-/* The game's heaps (the superbuffer and the buffers carved from it) for the port's loaders (src/port/heap.c): a heap
-   holds what retail puts there, so retail's budgets and layout hold; a load's host records and GPU objects live
-   beside it, owned by the heap range the load took, until a later load writes over that range. */
+/* The game heaps (the superbuffer and buffers carved from it) hold only what retail puts there, keeping its budgets
+   and layout; a load's host records and GPU objects live beside, owned by its heap range until a load overwrites it. */
 #ifndef NUWORLD_PORT_HEAP_H
 #define NUWORLD_PORT_HEAP_H
 
@@ -36,8 +35,7 @@ void nw_heap_release(const void *host);
 /* The decomp's NW_SUPERBUFFER_ALLOC (nu_port.h): the superbuffer at retail's address modulo 0x1000. */
 void *nw_superbuffer_alloc(int size, char *file, int line);
 
-/* The decomp's NW_HEAP_TWIN (nu_port.h): a zeroed host record of size bytes, owned by the heap's charge bytes at
-   at. */
+/* The decomp's NW_HEAP_TWIN (nu_port.h): a zeroed host record of size bytes, owned by the heap's charge bytes at at. */
 void *nw_heap_twin(void *at, size_t charge, size_t size, size_t align);
 
 /* size bytes at at that retail rewrites and the port does not (a DMA chain fixed in place): a hole in a PS2 view of
@@ -45,7 +43,6 @@ void *nw_heap_twin(void *at, size_t charge, size_t size, size_t align);
 void nw_heap_side_hole(NwHeapSide *side, const void *at, size_t size, const char *why);
 /* The same for bytes no load owns: a side of their own over them. */
 void nw_heap_hole(const void *at, size_t size, const char *why);
-/* fn for every live hole. */
 void nw_heap_each_hole(void (*fn)(const void *at, size_t size, const char *why, void *user), void *user);
 
 /* The live record holding p, its end included unless another record starts there; else NULL. */

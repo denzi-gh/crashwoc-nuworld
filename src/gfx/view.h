@@ -1,5 +1,4 @@
-/* The --scene viewer: the scene the game thread draws (src/port/scene.c), shown by the renderer under a fly camera
-   the viewer moves. */
+/* The --scene viewer: the game thread's scene (src/port/scene.c) shown under a fly camera. */
 #ifndef NUWORLD_GFX_VIEW_H
 #define NUWORLD_GFX_VIEW_H
 

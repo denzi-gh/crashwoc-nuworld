@@ -1,8 +1,5 @@
-/* The game thread: the decomp's main runs on it, paced by the virtual vblank clock. It is the EE's main thread;
-   the EE threads the game starts run on host threads of their own, one at a time (src/shim/ee.c). Yield points
-   (sceGsSyncV, WaitSema, the screen swap) wait for clock edges and deliver the vblank interrupts; quitting parks
-   the running EE thread at its next yield point and the process exits around it, so quitting never unwinds the
-   decomp. */
+/* The game thread (the EE main thread) runs the decomp's main on the virtual vblank clock; yield points (sceGsSyncV,
+   WaitSema, the screen swap) deliver vblank interrupts, and quitting parks the EE thread there instead of unwinding. */
 #ifndef NUWORLD_PORT_GAME_H
 #define NUWORLD_PORT_GAME_H
 
@@ -21,10 +18,10 @@ typedef enum NwGameState {
     NW_GAME_RUNNING,
     NW_GAME_PARKED,   /* stopped at a yield point, as asked */
     NW_GAME_FATAL,    /* stopped by nw_game_fatal */
-    NW_GAME_RETURNED, /* the entry returned */
+    NW_GAME_RETURNED,
 } NwGameState;
 
-/* Starts the clock. Until nw_game_start, the calling thread may act as the game thread (tests). */
+/* Starts the clock; until nw_game_start the calling thread may act as the game thread (tests). */
 bool nw_game_init(NwClockMode mode, unsigned hz);
 /* Stops the clock; only when no game thread was started. */
 void nw_game_shutdown(void);
@@ -33,39 +30,36 @@ bool nw_game_start(NwGameEntry entry, int argc, char **argv);
 /* Any thread. */
 NwGameState nw_game_state(void);
 uint64_t nw_game_edges(void);
-/* The edges with the part of a period since the last (nw_clock_time). */
+/* Edges plus the fraction of a period since the last one (nw_clock_time). */
 double nw_game_edge_time(void);
-/* The game's time in microseconds: the edges at the clock's rate, plus what the running EE thread spent since the
-   last of them. */
+/* Edges at the clock's rate plus what the running EE thread spent since the last one. */
 uint64_t nw_game_us(void);
-/* The running EE thread spends time between vblanks (a SIF RPC's round trip). Stepped, it emits the edges it runs
-   past, so loops that only call the IOP go on; in real time it stops short of the next edge. */
+/* EE time between vblanks (a SIF RPC's round trip): stepped, it emits the edges it passes so IOP-only loops go on; in
+   real time it stops short of the next edge. */
 void nw_game_spend_us(uint64_t us);
-/* The time the EE timers count, in nanoseconds: the host's in real time, nw_game_us when stepped. */
+/* What the EE timers count: host time in real time, nw_game_us when stepped. */
 uint64_t nw_game_time_ns(void);
 /* Waits for a clock edge after `seen` (see nw_clock_wait); returns the edge count. */
 uint64_t nw_game_wait_edge(uint64_t seen, int32_t timeout_ms);
 /* The same for a thread that only watches the game: it never steps the clock. */
 uint64_t nw_game_watch_edge(uint64_t seen, int32_t timeout_ms);
-/* Frames the game has swapped. */
 uint64_t nw_game_swaps(void);
 /* Asks the running EE thread to park at its next yield point, without waiting. */
 void nw_game_request_stop(void);
-/* Asks the running EE thread to park at its next yield point; waits up to timeout_ms for it to stop for any reason. */
+/* The same, then waits up to timeout_ms for it to stop for any reason. */
 NwGameState nw_game_stop(uint32_t timeout_ms);
-/* The message of NW_GAME_FATAL. */
 const char *nw_game_error(void);
 
-/* The running EE thread. A yield point: waits for the next clock edge if asked, then delivers the vblank
-   interrupts of the edges since the last one; returns the edge count. */
+/* Yield point of the running EE thread: waits for an edge if asked, then delivers the vblank interrupts since the last
+   yield; returns the edge count. */
 uint64_t nw_game_yield(bool wait_edge);
-/* The game cannot go on (the message is printed): parks for good. */
+/* Prints the message and parks the game for good. */
 _Noreturn void nw_game_fatal(const char *message);
 /* Fuzzers: called with the message first; it may longjmp out of the load that failed. */
 void nw_game_on_fatal(void (*fn)(const char *message));
-/* NuPs2ScreenSwap swapped a frame. */
+/* Called by NuPs2ScreenSwap for each swapped frame. */
 void nw_game_swap(void);
-/* A new host thread of an EE thread: the EE FPU's float mode. */
+/* Sets the EE FPU's float mode on a new host thread of an EE thread. */
 void nw_game_host_enter(void);
 
 #endif

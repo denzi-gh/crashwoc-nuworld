@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """Compare crashwoc-nuworld --dump's PS2 view of the game (<vblank>.nwd) with PCSX2's EE RAM at that vblank.
 
-The data image's blocks sit at their addresses and heap records where the loader says retail keeps them; the rest
-(the superbuffer, records with no known place) go where most of PCSX2's pointers to them point. Every placed
-block is then compared byte for byte, pointer slots as the address their target was placed at; differences are
-named by symbol and field (typedb.json). Slots holding host pointers the dump could not place only have to agree
-with each other.
-
-  python tools/ps2_diff.py <port>.nwd <pcsx2>.ee [--typedb build/release/gen/typedb.json]
+Blocks without a known retail address go where most of PCSX2's pointers to them point; pointer slots compare as the
+address their target was placed at, and slots holding unplaced host pointers only have to agree with each other.
 """
 from __future__ import annotations
 
@@ -204,8 +199,7 @@ def rounding(a: bytes, b: bytes, leaf: dict, ulps: int) -> bool:
 
 
 class Known:
-    """tools/ps2_diff_known.txt: "regex  # reason" per line, over "<symbol or type>.<field>"; differences the port
-    has on purpose."""
+    """tools/ps2_diff_known.txt, differences on purpose: "regex  # reason" per line over "<symbol or type>.<field>"."""
 
     def __init__(self, path: Path | None):
         self.rules: list[tuple[re.Pattern, str]] = []

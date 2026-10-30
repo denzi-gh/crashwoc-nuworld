@@ -1,6 +1,5 @@
-/* nu3d/nurndr, which the port overrides whole (port/units.toml): the scene bracket and the draws, as records in
-   the streams (src/gfx/nustream.c) instead of DMA packets. Every other NuRndr* is a stub, and their hits are the
-   renderer's worklist. */
+/* nu3d/nurndr overridden whole (port/units.toml): the scene bracket and draws as stream records (src/gfx/nustream.c);
+   every other NuRndr* is a stub whose hits are the renderer's worklist. */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -150,10 +149,8 @@ void NuRndrOTFlush(void)
     ot_batch_free = NW_OT_ITEMS;
 }
 
-/* NuRndrOTInsertTriBatch with the geom's mesh: each triangle's view z (XFormVuTriZ, from the end of the batch)
-   buckets it, the buckets drawn far to near and each from its latest triangle, so a batch is drawn in batch order
-   within a bucket; the batch goes into the ordering table at its nearest triangle. Retail drops a batch over 0x800
-   triangles or with the item pool used up. */
+/* Triangles bucketed by view z (XFormVuTriZ, from the batch's end), far to near, each bucket from its latest; the batch
+   enters the ordering table at its nearest triangle. Retail drops a batch over 0x800 triangles or with no item left. */
 void nw_rndr_ot_batch(struct numtx_s *mtx, struct numtl_s *mtl, const NwGpuMesh *mesh, struct nutristream_s *batch)
 {
     static float depth[NW_OT_TRIS];
@@ -223,11 +220,9 @@ u32 *NuRndrShadowLightFan(void)
     return NULL;
 }
 
-/* Level 0xC's volume shadows (nurndr_shadowson). Retail counts the volumes in NuLgtHSurf[2]'s colour from 0x7F with
-   its clamp off, against NuLgtHSurf[1]'s Z, keeps each channel's top bit (FBMSK 0x808080) by writing 0 over the
-   rest, and takes curlightcol's 0x20 off the frame by that mask, stretched back from 0.4 of the width (ALPHA 0x42);
-   here the count is the stencil's (NW_CMD_VOLUMES, the volumes' +1 and -1) and the mask grey where it is 0x80 or
-   more. */
+/* Level 0xC's volume shadows (nurndr_shadowson): retail counts them in NuLgtHSurf[2]'s colour from 0x7F and takes
+   curlightcol's 0x20 off the frame where the top bit is set (ALPHA 0x42, stretched from 0.4 of the width); here the
+   stencil counts (NW_CMD_VOLUMES) and the mask is grey where it is 0x80 or more. */
 void NuRndrShadow(int mode)
 {
     struct nuvec_s light = curlight;
@@ -329,13 +324,9 @@ static void nw_water_target(int target)
     NuRndrSetScissor(0, 0, nurndr_pixel_width - 1, nurndr_pixel_height - 1);
 }
 
-/* The view from under the water at NuRndrWaterLevel. Only NuRndrWaterLevelTint sets the level, which nothing calls,
-   so this runs at most once, from the level's 0 in .sdata, if the camera starts below 0.5. Where the water line
-   crosses the screen at the near plane and 0.1 beyond, an alpha ramp from 0 to 0x80 between them, 0x80 below
-   (NuLightAddMat, DIRECT strips, when the lower point is on screen); the frame (NuLgtBackBuff) copied into
-   NuLgtHSurf[4] in 10 x 14 cells of 64 x 16 pixels whose corners watertab's phases move by waveampx, waveampy (in
-   1/16 pixels, less half a pixel); then that over the frame in NuRndrWaterTint, through NuLgtSurf[12] (after the
-   ramp) or [15]. */
+/* The view from under the water. Only the uncalled NuRndrWaterLevelTint sets NuRndrWaterLevel, so this runs at most
+   once, from its .sdata 0, if the camera starts below 0.5: an alpha ramp at the water line, then the frame copied into
+   NuLgtHSurf[4] in 64 x 16 cells swayed by watertab and drawn over the frame in NuRndrWaterTint. */
 void NuRndrWater(void)
 {
     struct nuvec4_s nearpnt, farpnt;
@@ -471,9 +462,8 @@ void NuRndrShadowStack(struct nuvec_s *light)
 static NwCmd *nw_target;    /* the TARGET record NuRndrBeginSceneEx's NuRndrSetZBuffer completes */
 static int nw_zbuffer = -2; /* the last NuRndrSetZBuffer */
 
-/* A TARGET into stream: the back buffer (-1), the front buffer (-3), or a render target texture, whose size
-   becomes nurndr_pixel_width and height, under the last Z buffer. -2 and -4 put the Z buffer behind the frame,
-   which the port does not draw; their draws go nowhere. */
+/* The back buffer (-1), front buffer (-3) or a render target texture, which sets nurndr_pixel_width and height; -2 and
+   -4 put the Z buffer behind the frame, which the port does not draw, so their draws go nowhere. */
 void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
 {
     NwSurf surf = { 0, 0, 0, false };
@@ -506,9 +496,8 @@ void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
     c->target.zback = nw_zbuffer == -2;
 }
 
-/* The draws after the last target's test and write the back buffer's Z (-2) when the target is its size; the port
-   gives other targets a Z of their own, which a render target as the Z buffer (zbuffer > 0) stands for: only the
-   volume shadows draw under one, NuLgtHSurf[1], which NW_CMD_VOLUMES fills. */
+/* -2 shares the back buffer's Z when the target is its size, else the target has its own; a render target as Z buffer
+   (zbuffer > 0) is only ever the volume shadows' NuLgtHSurf[1], which NW_CMD_VOLUMES fills. */
 void NuRndrSetZBuffer(struct rndrstream_s *stream, int zbuffer)
 {
     (void)stream;
@@ -632,8 +621,8 @@ void NuRndrRectUVStream(struct rndrstream_s *stream, int x, int y, int width, in
     nw_rndr_rect3d(stream, x, y, width, height, uv, colour, z);
 }
 
-/* Target -3 swaps without counting a frame. Retail then kicks VU1, swaps the stream buffers and resets the frame
-   counters; only the one main.c reads is kept. A new picture aspect starts with the next frame. */
+/* Target -3 swaps without counting a frame; of retail's frame counters only the one main.c reads is kept. A new
+   picture aspect starts with the next frame. */
 int NuRndrSwapScreen(int target)
 {
     NuPs2DisableAutoScreenSwap();
@@ -647,9 +636,8 @@ int NuRndrSwapScreen(int target)
     return swapped;
 }
 
-/* A scene object: each sub-object in view draws its geoms into their materials' streams (each material of the
-   multipass chain mtl->next once) and its face-on geoms into theirs, under its instance's matrix. Returns retail's
-   clip state: 0 out of view, 1 in view, 2 partly. */
+/* Each sub-object in view draws its geoms (each material of the mtl->next chain once) and face-on geoms; returns
+   retail's clip state: 0 out of view, 1 in view, 2 partly. */
 int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm)
 {
     struct numtx_s mtx;
@@ -766,9 +754,8 @@ int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
     return clip;
 }
 
-/* A skin object's geoms (not its next_gobj, as retail) under wm, each material pass a SKIN record with the palette
-   NuHGobjRndrMtxDwa made and the deformer weights (NULL: retail's default, none); retail ignores njoints and joints
-   too. skinskipix is -1 in retail and nothing sets it. */
+/* Each material pass a SKIN record with NuHGobjRndrMtxDwa's palette and weights (NULL: none); like retail it skips
+   next_gobj and ignores njoints and joints. skinskipix is -1 in retail and nothing sets it. */
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis)
 {
@@ -1046,9 +1033,8 @@ struct nurndrtrail_s {
     int RealIntensity;
 };
 
-/* Retail's trail quads, untextured in NuLightAddMat with ALPHA_1 0x44 like the footprints: each segment between
-   two points is two ribbons, from pos1 and from pos2 a quarter of the way in, white fading to clear inwards; a
-   negative intensity draws them dark. The 0xFFFFF is retail's. */
+/* Retail's trail quads, untextured with ALPHA_1 0x44: two ribbons per segment, from pos1 and pos2 a quarter of the way
+   in, white fading inwards (dark for a negative intensity). The 0xFFFFF is retail's. */
 void NuRndrTrail(int trailpt, struct nurndrtrail_s *trail, int trailcount)
 {
     static struct nuvtx_tc1_s vtx[2048];
@@ -1122,9 +1108,8 @@ void NuRndrTrail(int trailpt, struct nurndrtrail_s *trail, int trailcount)
 _Static_assert(sizeof(NwPtl) == sizeof(struct debpart_s), "debpart_s");
 _Static_assert(sizeof(((NwPtlList *)0)->tri) == sizeof(((struct debdma_s *)0)->tri), "debdma_s.tri");
 
-/* The effect list's VU image with the time set, and the particles of the chain of sets from chunk (each set's tag a
-   NEXT to the next, LinkDmaParticalSets' offset, or the last's RET), a PARTICLES record under mtx in the ptl stream;
-   mode picks retail's entry with or without the screen clamp, which the GPU's clipping makes the same. */
+/* chunk's chain of sets is linked by NEXT tags (LinkDmaParticalSets' offset), RET on the last; mode's screen clamp is
+   moot under GPU clipping. */
 void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
                          int mode, float time)
 {

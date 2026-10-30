@@ -1,5 +1,4 @@
-/* The .shd loader override (src/port/shadcom.c) on a synthetic file; locally every .shd in CHARS.DAT of the imported
-   disc. Usage: test_shadcom <scratch dir> | retail. */
+/* The .shd loader override (src/port/shadcom.c) on a synthetic file; with `retail`, every .shd in CHARS.DAT. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -152,8 +151,7 @@ static void test_load(const char *scratch)
     SDL_free(root);
 }
 
-/* ShadRndr: the frame's cell of a 2 x 2 atlas, a strip under the matrix with its axes scaled; the frame's palette
-   (frame & 3), one of ShadComInit's four CLUTs that each show one bit of the texels, is the record's CLUT. */
+/* ShadRndr draws the frame's cell of a 2 x 2 atlas with CLUT frame & 3, one of ShadComInit's four one-bit CLUTs. */
 static void test_draw(void)
 {
     no_default_font = 1;

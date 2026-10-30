@@ -1,6 +1,5 @@
-/* NUSOUND.IRX, the IOP side of the sound RPC 0x12345 that decomp nusound.c calls: the command batches run as the
-   module's AdpcmSetParam runs them (stream.c, ported from the disc's SYS/NUSOUND.IRX), the reply is its status
-   block `ret`. It runs on the calling thread; its stream thread's ticks catch up at each call. */
+/* NUSOUND.IRX, the IOP side of decomp nusound.c's sound RPC 0x12345, ported from the disc's SYS/NUSOUND.IRX. It
+   runs on the calling thread; its stream thread's ticks catch up at each call. */
 #ifndef NUWORLD_AUDIO_NUSOUND_H
 #define NUWORLD_AUDIO_NUSOUND_H
 
