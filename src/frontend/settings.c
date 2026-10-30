@@ -18,6 +18,7 @@ typedef enum NwSettingKind {
 
 typedef struct NwSettingKey {
     const char *table, *name;
+    const char *sub; /* a table in table ([game.movement]), or NULL */
     NwSettingKind kind;
     size_t offset, size;
     int lo, hi, step;
@@ -207,6 +208,9 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "game", .name = "unused_title", .kind = NW_SETTING_BOOL, NW_FIELD(unused_title),
       .help = "true starts in the game's unused title menu, false with the logos and the title cut as the PS2; "
               "from the next start" },
+    { .table = "game", .sub = "movement", .name = "monkey_bar_speed", .kind = NW_SETTING_INT,
+      NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
+      .help = "N. Hanced Movement: Crash's speed on the monkey bars, 100-500 percent of the PS2's; 350 is N. Hanced's" },
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -238,6 +242,7 @@ void nw_settings_defaults(NwSettings *s)
     s->hardware_speed = false;
     s->hz = 60;
     s->unused_title = true;
+    s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;
@@ -366,7 +371,8 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     for (size_t i = 0; i < SDL_arraysize(nw_settings_keys); i++) {
         const NwSettingKey *k = &nw_settings_keys[i];
-        const NwDocTable *t = nw_doc_table(&doc, &k->table, 1);
+        const char *header[] = { k->table, k->sub };
+        const NwDocTable *t = nw_doc_table(&doc, header, k->sub ? 2 : 1);
         if (k->kind == NW_SETTING_BINDS) {
             uint16_t *binds = (uint16_t *)((char *)s + k->offset);
             for (int j = 0; t && j < k->hi; j++) {
@@ -415,7 +421,8 @@ static bool nw_settings_put_binds(NwDoc *doc, NwDocTable *t, const NwSettingKey 
 static bool nw_settings_put(NwDoc *doc, const NwSettingKey *k, const NwSettings *s)
 {
     const char *field = (const char *)s + k->offset;
-    NwDocTable *t = nw_doc_add_table(doc, &k->table, 1);
+    const char *header[] = { k->table, k->sub };
+    NwDocTable *t = nw_doc_add_table(doc, header, k->sub ? 2 : 1);
     NwDocValue v;
     char buf[32];
     if (!t) {
@@ -446,7 +453,8 @@ static char *nw_settings_help(void)
     for (size_t i = 0; help && i < SDL_arraysize(nw_settings_keys); i++) {
         const NwSettingKey *k = &nw_settings_keys[i];
         char *more = NULL;
-        if (SDL_asprintf(&more, "%s%s.%s: %s\n", help, k->table, k->name, k->help) < 0) {
+        if (SDL_asprintf(&more, "%s%s.%s%s%s: %s\n", help, k->table, k->sub ? k->sub : "", k->sub ? "." : "",
+                         k->name, k->help) < 0) {
             more = NULL;
         }
         SDL_free(help);

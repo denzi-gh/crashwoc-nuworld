@@ -159,7 +159,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c
   src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/nubridge.c src/port/terrain.c src/port/text.c
   src/port/trace.c src/port/wide.c
-  src/gameplay/gameplay.c src/gameplay/title.c
+  src/gameplay/gameplay.c src/gameplay/monkeybars.c src/gameplay/move.c src/gameplay/title.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
@@ -320,6 +320,12 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_hz PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_hz PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME hz COMMAND nuworld_test_hz)
+  # The game layer's switches: off leaves retail's values, on changes them once.
+  add_executable(nuworld_test_gameplay tests/c/test_gameplay.c)
+  target_include_directories(nuworld_test_gameplay PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_gameplay PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_gameplay PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME gameplay COMMAND nuworld_test_gameplay)
   # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
   add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
   target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)

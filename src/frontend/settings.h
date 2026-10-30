@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 
+#include "gameplay/gameplay.h"
 #include "gfx/backend.h"
 #include "platform/controls.h"
 #include "platform/display.h"
@@ -15,6 +16,7 @@ typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
     int hz;              /* the game logic's rate: 60 (NTSC) or 50 (PAL), taken at the start */
     bool unused_title;   /* the unused title menu instead of the logos and the title cut, from the next start */
+    NwMovement movement; /* [game.movement], N. Hanced Movement */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
     float aspect;        /* [video]: the picture's width over its height, 0 = the screen's or window's */
