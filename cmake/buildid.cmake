@@ -7,7 +7,9 @@ function(nw_git dir out)
     set(${out} "unknown" PARENT_SCOPE)
     return()
   endif()
-  execute_process(COMMAND git -C "${dir}" status --porcelain --ignore-submodules=dirty
+  # autocrlf: MSYS2's git does not read Git for Windows' setting and sees a CRLF checkout as changed.
+  execute_process(COMMAND git -c core.autocrlf=true -C "${dir}" status --porcelain --untracked-files=no
+    --ignore-submodules=dirty
     OUTPUT_VARIABLE changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
   if(NOT changes STREQUAL "")
     string(APPEND hash "-dirty")
