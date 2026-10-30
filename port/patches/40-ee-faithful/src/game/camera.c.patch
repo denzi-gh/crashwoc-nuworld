@@ -1,5 +1,14 @@
 --- a/src/game/camera.c
 +++ b/src/game/camera.c
+@@ -492,7 +492,7 @@ Loop:
+             temp_rail_end = 2;
+         }
+     } else {
+-        ratio = distance / edgedist;
++        ratio = NW_EE_DIV(distance, edgedist);
+         dst->x += (p->x - dst->x) * ratio;
+         dst->y += (p->y - dst->y) * ratio;
+         dst->z += (p->z - dst->z) * ratio;
 @@ -560,7 +560,7 @@ void RailInfo(RailPosition *rpos, struct nuvec_s *pos, u16 *angle,
                  v0.z = NuTrigTable[(ang + 0x4000) & 0xFFFF];
                  dx = mid.x - pos->x;
