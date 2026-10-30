@@ -144,7 +144,7 @@ schema = 1
 "game/creature" = { treatment = "compile" }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile" }
-"game/game" = { treatment = "compile" }
+"game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
 "game/game_obj" = { treatment = "compile" }
 "game/visi" = { treatment = "compile" }
