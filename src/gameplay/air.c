@@ -10,6 +10,7 @@ extern struct MoveInfo CrashMoveInfo;
 extern struct gtimer_s GameTimer;
 extern struct game_s Game;
 extern s32 ExtraMoves;
+extern s32 plr_rebound;
 extern f32 GRAVITY;
 extern f32 in_speed;
 extern f32 in_f_friction;
@@ -19,6 +20,8 @@ extern f32 in_s_friction;
    gravity with its square, so height and reach stay retail's. */
 #define NW_AIR_RISE 1.25f
 #define NW_AIR_FALL 1.5f
+/* jump_distance: in a jump any stick tilt is a full run, reached this much faster. */
+#define NW_AIR_ACCEL 2.0f
 
 static float nw_air_warp = 1.0f; /* what Crash's mom is scaled by */
 static u32 nw_air_frame;         /* GameTimer's frame at the last MoveCRASH */
@@ -64,10 +67,22 @@ static float nw_air_want(const struct creature_s *plr)
     return plr->obj.mom.y > 0.0f ? NW_AIR_RISE : NW_AIR_FALL;
 }
 
-void nw_air_loop(void)
+void nw_air_loop(const struct creature_s *plr, float forward)
 {
+    const NwCrashMovement *sw = &nw_profile.movement.crash;
     float s = nw_air_current();
-    if (s != 1.0f && nw_profile.movement.crash.jump_fall) {
+    bool jumping = plr->jump != 0 && !plr->obj.ground && !plr->obj.dangle && !(plr->slam != 0 && plr->slam < 3) &&
+                   plr_rebound == 0;
+    if (sw->jump_distance && jumping && plr->obj.pad_speed > 0.0f && in_speed > 0.0f) {
+        NW_DEVIATION(movement.crash.jump_distance);
+        if (in_speed < CrashMoveInfo.RUNSPEED) {
+            in_speed = CrashMoveInfo.RUNSPEED;
+        }
+        if (forward < in_speed * s) {
+            in_f_friction *= NW_AIR_ACCEL;
+        }
+    }
+    if (s != 1.0f && sw->jump_fall) {
         NW_DEVIATION(movement.crash.jump_fall);
         in_speed *= s;
         in_f_friction *= s * s;

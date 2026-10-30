@@ -761,6 +761,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel("Game/N. Hanced Movement", "Profile", nw_boot_movement, &settings, false);
     nw_debug_toggle(NW_CRASH_MENU, "Less floaty jump", &settings.movement.crash.jump_fall);
+    nw_debug_toggle(NW_CRASH_MENU, "Predictable jump distance", &settings.movement.crash.jump_distance);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);

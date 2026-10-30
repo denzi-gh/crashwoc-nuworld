@@ -283,6 +283,43 @@ static void jump_fall(void)
     CHECK(near(c->obj.mom.z, 0.072f, 1e-5f) && near(c->obj.mom.y, fall / 1.5f + GRAVITY, 1e-5f));
 }
 
+/* Crash's forward speed after one MoveLoopXZ from forward with the stick tilted to MovePlayer's target in_speed and
+   its air friction; the globals come back as they were. */
+static float loop_forward(float forward, float target)
+{
+    struct creature_s *c = &Character[0];
+    float friction = NW_HZ(0.0072f, 0.005f);
+    c->obj.mom.x = 0.0f;
+    c->obj.mom.z = forward;
+    c->obj.pad_speed = target > 0.0f ? 0.5f : 0.0f;
+    in_speed = target;
+    in_f_friction = in_s_friction = friction;
+    GameTimer.frame++;
+    MoveLoopXZ(&c->obj, &c->obj.thdg);
+    CHECK(in_speed == target && in_f_friction == friction && in_s_friction == friction);
+    return c->obj.mom.z;
+}
+
+/* Mid-air a half tilt runs, and gets there twice as fast; on the ground it walks. */
+static void jump_distance(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .jump_distance = true } } };
+    float walk = 0.03f, run = 0.072f, step = 0.0072f;
+    crash_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.0f, walk), 2.0f * step, 1e-5f));
+    CHECK(near(loop_forward(0.06f, walk), run, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f)); /* let go: retail */
+    Character[0].slam = 1;
+    CHECK(near(loop_forward(0.0f, walk), step, 1e-5f));
+    Character[0].slam = 0;
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_forward(0.0f, walk), step, 1e-5f));
+    crash_at(50, &retail);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.0f, walk), step, 1e-5f) && near(loop_forward(0.06f, walk), 0.06f - step, 1e-5f));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -291,6 +328,7 @@ int main(void)
     monkey_bar_anim();
     air_indicator();
     jump_fall();
+    jump_distance();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

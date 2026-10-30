@@ -172,6 +172,7 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.movement.monkey_bar_speed == 100);
     CRASH_SWITCH(jump_fall);
+    CRASH_SWITCH(jump_distance);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);
