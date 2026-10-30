@@ -668,6 +668,26 @@ static void nw_boot_speed(void *user)
     nw_debug_text("running at %d Hz; a change takes effect at the next start", nw_run_hz);
 }
 
+static void nw_boot_movement(void *user)
+{
+    static const char *const profiles[] = { "Retail", "N. Hanced", "Custom" };
+    NwSettings *s = user;
+
+    nw_debug_label(profiles[nw_movement_profile(&s->movement)]);
+    nw_debug_same_line(6.0f);
+    if (nw_debug_button("Retail")) {
+        s->movement = (NwMovement)NW_MOVEMENT_RETAIL;
+    }
+    nw_debug_same_line(0.0f);
+    if (nw_debug_button("N. Hanced")) {
+        s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
+    }
+    nw_debug_slider_int("Monkey Bar Speed %", &s->movement.monkey_bar_speed, 100, 500);
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
 static void nw_boot_levels(void *user)
 {
     static char filter[64];
@@ -714,12 +734,12 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     if (nw_pad_script) {
         fprintf(stderr, NW_APP_NAME ": --pad-script plays the retail game: no [game] switches\n");
     } else {
-        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title,
-                                       .fast_monkey_bars = settings.fast_monkey_bars });
+        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title, .movement = settings.movement });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
+    nw_debug_panel("Game", "N. Hanced Movement", nw_boot_movement, &settings, false);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
@@ -758,6 +778,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             }
             nw_audio_set_buses(settings.master_volume, settings.voice_volume);
             nw_input_set_controls(&settings.controls);
+            if (!nw_pad_script && SDL_memcmp(&settings.movement, &applied.movement, sizeof(settings.movement)) != 0) {
+                nw_movement_request(&settings.movement);
+            }
             nw_video_apply(&settings, &applied);
             applied = settings;
             unsaved = true;
