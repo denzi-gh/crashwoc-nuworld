@@ -1,4 +1,4 @@
-/* [game.movement.crash] jump_fall, jump_distance: Crash in the air, part of N. Hanced Movement. */
+/* [game.movement.crash] jump_fall, jump_distance, air_momentum: Crash in the air, part of N. Hanced Movement. */
 #ifndef NUWORLD_GAMEPLAY_AIR_H
 #define NUWORLD_GAMEPLAY_AIR_H
 

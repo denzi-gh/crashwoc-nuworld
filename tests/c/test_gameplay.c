@@ -320,6 +320,26 @@ static void jump_distance(void)
     CHECK(near(loop_forward(0.0f, walk), step, 1e-5f) && near(loop_forward(0.06f, walk), 0.06f - step, 1e-5f));
 }
 
+/* Let go mid-air, Crash slows down a quarter as fast; on the ground, in a belly flop and off, as retail. */
+static void air_momentum(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .air_momentum = true } } };
+    float step = 0.0072f;
+    crash_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step * 0.25f, 1e-5f));
+    CHECK(near(loop_forward(0.0f, 0.072f), step, 1e-5f)); /* stick held: retail */
+    Character[0].jump = 0;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step * 0.25f, 1e-5f)); /* off a ledge */
+    Character[0].slam = 2;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+    Character[0].slam = 0;
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+    crash_at(50, &retail);
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -329,6 +349,7 @@ int main(void)
     air_indicator();
     jump_fall();
     jump_distance();
+    air_momentum();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

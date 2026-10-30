@@ -22,6 +22,8 @@ extern f32 in_s_friction;
 #define NW_AIR_FALL 1.5f
 /* jump_distance: in a jump any stick tilt is a full run, reached this much faster. */
 #define NW_AIR_ACCEL 2.0f
+/* air_momentum: with the stick let go Crash slows down this much as fast as retail's. */
+#define NW_AIR_DRIFT 0.25f
 
 static float nw_air_warp = 1.0f; /* what Crash's mom is scaled by */
 static u32 nw_air_frame;         /* GameTimer's frame at the last MoveCRASH */
@@ -53,14 +55,20 @@ static float nw_air_current(void)
     return GameTimer.frame - nw_air_frame <= 1 ? nw_air_warp : 1.0f;
 }
 
-/* In the air after the pinned rise; retail's own physics for the pin, the belly flop, the Death Tornado's hover and
-   a walk off a ledge within its jump window. */
-static float nw_air_want(const struct creature_s *plr)
+/* In the air under his own steam: not on the bars, frozen or carried, and not in a belly flop or the Death Tornado,
+   which keep retail's own physics. */
+static bool nw_air_flying(const struct creature_s *plr)
 {
     bool tornado = (ExtraMoves != 0 || (Game.powerbits & 4) != 0) && plr->spin != 0 &&
                    plr->spin_frame < plr->spin_frames - CrashMoveInfo.SPINRESETFRAMES;
-    if (!nw_profile.movement.crash.jump_fall || plr->obj.ground || plr->obj.dangle || plr->obj.transporting ||
-        plr->obj.dead || plr->freeze || (plr->slam != 0 && plr->slam < 3) || tornado ||
+    return !plr->obj.ground && !plr->obj.dangle && !plr->obj.transporting && !plr->freeze &&
+           !(plr->slam != 0 && plr->slam < 3) && !tornado;
+}
+
+/* After the pinned rise, or a walk off a ledge once its jump window is over. */
+static float nw_air_want(const struct creature_s *plr)
+{
+    if (!nw_profile.movement.crash.jump_fall || !nw_air_flying(plr) || plr->obj.dead ||
         (plr->jump ? plr->jump_frame < plr->jump_frames : plr->allow_jump != 0)) {
         return 1.0f;
     }
@@ -71,9 +79,9 @@ void nw_air_loop(const struct creature_s *plr, float forward)
 {
     const NwCrashMovement *sw = &nw_profile.movement.crash;
     float s = nw_air_current();
-    bool jumping = plr->jump != 0 && !plr->obj.ground && !plr->obj.dangle && !(plr->slam != 0 && plr->slam < 3) &&
-                   plr_rebound == 0;
-    if (sw->jump_distance && jumping && plr->obj.pad_speed > 0.0f && in_speed > 0.0f) {
+    bool flying = nw_air_flying(plr);
+    if (sw->jump_distance && flying && plr->jump != 0 && plr_rebound == 0 && plr->obj.pad_speed > 0.0f &&
+        in_speed > 0.0f) {
         NW_DEVIATION(movement.crash.jump_distance);
         if (in_speed < CrashMoveInfo.RUNSPEED) {
             in_speed = CrashMoveInfo.RUNSPEED;
@@ -81,6 +89,11 @@ void nw_air_loop(const struct creature_s *plr, float forward)
         if (forward < in_speed * s) {
             in_f_friction *= NW_AIR_ACCEL;
         }
+    }
+    if (sw->air_momentum && flying && plr->obj.pad_speed == 0.0f) {
+        NW_DEVIATION(movement.crash.air_momentum);
+        in_f_friction *= NW_AIR_DRIFT;
+        in_s_friction *= NW_AIR_DRIFT;
     }
     if (s != 1.0f && sw->jump_fall) {
         NW_DEVIATION(movement.crash.jump_fall);
