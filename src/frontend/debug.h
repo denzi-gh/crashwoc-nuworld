@@ -27,6 +27,8 @@ void nw_debug_frame(void);
 typedef void (*NwDebugFn)(void *user);
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open);
+/* key opens and closes it, the overlay with it. */
+void nw_debug_panel_key(const char *menu, const char *title, SDL_Scancode key, NwDebugFn draw, void *user);
 void nw_debug_toggle(const char *menu, const char *label, bool *value);
 /* key (or SDL_SCANCODE_UNKNOWN) also works while the overlay is hidden. */
 void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDebugFn run, void *user);
@@ -38,6 +40,8 @@ void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VAR
 /* Text level with the buttons on its line. */
 void nw_debug_label(const char *text);
 bool nw_debug_button(const char *label);
+bool nw_debug_checkbox(const char *label, bool *value);
+void nw_debug_indent(bool in);
 /* The next item on this line, column font sizes from the window's left edge. */
 void nw_debug_same_line(float column);
 bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool log);

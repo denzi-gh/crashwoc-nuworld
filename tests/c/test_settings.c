@@ -49,29 +49,50 @@ static char *file_text(void)
     return SDL_LoadFile(path, NULL);
 }
 
-/* One of Crash's switches: on by default, read and written in [game.movement.crash] only. */
-static void crash_switch(const char *key, size_t offset)
+/* key = value through settings.toml and back; s holds it after. */
+static void crash_key(const char *key, NwSettings *s, const char *value)
 {
-    NwSettings s;
-    bool *sw = (bool *)((char *)&s.movement.crash + offset);
-    char text[128];
-    nw_settings_defaults(&s);
-    CHECK(*sw);
-    SDL_snprintf(text, sizeof(text), "[game.movement.crash]\n%s = false\n", key);
-    CHECK(read_text(text, &s) && !*sw);
-    SDL_snprintf(text, sizeof(text), "[game.movement]\n%s = false\n", key);
-    CHECK(read_text(text, &s) && *sw);
-    *sw = false;
-    CHECK(nw_settings_save(&s, root));
-    char *file = file_text();
+    char text[128], *file = NULL;
+    SDL_snprintf(text, sizeof(text), "[game.movement.crash]\n%s = %s\n", key, value);
+    CHECK(read_text(text, s) && nw_settings_save(s, root) && (file = file_text()));
     SDL_snprintf(text, sizeof(text), "# game.movement.crash.%s: ", key);
     CHECK(file && SDL_strstr(file, "\n[game.movement.crash]\n") && SDL_strstr(file, text));
     SDL_free(file);
-    nw_settings_defaults(&s);
-    CHECK(nw_settings_load(&s, root) && !*sw);
+    nw_settings_defaults(s);
+    CHECK(nw_settings_load(s, root));
 }
 
-#define CRASH_SWITCH(field) crash_switch(#field, offsetof(NwCrashMovement, field))
+static void crash_switch(const char *key, size_t offset, bool def)
+{
+    NwSettings s;
+    bool *field = (bool *)((char *)&s.movement.crash + offset);
+    char text[128];
+    nw_settings_defaults(&s);
+    CHECK(*field == def);
+    SDL_snprintf(text, sizeof(text), "[game.movement]\n%s = %s\n", key, def ? "false" : "true");
+    CHECK(read_text(text, &s) && *field == def);
+    crash_key(key, &s, def ? "false" : "true");
+    CHECK(*field == !def);
+}
+
+static void crash_value(const char *key, size_t offset, int def, int lo, int hi)
+{
+    NwSettings s;
+    int *field = (int *)((char *)&s.movement.crash + offset);
+    char value[16];
+    nw_settings_defaults(&s);
+    CHECK(*field == def);
+    SDL_snprintf(value, sizeof(value), "%d", hi + 100);
+    crash_key(key, &s, value);
+    CHECK(*field == hi);
+    SDL_snprintf(value, sizeof(value), "%d", lo - 100);
+    crash_key(key, &s, value);
+    CHECK(*field == lo);
+}
+
+#define CRASH_SWITCH(f, ...) crash_switch(#f, offsetof(NwCrashMovement, f), true);
+#define CRASH_FLAG(f, label, def, ...) crash_switch(#f, offsetof(NwCrashMovement, f), def);
+#define CRASH_VALUE(f, label, def, lo, hi, ...) crash_value(#f, offsetof(NwCrashMovement, f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -171,16 +192,7 @@ int main(int argc, char *argv[])
     SDL_free(movement);
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.movement.monkey_bar_speed == 100);
-    CRASH_SWITCH(jump_fall);
-    CRASH_SWITCH(jump_distance);
-    CRASH_SWITCH(air_momentum);
-    CRASH_SWITCH(dash_jump);
-    CRASH_SWITCH(run_speed);
-    CRASH_SWITCH(grip);
-    CRASH_SWITCH(long_spin);
-    CRASH_SWITCH(edge_grip);
-    CRASH_SWITCH(line_2d);
-    CRASH_SWITCH(hazard_hitboxes);
+    NW_CRASH_MOVEMENT(CRASH_SWITCH, CRASH_FLAG, CRASH_VALUE)
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

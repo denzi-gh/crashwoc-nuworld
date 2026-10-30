@@ -1,4 +1,3 @@
-/* [game.movement.crash]: what Crash's N. Hanced Movement switches have in common. */
 #ifndef NUWORLD_GAMEPLAY_CRASH_H
 #define NUWORLD_GAMEPLAY_CRASH_H
 
@@ -6,7 +5,7 @@
 
 struct creature_s;
 
-/* Crash himself (not Coco) on foot: no vehicle, not swimming. */
+/* Crash, not Coco, out of vehicles and water. */
 bool nw_crash_on_foot(const struct creature_s *c);
 
 #endif

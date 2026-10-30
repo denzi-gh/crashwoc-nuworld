@@ -1,4 +1,4 @@
-/* Wraps of gamelib/debris: the particle hazards' reach. */
+/* Wraps of gamelib/debris. */
 #include "nu_types.h"
 #include "numath/numathtypes.h"
 #include "gamelib/debris.retail.h"

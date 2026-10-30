@@ -7,8 +7,9 @@
 
 void MoveCRASH(struct creature_s *plr, struct nupad_s *pad)
 {
+    nw_air_before(plr, pad);
     MoveCRASH__retail(plr, pad);
-    nw_air_move(plr);
+    nw_air_move(plr, pad);
 }
 
 void AnimateCRASH(struct creature_s *plr)

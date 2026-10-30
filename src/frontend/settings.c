@@ -187,6 +187,12 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
                    sizeof(NwTexFilter) == sizeof(int) && sizeof(NwPromptStyle) == sizeof(int),
                "NW_SETTING_ENUM fields are int-sized");
 
+#define NW_CRASH_KEY(f) .table = "game", .sub = "movement", .sub2 = "crash", .name = #f, NW_FIELD(movement.crash.f)
+#define NW_CRASH_SWITCH_KEY(f, label, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_CRASH_FLAG_KEY(f, label, def, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_CRASH_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_CRASH_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+
 static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
       .names = nw_settings_windows,
@@ -223,34 +229,7 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "game", .sub = "movement", .name = "monkey_bar_speed", .kind = NW_SETTING_INT,
       NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
       .help = "N. Hanced Movement: Crash's speed on the monkey bars, 100-500 percent of the PS2's; 350 is N. Hanced's" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "jump_fall", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.jump_fall),
-      .help = "true: less floaty jumps, a shorter hang and a faster fall with the PS2's height and reach" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "jump_distance", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.jump_distance),
-      .help = "true: in a jump any stick tilt is a full run, reached faster, so jumps go as far as they look" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "air_momentum", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.air_momentum),
-      .help = "true: in the air Crash keeps some momentum with the stick let go instead of stopping dead" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "dash_jump", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.dash_jump),
-      .help = "true: a jump out of a Crash Dash keeps the dash's speed to the ground (long jumps)" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "run_speed", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.run_speed),
-      .help = "true: Crash runs and dashes faster and gets up to speed sooner (jumps reach further with it)" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "grip", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.grip), .help = "true: less slippery stops and turns on the ground (ice stays slippery)" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "long_spin", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.long_spin), .help = "true: the spin attack hits for 0.4 s instead of the PS2's 0.32 s" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "edge_grip", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.edge_grip),
-      .help = "true: landing on a platform's beveled edge holds Crash there instead of sliding him off" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "line_2d", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.line_2d),
-      .help = "true: in side-on (2D) sections Crash stays on the line he entered them on, not drifting off it" },
-    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "hazard_hitboxes", .kind = NW_SETTING_BOOL,
-      NW_FIELD(movement.crash.hazard_hitboxes),
-      .help = "true: enemies, fire and steam kill Crash closer to where they are drawn, not from a distance" },
+    NW_CRASH_MOVEMENT(NW_CRASH_SWITCH_KEY, NW_CRASH_FLAG_KEY, NW_CRASH_VALUE_KEY)
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,

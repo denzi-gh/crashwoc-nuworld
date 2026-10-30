@@ -58,6 +58,16 @@ void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *u
     }
 }
 
+void nw_debug_panel_key(const char *menu, const char *title, SDL_Scancode key, NwDebugFn draw, void *user)
+{
+    NwDebugItem *item = nw_debug_add(NW_DEBUG_PANEL, menu, title);
+    if (item) {
+        item->fn = draw;
+        item->user = user;
+        item->key = key;
+    }
+}
+
 void nw_debug_toggle(const char *menu, const char *label, bool *value)
 {
     NwDebugItem *item = nw_debug_add(NW_DEBUG_TOGGLE, menu, label);
@@ -107,6 +117,20 @@ void nw_debug_label(const char *text)
 bool nw_debug_button(const char *label)
 {
     return ImGui::Button(label);
+}
+
+bool nw_debug_checkbox(const char *label, bool *value)
+{
+    return ImGui::Checkbox(label, value);
+}
+
+void nw_debug_indent(bool in)
+{
+    if (in) {
+        ImGui::Indent();
+    } else {
+        ImGui::Unindent();
+    }
 }
 
 void nw_debug_same_line(float column)
@@ -167,7 +191,7 @@ static void nw_debug_menu_item(NwDebugItem *item)
         ImGui::MenuItem(item->label, NULL, item->value);
         ImGui::PopItemFlag();
     } else if (item->kind == NW_DEBUG_PANEL) {
-        ImGui::MenuItem(item->label, NULL, &item->open);
+        ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL, &item->open);
     } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
         item->fn(item->user);
     }
@@ -219,6 +243,26 @@ static void nw_debug_panels(void)
     }
 }
 
+static void nw_debug_set_shown(bool shown)
+{
+    nw_debug.shown = shown;
+    ImGui::GetIO().ClearInputKeys();
+    ImGui::GetIO().ClearInputMouse();
+}
+
+/* Closing hides the overlay too when no other panel is open. */
+static void nw_debug_key_panel(NwDebugItem *panel)
+{
+    panel->open = !nw_debug.shown || !panel->open;
+    bool other = false;
+    for (uint32_t i = 0; i < nw_debug.nitems; i++) {
+        other = other || (nw_debug.items[i].kind == NW_DEBUG_PANEL && nw_debug.items[i].open);
+    }
+    if (panel->open != nw_debug.shown && (panel->open || !other)) {
+        nw_debug_set_shown(panel->open);
+    }
+}
+
 bool nw_debug_init(NwPlatform *p, const char *data_root)
 {
     if (!nw_ui_init(p)) {
@@ -250,9 +294,7 @@ bool nw_debug_event(const SDL_Event *e)
     }
     if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_F1) {
         if (!e->key.repeat) {
-            nw_debug.shown = !nw_debug.shown;
-            ImGui::GetIO().ClearInputKeys();
-            ImGui::GetIO().ClearInputMouse();
+            nw_debug_set_shown(!nw_debug.shown);
         }
         return true;
     }
@@ -261,6 +303,12 @@ bool nw_debug_event(const SDL_Event *e)
         if (item->kind == NW_DEBUG_ACTION && item->key && item->key == e->key.scancode) {
             if (!e->key.repeat) {
                 item->fn(item->user);
+            }
+            return true;
+        }
+        if (item->kind == NW_DEBUG_PANEL && item->key && item->key == e->key.scancode) {
+            if (!e->key.repeat) {
+                nw_debug_key_panel(item);
             }
             return true;
         }

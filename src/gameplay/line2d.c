@@ -10,20 +10,20 @@
 extern struct rail_s Rail[];
 extern f32 NuTrigTable[];
 
-/* line_2d: back to the line by this share of the distance a frame, at most this speed. */
+/* At 100 %: a share of the distance back a frame, at most a unit a second. */
 #define NW_LINE2D_PULL NW_HZ(0.25f, 0.213f)
 #define NW_LINE2D_MAX NW_HZ(0.02f, 0.016666668f)
 
-static bool nw_line2d_on;    /* in a side-on section */
+static bool nw_line2d_on;
 static signed char nw_line2d_rail;
-static float nw_line2d_across; /* where across the rail he entered it, 0 its left spline, 1 its right */
+static float nw_line2d_across; /* fACROSS where he entered the section */
 
 static struct nuvec_s *nw_line2d_point(const struct nugspline_s *s, int i)
 {
     return (struct nuvec_s *)(s->pts + i * s->ptsize);
 }
 
-/* The rail's point at along and across, as BestRailPosition measures them. */
+/* As BestRailPosition measures along and across. */
 static struct nuvec_s nw_line2d_at(const RailPosition *r, float across)
 {
     const struct rail_s *rail = &Rail[r->iRAIL];
@@ -37,10 +37,10 @@ static struct nuvec_s nw_line2d_at(const RailPosition *r, float across)
 
 void nw_line2d_hold(struct creature_s *plr)
 {
-    /* RPos is where the last frame left him, which MoveLoopXZ's move starts from. */
+    const NwCrashMovement *c = &nw_profile.movement.crash;
     const RailPosition *r = &plr->obj.RPos;
     bool side = r->iRAIL != -1 && r->iALONG != -1 && (r->mode & 0xC) && !r->vertical;
-    if (!nw_profile.movement.crash.line_2d || !side || plr->obj.dead || plr->obj.transporting || plr->obj.dangle) {
+    if (!c->line_2d || !side || plr->obj.dead || plr->obj.transporting || plr->obj.dangle) {
         nw_line2d_on = false;
         return;
     }
@@ -54,7 +54,8 @@ void nw_line2d_hold(struct creature_s *plr)
     float ax = NuTrigTable[a], az = NuTrigTable[(u16)(a + 0x4000)];
     float drift = plr->obj.mom.x * ax + plr->obj.mom.z * az;
     struct nuvec_s line = nw_line2d_at(r, nw_line2d_across);
-    float off = (line.x - plr->obj.pos.x) * ax + (line.z - plr->obj.pos.z) * az, pull = off * NW_LINE2D_PULL;
+    float off = (line.x - plr->obj.pos.x) * ax + (line.z - plr->obj.pos.z) * az;
+    float pull = off * NW_LINE2D_PULL * c->line_pull / 100.0f;
     pull = pull > NW_LINE2D_MAX ? NW_LINE2D_MAX : pull < -NW_LINE2D_MAX ? -NW_LINE2D_MAX : pull;
     plr->obj.mom.x += (pull - drift) * ax;
     plr->obj.mom.z += (pull - drift) * az;

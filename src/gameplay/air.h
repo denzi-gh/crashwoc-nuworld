@@ -1,16 +1,15 @@
-/* [game.movement.crash] jump_fall, jump_distance, air_momentum, dash_jump: Crash in the air, part of N. Hanced
-   Movement. */
+/* Crash in the air: jump_fall, jump_distance, air_momentum, dash_jump, air_jump. */
 #ifndef NUWORLD_GAMEPLAY_AIR_H
 #define NUWORLD_GAMEPLAY_AIR_H
 
 struct creature_s;
+struct nupad_s;
 
-/* nw_profile's jump data: at boot after the data image and the 60 Hz table, then between frames. */
 void nw_air_apply(void);
-/* MoveLoopXZ for Crash on foot, before retail: in_speed and the frictions (the caller restores them); forward is
-   his speed along the stick. */
+/* MoveLoopXZ, before retail; forward is his speed along the stick. */
 void nw_air_loop(const struct creature_s *plr, float forward);
-/* MoveCRASH, after retail. */
-void nw_air_move(struct creature_s *plr);
+/* MoveCRASH, around retail. */
+void nw_air_before(struct creature_s *plr, const struct nupad_s *pad);
+void nw_air_move(struct creature_s *plr, const struct nupad_s *pad);
 
 #endif
