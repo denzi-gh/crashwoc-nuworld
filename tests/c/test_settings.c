@@ -180,6 +180,7 @@ int main(int argc, char *argv[])
     CRASH_SWITCH(long_spin);
     CRASH_SWITCH(edge_grip);
     CRASH_SWITCH(line_2d);
+    CRASH_SWITCH(hazard_hitboxes);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

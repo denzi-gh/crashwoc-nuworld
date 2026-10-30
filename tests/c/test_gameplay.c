@@ -10,6 +10,7 @@
 #include "gameplay/edges.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
+#include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
 #include "gameplay/monkeybars.h"
 #include "nu3d/nugscn.h"
@@ -29,6 +30,8 @@ extern f32 in_f_friction;
 extern f32 in_s_friction;
 extern NwTerI *TerI;
 extern struct rail_s Rail[];
+extern struct obj_s *pObj[64];
+extern s32 GAMEOBJECTCOUNT;
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 
 static int failures;
@@ -547,6 +550,42 @@ static void line_2d(void)
     Rail[0] = (struct rail_s){ 0 };
 }
 
+/* A creature that can hurt Crash while he can't hurt it reaches less far, and back after the test; fire and steam
+   count half his radius. */
+static void hazard_hitboxes(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .hazard_hitboxes = true } } };
+    static struct obj_s enemy, harmless;
+    struct obj_s *crash = &Character[0].obj;
+    enemy = (struct obj_s){ .attack = 1, .vulnerable = 2, .RADIUS = 0.5f, .min = { -1.0f, 0.0f, -1.0f },
+                            .max = { 1.0f, 1.0f, 1.0f } };
+    harmless = (struct obj_s){ .RADIUS = 0.5f };
+    pObj[0] = &enemy;
+    pObj[1] = &harmless;
+    GAMEOBJECTCOUNT = 2;
+    crash_at(50, &on);
+    nw_hazards_shrink(crash);
+    CHECK(enemy.RADIUS == 0.5f * 0.8f && enemy.max.x == 0.8f && enemy.min.z == -0.8f && enemy.max.y == 1.0f);
+    CHECK(harmless.RADIUS == 0.5f);
+    nw_hazards_restore();
+    CHECK(enemy.RADIUS == 0.5f && enemy.max.x == 1.0f && enemy.min.z == -1.0f);
+    crash->attack = 2; /* spinning: its full size, so his reach stays */
+    nw_hazards_shrink(crash);
+    CHECK(enemy.RADIUS == 0.5f);
+    nw_hazards_restore();
+    crash->attack = 0;
+    nw_hazards_shrink(&harmless);
+    CHECK(enemy.RADIUS == 0.5f);
+    nw_hazards_restore();
+    CHECK(nw_hazards_particle(0.225f) == 0.225f * 0.5f);
+    crash_at(50, &retail);
+    nw_hazards_shrink(crash);
+    CHECK(enemy.RADIUS == 0.5f && nw_hazards_particle(0.225f) == 0.225f);
+    nw_hazards_restore();
+    pObj[0] = pObj[1] = NULL;
+    GAMEOBJECTCOUNT = 0;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -563,6 +602,7 @@ int main(void)
     long_spin();
     edge_grip();
     line_2d();
+    hazard_hitboxes();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

@@ -16,6 +16,7 @@ typedef struct NwCrashMovement {
     bool long_spin;     /* the spin attack lasts longer */
     bool edge_grip;     /* a beveled platform edge holds him instead of sliding him off */
     bool line_2d;       /* side-on (2D) sections hold him on their line */
+    bool hazard_hitboxes; /* what can kill him reaches about as far as it is drawn */
 } NwCrashMovement;
 
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
@@ -28,7 +29,8 @@ typedef struct NwMovement {
 #define NW_MOVEMENT_NHANCED \
     { .monkey_bar_speed = 350, \
       .crash = { .jump_fall = true, .jump_distance = true, .air_momentum = true, .dash_jump = true, \
-                 .run_speed = true, .grip = true, .long_spin = true, .edge_grip = true, .line_2d = true } }
+                 .run_speed = true, .grip = true, .long_spin = true, .edge_grip = true, .line_2d = true, \
+                 .hazard_hitboxes = true } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {

@@ -1,10 +1,11 @@
-/* Wraps of game/game_obj: Crash's speeds on the ground and in the air. */
+/* Wraps of game/game_obj: Crash's speeds on the ground and in the air, and what can hurt him. */
 #include "game/creature.h"
 #include "game/game_obj.retail.h"
 #include "numath/nuvec.h"
 #include "gameplay/air.h"
 #include "gameplay/crash.h"
 #include "gameplay/ground.h"
+#include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
 
 /* Declared by no header. */
@@ -28,4 +29,11 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
     in_f_friction = forward;
     in_s_friction = side;
     nw_line2d_hold(&Character[0]);
+}
+
+void PlayerCreatureCollisions(struct obj_s *obj)
+{
+    nw_hazards_shrink(obj);
+    PlayerCreatureCollisions__retail(obj);
+    nw_hazards_restore();
 }
