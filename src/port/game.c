@@ -226,7 +226,7 @@ uint64_t nw_game_yield(bool wait_edge)
             static bool reported;
             if (!reported) {
                 reported = true;
-                fprintf(stderr, NW_APP_NAME ": the game fell %llu vblanks behind; it gets %d of them (reported once)\n",
+                SDL_Log(NW_APP_NAME ": the game fell %llu vblanks behind; it gets %d of them (reported once)",
                         (unsigned long long)n, NW_GAME_MAX_CATCHUP);
             }
             n = NW_GAME_MAX_CATCHUP;

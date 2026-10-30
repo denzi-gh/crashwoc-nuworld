@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
 #include "nucore/nuerror.h"
 #include "port/game.h"
 
@@ -20,8 +22,7 @@ void NuErrorFunction(const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     snprintf(msg, sizeof(msg), "NuError - %s(%d) : %s", nw_errfile, nw_errline, buf);
-    printf("%s\n", msg);
-    fflush(stdout);
+    SDL_Log("%s", msg);
     nw_game_fatal(msg);
 }
 

@@ -35,7 +35,8 @@ static struct {
     int route[NW_LEVEL_ROUTE], nroute, leg;
     NwLevelArrival arrivals[NW_LEVEL_ROUTE];
     SDL_AtomicInt arrived; /* 1 once the last runs */
-} nw_level = { .entering = -1, .arrival = -1 };
+    int logged;
+} nw_level = { .entering = -1, .arrival = -1, .logged = -1 };
 
 int nw_level_count(void)
 {
@@ -202,6 +203,11 @@ void nw_level_poll(void)
                   cutmovie <= 0 && !Demo && !editor_active;
     bool ready = steady && nw_level.steady;
     nw_level.steady = steady;
+    if (steady && Level != nw_level.logged) {
+        const char *name = nw_level_name(Level);
+        nw_level.logged = Level;
+        SDL_Log("level %d: %s", Level, name ? name : "?");
+    }
     if (!ready) {
         return;
     }

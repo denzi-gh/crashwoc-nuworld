@@ -18,6 +18,7 @@ option(NUWORLD_TESTS "Build the C tests (ctest)" ON)
 option(NUWORLD_DECOMP "Generate and compile the decomp units (needs Python 3.11+ with libclang)" ON)
 option(NUWORLD_FUZZ "Build the libFuzzer targets for the VFS readers and the loaders (clang on Linux)" OFF)
 option(NUWORLD_SANITIZE "Build the port, the decomp and the tests with ASan and UBSan (clang)" OFF)
+set(NUWORLD_TAG "BETA" CACHE STRING "Release tag in the build ID (empty for a release without one)")
 
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
@@ -89,6 +90,7 @@ add_executable(crashwoc-nuworld
   src/main.c
   src/platform/audio.c
   src/platform/display.c
+  src/platform/log.c
   src/platform/platform.c
   src/gfx/gl.c
   src/gfx/vu.c
@@ -99,19 +101,28 @@ nw_embed(crashwoc-nuworld nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fon
 nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
 
 target_include_directories(crashwoc-nuworld PRIVATE src)
-target_compile_definitions(crashwoc-nuworld PRIVATE NUWORLD_VERSION="${PROJECT_VERSION}")
 target_compile_options(crashwoc-nuworld PRIVATE -Wall -Wextra $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
-target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_gfx nuworld_imgui SDL3::SDL3)
+target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_gfx nuworld_imgui nuworld_port SDL3::SDL3)
 if(MINGW)
   # Keep the release a single .exe: libc++ (Dear ImGui) linked in, not libc++.dll.
   target_link_options(crashwoc-nuworld PRIVATE -static-libstdc++)
 endif()
 
-# Runtime for the generated stubs and function map, and the vblank clock the game thread runs on.
+# Checked at every build.
+set(nw_buildid ${CMAKE_CURRENT_BINARY_DIR}/gen/buildid.c)
+add_custom_target(nuworld_buildid
+  COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${nw_buildid} -DVERSION=${PROJECT_VERSION}
+    -DTAG=${NUWORLD_TAG} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/buildid.cmake
+  BYPRODUCTS ${nw_buildid}
+  VERBATIM)
+
+# Runtime for the generated stubs and function map, the vblank clock the game thread runs on, and the build ID.
 add_library(nuworld_port STATIC
   src/platform/clock.c
   src/port/stub.c
-  src/port/funcmap.c)
+  src/port/funcmap.c
+  ${nw_buildid})
+add_dependencies(nuworld_port nuworld_buildid)
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_port PUBLIC SDL3::SDL3)
