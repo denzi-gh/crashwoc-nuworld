@@ -1,11 +1,16 @@
 /* src/gameplay: the profile's switches and the retail values they change. */
+#include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "game/creature.h"
 #include "game/gametypes.h"
+#include "gameplay/air.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/monkeybars.h"
+#include "nu_port.h"
+#include "numath/nutrig.h"
 #include "port/hz.h"
 
 extern struct MoveInfo CrashMoveInfo;
@@ -13,6 +18,12 @@ extern struct MoveInfo CocoMoveInfo;
 extern s32 plr_terrain_ok;
 extern s32 VEHICLECONTROL;
 extern struct ldata_s *LDATA;
+extern struct gtimer_s GameTimer;
+extern f32 GRAVITY;
+extern f32 in_speed;
+extern f32 in_f_friction;
+extern f32 in_s_friction;
+void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 
 static int failures;
 
@@ -155,17 +166,138 @@ static void air_indicator(void)
     CHECK(!nw_profile.air_indicator);
 }
 
+static bool near(float a, float b, float within)
+{
+    return fabsf(a - b) <= within * fabsf(b);
+}
+
+/* Retail's Crash data and globals at hz, then p applied. */
+static void crash_at(int hz, const NwProfile *p)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(&(NwProfile){ 0 });
+    CrashMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
+    CrashMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
+    GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
+    VEHICLECONTROL = 0;
+    nw_profile_apply(p);
+    memset(&Character[0], 0, sizeof(Character[0]));
+    Character[0].obj.vehicle = -1;
+}
+
+/* A jump's seconds in the air, apex and reach. */
+typedef struct Arc {
+    float time, apex, reach;
+} Arc;
+
+/* Crash jumps at run speed on flat ground with the stick held and the button for hold ticks: MovePlayer's and
+   MoveCRASH's jump steps cut down, the hooks called where the game calls them. */
+static Arc jump(int hz, const NwProfile *p, int hold)
+{
+    crash_at(hz, p);
+    struct creature_s *c = &Character[0];
+    float run = CrashMoveInfo.RUNSPEED, friction = NW_HZ(0.0072f, 0.005f);
+    c->obj.mom.z = run;
+    c->jump = 1;
+    c->jump_type = 1;
+    c->jump_frames = CrashMoveInfo.JUMPFRAMES0;
+    Arc arc = { 0 };
+    for (int tick = 1; tick < 500; tick++) {
+        GameTimer.frame++;
+        in_speed = run;
+        in_f_friction = in_s_friction = friction;
+        MoveLoopXZ(&c->obj, &c->obj.thdg);
+        c->obj.pos.y += c->obj.mom.y;
+        c->obj.pos.z += c->obj.mom.z;
+        arc.apex = fmaxf(arc.apex, c->obj.pos.y);
+        c->obj.ground = c->obj.pos.y < 0.0f;
+        if (c->obj.ground) {
+            c->obj.pos.y = c->obj.mom.y = 0.0f;
+            c->jump = 0;
+        }
+        if (c->jump && c->jump_frame < c->jump_frames) {
+            c->obj.mom.y = CrashMoveInfo.JUMPHEIGHT / CrashMoveInfo.JUMPFRAMES2;
+        }
+        if (!c->obj.ground) {
+            c->obj.mom.y += GRAVITY;
+        }
+        if (c->jump && c->jump_frame < c->jump_frames) {
+            c->jump_frame++;
+        }
+        if (c->jump == 1 && tick <= hold && c->jump_frames < CrashMoveInfo.JUMPFRAMES2) {
+            c->jump_frames++;
+        } else if (c->jump == 1) {
+            c->jump = 3;
+        }
+        nw_air_move(c);
+        if (c->obj.ground) {
+            arc.time = tick / (float)hz;
+            arc.reach = c->obj.pos.z;
+            break;
+        }
+    }
+    return arc;
+}
+
+/* Same height and reach in less time, PAL's jump at 60 Hz; the switch let go of mid-air. */
+static void jump_fall(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .jump_fall = true } } };
+    for (int hold = 1; hold <= 100; hold += 99) {
+        Arc pal = jump(50, &retail, hold), fast = jump(50, &on, hold), ntsc = jump(60, &on, hold);
+        CHECK(near(fast.apex, pal.apex, 0.03f) && near(fast.reach, pal.reach, 0.05f));
+        CHECK(fast.time < pal.time * 0.9f);
+        CHECK(near(ntsc.apex, fast.apex, 0.03f) && near(ntsc.reach, fast.reach, 0.05f));
+        CHECK(fabsf(ntsc.time - fast.time) <= 0.03f);
+    }
+    CHECK(jump(60, &retail, 100).apex > jump(50, &retail, 100).apex * 1.1f); /* retail's NTSC jump is higher */
+
+    crash_at(60, &on);
+    CHECK(CrashMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.STARJUMPFRAMES == 24);
+    crash_at(50, &on);
+    CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
+    crash_at(60, &retail);
+    CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
+
+    /* Falling: warped, then back to retail's speeds at the next MoveCRASH once the switch is off. */
+    crash_at(50, &on);
+    struct creature_s *c = &Character[0];
+    c->jump = 3;
+    c->allow_jump = 0;
+    c->obj.mom.y = -0.05f + GRAVITY; /* MoveCRASH's gravity before the hook */
+    c->obj.mom.z = 0.072f;
+    GameTimer.frame++;
+    nw_air_move(c);
+    CHECK(near(c->obj.mom.z, 0.072f * 1.5f, 1e-5f) && near(c->obj.mom.y, -0.05f * 1.5f + 2.25f * GRAVITY, 1e-5f));
+    float fall = c->obj.mom.y;
+    nw_profile_request(&(NwProfile){ 0 });
+    nw_gameplay_swap();
+    GameTimer.frame++;
+    in_speed = c->obj.mom.z;
+    in_f_friction = in_s_friction = 0.0f;
+    MoveLoopXZ(&c->obj, &c->obj.thdg);
+    CHECK(near(in_speed, c->obj.mom.z, 1e-6f));
+    c->obj.mom.y += GRAVITY;
+    nw_air_move(c);
+    CHECK(near(c->obj.mom.z, 0.072f, 1e-5f) && near(c->obj.mom.y, fall / 1.5f + GRAVITY, 1e-5f));
+}
+
 int main(void)
 {
+    NuTrigInit();
     monkey_bars(50, 0.015599999f);
     monkey_bars(60, 0.013f);
     monkey_bar_anim();
     air_indicator();
+    jump_fall();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_NHANCED) == NW_MOVEMENT_PROFILE_NHANCED);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

@@ -146,7 +146,7 @@ schema = 1
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
-"game/game_obj" = { treatment = "compile" }
+"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ"] }
 "game/visi" = { treatment = "compile" }
 "game/vehicle" = { treatment = "compile" }
 "game/vehsupp" = { treatment = "compile" }
@@ -167,7 +167,7 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile", wrap = ["AnimateCRASH"] }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH"] }
 "game/chase" = { treatment = "compile" }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }

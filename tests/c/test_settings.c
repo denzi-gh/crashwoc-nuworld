@@ -1,4 +1,5 @@
 /* settings.toml: defaults, round trips, clamps, bindings, rejected values, a file that is not TOML, kept keys. */
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -47,6 +48,30 @@ static char *file_text(void)
     SDL_snprintf(path, sizeof(path), "%s%s", root, NW_PATHS_SETTINGS);
     return SDL_LoadFile(path, NULL);
 }
+
+/* One of Crash's switches: on by default, read and written in [game.movement.crash] only. */
+static void crash_switch(const char *key, size_t offset)
+{
+    NwSettings s;
+    bool *sw = (bool *)((char *)&s.movement.crash + offset);
+    char text[128];
+    nw_settings_defaults(&s);
+    CHECK(*sw);
+    SDL_snprintf(text, sizeof(text), "[game.movement.crash]\n%s = false\n", key);
+    CHECK(read_text(text, &s) && !*sw);
+    SDL_snprintf(text, sizeof(text), "[game.movement]\n%s = false\n", key);
+    CHECK(read_text(text, &s) && *sw);
+    *sw = false;
+    CHECK(nw_settings_save(&s, root));
+    char *file = file_text();
+    SDL_snprintf(text, sizeof(text), "# game.movement.crash.%s: ", key);
+    CHECK(file && SDL_strstr(file, "\n[game.movement.crash]\n") && SDL_strstr(file, text));
+    SDL_free(file);
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && !*sw);
+}
+
+#define CRASH_SWITCH(field) crash_switch(#field, offsetof(NwCrashMovement, field))
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -146,6 +171,7 @@ int main(int argc, char *argv[])
     SDL_free(movement);
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.movement.monkey_bar_speed == 100);
+    CRASH_SWITCH(jump_fall);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);
