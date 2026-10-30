@@ -29,6 +29,7 @@ static const struct {
 } nw_ground_runs[] = { { 0x3A, 1.3f }, { 0x48, 1.0f }, { 0x32, 1.3f }, { 0x39, 1.3f } };
 
 static float nw_ground_run = 1.0f; /* the speeds' scale set last */
+static short nw_ground_spin = 16;  /* SPINFRAMES set last, retail's at both rates */
 static float nw_ground_anims[sizeof(nw_ground_runs) / sizeof(nw_ground_runs[0])] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 static float nw_ground_scale(void)
@@ -50,6 +51,16 @@ void nw_ground_apply(void)
         CrashMoveInfo.SPRINTSPEED = base_dash * run;
     }
     nw_ground_run = run;
+    /* long_spin: the spin's hit lasts 0.4 s at both rates instead of 16 frames. */
+    short spin = 16;
+    if (nw_profile.movement.crash.long_spin) {
+        NW_DEVIATION(movement.crash.long_spin);
+        spin = NW_HZ(20, 24);
+    }
+    if (CrashMoveInfo.SPINFRAMES == nw_ground_spin) {
+        CrashMoveInfo.SPINFRAMES = spin;
+    }
+    nw_ground_spin = spin;
 }
 
 void nw_ground_loop(const struct creature_s *plr, float forward)

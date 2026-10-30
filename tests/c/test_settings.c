@@ -177,6 +177,7 @@ int main(int argc, char *argv[])
     CRASH_SWITCH(dash_jump);
     CRASH_SWITCH(run_speed);
     CRASH_SWITCH(grip);
+    CRASH_SWITCH(long_spin);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

@@ -240,6 +240,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "true: Crash runs and dashes faster and gets up to speed sooner (jumps reach further with it)" },
     { .table = "game", .sub = "movement", .sub2 = "crash", .name = "grip", .kind = NW_SETTING_BOOL,
       NW_FIELD(movement.crash.grip), .help = "true: less slippery stops and turns on the ground (ice stays slippery)" },
+    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "long_spin", .kind = NW_SETTING_BOOL,
+      NW_FIELD(movement.crash.long_spin), .help = "true: the spin attack hits for 0.4 s instead of the PS2's 0.32 s" },
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,

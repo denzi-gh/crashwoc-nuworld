@@ -447,6 +447,22 @@ static void grip(void)
     CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f) && near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
 }
 
+/* 0.4 s of spin at both rates; a value someone else wrote stays. */
+static void long_spin(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .long_spin = true } } };
+    crash_at(50, &on);
+    CHECK(CrashMoveInfo.SPINFRAMES == 20);
+    crash_at(60, &on);
+    CHECK(CrashMoveInfo.SPINFRAMES == 24);
+    crash_at(60, &retail);
+    CHECK(CrashMoveInfo.SPINFRAMES == 16);
+    CrashMoveInfo.SPINFRAMES = 30;
+    nw_profile_apply(&on);
+    CHECK(CrashMoveInfo.SPINFRAMES == 30);
+    CrashMoveInfo.SPINFRAMES = 16;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -460,6 +476,7 @@ int main(void)
     dash_jump();
     run_speed();
     grip();
+    long_spin();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);
