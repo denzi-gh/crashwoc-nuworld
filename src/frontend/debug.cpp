@@ -154,29 +154,50 @@ bool nw_debug_selectable(const char *label, bool selected)
     return ImGui::Selectable(label, selected);
 }
 
-static void nw_debug_menus(void)
+/* menu is the path's first len characters or a submenu of it. */
+static bool nw_debug_under(const char *menu, const char *path, size_t len)
+{
+    return len == 0 || (SDL_strncmp(menu, path, len) == 0 && (menu[len] == '\0' || menu[len] == '/'));
+}
+
+static void nw_debug_menu_item(NwDebugItem *item)
+{
+    if (item->kind == NW_DEBUG_TOGGLE) {
+        ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
+        ImGui::MenuItem(item->label, NULL, item->value);
+        ImGui::PopItemFlag();
+    } else if (item->kind == NW_DEBUG_PANEL) {
+        ImGui::MenuItem(item->label, NULL, &item->open);
+    } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
+        item->fn(item->user);
+    }
+}
+
+/* The items and submenus under path's first len characters, each where its first item was registered. */
+static void nw_debug_menu(const char *path, size_t len)
 {
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
-        const char *menu = nw_debug.items[i].menu;
-        bool first = true;
-        for (uint32_t j = 0; j < i && first; j++) {
-            first = SDL_strcmp(nw_debug.items[j].menu, menu) != 0;
-        }
-        if (!first || !ImGui::BeginMenu(menu)) {
+        NwDebugItem *item = &nw_debug.items[i];
+        if (!nw_debug_under(item->menu, path, len)) {
             continue;
         }
-        for (uint32_t j = i; j < nw_debug.nitems; j++) {
-            NwDebugItem *item = &nw_debug.items[j];
-            if (SDL_strcmp(item->menu, menu) != 0) {
-                continue;
-            }
-            if (item->kind != NW_DEBUG_ACTION) {
-                ImGui::MenuItem(item->label, NULL, item->kind == NW_DEBUG_TOGGLE ? item->value : &item->open);
-            } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
-                item->fn(item->user);
-            }
+        if (len && item->menu[len] == '\0') {
+            nw_debug_menu_item(item);
+            continue;
         }
-        ImGui::EndMenu();
+        const char *name = item->menu + (len ? len + 1 : 0);
+        const char *end = SDL_strchr(name, '/');
+        size_t n = end ? (size_t)(end - name) : SDL_strlen(name), sub = (size_t)(name - item->menu) + n;
+        bool first = true;
+        for (uint32_t j = 0; j < i && first; j++) {
+            first = !nw_debug_under(nw_debug.items[j].menu, item->menu, sub);
+        }
+        char label[64];
+        SDL_strlcpy(label, name, SDL_min(n + 1, sizeof(label)));
+        if (first && ImGui::BeginMenu(label)) {
+            nw_debug_menu(item->menu, sub);
+            ImGui::EndMenu();
+        }
     }
 }
 
@@ -289,7 +310,7 @@ void nw_debug_frame(void)
         char rate[32];
         SDL_snprintf(rate, sizeof(rate), "%.0f fps", ImGui::GetIO().Framerate);
         ImGui::TextDisabled(NW_APP_NAME);
-        nw_debug_menus();
+        nw_debug_menu("", 0);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(rate).x);
         ImGui::TextUnformatted(rate);
         ImGui::EndMainMenuBar();
