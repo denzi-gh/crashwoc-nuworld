@@ -776,7 +776,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             titled = SDL_GetTicks();
         }
         int width, height;
-        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
+        nw_display_size(platform.window, &width, &height);
         nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
