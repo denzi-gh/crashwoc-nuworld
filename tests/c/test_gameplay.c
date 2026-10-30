@@ -7,6 +7,7 @@
 #include "game/gametypes.h"
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/edges.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
 #include "gameplay/monkeybars.h"
@@ -24,6 +25,7 @@ extern f32 GRAVITY;
 extern f32 in_speed;
 extern f32 in_f_friction;
 extern f32 in_s_friction;
+extern NwTerI *TerI;
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 
 static int failures;
@@ -463,6 +465,51 @@ static void long_spin(void)
     CrashMoveInfo.SPINFRAMES = 16;
 }
 
+static NwTerI contact;
+
+/* A contact of hittype type at a normal y up (world space), centre above it when below; true when it was made a
+   floor. */
+static bool held(short type, float y, bool below, const unsigned char *flags)
+{
+    memset(&contact, 0, sizeof(contact));
+    contact.hittype = type;
+    contact.uhitnorm = (struct nuvec_s){ sqrtf(1.0f - y * y), below ? y : -y, 0.0f };
+    contact.hitnorm = contact.uhitnorm;
+    nw_edges_impact(flags);
+    return contact.uhitnorm.y == 1.0f && contact.hitnorm.y == 1.0f && contact.uhitnorm.x == 0.0f;
+}
+
+/* Edges and corners under Crash hold him up to three quarters of his radius out, and keep holding while he stands
+   still; faces, other movers and retail stay as they were. */
+static void edge_grip(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .edge_grip = true } } };
+    NwTerI *was = TerI;
+    unsigned char *own = Character[0].obj.gndflags.chrs, other[2] = { 0 };
+    TerI = &contact;
+    crash_at(50, &on);
+    CHECK(held(2, 0.5f, true, own) && held(3, 0.5f, true, own) && held(0x13, 0.45f, true, own));
+    CHECK(!held(1, 0.5f, true, own) && !held(2, 0.3f, true, own) && !held(2, 0.5f, false, own));
+    CHECK(!held(2, 0.5f, true, other));
+    CHECK(!held(2, 0.8f, true, own) && contact.uhitnorm.y == 0.8f); /* a floor already */
+
+    /* Still on a held rim: MovePlayer's release of the ground is undone; after a face, retail's. */
+    for (int rim = 1; rim >= 0; rim--) {
+        held(rim ? 2 : 1, 0.5f, true, own);
+        own[0] = own[1] = 1;
+        GameTimer.frame++;
+        nw_edges_scanned(own);
+        Character[0].obj.ground = 1;
+        own[0] = own[1] = 0;
+        GameTimer.frame++;
+        nw_edges_scan(own);
+        CHECK(own[1] == rim);
+    }
+    crash_at(50, &retail);
+    CHECK(!held(2, 0.5f, true, own));
+    TerI = was;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -477,6 +524,7 @@ int main(void)
     run_speed();
     grip();
     long_spin();
+    edge_grip();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

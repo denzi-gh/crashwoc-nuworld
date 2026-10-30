@@ -767,6 +767,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_toggle(NW_CRASH_MENU, "Faster run", &settings.movement.crash.run_speed);
     nw_debug_toggle(NW_CRASH_MENU, "Grip", &settings.movement.crash.grip);
     nw_debug_toggle(NW_CRASH_MENU, "Longer spin", &settings.movement.crash.long_spin);
+    nw_debug_toggle(NW_CRASH_MENU, "Edge grip", &settings.movement.crash.edge_grip);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);

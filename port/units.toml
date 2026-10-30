@@ -99,7 +99,7 @@ schema = 1
 "nups2/clipping" = { treatment = "compile" }
 
 # gamelib
-"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
+"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"], wrap = ["NewTerrainScaleY", "TerrainImpact"] }
 "gamelib/debris" = { treatment = "compile" }
 "gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
     "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
