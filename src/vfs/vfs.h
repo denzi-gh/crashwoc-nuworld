@@ -58,9 +58,10 @@ bool nw_vfs_mount(NwVfs *vfs, NwVfsSlot slot, const char *dir);
 void nw_vfs_shutdown(NwVfs *vfs);
 
 /* --overlay: mounts dir in front of the overlays mounted before, so the newest wins. It only replaces: each file
-   stands for a disc file, or, in a folder named after an archive (ATS.DAT/LEVELS/...), for one of its entries; the
-   boot ELF, SYSTEM.CNF, the IRX modules and DUMMY.DAT are never replaced. A file an older overlay also has goes to
-   conflict (the newest wins). Needs the disc mounted. */
+   stands for a disc file, or, in a folder named after an archive (ATS.DAT/LEVELS/...), for one of its entries
+   (not SFX.DAT's: the sound driver reads that archive whole); the boot ELF, SYSTEM.CNF, the IRX modules and
+   DUMMY.DAT are never replaced. A file an older overlay also has goes to conflict (the newest wins). Needs the disc
+   mounted. */
 bool nw_vfs_overlay(NwVfs *vfs, const char *dir, void (*conflict)(void *user, const char *key), void *user);
 /* Calls fn with the overlays' files under prefix (an archive's key and '/'), the newest overlay's for a key, with
    the key's rest and the host path. */

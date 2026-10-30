@@ -662,13 +662,13 @@ static void test_overlay(void)
     CHECK(SDL_CreateDirectory(AT("disc/LEVELS")) && SDL_CreateDirectory(AT("new/levels")) &&
           SDL_CreateDirectory(AT("old/LEVELS")) && SDL_CreateDirectory(AT("entry/test.dat/arc/a")) &&
           SDL_CreateDirectory(AT("bad/test.dat/arc")) && SDL_CreateDirectory(AT("extra")) &&
-          SDL_CreateDirectory(AT("fixed")));
+          SDL_CreateDirectory(AT("fixed")) && SDL_CreateDirectory(AT("sfx/sfx.dat")));
     CHECK(SDL_SaveFile(AT("disc/LEVELS/A.GSC"), "disc", 4) && SDL_SaveFile(AT("disc/SYSTEM.CNF"), "cnf", 3));
     CHECK(SDL_SaveFile(AT("disc/TEST.DAT"), d.data, d.size) && SDL_SaveFile(AT("disc/" NW_DISC_STAMP), "", 0));
     CHECK(SDL_SaveFile(AT("old/LEVELS/A.GSC"), "old", 3) && SDL_SaveFile(AT("new/levels/a.gsc"), "new", 3));
     CHECK(SDL_SaveFile(AT("entry/test.dat/arc/a/y.bin"), "loose y", 7));
     CHECK(SDL_SaveFile(AT("bad/test.dat/arc/nope.bin"), "x", 1) && SDL_SaveFile(AT("extra/NEW.GSC"), "x", 1));
-    CHECK(SDL_SaveFile(AT("fixed/system.cnf"), "x", 1));
+    CHECK(SDL_SaveFile(AT("fixed/system.cnf"), "x", 1) && SDL_SaveFile(AT("sfx/sfx.dat/x.vag"), "x", 1));
     if (!nw_vfs_init(&vfs, root)) {
         CHECK(!"nw_vfs_init");
         return;
@@ -688,6 +688,7 @@ static void test_overlay(void)
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("bad"), NULL, NULL), "no such entry in TEST.DAT");
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("extra"), NULL, NULL), "not on the disc");
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("fixed"), NULL, NULL), "never replaces");
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("sfx"), NULL, NULL), "reads SFX.DAT whole");
     CHECK(nw_vfs_overlay(&vfs, AT("old"), NULL, NULL));
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("old"), NULL, NULL), "more than");
     f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\A.GSC;1", NW_VFS_READ);

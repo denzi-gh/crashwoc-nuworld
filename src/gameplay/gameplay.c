@@ -6,21 +6,17 @@
 #include "port/game.h"
 
 NwProfile nw_profile;
-static bool nw_profile_applied;
 
 void nw_profile_apply(const NwProfile *p)
 {
     nw_profile = *p;
-    nw_profile_applied = true;
 }
 
-void nw_deviation(const char *id)
+void nw_deviation_off(const char *sw)
 {
-    if (!nw_profile_applied) {
-        char message[128];
-        snprintf(message, sizeof message, "gameplay: %s ran in a retail run", id);
-        nw_game_fatal(message);
-    }
+    char message[128];
+    snprintf(message, sizeof message, "gameplay: %s ran with its switch off", sw);
+    nw_game_fatal(message);
 }
 
 void nw_gameplay_swap(void)

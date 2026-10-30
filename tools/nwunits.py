@@ -260,6 +260,12 @@ def scan_c(text: str, path: str) -> CFile:
     return CFile(path=path, decls=decls, includes=includes, typedefs=_typedefs(code))
 
 
+def body_hashes(data: bytes, path: str) -> dict[str, str]:
+    """{function: body hash} of a C file's definitions; latin-1 keeps every byte the same on every OS."""
+    text = data.decode("latin-1").replace("\r\n", "\n")
+    return {d.name: d.body for d in scan_c(text, path).decls if d.is_def}
+
+
 def _closing_brace(code: str, start: int) -> int:
     depth = 0
     for i in range(start, len(code)):

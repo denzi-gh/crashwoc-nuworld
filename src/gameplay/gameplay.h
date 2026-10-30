@@ -15,10 +15,10 @@ extern NwProfile nw_profile;
 /* The windowed boot, before the game thread starts. */
 void nw_profile_apply(const NwProfile *p);
 
-/* Marks where a feature changes the game. Reached in a run whose profile was never applied, the feature ran
-   without its switch: the game stops. */
-#define NW_DEVIATION(id) nw_deviation(id)
-void nw_deviation(const char *id);
+/* Marks where a feature changes the game, by its NwProfile switch. Reached with that switch off (every retail run
+   included), the feature runs without it: the game stops. */
+#define NW_DEVIATION(sw) (nw_profile.sw ? (void)0 : nw_deviation_off(#sw))
+_Noreturn void nw_deviation_off(const char *sw);
 
 /* The game thread at each swap, before the port's level poll (src/port/ps2video.c). */
 void nw_gameplay_swap(void);

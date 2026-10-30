@@ -6,8 +6,7 @@ the patched tree, adds port/patches/files/ and applies the concerns of
 port/patches/series.toml in order. A concern is a directory of
 <decomp path>.patch files (unified diffs); every hunk must match exactly, it
 may move but is never fuzzed. Then the value rules of port/values/*.toml wrap
-single retail values in a macro (NW_HZ). verify proves the series between two
-decomp commits.
+single retail values in a macro (NW_HZ).
 
 Editing: setup makes build/patch-work, a git repository with the decomp as
 its first commit, then a commit "files" and one commit per concern. Edit the
@@ -172,6 +171,9 @@ def parse_patch(origin: Path, path: str) -> Patch:
                 for side in last:
                     side[-1] = side[-1][:-1]
                 i += 1
+        if len(h.old) != old_len or len(h.new) != new_len:
+            raise PatchError(f"{origin}: hunk at old line {h.old_start} has -{len(h.old)} +{len(h.new)} lines, "
+                             f"its header says -{old_len} +{new_len}")
         hunks.append(h)
     return Patch(origin, path, hunks)
 
@@ -201,8 +203,10 @@ def apply_patch(patch: Patch, data: bytes) -> bytes:
     return b"".join(out)
 
 
-def load_series(patches: Path = PATCHES) -> tuple[list[Concern], dict[str, bytes]]:
-    """The concerns in order and the new files (port/patches/files/)."""
+def load_series(patches: Path | None = PATCHES) -> tuple[list[Concern], dict[str, bytes]]:
+    """The concerns in order and the new files (port/patches/files/); None: no series."""
+    if patches is None:
+        return [], {}
     files = {}
     for p in sorted((patches / "files").rglob("*")):
         if p.is_file():
@@ -229,8 +233,9 @@ def load_series(patches: Path = PATCHES) -> tuple[list[Concern], dict[str, bytes
     return concerns, files
 
 
-def patch_tree(files: dict[str, bytes], patches: Path = PATCHES, values: Path = VALUES) -> dict[str, bytes]:
-    """The decomp files with the series and the value rules applied."""
+def patch_tree(files: dict[str, bytes], patches: Path | None = PATCHES,
+               values: Path | None = VALUES) -> dict[str, bytes]:
+    """The decomp files with the series and the value rules applied (None: without them)."""
     concerns, new = load_series(patches)
     tree = dict(files)
     for name, data in new.items():
@@ -250,10 +255,13 @@ def patch_tree(files: dict[str, bytes], patches: Path = PATCHES, values: Path = 
     return tree
 
 
-def series_hash(patches: Path = PATCHES, values: Path = VALUES) -> str:
+def series_hash(patches: Path | None = PATCHES, values: Path | None = VALUES) -> str:
     h = hashlib.sha256()
-    files = [(p.relative_to(patches).as_posix(), p) for p in sorted(patches.rglob("*")) if p.is_file()]
-    files += [("values/" + p.name, p) for p in sorted(values.glob("*.toml"))]
+    files = []
+    if patches:
+        files += [(p.relative_to(patches).as_posix(), p) for p in sorted(patches.rglob("*")) if p.is_file()]
+    if values:
+        files += [("values/" + p.name, p) for p in sorted(values.glob("*.toml"))]
     for name, p in files:
         h.update(name.encode() + b"\0")
         h.update(normalize(p.read_bytes()) + b"\0")
@@ -296,9 +304,9 @@ def write_tree(tree: dict[str, bytes], out: Path, stamp: dict) -> int:
     return written
 
 
-def apply(decomp: Path = PRISTINE, out: Path = TREE, patches: Path = PATCHES,
-          values: Path = VALUES) -> tuple[int, int]:
-    """Builds or refreshes the patched tree; returns (files, written)."""
+def apply(decomp: Path = PRISTINE, out: Path = TREE, patches: Path | None = PATCHES,
+          values: Path | None = VALUES) -> tuple[int, int]:
+    """Builds or refreshes the patched tree (None: without the series or the value rules); returns (files, written)."""
     tree = patch_tree(worktree_files(decomp), patches, values)
     stamp = {"schema": SCHEMA, "decomp": decomp_sha(decomp), "series": series_hash(patches, values)}
     return len(tree), write_tree(tree, out, stamp)
@@ -384,15 +392,19 @@ def matches(spellings: list[str], pal: list[str]) -> list[int]:
     return [i for i in range(len(spellings) - len(pal) + 1) if spellings[i:i + len(pal)] == pal]
 
 
-def load_values(values: Path = VALUES) -> list[Values]:
+def load_values(values: Path | None = VALUES) -> list[Values]:
     out = []
-    for path in sorted(values.glob("*.toml")) if values.is_dir() else []:
+    for path in sorted(values.glob("*.toml")) if values and values.is_dir() else []:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
         if doc.get("schema") != SCHEMA or not doc.get("macro"):
             raise PatchError(f"{path}: needs schema = {SCHEMA} and a macro")
         sites = {}
         for entry in doc.get("file", []):
             sites[entry["path"]] = [Site(s["fn"], s["pal"], s["nth"], s["of"], s["ntsc"]) for s in entry["sites"]]
+            for s in sites[entry["path"]]:
+                if not 0 <= s.nth < s.of:
+                    raise PatchError(f"{path}: {entry['path']} {s.fn} {s.pal}: nth = {s.nth} is not one of its "
+                                     f"{s.of} matches (0 to {s.of - 1})")
         out.append(Values(path, doc["macro"], sites))
     return out
 
@@ -661,21 +673,6 @@ def cmd_apply(args) -> int:
     return 0
 
 
-def cmd_verify(args) -> int:
-    """The series on --base gives --expect, file for file (--exclude: paths left out of both)."""
-    got = patch_tree(commit_files(args.decomp, args.base), args.patches)
-    want = commit_files(args.decomp, args.expect)
-    for name in args.exclude:
-        got.pop(name, None)
-        want.pop(name, None)
-    bad = sorted(n for n in got.keys() | want.keys() if got.get(n) != want.get(n))
-    for n in bad:
-        state = "missing" if n not in got else "extra" if n not in want else "differs"
-        print(f"{state}: {n}")
-    print(f"{len(want)} files, {len(bad)} different")
-    return 1 if bad else 0
-
-
 def cmd_setup(args) -> int:
     n = setup(args.decomp, args.patches, args.work, args.force)
     print(f"{args.work}: the decomp, {FILES} and {n} concerns; edit there, then tools/patches.py fixup <concern>")
@@ -722,11 +719,6 @@ def main() -> int:
     p = sub.add_parser("apply", help="build or refresh the patched tree")
     p.add_argument("--out", type=Path, default=TREE, help="the patched tree (default: build/decomp)")
     p.set_defaults(fn=cmd_apply)
-    p = sub.add_parser("verify", help="the series on one decomp commit gives another")
-    p.add_argument("--base", required=True)
-    p.add_argument("--expect", required=True)
-    p.add_argument("--exclude", nargs="*", default=[])
-    p.set_defaults(fn=cmd_verify)
     p = sub.add_parser("setup", help="make the work repository build/patch-work from port/patches")
     p.add_argument("--force", action="store_true", help="throw away the work repository's unsaved state")
     p.set_defaults(fn=cmd_setup)

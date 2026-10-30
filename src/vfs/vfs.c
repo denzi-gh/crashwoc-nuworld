@@ -285,6 +285,10 @@ static bool nw_vfs_check_overlay(const NwVfs *vfs, void (*conflict)(void *user, 
         const char *dat_end = SDL_strstr(key, ".DAT/");
         if (nw_vfs_fixed(key)) {
             ok = SDL_SetError("%s: an overlay never replaces it", path);
+        } else if (SDL_strncmp(key, "SFX.DAT/", 8) == 0) {
+            /* Entries reach the game through NuDat (src/port/nudat.c: ATS.DAT, CHARS.DAT); the IOP's NUSOUND reads
+               SFX.DAT on its own (src/audio/nusound.c). */
+            ok = SDL_SetError("%s: the sound driver reads SFX.DAT whole; replace SFX.DAT itself", path);
         } else if (!nw_vfs_lookup(&vfs->mounts[NW_VFS_DISC], key)) {
             if (!dat_end) {
                 ok = SDL_SetError("%s: not on the disc (an overlay only replaces)", path);

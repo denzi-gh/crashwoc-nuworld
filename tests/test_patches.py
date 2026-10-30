@@ -96,6 +96,28 @@ class Series(unittest.TestCase):
         with self.assertRaisesRegex(patches.PatchError, "matches 2 places"):
             self.apply()
 
+    def test_a_hunk_must_match_its_header(self):
+        self.series("10-x")
+        self.patch("10-x", "src/a.c", """
+            @@ -1,2 +1,2 @@
+            -line 1
+            +one
+            +extra
+             line 2
+            """)
+        with self.assertRaisesRegex(patches.PatchError, r"has -2 \+3 lines, its header says -2 \+2"):
+            self.apply()
+
+    def test_without_the_series(self):
+        self.series("10-x")
+        self.patch("10-x", "src/b.c", """
+            @@ -1 +1 @@
+            -int b;
+            +int b = 1;
+            """)
+        patches.apply(self.decomp, self.out, None, None)
+        self.assertEqual((self.out / "src" / "b.c").read_bytes(), b"int b;\n")
+
     def test_no_newline_at_end(self):
         (self.decomp / "src" / "b.c").write_bytes(b"int b;")
         self.series("10-x")
@@ -184,6 +206,11 @@ class Values(unittest.TestCase):
         rules = self.rules(['{ fn = "h", pal = "25", nth = 0, of = 1, ntsc = "30" }'])
         with self.assertRaisesRegex(patches.PatchError, "no function h"):
             patches.apply_values(rules, "src/a.c", SOURCE)
+
+    def test_nth_names_one_of_the_matches(self):
+        for nth in (-1, 2):
+            with self.assertRaisesRegex(patches.PatchError, f"nth = {nth} is not one of its 2 matches"):
+                self.rules([f'{{ fn = "f", pal = "25", nth = {nth}, of = 2, ntsc = "30" }}'])
 
 
 def git(repo: Path, *args: str) -> str:

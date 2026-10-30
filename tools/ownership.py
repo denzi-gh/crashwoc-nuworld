@@ -29,12 +29,6 @@ import patches  # noqa: E402
 KINDS = ("retail", "patched", "copy", "wrap", "port", "stub", "shim")
 
 
-def bodies(text: bytes, path: str) -> dict[str, str]:
-    """{function: body hash}; latin-1 keeps every byte the same on every OS."""
-    code = text.decode("latin-1").replace("\r\n", "\n")
-    return {d.name: d.body for d in nwunits.scan_c(code, path).decls if d.is_def}
-
-
 def touched(pristine: Path, series: Path, values: Path = patches.VALUES) -> dict[tuple[str, str], list[str]]:
     """{(source, function): the concerns and value files that change its body}, in the order they apply."""
     concerns, _ = patches.load_series(series)
@@ -42,7 +36,7 @@ def touched(pristine: Path, series: Path, values: Path = patches.VALUES) -> dict
     out: dict[tuple[str, str], list[str]] = defaultdict(list)
 
     def step(name: str, path: str, after: bytes) -> None:
-        old, new = bodies(tree[path], path), bodies(after, path)
+        old, new = nwunits.body_hashes(tree[path], path), nwunits.body_hashes(after, path)
         tree[path] = after
         for fn in sorted(old.keys() | new.keys()):
             if old.get(fn) != new.get(fn):

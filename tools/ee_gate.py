@@ -68,7 +68,7 @@ def lint(series: Path = patches.PATCHES, counts: Path = COUNTS) -> list[str]:
 
 def exports() -> str:
     """Exports the plain and the patched decomp under build/ee; returns the plain export's content hash."""
-    patches.apply(patches.PRISTINE, EE / "pristine", EE / "no-patches", EE / "no-values")
+    patches.apply(patches.PRISTINE, EE / "pristine", None, None)
     patches.apply(patches.PRISTINE, EE / "patched")
     stamp = json.loads((EE / "pristine" / patches.STAMP).read_text(encoding="utf-8"))
     h = hashlib.sha256()
@@ -77,9 +77,9 @@ def exports() -> str:
     return h.hexdigest()[:16]
 
 
-def run(tree: Path, *cmd: str) -> subprocess.CompletedProcess:
+def run(tree: Path, *cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     proc = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
-    if proc.returncode and cmd[-1] != "--compare":
+    if check and proc.returncode:
         sys.exit(f"error: {' '.join(cmd)} in {tree}:\n{proc.stdout}{proc.stderr}")
     return proc
 
@@ -104,7 +104,7 @@ def gate(key: str) -> int:
         build(EE / "pristine")
         run(EE / "pristine", sys.executable, "tools/check_codegen.py", "--snapshot", "--file", str(snap))
     build(EE / "patched")
-    proc = run(EE / "patched", sys.executable, "tools/check_codegen.py", "--file", str(snap), "--compare")
+    proc = run(EE / "patched", sys.executable, "tools/check_codegen.py", "--file", str(snap), "--compare", check=False)
     print(proc.stdout.rstrip())
     if proc.returncode:
         print(proc.stderr.rstrip(), file=sys.stderr)

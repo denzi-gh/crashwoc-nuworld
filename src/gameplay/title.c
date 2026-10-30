@@ -11,7 +11,7 @@ extern s32 cutmovie;
 void nw_title_poll(void)
 {
     if (nw_profile.unused_title && cutmovie == 0 && !nw_level_routing()) {
-        NW_DEVIATION("unused_title");
+        NW_DEVIATION(unused_title);
         nw_level_titles();
     }
 }
