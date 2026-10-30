@@ -35,7 +35,7 @@ static struct {
     int route[NW_LEVEL_ROUTE], nroute, leg;
     NwLevelArrival arrivals[NW_LEVEL_ROUTE];
     SDL_AtomicInt arrived; /* 1 once the last runs */
-    int logged;            /* the level the log named last */
+    int logged;
 } nw_level = { .entering = -1, .arrival = -1, .logged = -1 };
 
 int nw_level_count(void)

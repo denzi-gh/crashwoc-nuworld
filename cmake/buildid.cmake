@@ -1,6 +1,5 @@
-# Writes the build ID C file, at every build but only when the ID changed:
-#   cmake -DSRC=<source dir> -DOUT=<file.c> -DVERSION=<x.y.z> -DTAG=<tag or empty> -P buildid.cmake
-# defines nw_build_version, nw_build_tag, nw_build_commit, nw_build_decomp and nw_build_id ("0.7.0 BETA a1b2c3d").
+# cmake -DSRC=<source dir> -DOUT=<file.c> -DVERSION=<x.y.z> -DTAG=<tag> -P buildid.cmake
+# Writes OUT only when the build ID changed.
 function(nw_git dir out)
   execute_process(COMMAND git -C "${dir}" rev-parse --short=7 HEAD
     OUTPUT_VARIABLE hash OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE failed ERROR_QUIET)
@@ -8,7 +7,6 @@ function(nw_git dir out)
     set(${out} "unknown" PARENT_SCOPE)
     return()
   endif()
-  # Untracked files count too: a new source file makes a build of its own.
   execute_process(COMMAND git -C "${dir}" status --porcelain --ignore-submodules=dirty
     OUTPUT_VARIABLE changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
   if(NOT changes STREQUAL "")

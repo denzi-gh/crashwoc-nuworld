@@ -10,7 +10,7 @@
 #define NW_PATHS_IMPORT "import" /* disc images to import, e.g. copied there on a Steam Deck */
 #define NW_PATHS_SAVES "saves"
 #define NW_PATHS_SETTINGS "settings.toml"
-#define NW_PATHS_LOG "nuworld.log" /* the game window's log (platform/log.h) */
+#define NW_PATHS_LOG "nuworld.log"
 #define NW_PATHS_LOG_PREVIOUS "nuworld.previous.log"
 #define NW_PATHS_SCREENSHOTS "screenshots"
 #define NW_PATHS_CAPTURES "captures/port" /* --capture's frames; tools/pcsx2_capture.py writes captures/pcsx2 */

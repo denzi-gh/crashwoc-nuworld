@@ -108,7 +108,7 @@ if(MINGW)
   target_link_options(crashwoc-nuworld PRIVATE -static-libstdc++)
 endif()
 
-# The build ID, checked at every build; the file changes only with the ID.
+# Checked at every build.
 set(nw_buildid ${CMAKE_CURRENT_BINARY_DIR}/gen/buildid.c)
 add_custom_target(nuworld_buildid
   COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${nw_buildid} -DVERSION=${PROJECT_VERSION}
