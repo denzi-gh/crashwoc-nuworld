@@ -6,56 +6,11 @@ body:
   - type: markdown
     attributes:
       value: |
-        QoL suggestions are small convenience changes. Bigger additions (widescreen, high framerate, mod support)
-        go in a Feature request.
-  - type: checkboxes
-    id: checklist
-    attributes:
-      label: Before opening this issue
-      options:
-        - label: This issue contains one suggestion only
-          required: true
-  - type: dropdown
-    id: category
-    attributes:
-      label: Category
-      options:
-        - UI / menus
-        - Saving
-        - Controls / input
-        - Camera
-        - Graphics
-        - Audio
-        - Accessibility
-        - Other
-    validations:
-      required: true
+        One suggestion per issue. Bigger additions go in a Feature request.
   - type: textarea
-    id: problem
+    id: description
     attributes:
-      label: What bothers you?
-      description: Describe the inconvenience
-      placeholder: "Example: The intro videos play every time the game starts and cannot be skipped."
+      label: What bothers you, and what would you change?
+      placeholder: "Example: The intro videos play every time the game starts. They should be skippable."
     validations:
       required: true
-  - type: textarea
-    id: solution
-    attributes:
-      label: What would you change?
-    validations:
-      required: true
-  - type: dropdown
-    id: vanilla
-    attributes:
-      label: Does this change how the original game plays?
-      description: If yes, it would be added as an option that is off by default.
-      options:
-        - "No, it doesn't affect gameplay"
-        - "Yes, it should be an option"
-        - "I'm not sure"
-    validations:
-      required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: Anything else?

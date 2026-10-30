@@ -6,27 +6,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        Never attach or link game files or disc images. Issues that do are closed.
-  - type: checkboxes
-    id: checklist
-    attributes:
-      label: Before opening this issue
-      options:
-        - label: I use my own PAL v1.03 disc (SLES-50386)
-          required: true
-        - label: This issue describes one bug only.
-          required: true
+        One bug per issue. Never attach or link game files or disc images.
   - type: textarea
     id: description
     attributes:
       label: What happened?
-      description: A clear description of the bug.
-    validations:
-      required: true
-  - type: textarea
-    id: expected
-    attributes:
-      label: What did you expect to happen?
+      description: What you expected instead, and the level or area if it matters.
     validations:
       required: true
   - type: textarea
@@ -37,74 +22,15 @@ body:
         1. Enter warp room 1
         2. Go to ...
         3. See ...
-    validations:
-      required: true
-  - type: input
-    id: location
-    attributes:
-      label: Level / area
-      placeholder: "Example: Warp room 2, Avalanche"
-  - type: dropdown
-    id: vanilla
-    attributes:
-      label: Does this happen on a real PS2 or in PCSX2?
-      description: Many bugs are present in the original game. Those are tracked differently.
-      options:
-        - "No, only in NuWorld"
-        - "Yes, the original game does this too"
-        - "I don't know"
-    validations:
-      required: true
-  - type: input
-    id: media
-    attributes:
-      label: Screenshots, video or save file
-      description: Drag files in here.
   - type: input
     id: version
     attributes:
-      label: NuWorld version
-      placeholder: "Example: CrashWOC: NuWorld 0.1.0"
+      label: NuWorld version and OS
+      placeholder: "Example: NuWorld 0.1.0, Windows 11"
     validations:
       required: true
-  - type: dropdown
-    id: source
-    attributes:
-      label: Where did you get this build?
-      options:
-        - Release download
-        - CI artifact
-        - Built it myself
-    validations:
-      required: true
-  - type: dropdown
-    id: os
-    attributes:
-      label: Operating system
-      options:
-        - Windows 11
-        - Windows 10
-        - Linux (name the distro below)
-        - Other (name it below)
-    validations:
-      required: true
-  - type: input
-    id: os-details
-    attributes:
-      label: Linux distro / other OS
-      placeholder: "Example: Arch Linux, Wayland"
-  - type: dropdown
-    id: input
-    attributes:
-      label: Input device
-      options:
-        - Keyboard
-        - Xbox controller
-        - PlayStation controller
-        - Nintendo controller
-        - Other controller
   - type: textarea
-    id: context
+    id: media
     attributes:
-      label: Anything else?
-      description: Non-default settings, terminal output, anything else that might help.
+      label: Screenshots, video, log or save file
+      description: Drag files in here. The log is `nuworld.log` in the NuWorld data folder.
