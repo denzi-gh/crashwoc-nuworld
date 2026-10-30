@@ -125,6 +125,15 @@ int main(int argc, char *argv[])
     CHECK(s.unused_title);
     CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
     nw_settings_defaults(&s);
+    CHECK(s.air_indicator);
+    CHECK(read_text("[game]\nair_indicator = false\n", &s) && !s.air_indicator);
+    CHECK(nw_settings_save(&s, root));
+    char *air = file_text();
+    CHECK(air && SDL_strstr(air, "\nair_indicator = false\n") && SDL_strstr(air, "# game.air_indicator: "));
+    SDL_free(air);
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && !s.air_indicator);
+    nw_settings_defaults(&s);
     CHECK(s.movement.monkey_bar_speed == ((NwMovement)NW_MOVEMENT_NHANCED).monkey_bar_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 900\n", &s) && s.movement.monkey_bar_speed == 500);
