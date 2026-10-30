@@ -4,6 +4,7 @@
 #include "numath/nuvec.h"
 #include "gameplay/air.h"
 #include "gameplay/crash.h"
+#include "gameplay/ground.h"
 
 /* Declared by no header. */
 extern f32 in_speed;
@@ -19,6 +20,7 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
     float speed = in_speed, forward = in_f_friction, side = in_s_friction;
     struct nuvec_s v;
     NuVecRotateY(&v, &obj->mom, -(hdg ? *hdg : obj->hdg));
+    nw_ground_loop(&Character[0], v.z);
     nw_air_loop(&Character[0], v.z);
     MoveLoopXZ__retail(obj, hdg);
     in_speed = speed;

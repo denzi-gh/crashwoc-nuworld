@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "gameplay/air.h"
+#include "gameplay/ground.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/title.h"
 #include "port/game.h"
@@ -30,6 +31,7 @@ void nw_profile_apply(const NwProfile *p)
     nw_profile = *p;
     nw_monkey_bars_apply();
     nw_air_apply();
+    nw_ground_apply();
 }
 
 void nw_profile_request(const NwProfile *p)
@@ -52,6 +54,7 @@ static void nw_profile_poll(void)
         nw_profile.air_indicator = p.air_indicator;
         nw_monkey_bars_apply();
         nw_air_apply();
+        nw_ground_apply();
     }
 }
 

@@ -8,6 +8,7 @@
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/gameplay.h"
+#include "gameplay/ground.h"
 #include "gameplay/monkeybars.h"
 #include "nu_port.h"
 #include "numath/nutrig.h"
@@ -179,6 +180,7 @@ static void crash_at(int hz, const NwProfile *p)
     CrashMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
     CrashMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
+    CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
     VEHICLECONTROL = 0;
     nw_profile_apply(p);
@@ -378,6 +380,39 @@ static void dash_jump(void)
     CHECK(near(dash_frame(0.08f), 0.08f - step, 1e-5f));
 }
 
+/* Faster run and dash at both rates, quicker to speed on the ground but not on ice or in the air, the run animations
+   with them. */
+static void run_speed(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .run_speed = true } } };
+    crash_at(60, &on);
+    CHECK(CrashMoveInfo.RUNSPEED == 0.060000002f * 1.2f && CrashMoveInfo.SPRINTSPEED == 0.080000006f * 1.2f);
+    crash_at(50, &on);
+    CHECK(CrashMoveInfo.RUNSPEED == 0.072f * 1.2f && CrashMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
+    float run = CrashMoveInfo.RUNSPEED, step = 0.0072f;
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_forward(0.0f, run), step * 1.5f, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f)); /* stopping: retail */
+    Character[0].obj.surface_type = 1;                          /* ice */
+    CHECK(near(loop_forward(0.0f, run), step, 1e-5f));
+    Character[0].obj.surface_type = 0;
+    Character[0].obj.ground = 0;
+    CHECK(near(loop_forward(0.0f, run), step, 1e-5f));
+
+    static struct CharacterModel crash;
+    static struct animlist run_anim = { .speed = 1.3f }, walk_anim = { .speed = 1.2f };
+    crash.animlist[0x3A] = &run_anim;
+    crash.animlist[0x74] = &walk_anim;
+    Character[0].obj.model = &crash;
+    nw_ground_animate(&Character[0]);
+    CHECK(run_anim.speed == 1.3f * 1.2f && walk_anim.speed == 1.2f);
+    crash_at(50, &retail);
+    CHECK(CrashMoveInfo.RUNSPEED == 0.072f && CrashMoveInfo.SPRINTSPEED == 0.096f);
+    Character[0].obj.model = &crash;
+    nw_ground_animate(&Character[0]);
+    CHECK(run_anim.speed == 1.3f);
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -389,6 +424,7 @@ int main(void)
     jump_distance();
     air_momentum();
     dash_jump();
+    run_speed();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

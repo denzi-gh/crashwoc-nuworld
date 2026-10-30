@@ -764,6 +764,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_toggle(NW_CRASH_MENU, "Predictable jump distance", &settings.movement.crash.jump_distance);
     nw_debug_toggle(NW_CRASH_MENU, "Air momentum", &settings.movement.crash.air_momentum);
     nw_debug_toggle(NW_CRASH_MENU, "Crash Dash jump momentum", &settings.movement.crash.dash_jump);
+    nw_debug_toggle(NW_CRASH_MENU, "Faster run", &settings.movement.crash.run_speed);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
