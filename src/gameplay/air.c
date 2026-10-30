@@ -26,6 +26,7 @@ extern f32 in_s_friction;
 #define NW_AIR_DRIFT 0.25f
 
 static float nw_air_warp = 1.0f; /* what Crash's mom is scaled by */
+static bool nw_air_dash;         /* this jump left a Crash Dash: SPRINTSPEED to the ground, not only its coyote window */
 static u32 nw_air_frame;         /* GameTimer's frame at the last MoveCRASH */
 static short nw_air_jump2 = 15, nw_air_star = 20; /* the jump data set last, retail's at both rates */
 
@@ -49,10 +50,16 @@ void nw_air_apply(void)
     nw_air_star = star;
 }
 
-/* The warp Crash's mom holds: none after a frame without MoveCRASH (dead, vehicle, water, level start). */
+/* The last MoveCRASH was the frame before: not after a frame without it (dead, vehicle, water, level start). */
+static bool nw_air_continued(void)
+{
+    return GameTimer.frame - nw_air_frame <= 1;
+}
+
+/* The warp Crash's mom holds. */
 static float nw_air_current(void)
 {
-    return GameTimer.frame - nw_air_frame <= 1 ? nw_air_warp : 1.0f;
+    return nw_air_continued() ? nw_air_warp : 1.0f;
 }
 
 /* In the air under his own steam: not on the bars, frozen or carried, and not in a belly flop or the Death Tornado,
@@ -80,8 +87,14 @@ void nw_air_loop(const struct creature_s *plr, float forward)
     const NwCrashMovement *sw = &nw_profile.movement.crash;
     float s = nw_air_current();
     bool flying = nw_air_flying(plr);
-    if (sw->jump_distance && flying && plr->jump != 0 && plr_rebound == 0 && plr->obj.pad_speed > 0.0f &&
-        in_speed > 0.0f) {
+    bool steered = flying && plr_rebound == 0 && plr->obj.pad_speed > 0.0f && in_speed > 0.0f;
+    if (sw->dash_jump && steered && nw_air_dash && nw_air_continued()) {
+        NW_DEVIATION(movement.crash.dash_jump);
+        if (in_speed < CrashMoveInfo.SPRINTSPEED) {
+            in_speed = CrashMoveInfo.SPRINTSPEED;
+        }
+    }
+    if (sw->jump_distance && steered && plr->jump != 0) {
         NW_DEVIATION(movement.crash.jump_distance);
         if (in_speed < CrashMoveInfo.RUNSPEED) {
             in_speed = CrashMoveInfo.RUNSPEED;
@@ -117,6 +130,12 @@ void nw_air_move(struct creature_s *plr)
     } else if (was != 1.0f && !nw_profile.movement.crash.jump_fall) {
         plr->obj.mom.y = (plr->obj.mom.y - GRAVITY) * k + GRAVITY;
     }
+    /* Only the frame retail's take-off ran ends with jump 1 at frame 0; the dash lasts to the ground. */
+    if (plr->jump == 1 && plr->jump_frame == 0) {
+        nw_air_dash = plr->sprint != 0;
+    }
+    nw_air_dash = nw_air_dash && nw_air_continued() && nw_profile.movement.crash.dash_jump && !plr->obj.ground &&
+                  !plr->obj.dangle && !plr->obj.dead && !(plr->slam != 0 && plr->slam < 3);
     nw_air_warp = now;
     nw_air_frame = GameTimer.frame;
 }

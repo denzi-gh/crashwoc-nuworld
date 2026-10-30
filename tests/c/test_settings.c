@@ -174,6 +174,7 @@ int main(int argc, char *argv[])
     CRASH_SWITCH(jump_fall);
     CRASH_SWITCH(jump_distance);
     CRASH_SWITCH(air_momentum);
+    CRASH_SWITCH(dash_jump);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

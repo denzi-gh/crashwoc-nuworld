@@ -10,6 +10,7 @@ typedef struct NwCrashMovement {
     bool jump_fall;     /* shorter hang time and a faster fall, retail's height and reach */
     bool jump_distance; /* in a jump any stick tilt is a full run */
     bool air_momentum;  /* in the air he keeps drifting with the stick let go */
+    bool dash_jump;     /* a jump out of a Crash Dash keeps its speed */
 } NwCrashMovement;
 
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
@@ -20,7 +21,8 @@ typedef struct NwMovement {
 
 #define NW_MOVEMENT_RETAIL { .monkey_bar_speed = 100 }
 #define NW_MOVEMENT_NHANCED \
-    { .monkey_bar_speed = 350, .crash = { .jump_fall = true, .jump_distance = true, .air_momentum = true } }
+    { .monkey_bar_speed = 350, \
+      .crash = { .jump_fall = true, .jump_distance = true, .air_momentum = true, .dash_jump = true } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {

@@ -340,6 +340,44 @@ static void air_momentum(void)
     CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
 }
 
+/* Forward speed after MoveCRASH's hook ran on Crash's state and then the next frame's MoveLoopXZ: a jump out of a dash
+   keeps heading for the dash's speed after retail's coyote window dropped it to a run. */
+static float dash_frame(float forward)
+{
+    nw_air_move(&Character[0]);
+    return loop_forward(forward, 0.072f);
+}
+
+static void dash_jump(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .dash_jump = true } } };
+    float step = 0.0072f;
+    struct creature_s *c = &Character[0];
+    for (int sprint = 0; sprint <= 1; sprint++) {
+        crash_at(50, &on);
+        c->obj.ground = 1;
+        nw_air_move(c);
+        GameTimer.frame++;
+        c->obj.ground = 0;
+        c->jump = 1;
+        c->sprint = sprint;
+        float after = sprint ? 0.08f + step : 0.08f - step;
+        CHECK(near(dash_frame(0.08f), after, 1e-5f));
+        c->jump = 3;
+        c->jump_frame = 5;
+        c->sprint = 0;
+        CHECK(near(dash_frame(0.08f), after, 1e-5f));
+        c->obj.ground = 1;
+        CHECK(near(dash_frame(0.08f), 0.08f - step, 1e-5f)); /* landed */
+    }
+    crash_at(50, &retail);
+    nw_air_move(c);
+    GameTimer.frame++;
+    c->jump = 1;
+    c->sprint = 1;
+    CHECK(near(dash_frame(0.08f), 0.08f - step, 1e-5f));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -350,6 +388,7 @@ int main(void)
     jump_fall();
     jump_distance();
     air_momentum();
+    dash_jump();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);
