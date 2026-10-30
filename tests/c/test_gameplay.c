@@ -2,12 +2,17 @@
 #include <stdio.h>
 
 #include "game/creature.h"
+#include "game/gametypes.h"
+#include "gameplay/airindicator.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/monkeybars.h"
 #include "port/hz.h"
 
 extern struct MoveInfo CrashMoveInfo;
 extern struct MoveInfo CocoMoveInfo;
+extern s32 plr_terrain_ok;
+extern s32 VEHICLECONTROL;
+extern struct ldata_s *LDATA;
 
 static int failures;
 
@@ -33,17 +38,17 @@ static void monkey_bars(int hz, float retail)
     CHECK(dangle(retail));
     nw_profile_apply(&(NwProfile){ .movement = NW_MOVEMENT_NHANCED });
     CHECK(dangle(retail * 3.5f));
-    nw_movement_request(&(NwMovement){ .monkey_bar_speed = 150 });
+    nw_profile_request(&(NwProfile){ .movement = { .monkey_bar_speed = 150 } });
     CHECK(dangle(retail * 3.5f));
     nw_gameplay_swap();
     CHECK(dangle(retail * 1.5f));
     /* A value someone else wrote stays. */
     CocoMoveInfo.DANGLESPEED = 1.0f;
-    nw_movement_request(&(NwMovement){ .monkey_bar_speed = 200 });
+    nw_profile_request(&(NwProfile){ .movement = { .monkey_bar_speed = 200 } });
     nw_gameplay_swap();
     CHECK(CrashMoveInfo.DANGLESPEED == retail * 2.0f && CocoMoveInfo.DANGLESPEED == 1.0f);
     CocoMoveInfo.DANGLESPEED = retail * 2.0f;
-    nw_movement_request(&(NwMovement)NW_MOVEMENT_RETAIL);
+    nw_profile_request(&(NwProfile){ .movement = NW_MOVEMENT_RETAIL });
     nw_gameplay_swap();
     CHECK(dangle(retail));
 }
@@ -89,11 +94,73 @@ static void monkey_bar_anim(void)
     CHECK(hang_walk(0x4D, 2.0f) == 1.0f);
 }
 
+static struct creature_s jumper;
+static struct ldata_s level_data;
+
+/* The ring's floor and alpha with Crash's feet at feet over a floor at 2. */
+static bool ring_at(float feet, float *y, float *alpha)
+{
+    jumper.obj.pos.y = feet;
+    return nw_air_indicator_at(&jumper, y, alpha);
+}
+
+static void air_indicator(void)
+{
+    float y = 0.0f, alpha = 0.0f;
+    LDATA = &level_data;
+    plr_terrain_ok = 1;
+    jumper.obj.SCALE = 1.0f;
+    jumper.obj.vehicle = -1;
+    jumper.obj.layer_type = -1;
+    jumper.obj.shadow = 2.0f;
+    CHECK(ring_at(4.0f, &y, &alpha) && y == 2.0f && alpha == 1.0f);
+    CHECK(ring_at(2.3f, &y, &alpha) && alpha > 0.0f && alpha < 1.0f);
+    CHECK(!ring_at(2.05f, &y, &alpha)); /* stepping off */
+    jumper.obj.ground = 2;
+    CHECK(!ring_at(4.0f, &y, &alpha));
+    jumper.obj.ground = 0;
+    jumper.obj.dangle = 1;
+    CHECK(!ring_at(4.0f, &y, &alpha));
+    jumper.obj.dangle = 0;
+    /* No floor: retail's miss, then GetSurfaceInfo's SAFEY; a crate or platform under him is one. */
+    jumper.obj.shadow = 2000000.0f;
+    CHECK(!ring_at(4.0f, &y, &alpha));
+    jumper.obj.shadow = 2.0f;
+    plr_terrain_ok = 0;
+    CHECK(!ring_at(4.0f, &y, &alpha));
+    jumper.obj.got_shadow = 1;
+    CHECK(ring_at(4.0f, &y, &alpha) && y == 2.0f);
+    jumper.obj.got_shadow = 0;
+    plr_terrain_ok = 1;
+    /* Water over the floor. */
+    jumper.obj.layer_type = 1;
+    jumper.obj.layer_shadow = 3.0f;
+    CHECK(ring_at(4.0f, &y, &alpha) && y == 3.0f);
+    jumper.obj.layer_type = -1;
+    VEHICLECONTROL = 1;
+    jumper.obj.vehicle = 0x20;
+    CHECK(!ring_at(4.0f, &y, &alpha));
+    VEHICLECONTROL = 0;
+    jumper.obj.vehicle = -1;
+
+    /* The switch, at boot and between frames; off draws nothing. */
+    nw_profile_apply(&(NwProfile){ 0 });
+    CHECK(!nw_profile.air_indicator);
+    nw_air_indicator_draw(&jumper);
+    nw_profile_apply(&(NwProfile){ .air_indicator = true });
+    CHECK(nw_profile.air_indicator);
+    nw_profile_request(&(NwProfile){ .air_indicator = false });
+    CHECK(nw_profile.air_indicator);
+    nw_gameplay_swap();
+    CHECK(!nw_profile.air_indicator);
+}
+
 int main(void)
 {
     monkey_bars(50, 0.015599999f);
     monkey_bars(60, 0.013f);
     monkey_bar_anim();
+    air_indicator();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

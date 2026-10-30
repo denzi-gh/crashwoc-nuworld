@@ -10,9 +10,9 @@
 
 NwProfile nw_profile;
 
-static SDL_SpinLock nw_movement_lock;
-static bool nw_movement_asked;
-static NwMovement nw_movement_ask;
+static SDL_SpinLock nw_profile_lock;
+static bool nw_profile_asked;
+static NwProfile nw_profile_ask;
 
 NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
@@ -28,23 +28,24 @@ void nw_profile_apply(const NwProfile *p)
     nw_monkey_bars_apply();
 }
 
-void nw_movement_request(const NwMovement *m)
+void nw_profile_request(const NwProfile *p)
 {
-    SDL_LockSpinlock(&nw_movement_lock);
-    nw_movement_ask = *m;
-    nw_movement_asked = true;
-    SDL_UnlockSpinlock(&nw_movement_lock);
+    SDL_LockSpinlock(&nw_profile_lock);
+    nw_profile_ask = *p;
+    nw_profile_asked = true;
+    SDL_UnlockSpinlock(&nw_profile_lock);
 }
 
-static void nw_movement_poll(void)
+static void nw_profile_poll(void)
 {
-    SDL_LockSpinlock(&nw_movement_lock);
-    bool asked = nw_movement_asked;
-    NwMovement m = nw_movement_ask;
-    nw_movement_asked = false;
-    SDL_UnlockSpinlock(&nw_movement_lock);
+    SDL_LockSpinlock(&nw_profile_lock);
+    bool asked = nw_profile_asked;
+    NwProfile p = nw_profile_ask;
+    nw_profile_asked = false;
+    SDL_UnlockSpinlock(&nw_profile_lock);
     if (asked) {
-        nw_profile.movement = m;
+        nw_profile.movement = p.movement;
+        nw_profile.air_indicator = p.air_indicator;
         nw_monkey_bars_apply();
     }
 }
@@ -58,6 +59,6 @@ void nw_deviation_off(const char *sw)
 
 void nw_gameplay_swap(void)
 {
-    nw_movement_poll();
+    nw_profile_poll();
     nw_title_poll();
 }

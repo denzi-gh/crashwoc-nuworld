@@ -49,7 +49,7 @@ schema = 1
 "nu3d/nunode" = { treatment = "compile" }
 # nugscn defines a global ReadNuIFFGeomVtx too; dead: NuNodeRead, ReadNuIFFTextureSet
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
-"nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"] }
+"nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"], wrap = ["NuMtlRelease"] }
 "nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
 # kept: shadow, footprint and ripple bookkeeping and draws, volume-shadow boxes, bodies retail leaves empty.
 # NuRndrFxCode's Z-byte light passes are unreachable here (depth CLUTs instead).
@@ -141,7 +141,7 @@ schema = 1
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" } }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
-"game/creature" = { treatment = "compile" }
+"game/creature" = { treatment = "compile", wrap = ["DrawCreatures"] }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }

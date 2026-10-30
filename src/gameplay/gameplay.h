@@ -25,14 +25,15 @@ NwMovementProfile nw_movement_profile(const NwMovement *m);
 typedef struct NwProfile {
     bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
     NwMovement movement;
+    bool air_indicator; /* a ring on the floor under Crash while he is in the air */
 } NwProfile;
 
 extern NwProfile nw_profile;
 
 /* The windowed boot, before the game thread starts. */
 void nw_profile_apply(const NwProfile *p);
-/* Asks the game thread for this movement at its next swap; the last request wins. Any thread. */
-void nw_movement_request(const NwMovement *m);
+/* Asks the game thread for p's movement and air indicator at its next swap */
+void nw_profile_request(const NwProfile *p);
 
 /* Marks where a feature changes the game; reached with its NwProfile switch off (every retail run), the game stops. */
 #define NW_DEVIATION(sw) (nw_profile.sw ? (void)0 : nw_deviation_off(#sw))
