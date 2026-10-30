@@ -28,8 +28,8 @@ extern struct tersurface_s TerSurface[];
 #define NW_AIR_INDICATOR_LOW 0.1f  /* feet this high over the floor or lower: no ring */
 #define NW_AIR_INDICATOR_HIGH 0.5f /* from here up the ring is at full alpha */
 #define NW_AIR_INDICATOR_LIFT 0.035f /* over the floor; retail's shadow lies at 0.025 */
-#define NW_AIR_INDICATOR_RADIUS 0.4f
-#define NW_AIR_INDICATOR_TEX 64
+#define NW_AIR_INDICATOR_RADIUS 0.3f
+#define NW_AIR_INDICATOR_TEX 128
 
 
 /* Color and Alpha of the ring */
@@ -88,10 +88,11 @@ static struct numtl_s *nw_air_indicator_material(void)
             float u = (x + 0.5f) / NW_AIR_INDICATOR_TEX * 2.0f - 1.0f;
             float v = (y + 0.5f) / NW_AIR_INDICATOR_TEX * 2.0f - 1.0f;
             float r = sqrtf(u * u + v * v);
-            float a = nw_air_indicator_step(0.64f, 0.76f, r) * (1.0f - nw_air_indicator_step(0.86f, 0.98f, r));
+            float a = 1.0f - nw_air_indicator_step(0.92f, 0.98f, r);
+            uint8_t white = (uint8_t)(nw_air_indicator_step(0.80f, 0.86f, r) * 255.0f + 0.5f);
             uint8_t *p = &abgr[(y * NW_AIR_INDICATOR_TEX + x) * 4]; /* type 3: a, b, g, r */
             p[0] = (uint8_t)(a * 255.0f + 0.5f);
-            p[1] = p[2] = p[3] = 0xFF;
+            p[1] = p[2] = p[3] = white;
         }
     }
     struct nutex_s tex = { 3, NW_AIR_INDICATOR_TEX, NW_AIR_INDICATOR_TEX, 1, abgr, NULL };
