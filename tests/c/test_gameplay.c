@@ -285,13 +285,13 @@ static void jump_fall(void)
     CHECK(near(c->obj.mom.z, 0.072f, 1e-5f) && near(c->obj.mom.y, fall / 1.5f + GRAVITY, 1e-5f));
 }
 
-/* Crash's forward speed after one MoveLoopXZ from forward with the stick tilted to MovePlayer's target in_speed and
-   its air friction; the globals come back as they were. */
-static float loop_forward(float forward, float target)
+/* One MoveLoopXZ on Crash moving side across and forward along the stick, tilted to MovePlayer's target in_speed,
+   with its air friction; the globals come back as they were. */
+static void loop(float side, float forward, float target)
 {
     struct creature_s *c = &Character[0];
     float friction = NW_HZ(0.0072f, 0.005f);
-    c->obj.mom.x = 0.0f;
+    c->obj.mom.x = side;
     c->obj.mom.z = forward;
     c->obj.pad_speed = target > 0.0f ? 0.5f : 0.0f;
     in_speed = target;
@@ -299,7 +299,12 @@ static float loop_forward(float forward, float target)
     GameTimer.frame++;
     MoveLoopXZ(&c->obj, &c->obj.thdg);
     CHECK(in_speed == target && in_f_friction == friction && in_s_friction == friction);
-    return c->obj.mom.z;
+}
+
+static float loop_forward(float forward, float target)
+{
+    loop(0.0f, forward, target);
+    return Character[0].obj.mom.z;
 }
 
 /* Mid-air a half tilt runs, and gets there twice as fast; on the ground it walks. */
@@ -413,6 +418,35 @@ static void run_speed(void)
     CHECK(run_anim.speed == 1.3f);
 }
 
+/* Crash's speed across the stick after one MoveLoopXZ from side, stick let go. */
+static float loop_side(float side)
+{
+    loop(side, 0.0f, 0.0f);
+    return Character[0].obj.mom.x;
+}
+
+/* On the ground a turn's leftover speed and a stop or turn round brake harder; speeding up, ice and the air stay
+   retail's. */
+static void grip(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .grip = true } } };
+    float step = 0.0072f;
+    crash_at(50, &on);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_side(0.05f), 0.05f - 3.0f * step, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 2.0f * step, 1e-5f));
+    CHECK(near(loop_forward(-0.05f, 0.072f), -0.05f + 2.0f * step, 1e-5f)); /* turning round */
+    CHECK(near(loop_forward(0.0f, 0.072f), step, 1e-5f));
+    Character[0].obj.surface_type = 1; /* ice: MovePlayer's own friction for it, untouched */
+    CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f));
+    Character[0].obj.surface_type = 0;
+    Character[0].obj.ground = 0;
+    CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f));
+    crash_at(50, &retail);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f) && near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -425,6 +459,7 @@ int main(void)
     air_momentum();
     dash_jump();
     run_speed();
+    grip();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);

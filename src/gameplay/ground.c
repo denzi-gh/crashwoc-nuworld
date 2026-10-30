@@ -12,10 +12,15 @@ extern struct MoveInfo CrashMoveInfo;
 extern struct tersurface_s TerSurface[];
 extern f32 in_speed;
 extern f32 in_f_friction;
+extern f32 in_s_friction;
 
 /* run_speed: run and dash this much faster, their animations with them, and get up to speed this much sooner. */
 #define NW_GROUND_RUN 1.2f
 #define NW_GROUND_ACCEL 1.5f
+/* grip: the old direction's speed after a turn dies this much faster, and stopping or turning round brakes this much
+   harder. */
+#define NW_GROUND_GRIP_SIDE 3.0f
+#define NW_GROUND_GRIP_BRAKE 2.0f
 
 /* CrashAnim's run, sprint and the two leaning runs at retail's rate. */
 static const struct {
@@ -49,11 +54,21 @@ void nw_ground_apply(void)
 
 void nw_ground_loop(const struct creature_s *plr, float forward)
 {
-    /* Speeding up on the ground; ice keeps retail's slide. */
-    if (nw_profile.movement.crash.run_speed && plr->obj.ground && !(TerSurface[plr->obj.surface_type].flags & 0x20) &&
-        in_speed > 0.0f && forward < in_speed) {
+    const NwCrashMovement *sw = &nw_profile.movement.crash;
+    /* Ice, the slide attack and a frozen Crash keep retail's. */
+    if (!plr->obj.ground || (TerSurface[plr->obj.surface_type].flags & 0x20) || plr->slide || plr->freeze) {
+        return;
+    }
+    if (sw->run_speed && in_speed > 0.0f && forward < in_speed) {
         NW_DEVIATION(movement.crash.run_speed);
         in_f_friction *= NW_GROUND_ACCEL;
+    }
+    if (sw->grip) {
+        NW_DEVIATION(movement.crash.grip);
+        in_s_friction *= NW_GROUND_GRIP_SIDE;
+        if (forward > in_speed || forward < 0.0f) {
+            in_f_friction *= NW_GROUND_GRIP_BRAKE;
+        }
     }
 }
 

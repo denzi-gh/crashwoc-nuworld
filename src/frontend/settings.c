@@ -238,6 +238,8 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "game", .sub = "movement", .sub2 = "crash", .name = "run_speed", .kind = NW_SETTING_BOOL,
       NW_FIELD(movement.crash.run_speed),
       .help = "true: Crash runs and dashes faster and gets up to speed sooner (jumps reach further with it)" },
+    { .table = "game", .sub = "movement", .sub2 = "crash", .name = "grip", .kind = NW_SETTING_BOOL,
+      NW_FIELD(movement.crash.grip), .help = "true: less slippery stops and turns on the ground (ice stays slippery)" },
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,

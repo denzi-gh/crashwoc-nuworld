@@ -1,4 +1,4 @@
-/* [game.movement.crash] run_speed: Crash on the ground, part of N. Hanced Movement. */
+/* [game.movement.crash] run_speed, grip: Crash on the ground, part of N. Hanced Movement. */
 #ifndef NUWORLD_GAMEPLAY_GROUND_H
 #define NUWORLD_GAMEPLAY_GROUND_H
 
