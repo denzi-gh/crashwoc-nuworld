@@ -167,7 +167,7 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile" }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH"] }
 "game/chase" = { treatment = "compile" }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }

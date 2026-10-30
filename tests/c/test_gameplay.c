@@ -3,6 +3,7 @@
 
 #include "game/creature.h"
 #include "gameplay/gameplay.h"
+#include "gameplay/monkeybars.h"
 #include "port/hz.h"
 
 extern struct MoveInfo CrashMoveInfo;
@@ -47,10 +48,52 @@ static void monkey_bars(int hz, float retail)
     CHECK(dangle(retail));
 }
 
+static struct creature_s plr;
+static struct CharacterModel model;
+static struct animlist walk = { .speed = 1.0f };
+
+/* hngwalk's speed after AnimateCRASH picked action with Crash moved by retail's bar speed times moved. */
+static float hang_walk(int action, float moved)
+{
+    plr.obj.anim.newaction = action;
+    plr.obj.xz_distance = 0.015599999f * moved;
+    nw_monkey_bars_animate(&plr);
+    return walk.speed;
+}
+
+static void monkey_bar_anim(void)
+{
+    nw_hz_set(50);
+    model.animlist[0x4D] = &walk;
+    plr.obj.model = &model;
+    plr.obj.dangle = 1;
+    CHECK(hang_walk(0x4D, 2.0f) == 1.0f);
+    nw_profile_apply(&(NwProfile){ .movement = NW_MOVEMENT_NHANCED });
+    /* Faster with the speed, but less than it grows. */
+    float twice = hang_walk(0x4D, 2.0f);
+    CHECK(twice > 1.0f && twice < 2.0f && hang_walk(0x4D, 3.0f) > twice);
+    CHECK(hang_walk(0x4D, 0.5f) == 1.0f); /* not slower than retail's, also pushing against the bar's end */
+    CHECK(hang_walk(0x4D, 10.0f) == hang_walk(0x4D, 20.0f)); /* the setting's speed at most */
+    /* Let go: walks on while faster than retail's bar speed. */
+    CHECK(hang_walk(0x20, 2.0f) == twice && plr.obj.anim.newaction == 0x4D);
+    CHECK(hang_walk(0x20, 0.5f) == 1.0f && plr.obj.anim.newaction == 0x20);
+    plr.obj.dangle = 2;
+    CHECK(hang_walk(0x36, 2.0f) == 1.0f && plr.obj.anim.newaction == 0x36);
+    plr.obj.dangle = 1;
+    /* A speed someone else wrote stays. */
+    walk.speed = 9.0f;
+    CHECK(hang_walk(0x4D, 2.0f) == 9.0f);
+    walk.speed = 1.0f;
+    CHECK(hang_walk(0x4D, 2.0f) == twice);
+    nw_profile_apply(&(NwProfile){ 0 });
+    CHECK(hang_walk(0x4D, 2.0f) == 1.0f);
+}
+
 int main(void)
 {
     monkey_bars(50, 0.015599999f);
     monkey_bars(60, 0.013f);
+    monkey_bar_anim();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);
