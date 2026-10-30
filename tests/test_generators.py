@@ -353,8 +353,9 @@ class TuFilter(unittest.TestCase):
             self.assertIn(line, out)
             self.assertIn(f"{unit.expose[0]} exposed", changes)
         self.assertIn("s32 FixHelper(s32 v);", out)
-        self.assertIn("s32 FixHelper__retail(s32 v);", tu_filter.retail_header(units["nucore/fixcore"],
-                                                                             self.parser.definitions(path)))
+        header = tu_filter.retail_header(units["nucore/fixcore"], self.parser.definitions(path)).split("\n")
+        self.assertIn("s32 FixHelper(s32 v);", header)  # NuWorld's FixHelper must keep the decomp's signature
+        self.assertIn("s32 FixHelper__retail(s32 v);", header)
         with self.assertRaisesRegex(tu_filter.FilterError, "no file-scope static FixAdd"):
             self.parser.static_tokens(DECOMP / units["nucore/fixcore"].source, ["FixAdd"])
 

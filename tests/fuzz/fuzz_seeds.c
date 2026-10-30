@@ -1,8 +1,4 @@
-/* Seed corpus for nuworld_fuzz_vfs from the synthetic test builders (no game data): the disc as .iso, raw
-   Mode 2 / Mode 1 .bin and refused variants, cue sheets with their images, .DAT archives, .gsc geoms, save documents
-   and a PS2 memory card. Each seed is the reader byte of fuzz_vfs.c and its input. With a second folder, the seeds
-   of fuzz_loaders.c there: a scene, a character, a cutscene, an anim, a shadow set, a terrain, a .vag, settings.
-   Usage: fuzz_seeds <corpus dir> [<loaders corpus dir>]. */
+/* Writes seed corpora for fuzz_vfs.c and fuzz_loaders.c from the synthetic test builders, no game data. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

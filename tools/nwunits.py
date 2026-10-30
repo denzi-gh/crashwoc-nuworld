@@ -1,9 +1,6 @@
-"""Shared model for gen_stubs.py and gen_funcmap.py: one record per retail
-function with its unit's treatment and who provides it on the host (decomp C,
-port or stub). Reads only committed decomp files, never game data.
+"""Shared model: each retail function with its unit's treatment and host provider (decomp C, port or stub).
 
-Unit kinds: wrapper (decomp source + <unit>.stubs.inc + <unit>.funcmap.inc),
-standalone (generated <unit>.stubs.c), none (shim).
+Unit kinds: wrapper (decomp source + <unit>.stubs.inc + <unit>.funcmap.inc), standalone (<unit>.stubs.c), none (shim).
 """
 from __future__ import annotations
 
@@ -258,6 +255,12 @@ def scan_c(text: str, path: str) -> CFile:
                           params=" ".join(params.split()), static="static" in storage.split(),
                           is_def=end == "{", body=body, calls=calls))
     return CFile(path=path, decls=decls, includes=includes, typedefs=_typedefs(code))
+
+
+def body_hashes(data: bytes, path: str) -> dict[str, str]:
+    """{function: body hash} of a C file's definitions; latin-1 keeps every byte the same on every OS."""
+    text = data.decode("latin-1").replace("\r\n", "\n")
+    return {d.name: d.body for d in scan_c(text, path).decls if d.is_def}
 
 
 def _closing_brace(code: str, start: int) -> int:
@@ -641,8 +644,7 @@ def _choose_proto(f: Function, unit: Unit, tu_decls, decls_by_name, typedefs,
 
 
 def _check_calls(model: Model, units: list[Unit], files: dict[str, CFile]) -> None:
-    """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called.
-    Walks each wrapper's kept definitions and the file's helpers outside the registry they call."""
+    """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called."""
     stubs = {f.name: f for u in units if u.treatment in ("editor", "dead")
              for f in u.functions if f.provider == "stub"}
     used = set()

@@ -184,7 +184,6 @@ void nw_spu2_set_param(uint16_t entry, uint16_t value)
     }
 }
 
-/* ENVX reads the envelope. */
 uint16_t nw_spu2_get_param(uint16_t entry)
 {
     if (!(entry & 0x80) && nw_spu2_reg(entry) == nw_spu2_reg(NW_SD_VP_ENVX)) {
@@ -195,8 +194,7 @@ uint16_t nw_spu2_get_param(uint16_t entry)
     return p ? *p : 0;
 }
 
-/* KON and KOFF wait for the next sample. PCSX2 stores them, so there a second write before it replaces the first;
-   here they add up. Writing ENDX clears it. */
+/* KON and KOFF wait for the next sample; writes before then add up (PCSX2 keeps the last). Writing ENDX clears it. */
 void nw_spu2_set_switch(uint16_t entry, uint32_t value)
 {
     NwSpu2Core *c = &spu.core[entry & 1];
@@ -291,9 +289,8 @@ static void nw_spu2_clear_work(const NwSpu2Core *c, int mode)
     }
 }
 
-/* sceSdSetEffectAttr: ECHO and DELAY move six addresses by the delay and set the wall volume from the feedback,
-   the other modes keep 0 for both. Clearing goes around the register writes: the old mode's area while effects
-   were on, then the new one's. */
+/* ECHO and DELAY move six addresses by the delay and set the wall volume from the feedback (other modes: 0). The old
+   mode's area is cleared before the register writes if effects were on, the new one's after. */
 void nw_spu2_set_effect_attr(int core, const NwSpu2Effect *attr)
 {
     NwSpu2Core *c = &spu.core[core & 1];
@@ -388,10 +385,9 @@ static void nw_spu2_keys(NwSpu2Core *c)
     c->key_on = c->key_off = 0;
 }
 
-/* The decoder (PCSX2 DecodeSamples): it reads the flags of the block at NAX every sample (START latches the loop
-   address) and stays up to 16 samples ahead, a word of 4 at a time. A playing voice decodes the block when it reads
-   its first word, the ADPCM history going on across blocks and loops (GetNextDataBuffered). At the end of a block
-   END sets ENDX and jumps to the loop address; without REPEAT it ends the voice, whose address goes on moving. */
+/* PCSX2 DecodeSamples: reads the block flags at NAX every sample (START latches the loop address) and stays up to 16
+   samples ahead, 4 per word; the ADPCM history carries across blocks and loops. At a block's end END sets ENDX and
+   jumps to the loop address; without REPEAT the voice ends, its address still moving. */
 static void nw_spu2_decode(NwSpu2Core *c, unsigned i)
 {
     NwSpu2Voice *v = &c->voice[i];
@@ -510,9 +506,8 @@ static int32_t nw_spu2_clamp(int32_t x)
     return x < -0x8000 ? -0x8000 : x > 0x7fff ? 0x7fff : x;
 }
 
-/* A voice volume with bit 15 set sweeps, a step a sample (PCSX2 V_VolumeSlide::Update): bits 0-6 the rate, 12 the
-   phase, 13 down, 14 exponential. The EE sends one when surround negates a looping sound's right volume behind the
-   camera and only the one-shots mask it to 15 bits. */
+/* Bit 15 set: a sweep, a step a sample (PCSX2 V_VolumeSlide::Update); bits 0-6 rate, 12 phase, 13 down, 14
+   exponential. The EE sends one when surround negates a looping sound's right volume (one-shots mask it to 15 bits). */
 static void nw_spu2_sweep(uint16_t reg, int32_t *value, uint32_t *counter)
 {
     if (!(reg & 0x8000)) {
@@ -546,8 +541,7 @@ static void nw_spu2_sweep(uint16_t reg, int32_t *value, uint32_t *counter)
     }
 }
 
-/* One sample of every voice (PCSX2 MixVoice): decode, the interpolated sample, scaled by the envelope after its
-   step, the volumes, then the pitch moves it on. dry and wet get each core's voices by their VMIX gates. */
+/* One sample of every voice (PCSX2 MixVoice); dry and wet get each core's voices by their VMIX gates. */
 static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
 {
     for (int c = 0; c < 2; c++) {
@@ -675,9 +669,8 @@ static void nw_spu2_reverb(NwSpu2Core *c, const int32_t in[2], int32_t out[2])
     out[1] = nw_spu2_filter(c->revb_up[1], pos, 2);
 }
 
-/* spu2Mix without the input and noise: each core's clamped dry and wet voices go through its MMIX gates, the wet
-   side through the reverb and EVOL onto the dry one; core 0's output through its MVOL and core 1's AVOL into core
-   1, core 1's through its MVOL out. */
+/* PCSX2 spu2Mix without input and noise: core 0's output goes through its MVOL and core 1's AVOL into core 1, core
+   1's through its MVOL out. */
 static void nw_spu2_mix(int32_t dry[2][2], int32_t wet[2][2], int16_t out[2])
 {
     int32_t ext[2] = { 0, 0 };

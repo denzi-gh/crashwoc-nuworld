@@ -19,6 +19,7 @@
 #include "frontend/debug.h"
 #include "frontend/settings.h"
 #include "frontend/video.h"
+#include "gameplay/gameplay.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -127,8 +128,7 @@ static int nw_verify(const char *data_dir)
 }
 
 #ifdef NW_WITH_GAME
-/* A PS2 save (a raw BESLES-50386slot00 or a .ps2 card image) as the game's save; returns the exit code: 2 when the
-   card has no save. */
+/* Imports a raw BESLES-50386slot00 or a .ps2 card image as the game's save; exit code 2 when the card has no save. */
 static int nw_import_save(const char *file, const char *data_dir)
 {
     char *root = nw_data_root(data_dir);
@@ -318,9 +318,8 @@ static int nw_check_dat(const NwVfs *vfs, const char *archive)
     return count;
 }
 
-/* Every file of the imported disc (RNC-unpacked) and every entry of its .DAT archives as "FILE|DAT <path> size=<n>
-   sha256=<hex>" lines (tools/disc_check.py makes the same from the crashwoc tooling); exits 0, 1, or 2 without the
-   disc. */
+/* Prints "FILE|DAT <path> size=<n> sha256=<hex>" for every disc file and .DAT entry, RNC-unpacked (tools/disc_check.py
+   makes the same list from the crashwoc tooling); exits 0, 1, or 2 without the disc. */
 static int nw_check_disc(const char *data_dir)
 {
     NwVfs vfs;
@@ -405,7 +404,7 @@ int nw_game_main(int argc, char **argv);
 static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
 static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
-#define NW_BOOT_CHECK_MS 30000         /* the watchdog of --boot-check; at the hardware speed BGLoadSfx alone takes 13 s */
+#define NW_BOOT_CHECK_MS 30000         /* --boot-check's watchdog; at the hardware speed BGLoadSfx alone takes 13 s */
 #define NW_GAME_PARK_MS 1000           /* how long the game thread gets to reach a yield point and park */
 #define NW_SCENE_CHECK_FRAMES 3        /* the frames --scene-check lets a scene draw */
 #define NW_CAPTURE_MS 300000           /* the watchdog of --capture */
@@ -416,12 +415,17 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
 static int nw_run_hz;             /* --hz, else the window's setting; 0: PAL's */
+static const char *nw_overlays[NW_VFS_OVERLAYS]; /* --overlay, in the order given: the later wins */
+static int nw_overlay_count;
 
-/* What the game thread needs before it starts, in order: the data folder (its saves folder is the memory card), the
-   file system (the sce file shim's too), newlib's state, the data image from the boot ELF, the vblank clock, the
-   sound module on both (at the hardware speed or with instant loads), --level's request, --pad-script. The file
-   system stays open for the game. Returns 0, else the exit code: 2 without usable data, level or pad script, 1 when
-   the image or the clock fails. */
+static void nw_overlay_conflict(void *user, const char *key)
+{
+    fprintf(stderr, NW_APP_NAME ": --overlay %s: %s is in an earlier overlay too; this one wins\n",
+            (const char *)user, key);
+}
+
+/* Everything the game thread needs before it starts; the file system stays open for the game. Returns 0, else the
+   exit code: 2 without usable data, level or pad script, 1 when the image or the clock fails. */
 static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware_speed)
 {
     static NwVfs vfs;
@@ -439,6 +443,15 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
             nw_vfs_shutdown(&vfs);
         }
         return 2;
+    }
+    for (int i = 0; i < nw_overlay_count; i++) {
+        if (!nw_vfs_overlay(&vfs, nw_overlays[i], nw_overlay_conflict, (void *)nw_overlays[i])) {
+            fprintf(stderr, NW_APP_NAME ": --overlay: %s\n", SDL_GetError());
+            SDL_free(elf);
+            nw_vfs_shutdown(&vfs);
+            return 2;
+        }
+        fprintf(stderr, NW_APP_NAME ": --overlay %s: %u files\n", nw_overlays[i], vfs.mounts[NW_VFS_OVERLAY].count);
     }
     nw_shim_file_init(&vfs);
     nw_newlib_init();
@@ -493,8 +506,7 @@ static const char *nw_game_state_name(NwGameState state)
     return "?";
 }
 
-/* Stops the game thread for the exit; one that does not reach a yield point in time is left running, and the
-   process must then end with _Exit, not unwind under it. */
+/* A game thread that misses the deadline is left running; the process must then _Exit, not unwind under it. */
 static bool nw_game_parked(void)
 {
     NwGameState state = nw_game_state() == NW_GAME_RUNNING ? nw_game_stop(NW_GAME_PARK_MS) : nw_game_state();
@@ -526,10 +538,9 @@ static void nw_print_stub_hits(const char *mode, NwGameState state)
            nw_game_state_name(state));
 }
 
-/* Headless: runs the game with every stub hit logged and passed until `vblanks` vblanks after its first screen
-   swap (with --level, after its level runs), or with `loads`, until the game parks itself after that many
-   background loads; then prints the stub hits in first-hit order (stdout). Returns the exit code: 0 when it got there, 1 on a fatal error, an early return or
-   the watchdog, 2 without usable data. */
+/* Runs the game headless until `vblanks` vblanks after its first swap (with --level, after the level runs) or, with
+   `loads`, until it parks itself after that many background loads. Exit code 0 when it got there, 1 on a fatal
+   error, an early return or the watchdog, 2 without usable data. */
 static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMode mode, bool hardware_speed)
 {
     int code = nw_boot_prepare(data_dir, mode, hardware_speed);
@@ -628,8 +639,8 @@ static void nw_boot_settings(const char *data_dir, NwSettings *s, bool save)
     SDL_free(root);
 }
 
-/* The port's master and voice buses (settings.toml) around the game's own music and SFX volumes, which its options
-   menu also writes, at Done. */
+/* Master and Voice are the port's buses (settings.toml); Music and SFX are the game's own volumes, which its options
+   menu also writes at Done. */
 static void nw_boot_audio(void *user)
 {
     NwSettings *s = user;
@@ -645,7 +656,6 @@ static void nw_boot_audio(void *user)
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
 }
 
-/* The game's speed, taken at the next start. */
 static void nw_boot_speed(void *user)
 {
     static const char *const rates[] = { "60 Hz (NTSC)", "50 Hz (PAL, the original's)" };
@@ -658,7 +668,6 @@ static void nw_boot_speed(void *user)
     nw_debug_text("running at %d Hz; a change takes effect at the next start", nw_run_hz);
 }
 
-/* The disc's levels; a click takes Crash there at once. */
 static void nw_boot_levels(void *user)
 {
     static char filter[64];
@@ -678,12 +687,8 @@ static void nw_boot_levels(void *user)
     }
 }
 
-/* Bool if the unused title menu is shown instead of the retail main menu */
-#define NW_UNUSED_TITLE true
-
-/* Windowed: the game runs (stubs logged and passed) in the window, which reports its frames in the title; at the
-   end it prints the stub hits in first-hit order (stdout). hardware_speed -1 takes settings.toml's, which the debug
-   menu changes and saves, like the buses; aspect -1 likewise. Returns the exit code. */
+/* Runs the game in the window; hardware_speed and aspect -1 take settings.toml's, which the debug menu changes and
+   saves. */
 static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
 {
     NwSettings settings;
@@ -706,7 +711,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     if (!nw_window_open(&platform, data_dir)) {
         return 1;
     }
-    nw_level_set_unused_title(NW_UNUSED_TITLE);
+    if (nw_pad_script) {
+        fprintf(stderr, NW_APP_NAME ": --pad-script plays the retail game: no [game] switches\n");
+    } else {
+        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title });
+    }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
@@ -767,7 +776,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             titled = SDL_GetTicks();
         }
         int width, height;
-        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
+        nw_display_size(platform.window, &width, &height);
         nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
@@ -788,9 +797,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
 
-/* --capture: the game on the stepped clock in a hidden window; the frames around the requested vblanks of the title
-   cut go to dir as <vblank>.png, their label lines and then the stub hits to stdout. Returns 0 once every one is
-   past, 1 on a failed save, a stopped game or the watchdog, 2 without usable data or vblanks. */
+/* Saves the title cut's frames at the requested vblanks as dir/<vblank>.png from a hidden window on the stepped clock.
+   Exit code 0 once all are past, 1 on a failed save, a stopped game or the watchdog, 2 without data or vblanks. */
 static int nw_capture(const char *data_dir, const char *list, const char *dir, bool hardware_speed)
 {
     char *root = nw_data_root(data_dir);
@@ -854,9 +862,8 @@ static int nw_capture(const char *data_dir, const char *list, const char *dir, b
     return nw_boot_exit(finished && saved && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
-/* --dump: the game headless on the stepped clock; its state at the requested vblanks goes to dir as <vblank>.nwd
-   (src/port/dump.h), then the stub hits to stdout. Returns 0 once every one is written, 1 on a failed one, a stopped
-   game or the watchdog, 2 without usable data or vblanks. */
+/* Writes the game state at the requested vblanks as dir/<vblank>.nwd (src/port/dump.h), headless on the stepped clock.
+   Exit code 0 once all are written, 1 on a failed one, a stopped game or the watchdog, 2 without data or vblanks. */
 static int nw_dump_run(const char *data_dir, const char *list, const char *dir, bool heap, bool hardware_speed)
 {
     char *root = nw_data_root(data_dir);
@@ -912,9 +919,8 @@ static const NwManifestEntry *nw_scene_entry(const char *path)
     return e;
 }
 
-/* The scene viewer: the decomp loads and draws the scene on the game thread (stubs logged and passed), the window
-   shows its frames under a fly camera; at the end it prints the stub hits (stdout). Returns the exit code: 2 without
-   the disc or the scene. An empty path starts on the scene list. */
+/* The decomp loads and draws the scene on the game thread, shown under a fly camera; an empty path starts on the
+   scene list. Exit code 2 without the disc or the scene. */
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
     const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
@@ -947,9 +953,8 @@ static int nw_scene(const char *data_dir, const char *path, int max_frames)
     return nw_boot_exit(code, parked);
 }
 
-/* Every .gsc and .ghg of the imported disc through --scene-check, one process each (the decomp loads one scene a
-   run). Scenes the NU20 reader finds truncated or without objects, which the game never draws (INTRO/FINAL,
-   TITLES/TITLESPL), are skipped. Exits 2 without the disc. */
+/* Runs --scene-check per .gsc and .ghg, one process each (the decomp loads one scene a run); truncated or empty
+   scenes, which the game never draws (INTRO/FINAL, TITLES/TITLESPL), are skipped. Exits 2 without the disc. */
 static int nw_scene_check_all(const char *exe, const char *data_dir)
 {
     NwVfs vfs;
@@ -999,8 +1004,8 @@ static int nw_scene_check_all(const char *exe, const char *data_dir)
     return failed || scenes == skipped ? 1 : 0;
 }
 
-/* Headless: the scene drawn for a few frames under the viewer's first camera; prints its last frame packet and the
-   stub hits (stdout). Returns 0 when the packet holds draws, 1 when not or on a fatal error, 2 without the disc. */
+/* Draws the scene headless for a few frames under the viewer's first camera. Exit code 0 when the last packet holds
+   draws, 1 when not or on a fatal error, 2 without the disc. */
 static int nw_scene_check(const char *exe, const char *data_dir, const char *path)
 {
     if (strcmp(path, "all") == 0) {
@@ -1068,7 +1073,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
              strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
-             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0) &&
+             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0 ||
+             strcmp(argv[i], "--overlay") == 0) &&
             i + 1 >= argc) {
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
@@ -1131,6 +1137,12 @@ int main(int argc, char *argv[])
             nw_run_level = argv[++i];
         } else if (strcmp(argv[i], "--pad-script") == 0) {
             nw_pad_script = argv[++i];
+        } else if (strcmp(argv[i], "--overlay") == 0) {
+            if (nw_overlay_count == NW_VFS_OVERLAYS) {
+                fprintf(stderr, NW_APP_NAME ": at most %d --overlay folders\n", NW_VFS_OVERLAYS);
+                return 2;
+            }
+            nw_overlays[nw_overlay_count++] = argv[++i];
         } else if (strcmp(argv[i], "--hardware-speed") == 0) {
             const char *value = argv[++i];
             if (strcmp(value, "on") != 0 && strcmp(value, "off") != 0) {
@@ -1148,6 +1160,12 @@ int main(int argc, char *argv[])
             }
             nw_run_hz = atoi(value);
         }
+    }
+    /* The checks, tests and comparisons read the retail disc. */
+    if (nw_overlay_count && (!boot || boot_check || capture || dump || check_data || check_scenes || check_disc ||
+                             scene || scene_check || verify || import || import_save)) {
+        fprintf(stderr, NW_APP_NAME ": --overlay is for the game window (--boot) only\n");
+        return 2;
     }
     if (import) {
         return nw_import(import, data_dir);
@@ -1183,11 +1201,10 @@ int main(int argc, char *argv[])
         if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
             return 2;
         }
-        /* The runs compared with PCSX2's keep its load times and the game window takes settings.toml's; the checks
-           load at once, so they never depend on the player's settings. --hardware-speed decides for all of them. */
+        /* PCSX2 comparison runs keep its load times, the window takes settings.toml's and the checks load at once;
+           --hardware-speed overrides all of them. */
         int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
-        /* Likewise the picture and the rate: the checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless
-           --aspect or --hz names another. */
+        /* The checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless --aspect or --hz names another. */
         float aspect = -1.0f;
         if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
             fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");

@@ -17,9 +17,8 @@ typedef enum NwTexFilter {
     NW_FILTERS
 } NwTexFilter;
 
-/* The triangle packages' per-vertex programs (tri runs the same code as tric), the sprite programs they jump to for
-   face-on geoms, the skin programs of tri, xformuv and glass (MSCAL 0x302), and ptl's particles. water, wateruv,
-   triglass and sknglass read the frame copied into a texture at the pixel each vertex lands on. */
+/* The packages' triangle programs (tri runs tric's code), face-on sprite programs, skin programs (MSCAL 0x302) and ptl;
+   water, wateruv, triglass and sknglass read the frame copy at the pixel each vertex lands on. */
 typedef enum NwVuProgram {
     NW_VU_TRIC,
     NW_VU_TRICU,
@@ -38,10 +37,9 @@ typedef enum NwVuProgram {
     NW_VU_PROGRAMS
 } NwVuProgram;
 
-/* What vu1init leaves for an object: VF01-04 (local times screen matrix, PS2 row-major), VF23-29 (lights, or for the
-   xuv programs the UV matrix: u, v and w dotted with the object's normal, then the offset), and for the sprite
-   programs: faceon's corner offset per unit of size in clip space (x, y), facey's facing axis VF15; for ptl the
-   clip space per GS unit (x, y) and the texture per texel coordinate unit (z, w). frag maps a pixel to GS coordinates:
+/* What vu1init leaves for an object: lv is VF01-04 (local times screen, PS2 row-major); VF23-29 the lights, or the xuv
+   UV matrix; sprite is faceon's clip-space corner offset per unit size (x, y), facey's axis VF15, or for ptl clip space
+   per GS unit (x, y) and texture per texel unit (z, w); frag maps a pixel to GS coordinates:
    x = gl_FragCoord.x * frag[0] + frag[2], y = gl_FragCoord.y * frag[1] + frag[3]. */
 typedef struct NwVuObject {
     float lv[16];
@@ -88,9 +86,8 @@ typedef struct NwVuZClut {
     bool alpha;
 } NwVuZClut;
 
-/* What a material gives the programs: diffuse VU 0x13 (x128), the texture (NULL or 0: none), the GS state, a depth
-   CLUT over the texture (NULL: none), and a copy of the target to blend over in the program as the GS does (NULL:
-   GL's blend). */
+/* diffuse is VU 0x13 (x128); tex NULL or 0 and zclut NULL mean none; dst is a copy of the target to blend over in the
+   program as the GS does (NULL: GL's blend). */
 typedef struct NwVuMaterial {
     float diffuse[4];
     float uvoff[4]; /* VU 0x14 u, v; the STROW row u, v (x4096) when the geom unpacks its texcoords under STMOD 1 */
@@ -103,7 +100,6 @@ typedef struct NwVuMaterial {
 
 bool nw_vu_init(void);
 void nw_vu_shutdown(void);
-/* The program of a microcode package name. */
 NwVuProgram nw_vu_program(const char *package);
 /* The program a package's MSCAL 0x302 runs: skin in tri, skinxuv in xformuv, sknglass in glass; NW_VU_PROGRAMS for
    the others, whose entry draws nothing (tric, tricu, trica) or falls into the triangle program (tricdv). */
@@ -115,8 +111,7 @@ void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t
 void nw_vu_waves(const float waves[32][4]);
 /* ptl's VU 0x3C-0xBF: the effect list as NwPtlList holds it. */
 void nw_vu_ptl(const uint32_t image[132][4]);
-/* The particles of the bound VBO from the byte offset on, one per instance: the point and birth, the momentum and
-   rate. */
+/* The NwPtl attributes of the bound VBO from the byte offset on, one particle per instance. */
 void nw_vu_ptl_attribs(size_t offset);
 /* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
 void nw_vu1init(NwVuObject *o, const float local[16], const float view[16]);

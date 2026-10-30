@@ -37,7 +37,6 @@ typedef struct NwDat {
     char *names;
 } NwDat;
 
-/* Parses the directory (dir_size bytes from dir_offset) of an archive of file_size bytes. */
 bool nw_dat_parse(NwDat *dat, const void *dir, size_t dir_size, uint64_t file_size);
 /* Opens an archive through the VFS. DUMMY.DAT is refused. */
 bool nw_dat_open(NwDat *dat, const NwVfs *vfs, const char *game_path);

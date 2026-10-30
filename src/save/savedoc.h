@@ -1,7 +1,5 @@
-/* A TOML document in the part of TOML the saves use: [table] headers of bare or quoted keys, key = value lines with
-   strings, integers (decimal or hex), booleans and arrays of them, # comments. Tables and keys keep their order, so
-   what a reader does not know is written back as it was; comments are not kept. Strings and keys hold the code
-   points U+0000..U+00FF as bytes (the game's text is bytes); the writer escapes everything outside printable ASCII. */
+/* The TOML subset the saves use: tables, strings, decimal or hex integers, booleans and arrays. Order is kept, so
+   unknown keys are written back as they were (comments are not); strings hold U+0000..U+00FF as bytes. */
 #ifndef NUWORLD_SAVE_SAVEDOC_H
 #define NUWORLD_SAVE_SAVEDOC_H
 

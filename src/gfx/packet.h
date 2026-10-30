@@ -1,5 +1,4 @@
-/* A frame of draws in the order the Nu render API gives them, handed from the game thread to the renderer once a
-   tick, and the GPU objects the draws use. GL-free. */
+/* The frame of draws the game thread hands the renderer each tick, and the GPU objects they use; GL-free. */
 #ifndef NUWORLD_GFX_PACKET_H
 #define NUWORLD_GFX_PACKET_H
 
@@ -35,8 +34,7 @@ typedef struct NwGpuSkin {
     unsigned int deltas, delta_tex; /* the blend-shape deltas as a texture buffer */
 } NwGpuSkin;
 
-/* A texture the GS reads from its own memory: the back or front buffer, or a render target by its GS address (0:
-   none). tw x th is the power-of-two size it is addressed at. */
+/* A texture in GS memory: the back or front buffer or a target's GS address (0: none), tw x th a power of two. */
 #define NW_SURF_BACK (-1)
 #define NW_SURF_FRONT (-3)
 
@@ -60,14 +58,13 @@ typedef enum NwCmdOp {
     NW_CMD_WAVES,   /* a water material's wave table, which the draws after it read */
 } NwCmdOp;
 
-/* What nuwater's animateWater unpacks to VU 0x1B2 for the water programs: 32 waves, each the camera-space offset of
-   the texcoords (x, y), 1 and the lift along the local y (w). */
+/* nuwater's animateWater table at VU 0x1B2: per wave the camera-space texcoord offset (x, y), 1, the local y lift. */
 typedef struct NwWaves {
     float wave[32][4];
 } NwWaves;
 
-/* What an effect list unpacks to VU 0x3C-0xBF for the ptl program: the gravity and the time, the corners' texel
-   coordinates (u, v), and 64 entries by age of the corner offsets and the colour. */
+/* An effect list as unpacked to VU 0x3C-0xBF for the ptl program; tri is 64 entries by age of corner offsets and
+   colour. */
 typedef struct NwPtlList {
     float head[4]; /* [1] the gravity, [3] the time */
     int32_t uv[4][2];
@@ -75,20 +72,16 @@ typedef struct NwPtlList {
     uint32_t tri[64][8];
 } NwPtlList;
 
-/* A particle as a set holds it: the point and its birth time, its momentum and the rate it ages at. */
+/* A particle as its set holds it; rate is how fast it ages. */
 typedef struct NwPtl {
     float pos[3], birth;
     float mom[3], rate;
 } NwPtl;
 
-/* A CLUT that a VERTS command looks up by the GS Z under each pixel instead of a texture, as retail's fog and spot
-   lights read the Z buffer back byte by byte: entry (Z >> shift) & 0xFF over 256 entries from Z = base, entry far
-   below them and near above. Seashell's NuLightFogClear then gives the alpha 0x80 where it is under 0x80 and Z is at
-   most clear_z[0], and 0 where it is 0x80 or more and Z is at least clear_z[1]. A spot light's (NwZClut.spot)
-   clears its texel instead where the alpha is 0x80 or more and Z is at most clear_z[0] (0: none), or at least
-   clear_z[1] (0: none). far and near may also be NW_ZCLUT_ZERO, a clear texel, or NW_ZCLUT_WRAP, the entry of Z
-   wrapped as the rest. With alpha, the entry's alpha replaces the texture's alone, as the haze reads the fog's alpha
-   back with the frame. */
+/* A CLUT a VERTS command looks up by the GS Z under each pixel, as retail's fog and spot lights read Z back byte by
+   byte: entry (Z >> shift) & 0xFF from Z = base, far below that and near above (or NW_ZCLUT_ZERO, a clear texel, or
+   NW_ZCLUT_WRAP, wrapped like the rest). clear_z bounds Seashell's NuLightFogClear alpha fix-up (clear) or a spot
+   light's texel clear (spot); with alpha only the texture's alpha is replaced, for the haze. */
 #define NW_ZCLUT_ZERO 0x100u
 #define NW_ZCLUT_WRAP 0x200u
 
@@ -101,7 +94,6 @@ typedef struct NwZClut {
     bool alpha;
 } NwZClut;
 
-/* How a VERTS command's vertices are drawn. */
 typedef enum NwVertsMode {
     NW_VERTS_GS,   /* GS coordinates (x, y 12.4, z), s and t x4096, unlit: a DIRECT GIF packet's */
     NW_VERTS_TRIS, /* points under the local matrix, s and t x4096, through the command's program */

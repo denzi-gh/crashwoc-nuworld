@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
 """Generate src/vfs/disc_manifest.inc: path, size and SHA-256 of every file on the PAL v1.03 disc.
 
-SOURCE is a directory extracted from your own disc, or a manifest.json
-({"PATH": {"sha256": hex, "size": n}}). --cross compares against further
-manifests. Only names, sizes and hashes are written, never game bytes.
---check compares the committed file with SOURCE, or only validates it when
-SOURCE is omitted.
+A manifest.json is {"PATH": {"sha256": hex, "size": n}}; --check without SOURCE only validates the committed file.
 """
 from __future__ import annotations
 

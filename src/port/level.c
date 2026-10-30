@@ -35,7 +35,6 @@ static struct {
     int route[NW_LEVEL_ROUTE], nroute, leg;
     NwLevelArrival arrivals[NW_LEVEL_ROUTE];
     SDL_AtomicInt arrived; /* 1 once the last runs */
-    SDL_AtomicInt unused_title;
 } nw_level = { .entering = -1, .arrival = -1 };
 
 int nw_level_count(void)
@@ -163,8 +162,8 @@ static void nw_level_cut(void)
     nw_level.steady = false;
 }
 
-/* As retail's level select and demo start enter a level. The title (PlayCutMovie) loads Level once it ends, past the
-   main loop's turn of TITLES into the title: there TITLES is the title already, and only there its own level loads. */
+/* As retail's level select and demo start; the title loads Level when it ends, past the main loop's turn of TITLES
+   into the title, so only there TITLES' own level can load. */
 static void nw_level_enter(int level)
 {
     if (cutmovie == 0) {
@@ -181,25 +180,23 @@ static void nw_level_enter(int level)
     nw_level_cut();
 }
 
-void nw_level_set_unused_title(bool on)
+bool nw_level_routing(void)
 {
-    SDL_SetAtomicInt(&nw_level.unused_title, on);
+    return nw_level.intro || nw_level_pending() >= 0;
 }
 
-/* Steady: the load thread is done and the screen faded in, at this swap and the one before, which BGLoad's loading
-   screen never is (it fades out right after the load), and nothing else is changing the level. InitGameMode would
-   drop a new_level set before the level loop. A cutscene on arrival (a hub's, played in space before its level, or
-   the warp room's intro) is skipped as Start skips it. */
+void nw_level_titles(void)
+{
+    Level = NW_LEVEL_TITLES;
+    new_level = NW_LEVEL_TITLES;
+    Hub = -1;
+    nw_level_cut();
+}
+
+/* Acts after two steady swaps (loads done, faded in, which BGLoad's loading screen never is, no other level change),
+   since InitGameMode drops a new_level set before the level loop; an arrival cutscene is skipped as Start skips it. */
 void nw_level_poll(void)
 {
-    /* Every title cut (boot, quit, demo end, game over) ends at its first swap, still black, into TITLES' own level;
-       a route's NEW GAME and an asked level keep the cut. */
-    if (SDL_GetAtomicInt(&nw_level.unused_title) && cutmovie == 0 && !nw_level.intro && nw_level_pending() < 0) {
-        Level = NW_LEVEL_TITLES;
-        new_level = NW_LEVEL_TITLES;
-        Hub = -1;
-        nw_level_cut();
-    }
     /* The title keeps the new_level that led to it until its level starts. */
     bool steady = bgload_complete && fadeval == 0 && (new_level == -1 || cutmovie == 0) && new_mode == -1 &&
                   cutmovie <= 0 && !Demo && !editor_active;

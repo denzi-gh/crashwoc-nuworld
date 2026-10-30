@@ -46,8 +46,7 @@ static void nw_save_blame(const char *path)
     SDL_SetError("%s: %s", path, why);
 }
 
-/* path as a save document: 1 read, 0 no file, -1 unusable, -2 a newer format (both with an SDL error). Usable means
-   that it parses and that its records decode. */
+/* 1 read, 0 no file, -1 unusable (does not parse or decode), -2 a newer format; the last two set an SDL error. */
 static int nw_save_open(const char *path, const NwSaveRegistry *reg, NwDoc *doc)
 {
     if (!SDL_GetPathInfo(path, NULL)) {
@@ -167,8 +166,7 @@ static int SDLCALL nw_save_by_name(const void *a, const void *b)
     return SDL_strcmp(*(char *const *)a, *(char *const *)b);
 }
 
-/* One file of the folder to import: what cannot be imported is logged and counts as no save, so that a stray file
-   never makes the slot fail to load. */
+/* A file that cannot be imported is logged and counts as no save, so a stray file never makes the slot fail. */
 static NwSaveResult nw_save_try_import(const char *dir, const char *name, int slot, const NwSaveRegistry *reg)
 {
     char *path = NULL;

@@ -1,5 +1,5 @@
-/* The .ter loader override (src/port/terrain.c) on a synthetic file, then under terraininit; locally every .ter of
-   the imported disc over its level scene. Usage: test_terrain <scratch dir> | retail. */
+/* The .ter loader override (src/port/terrain.c) on a synthetic file and under terraininit; with `retail`, every .ter
+   over its level scene. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

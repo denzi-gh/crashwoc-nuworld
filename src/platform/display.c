@@ -1,5 +1,9 @@
 #include "platform/display.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 static NwResolution nw_display_pixels(const SDL_DisplayMode *m)
 {
     float d = m->pixel_density > 0.0f ? m->pixel_density : 1.0f;
@@ -58,8 +62,12 @@ bool nw_display_set_mode(SDL_Window *window, NwWindowMode mode, NwResolution res
     if (mode == NW_WINDOW_FULLSCREEN && !nw_display_exclusive(window, res, &exclusive)) {
         return false;
     }
-    return SDL_SetWindowFullscreenMode(window, mode == NW_WINDOW_FULLSCREEN ? &exclusive : NULL) &&
-           SDL_SetWindowFullscreen(window, true);
+    if (!SDL_SetWindowFullscreenMode(window, mode == NW_WINDOW_FULLSCREEN ? &exclusive : NULL) ||
+        !SDL_SetWindowFullscreen(window, true)) {
+        return false;
+    }
+    nw_display_compose(window);
+    return true;
 }
 
 int nw_display_sizes(SDL_Window *window, NwWindowMode mode, NwResolution *sizes, int max)
@@ -116,4 +124,44 @@ NwResolution nw_display_fullscreen(SDL_Window *window, NwWindowMode mode, NwReso
         return nw_display_pixels(&m);
     }
     return desktop ? nw_display_pixels(desktop) : (NwResolution){ 0, 0 };
+}
+
+#ifdef _WIN32
+static HWND nw_display_hwnd(SDL_Window *window, RECT *monitor)
+{
+    MONITORINFO mi = { .cbSize = sizeof(mi) };
+    HWND hwnd = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)
+                    ? SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL)
+                    : NULL;
+    if (!hwnd || !GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) {
+        return NULL;
+    }
+    *monitor = mi.rcMonitor;
+    return hwnd;
+}
+#endif
+
+void nw_display_compose(SDL_Window *window)
+{
+#ifdef _WIN32
+    RECT m, r;
+    HWND hwnd = nw_display_hwnd(window, &m);
+    if (hwnd && GetWindowRect(hwnd, &r) && EqualRect(&r, &m)) {
+        SetWindowPos(hwnd, NULL, m.left, m.top, m.right - m.left + 1, m.bottom - m.top,
+                     SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+    }
+#else
+    (void)window;
+#endif
+}
+
+void nw_display_size(SDL_Window *window, int *w, int *h)
+{
+    SDL_GetWindowSizeInPixels(window, w, h);
+#ifdef _WIN32
+    RECT m;
+    if (nw_display_hwnd(window, &m) && *w == m.right - m.left + 1) {
+        (*w)--;
+    }
+#endif
 }

@@ -1,9 +1,8 @@
 # Data image annotations; checked by `python tools/gen_dataimage.py --check`.
-# owned: data roots the port defines itself (src/shim, src/port), so the image leaves them out
-# conflicts: roots declared as plain data in one unit and with pointer slots in another, accepted with
-#   the reason (fix the declaration upstream instead whenever possible)
-# reads: overridden functions whose data stays in the image, for the port's copy of them
-# Every entry must match a root, so a decomp bump cannot leave a stale one.
+# owned: roots NuWorld defines itself (src/shim, src/port), left out of the image
+# conflicts: roots plain in one unit and with pointer slots in another, accepted with a reason (better: fix upstream)
+# reads: overridden functions whose data stays in the image for NuWorld's copy
+# Every entry must match a root.
 
 schema = 1
 

@@ -26,6 +26,11 @@ void nw_shim_file_init(const NwVfs *vfs)
     nw_shim_vfs = vfs;
 }
 
+const NwVfs *nw_shim_file_vfs(void)
+{
+    return nw_shim_vfs;
+}
+
 static NwVfsFile *nw_shim_fd(int fd)
 {
     return fd >= 0 && fd < NW_SCE_FDS ? nw_shim_fds[fd] : NULL;

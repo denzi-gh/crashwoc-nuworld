@@ -431,9 +431,8 @@ static void test_animate(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* NuRndrClear flushes what came before (flags & 4: the streams alone, so material streams wait) and clears from
-   the system stream, which sorts first in the next group; the sprites go to the 2D stream at screen or target
-   coordinates under numtl_defaultmtl2d unless given a material. */
+/* NuRndrClear flushes what came before (flags & 4: the streams alone, so material streams wait) and clears from the
+   system stream; sprites go to the 2D stream under numtl_defaultmtl2d unless given a material. */
 static void test_2d(void)
 {
     struct numtl_s *m = NuMtlCreate(1);
@@ -603,10 +602,8 @@ static const NwCmd *drawn(const NwPacket *p, uint8_t op, const void *mesh, const
     return NULL;
 }
 
-/* An hgobj in a pose: each joint's gobjs under the joint's matrix times wm (a chain offset by its origins), each
-   material pass a record; the skin object a SKIN record per pass under wm, both passes on one palette of INV_WT x
-   the pose. NuRndrGobj leaves the forced material table out under a forced material; the blend-deformer weights
-   keep retail's layout. */
+/* An hgobj in a pose: joint gobjs under the joint's matrix times wm, the skin's passes on one palette of INV_WT x the
+   pose; a forced material skips the forced material table; deformer weights keep retail's layout. */
 static void test_hgobj(void)
 {
     set_mtx(&numtx_identity, 0.0f, 0.0f, 0.0f, 0.0f); /* retail data the test has no image of */
@@ -699,9 +696,8 @@ static void test_hgobj(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* A stream's VU 0x0C block by its attr & 0x43: a specular material (lighting 1) gets the specular UV matrix (row 2 the
-   half vector of the light and the view, negated; the offset 0.5), an fx one the fx matrix, both in xformuv. A skin
-   draw keeps its deformer weights. */
+/* attr & 0x43 picks the VU 0x0C block: the specular UV matrix (row 2 the negated half vector of light and view, offset
+   0.5) or the fx matrix; a skin draw keeps its deformer weights. */
 static void test_xuv(void)
 {
     struct numtl_s *spec = NuMtlCreate(1), *fx = NuMtlCreate(1), *tri = NuMtlCreate(1);
@@ -775,8 +771,7 @@ static void test_glass(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* The crate explosion's quad: the corners turned, placed and through the camera's VPCS matrix to whole GS units, a
-   VERTS strip in the material's stream; a point out of view draws nothing. */
+/* The crate explosion's quad goes through the camera's VPCS matrix to whole GS units; one out of view draws nothing. */
 static void test_crate_quad(void)
 {
     static struct nuvec_s shape[4] = { { -0.25f, 0.25f, 0.0f }, { 0.25f, 0.25f, 0.0f }, { -0.25f, -0.25f, 0.0f },
@@ -813,9 +808,8 @@ static void test_crate_quad(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* NuBrdigeDrawRope's sequence: a rope of three points is two segments of four faces, the offsets turning a quarter
-   from face to face, one VERTS record in the fx stream under fx2 and the identity; a link of the fx stream after
-   another stream's leaves no raw packets. */
+/* NuBrdigeDrawRope's sequence: three points are two segments of four faces in one fx2 VERTS record; linking the fx
+   stream after another stream leaves no raw packets. */
 static void test_rope(void)
 {
     struct nuvec_s pts[3] = { { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 0.0f } };
@@ -853,9 +847,8 @@ static void test_rope(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* The hub's first-frame fx: the kept bookkeeping and draws of the shadow polys and ripples and the footprints, each a
-   VERTS record in the fx stream under fx2 and the identity. A shadow is black with its shade as alpha and empties the
-   list; a ripple takes its current colour; a footprint fades with its timer below 16 and draws over ALPHA_1 0x44. */
+/* The hub's first-frame fx, each an fx2 VERTS record: a shadow is black with its shade as alpha, a ripple takes its
+   current colour, a footprint fades with its timer below 16 and draws over ALPHA_1 0x44. */
 static void test_fx_quads(void)
 {
     struct numtl_s *mtl = NuMtlCreate(1);
@@ -909,11 +902,9 @@ static void test_fx_quads(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* The hub's part of the volume shadows: the light's fan of unit directions square to it, the stencil's full-screen
-   box without a mask, NuRndrShadow emptying the store (not with testflipold's bit 4) with no volumes in it: the
-   stencil's start squeezing Z to 256 pixels, the mask cleared then grey where shadowed over those 256, and ten
-   columns of the frame taking it off by ALPHA 0x42 in NuLgtSurf[2], 0.4 of the texture across; and an hgobj's joint
-   shadows stored under the joint's matrix times wm. */
+/* The hub's volume shadows: the light fan, the stencil's full-screen box, NuRndrShadow emptying the store (not with
+   testflipold's bit 4) through a 256-pixel stencil pass, the mask and ten columns under ALPHA 0x42 in NuLgtSurf[2];
+   an hgobj's joint shadows stored under the joint's matrix times wm. */
 static void test_shadows(void)
 {
     struct nuvec_s dir = { 1.0f, 0.0f, 0.0f }, pos = { 0.0f, 0.0f, 0.0f };
@@ -981,9 +972,8 @@ static void test_shadows(void)
     shadstorecnt = 0;
 }
 
-/* SetupDebris's sets and effect lists as retail lays them out; three sets linked out of order are one PARTICLES record
-   of their 96 particles in link order under the matrix, with the list's VU image and the time, which the list keeps;
-   the last set's tag ends the chain. */
+/* SetupDebris's sets and effect list as retail lays them out; three sets linked out of order make one PARTICLES record
+   of their 96 particles in link order. */
 static void test_particles(void)
 {
     static _Alignas(16) uint8_t buf[3 * 0x430 + 0x870];
@@ -1022,9 +1012,8 @@ static void test_particles(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* cloudRender: each cloud a sprite in the clouds stream under the identity, its point off the wrapped scroll folded
-   into +-rng about it (a cloud at rng + 1 lands at 1 - rng), its corners +-size by +-size / 2, in col times density
-   with alpha 126. */
+/* cloudRender: each cloud a sprite folded into +-rng about the wrapped scroll (a cloud at rng + 1 lands at 1 - rng),
+   corners +-size by +-size / 2, colour col times density, alpha 126. */
 static void test_clouds(void)
 {
     CloudFxInit();
@@ -1049,7 +1038,7 @@ static void test_clouds(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* The TARGET command of the packet, by order among them. */
+/* The packet's nth TARGET command. */
 static const NwCmd *target(const NwPacket *p, int n)
 {
     for (uint32_t i = 0; i < p->ncmds; i++) {
@@ -1060,9 +1049,8 @@ static const NwCmd *target(const NwPacket *p, int n)
     return NULL;
 }
 
-/* Render targets: a scene drawn into one is a TARGET at its GS address with its size; types 11-13 reserve their
-   memory, the others take the address NuTexAssignAddr gives them; a material with the target as its texture, or
-   with -1 (the back buffer), reads GS memory. The palette and Z render targets are not drawn. */
+/* Render targets: a TARGET at the GS address (types 11-13 reserve theirs, others take NuTexAssignAddr's); a material
+   on the target or on -1 (the back buffer) reads GS memory; palette and Z targets are not drawn. */
 static void test_render_target(void)
 {
     struct nutex_s spec = { 11, 256, 128, 0, NULL, NULL };
@@ -1115,11 +1103,9 @@ static void test_render_target(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* NuLightFogDraw with west_a's fog and a haze: one composite of ten columns in NuLgtSurf[9] under ALPHA 0x44, its
-   depth CLUT the fog colour at nearly full alpha at the far end and clearing towards fog-near, the columns in front of
-   the CLUT's base; the blur's nineteen rects in GS coordinates under ALPHA 0x54, (Cs - Cd) * Ad + Cd. The haze copies
-   the frame in a grid of 10 x 32 cells and four edge strips, moves Hazetab on, and blends it in at half its alpha
-   with the fog CLUT's alpha. */
+/* NuLightFogDraw with west_a's fog and a haze: ten columns in NuLgtSurf[9] under ALPHA 0x44 over a depth CLUT from the
+   fog colour at nearly full alpha to clear at fog-near; nineteen blur rects under ALPHA 0x54; the haze copies the frame
+   in 10 x 32 cells and four edge strips and blends it in at half its alpha. */
 static void test_fog(void)
 {
     NuCameraSet(NuCameraCreate());
@@ -1174,9 +1160,8 @@ static void test_fog(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* A haze poly in view: the warped copy with alpha 0, the poly as a quad of whole GS units in its material under
-   ALPHA 0x48 with alpha 0xA0 and its UV box, the composite in NuLgtSurf[12] in front of everything; the haze after it
-   reads the masks' alpha, not the fog's, and the polys are gone once drawn. */
+/* A haze poly in view: a quad of whole GS units under ALPHA 0x48 with alpha 0xA0 and its UV box, the composite in front
+   of everything; the haze after it reads the masks' alpha, not the fog's. */
 static void test_polyhaze(void)
 {
     float u[2] = { 0.25f, 0.5f }, v[2] = { 0.0f, 1.0f };
@@ -1217,9 +1202,8 @@ static void test_polyhaze(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* An arc laser two units long in segments of a half: one VERTS strip of four quads in GS coordinates in the arc
-   material, each new left and right corner then the last segment's, the laser's colour, U from U1 back to U0 along
-   a segment and V0 on the left, V1 on the right; paused, the same laser again. */
+/* An arc laser two units long in half-unit segments: one GS VERTS strip of four quads, U from U1 back to U0 along a
+   segment, V0 on the left and V1 on the right; paused, the same laser again. */
 static void test_arclaser(void)
 {
     struct nuvec_s start = { -1.0f, 0.0f, 10.0f }, end = { 1.0f, 0.0f, 10.0f }, mid = { 0.0f, 1.0f, 0.0f };
@@ -1254,10 +1238,9 @@ static void test_arclaser(void)
     }
 }
 
-/* A glow (mode 0) and a light in the dark (mode 1, xspan 0x20): each a fan of 64 triangles in NuLgtSurf[9], the GS
-   blend in the program (ALPHA 0x41, 0x09), its centre in grey with the spot's alpha and its rim in grey with none
-   (xspan's), over a spot depth CLUT whose unlit entries are xspan as alpha; mode 1 adds the ring out to the screen's
-   edges, 128 triangles, in front of everything. */
+/* A glow (mode 0) and a light in the dark (mode 1, xspan 0x20): 64-triangle fans in NuLgtSurf[9], the centre at the
+   spot's alpha and the rim at xspan's, over a depth CLUT whose unlit entries are xspan as alpha; mode 1 adds a
+   128-triangle ring out to the screen's edges. */
 static void test_spot(void)
 {
     struct nuvec_s pos = { 0.0f, 0.0f, 10.0f };
@@ -1370,11 +1353,9 @@ static const NwWaves *water_waves(const NwPacket *p, const struct numtl_s *m)
     return NULL;
 }
 
-/* animateWater's table at the head of each water material's stream from retail's NuRandSeed(0x11) draws, a speed
-   then a phase per axis: with the camera unturned a texcoord offset is half its lift along x and 0 along y.
-   animateWaterTables keeps the table of each (fx1, fx4) pair in water_table. NuRndrWater draws nothing above the
-   water line; below it the frame warped into NuLgtHSurf[4] in 10 x 14 cells, then that in the tint over the frame,
-   and the line is gone. */
+/* animateWater's table from retail's NuRandSeed(0x11) draws, a speed then a phase per axis: with the camera unturned a
+   texcoord offset is half its lift along x and 0 along y. NuRndrWater draws nothing above the water line; below it,
+   the frame warped in 10 x 14 cells, then tinted. */
 static void test_water(void)
 {
     struct numtl_s *m = NuMtlCreate(1);

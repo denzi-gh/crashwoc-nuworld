@@ -1,11 +1,11 @@
-/* nups2/ps2video, which the port replaces (port/units.toml): the parts the decomp reaches so far, retail's logic
-   on the virtual clock (src/port/game.c) instead of the EE's timers and interrupts. */
+/* Replaces nups2/ps2video (port/units.toml): retail's logic on the virtual clock, not EE timers and interrupts. */
 #include <string.h>
 
 #include <SDL3/SDL.h>
 
 #include "nucore/nuerror.h"
 #include "nu3d/nuvport.h"
+#include "gameplay/gameplay.h"
 #include "nups2/ps2video.h"
 #include "port/capture.h"
 #include "port/dump.h"
@@ -33,8 +33,8 @@ extern int ps2video_novsync;
 
 static char nw_ps2video_file[] = "ps2video.c";
 
-/* The two vblank interrupts as the INTC sees them: hooked, masked (DisableIntc), pending (fired while masked).
-   Vblank start is shared with the clock thread, which counts it; vblank end is the running EE thread's alone. */
+/* INTC state of the two vblank interrupts; the clock thread shares vblank start (it counts it), vblank end belongs to
+   the running EE thread alone. */
 #define NW_INTC_HOOKED 0x1
 #define NW_INTC_MASKED 0x2
 #define NW_INTC_PENDING_COUNT 0x4 /* a masked edge not counted yet */
@@ -44,16 +44,16 @@ static SDL_AtomicInt nw_vbs_intc;
 static int nw_vbe_intc;
 
 static int nw_in_vblank;           /* in_vblank_end: inside a vblank interrupt */
-static int nw_handlers_installed;  /* handlers_installed */
+static int nw_handlers_installed;
 static int nw_vbe_handler;         /* vblank_end_handler */
 static int nw_vbe_disable;         /* vblank_end_disable */
 static int nw_vbs_handler;         /* vblank_start_handler */
 static int nw_vbs_disable;         /* vblank_start_disable */
 static struct NuVBlankHandler *nw_vbe_list; /* vblank_end_list */
 static struct NuVBlankHandler *nw_vbs_list; /* vblank_start_list */
-static int nw_auto_screen_swap;    /* auto_screen_swap */
+static int nw_auto_screen_swap;
 
-/* ifnVBlankS without the count (the clock thread made it, or nw_vbs_enable). */
+/* ifnVBlankS without the count, which the clock thread or nw_intc_enable makes. */
 static void nw_vbs_run(void)
 {
     nw_in_vblank = 1;
@@ -84,7 +84,6 @@ static void nw_vbs_or(int bits)
     } while (!SDL_CompareAndSwapAtomicInt(&nw_vbs_intc, old, old | bits));
 }
 
-/* Clears `bits`; returns the state before. */
 static int nw_vbs_clear(int bits)
 {
     int old;
@@ -94,10 +93,8 @@ static int nw_vbs_clear(int bits)
     return old;
 }
 
-/* DisableIntc / EnableIntc of INTC 2 and 3. Unmasking with an edge pending fires it at once, unless already
-   inside an interrupt (the EE does not nest them): then the next yield point runs it. The return from it may switch
-   EE threads; NuEnableVBlank unmasks start before end, so a switch there leaves vblank end masked until the thread
-   runs again, as on the PS2. */
+/* DisableIntc / EnableIntc of INTC 2 and 3: unmasking fires a pending edge at once unless inside an interrupt (the EE
+   does not nest them); the return may switch threads between NuEnableVBlank's two unmasks, as on the PS2. */
 static void nw_intc_disable(int cause)
 {
     if (cause == 2) {
@@ -174,7 +171,7 @@ void nw_vblank_deliver(unsigned edges)
     nw_ee_schedule();
 }
 
-/* ps2videoAddAllHandlers, the vblank half (the VIF1 and DMAC handlers have nothing to do on the host). */
+/* ps2videoAddAllHandlers, vblank half only: the VIF1 and DMAC handlers have nothing to do on the host. */
 void NuIntAddAllHandlers(void)
 {
     if (!nw_handlers_installed) {
@@ -315,22 +312,21 @@ void NuDisableVBlank(void)
     NuDisableVBlankS();
 }
 
-/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits): the rate's lines (PAL 15625 a second, NTSC
-   15734), in the game's time (stepped: its own). The swap timing and the timer bars read it. */
+/* EE timer 1 as NuPs2Init programs it (mode 0x83: H-blanks, 16 bits) in game time: PAL 15625 lines/s, NTSC 15734. */
 static unsigned int nw_t1_count(void)
 {
     return (unsigned int)(nw_game_time_ns() / nw_hz_line_ns()) & 0xffffu;
 }
 
-/* What NuPs2InitVideo and the swaps keep; the rest of retail's state programs the GS. */
+/* Retail's video state minus what only programs the GS. */
 static unsigned int nw_video_size; /* ps2_video_size: lines per field */
 static int nw_progressive_scan;    /* nuvideo_progressive_scan */
-static int nw_field_parity;        /* field_parity */
+static int nw_field_parity;
 static int nw_frame_count;         /* NuPs2FrameCount */
 static unsigned int nw_swap_time;  /* NuPs2SwapTime */
-static int nw_iop_initialised;     /* iop_initialised */
+static int nw_iop_initialised;
 
-/* The timer bars: per slot, the H-lines between tbslotBegin and tbslotEnd, double-buffered. */
+/* Timer bars: per slot, the H-lines between tbslotBegin and tbslotEnd, double-buffered. */
 typedef struct TbSet {
     int values[16][2];
     int begin[16];
@@ -340,9 +336,9 @@ typedef struct TbSet {
     char *name[16];
 } TbSet;
 
-static TbSet *nw_tb_main_set; /* tb_main_set: the slots of a NULL set */
+static TbSet *nw_tb_main_set;
 
-/* The colours only matter to tbRender, which draws through the renderer (M3); without its own, a set keeps 0. */
+/* The colours only matter to tbRender, which draws through the renderer (M3). */
 static TbSet *nw_tbset_alloc(int *colours)
 {
     TbSet *set = NuMemAllocFn(sizeof(TbSet), nw_ps2video_file, 0x1CF);
@@ -421,8 +417,7 @@ void NuPs2Init(void)
     nw_tb_main_set = nw_tbset_alloc(0);
 }
 
-/* No IOP modules to load: NUSOUND runs as src/audio/nusound.c behind the SIF shim; pads and memory cards go through
-   their own shims. */
+/* No IOP modules: NUSOUND is src/audio/nusound.c behind the SIF shim, pads and memory cards have their own shims. */
 void NuPs2InitIOP(void)
 {
     if (!nw_iop_initialised) {
@@ -506,8 +501,7 @@ void NuPs2GetViewport(struct nuviewport_s *vp)
     vp->zmax = 0.0f;
 }
 
-/* What is left of the GS's 4 MB after the frame, display and Z buffers: retail's 640-wide ones, so a wider frame
-   (port/wide.h) leaves the game the VRAM it plans its textures in. */
+/* GS memory left after retail's 640-wide buffers, so a wider frame (port/wide.h) keeps the game's texture VRAM plan. */
 void ps2videoGetFreeMem(int *pages, int *bytes)
 {
     int used = (640 * PS2_REZ_H * 3 + 63) / 64;
@@ -525,8 +519,7 @@ void NuPs2FlushVRam(int r, int g, int b)
     (void)r, (void)g, (void)b;
 }
 
-/* Retail first waits for the GS to finish the frame in flight; the host has no GS, so the handover to the
-   vblank-end interrupt is the flag. */
+/* Retail first waits for the GS to finish the frame in flight; the host has no GS. */
 void NuPs2EnableAutoScreenSwap(void)
 {
     nw_auto_screen_swap = 1;
@@ -537,9 +530,7 @@ void NuPs2DisableAutoScreenSwap(void)
     nw_auto_screen_swap = 0;
 }
 
-/* Waits for the vblank (a yield point) unless inside one, flips the field and counts the frame; returns whether
-   the next frame draws with the field's half-line offset. The GS register writes and the buffer swap belong to
-   the renderer (M3). */
+/* Returns whether the next frame draws with the field's half-line offset; the GS writes belong to the renderer (M3). */
 int NuPs2ScreenSwap(int vsync)
 {
     int half_offset;
@@ -567,6 +558,7 @@ int NuPs2ScreenSwap(int vsync)
     half_offset = swap_elapsed <= nw_video_size && !nw_progressive_scan;
     if (vsync) {
         nw_game_swap();
+        nw_gameplay_swap();
         nw_level_poll();
     } else {
         half_offset = 1;
@@ -575,8 +567,7 @@ int NuPs2ScreenSwap(int vsync)
     return half_offset;
 }
 
-/* EE timer 0 as timeUserReset programs it (BUSCLK / 256 = 576 kHz, 16 bits); NuPPLoadBuffer times its reads
-   with it. */
+/* EE timer 0 as timeUserReset programs it (BUSCLK / 256, 16 bits); NuPPLoadBuffer times its reads with it. */
 #define NW_T0_HZ 576000u
 
 static Uint64 nw_t0_base;

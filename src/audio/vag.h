@@ -21,7 +21,6 @@ typedef struct NwVagHeader {
     uint32_t rate; /* Hz */
 } NwVagHeader;
 
-/* Reads the header at head, of a file of file_size bytes. */
 bool nw_vag_header(NwVagHeader *h, const void *head, uint64_t file_size);
 
 /* Decoder history; zero at key on. */

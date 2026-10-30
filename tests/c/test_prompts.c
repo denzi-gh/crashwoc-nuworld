@@ -1,5 +1,4 @@
-/* The button prompts' glyphs: the style auto stands for, each style's icons by the bound button's position, the
-   PlayStation's retail models and letters, keys as icons or their names, retail's without a binding, the Deck. */
+/* Button prompt glyphs: what auto picks, icons by bound button position, keys, retail's when unbound, the Deck. */
 #include <stdio.h>
 #include <string.h>
 

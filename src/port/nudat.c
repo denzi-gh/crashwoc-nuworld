@@ -1,8 +1,6 @@
-/* NuDat* (port/units.toml override) on the port's .DAT reader (src/vfs/dat.c): the directory comes from
-   nw_dat_parse and lookups from nw_dat_find, the archive's bytes through the kept nufile layer on ndh->fh,
-   so the device, the working directory and the buffering stay retail. Everything a caller can see is
-   retail's (decomp src/nucore/nufile.c), quirks included; the one difference is nw_dat_find's: the root's
-   back link is a miss, so a nonsense path like "ats\ats\x" no longer resolves. */
+/* Overrides NuDat* (port/units.toml) on the port's .DAT reader (src/vfs/dat.c), reading through the kept nufile layer,
+   so callers see retail's behaviour, quirks included. Differences: the root's back link is a miss ("ats\ats\x" no
+   longer resolves), and an --overlay entry is read unpacked from its loose file, without the disc timing. */
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +9,7 @@
 
 #include "nu_types.h"
 #include "nucore/nufile.h"
+#include "shim/shim.h"
 #include "vfs/dat.h"
 
 #define NW_NUDAT_FILES 20     /* datfiles[20] */
@@ -34,11 +33,19 @@ typedef struct NwDatFile {
     struct nudathdr_s *ndh;
     int start, len, uplen, ppack;
     int used;
+    SDL_IOStream *loose; /* an overlaid entry's file */
 } NwDatFile;
+
+typedef struct NwDatLoose {
+    int index;
+    char *path;
+} NwDatLoose;
 
 typedef struct NwNuDat {
     struct nudathdr_s *ndh; /* NULL: free */
     NwDat dat;
+    NwDatLoose *loose; /* the entries overlays replace */
+    int loose_count;
 } NwNuDat;
 
 static NwDatFile nw_datfiles[NW_NUDAT_FILES];
@@ -49,6 +56,61 @@ static NwNuDat *nw_nudat_find(const struct nudathdr_s *ndh)
     for (int i = 0; i < NW_NUDAT_ARCHIVES; i++) {
         if (nw_nudats[i].ndh == ndh) {
             return &nw_nudats[i];
+        }
+    }
+    return NULL;
+}
+
+typedef struct NwNuDatOverlay {
+    NwNuDat *slot;
+    struct nudathdr_s *ndh;
+} NwNuDatOverlay;
+
+static void nw_nudat_overlay_entry(void *user, const char *rest, const char *path)
+{
+    NwNuDatOverlay *o = user;
+    char entry[NW_VFS_PATH_MAX];
+    SDL_strlcpy(entry, rest, sizeof(entry));
+    for (char *c = entry; *c; c++) {
+        *c = *c == '/' ? '\\' : *c;
+    }
+    int ix = nw_dat_find(&o->slot->dat, entry);
+    SDL_PathInfo info;
+    if (ix < 0 || !SDL_GetPathInfo(path, &info)) {
+        return; /* nw_vfs_overlay checked them when it mounted the overlay */
+    }
+    NwDatLoose *loose = SDL_realloc(o->slot->loose, (size_t)(o->slot->loose_count + 1) * sizeof(*loose));
+    char *copy = loose ? SDL_strdup(path) : NULL;
+    if (loose) {
+        o->slot->loose = loose;
+    }
+    if (!copy) {
+        return;
+    }
+    loose[o->slot->loose_count++] = (NwDatLoose){ ix, copy };
+    int *f = &o->ndh->data[2 + 4 * ix];
+    f[1] = f[2] = (int)info.size; /* flen, uplen */
+    f[3] = 0;                     /* ppack */
+}
+
+/* The entries the overlays replace, by the archive's key ("ATS.DAT/"...). */
+static void nw_nudat_overlay(NwNuDat *slot, struct nudathdr_s *ndh, const char *fname)
+{
+    const NwVfs *vfs = nw_shim_file_vfs();
+    NwVfsDevice device;
+    char key[NW_VFS_PATH_MAX];
+    if (vfs && nw_vfs_map(fname, &device, key) && device == NW_VFS_CDROM &&
+        SDL_strlcat(key, "/", sizeof(key)) < sizeof(key)) {
+        NwNuDatOverlay o = { slot, ndh };
+        nw_vfs_overlay_each(vfs, key, nw_nudat_overlay_entry, &o);
+    }
+}
+
+static const char *nw_nudat_loose(const NwNuDat *slot, int ix)
+{
+    for (int i = 0; slot && i < slot->loose_count; i++) {
+        if (slot->loose[i].index == ix) {
+            return slot->loose[i].path;
         }
     }
     return NULL;
@@ -130,6 +192,7 @@ struct nudathdr_s *NuDatOpenEx(char *fname, char **mem, int *used, short mode)
         f[2] = (int)e->unpacked_size;
         f[3] = (int)e->flags;
     }
+    nw_nudat_overlay(slot, ndh, fname);
     free(dir);
     ndh->ver = ndh->data[0];
     ndh->nfiles = ndh->data[1];
@@ -151,10 +214,16 @@ void NuDatClose(struct nudathdr_s *ndh)
     NwNuDat *slot = nw_nudat_find(ndh);
     NuFileClose(ndh->fh);
     if (ndh->dfhandle != 0) {
-        nw_datfiles[ndh->dfhandle - NW_NUDAT_HANDLE].used = 0;
+        NuDatFileClose(ndh->dfhandle);
     }
     if (slot) {
         nw_dat_close(&slot->dat);
+        for (int i = 0; i < slot->loose_count; i++) {
+            SDL_free(slot->loose[i].path);
+        }
+        SDL_free(slot->loose);
+        slot->loose = NULL;
+        slot->loose_count = 0;
         slot->ndh = NULL;
     }
     if (ndh->intalloc) {
@@ -180,8 +249,13 @@ int NuDatFileOpen(struct nudathdr_s *ndh, char *fname, enum nufilemode_e mode)
                 break;
             }
             const struct NUDATFINFO_s *f = &ndh->finfo[ix];
-            nw_datfiles[i] = (NwDatFile){ ndh, f->foffset, f->flen, f->uplen, f->ppack, 0 };
-            while (NuFileSeek(ndh->fh, f->foffset, 0) < 0) {
+            const char *loose = nw_nudat_loose(nw_nudat_find(ndh), ix);
+            SDL_IOStream *io = loose ? SDL_IOFromFile(loose, "rb") : NULL;
+            if (loose && !io) {
+                break;
+            }
+            nw_datfiles[i] = (NwDatFile){ ndh, io ? 0 : f->foffset, f->flen, f->uplen, f->ppack, 0, io };
+            while (!io && NuFileSeek(ndh->fh, f->foffset, 0) < 0) {
             }
             nw_datfiles[i].used = 1;
             ndh->dfhandle = NW_NUDAT_HANDLE + i;
@@ -193,12 +267,20 @@ int NuDatFileOpen(struct nudathdr_s *ndh, char *fname, enum nufilemode_e mode)
 
 int NuDatFileRead(int fh, void *data, int size)
 {
-    return NuFileRead(nw_datfiles[fh - NW_NUDAT_HANDLE].ndh->fh, data, size);
+    const NwDatFile *df = &nw_datfiles[fh - NW_NUDAT_HANDLE];
+    if (df->loose) {
+        size_t n = SDL_ReadIO(df->loose, data, (size_t)size);
+        return n < (size_t)size && SDL_GetIOStatus(df->loose) == SDL_IO_STATUS_ERROR ? -1 : (int)n;
+    }
+    return NuFileRead(df->ndh->fh, data, size);
 }
 
 int NuDatFileSeek(int fh, int offset, int origin)
 {
     const NwDatFile *df = &nw_datfiles[fh - NW_NUDAT_HANDLE];
+    if (df->loose) { /* origin 1, absolute in the archive, is the entry's own for a loose file */
+        return (int)SDL_SeekIO(df->loose, origin == 2 ? df->len - offset : offset, SDL_IO_SEEK_SET);
+    }
     switch (origin) {
     case 1: /* retail: absolute in the archive */
         return NuFileSeek(df->ndh->fh, offset, 0) - df->start;
@@ -212,7 +294,7 @@ int NuDatFileSeek(int fh, int offset, int origin)
 int NuDatFilePos(int fh)
 {
     const NwDatFile *df = &nw_datfiles[fh - NW_NUDAT_HANDLE];
-    return NuFileSeek(df->ndh->fh, 0, 1) - df->start;
+    return df->loose ? (int)SDL_TellIO(df->loose) : NuFileSeek(df->ndh->fh, 0, 1) - df->start;
 }
 
 int NuDatFileOpenSize(int fh)
@@ -223,6 +305,10 @@ int NuDatFileOpenSize(int fh)
 void NuDatFileClose(int fh)
 {
     NwDatFile *df = &nw_datfiles[fh - NW_NUDAT_HANDLE];
+    if (df->loose) {
+        SDL_CloseIO(df->loose);
+        df->loose = NULL;
+    }
     df->ndh->dfhandle = 0;
     df->used = 0;
 }

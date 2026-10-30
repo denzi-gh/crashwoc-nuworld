@@ -1,7 +1,5 @@
-/* Synthetic PS2 memory card images for the tests (no game data), in the layout save/ps2card.c reads: 512-byte pages,
-   2 per cluster, the superblock in cluster 0, one indirect FAT cluster and one FAT cluster, the root directory at
-   file cluster 0 and one folder of files. gap leaves that many free clusters after each allocated one, so chains are
-   not contiguous. */
+/* Synthetic PS2 memory card images (no game data) as save/ps2card.c reads them: a root, one folder of files. gap
+   leaves that many free clusters after each allocated one, so chains are not contiguous. */
 #ifndef NUWORLD_TESTS_MC_BUILDER_H
 #define NUWORLD_TESTS_MC_BUILDER_H
 
@@ -103,7 +101,6 @@ static inline uint8_t *mcb_entry_at(Mcb *m, uint32_t first, int index)
     return m->c[MCB_ALLOC + c] + at;
 }
 
-/* A directory entry. */
 static inline void mcb_entry(uint8_t *e, uint16_t mode, uint32_t length, uint32_t cluster, const char *name)
 {
     memset(e, 0, 512);

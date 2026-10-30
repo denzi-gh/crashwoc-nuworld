@@ -33,35 +33,51 @@ class Copies(unittest.TestCase):
         path.write_text(text.replace(old, new))
         return tree
 
-    def test_lock_round_trip(self):
-        hashes, errors = copies.current(DECOMP, DECOMP, UNITS, PORT_SRC)
-        self.assertEqual(errors, [])
-        self.assertIn("nucore/fixcore:FixLoad", hashes)
-        self.assertIn("nucore/fixcore:FixLocal", hashes)
+    def current(self, decomp, pristine=None, values=None):
+        return copies.current(decomp, pristine or decomp, UNITS, PORT_SRC, values)
+
+    def locked(self, locks):
         lock = self.root / "copies.lock"
-        lock.write_text(copies.render(hashes))
-        self.assertEqual(copies.check(hashes, lock), [])
+        lock.write_text(copies.render(locks))
+        return lock
+
+    def test_lock_round_trip(self):
+        locks, errors = self.current(DECOMP)
+        self.assertEqual(errors, [])
+        self.assertEqual(list(locks["copies"]), ["nucore/fixcore:FixLoad"])  # a wrap is not locked
+        self.assertEqual(copies.check(locks, self.locked(locks)), [])
 
     def test_a_decomp_change_needs_a_look(self):
-        hashes, _ = copies.current(DECOMP, DECOMP, UNITS, PORT_SRC)
-        lock = self.root / "copies.lock"
-        lock.write_text(copies.render(hashes))
-        newer = self.edited("newer", "FixLocal(s32 v)\n{", "FixLocal(s32 v)\n{\n    v++;")
-        hashes, errors = copies.current(newer, newer, UNITS, PORT_SRC)
+        lock = self.locked(self.current(DECOMP)[0])
+        newer = self.edited("newer", "FixLoad(const char *name)\n{", "FixLoad(const char *name)\n{\n    name++;")
+        locks, errors = self.current(newer)
         self.assertEqual(errors, [])
-        self.assertEqual(copies.check(hashes, lock),
-                         ["nucore/fixcore:FixLocal: the decomp changed it; bring NuWorld's definition in line, "
+        self.assertEqual(copies.check(locks, lock),
+                         ["nucore/fixcore:FixLoad: the decomp changed it; bring NuWorld's definition in line, "
                           "then --update"])
 
     def test_a_patch_may_not_edit_an_overridden_function(self):
         patched = self.edited("patched", "FixLoad(const char *name)\n{", "FixLoad(const char *name)\n{\n    name++;")
-        _, errors = copies.current(patched, DECOMP, UNITS, PORT_SRC)
+        errors = self.current(patched, DECOMP)[1]
         self.assertEqual(len(errors), 1)
-        self.assertRegex(errors[0], "^nucore/fixcore:FixLoad: a port patch edits it")
+        self.assertRegex(errors[0], "^nucore/fixcore:FixLoad: a port patch or value rule edits it")
 
     def test_a_patch_may_edit_a_wrapped_function(self):
         patched = self.edited("patched", "FixLocal(s32 v)\n{", "FixLocal(s32 v)\n{\n    v++;")
-        self.assertEqual(copies.current(patched, DECOMP, UNITS, PORT_SRC)[1], [])
+        self.assertEqual(self.current(patched, DECOMP)[1], [])
+
+    def test_functions_with_value_rules_are_locked(self):
+        values = self.root / "values"
+        values.mkdir()
+        (values / "hz.toml").write_text('schema = 1\nmacro = "NW_HZ"\n\n[[file]]\npath = "src/nucore/fixcore.c"\n'
+                                        'sites = [{ fn = "FixAdd", pal = "a", nth = 0, of = 1, ntsc = "b" }]\n')
+        locks, errors = self.current(DECOMP, values=values)
+        self.assertEqual((errors, list(locks["values"])), ([], ["src/nucore/fixcore.c:FixAdd"]))
+        lock = self.locked(locks)
+        reordered = self.edited("reordered", "return a + b;", "return b + a;")
+        self.assertEqual(copies.check(self.current(reordered, values=values)[0], lock),
+                         ["src/nucore/fixcore.c:FixAdd: the decomp changed it; prove its rules with "
+                          "tools/ntsc_diff.py check, then --update"])
 
 
 if __name__ == "__main__":

@@ -1,7 +1,4 @@
-/* settings.toml: the defaults, no file, a save read back, comments and blanks, the volumes clamped, the aspect's
-   and the HUD's forms, the [pad] and [keyboard] bindings, the prompts' style, what the reader does not take, a
-   file that is not TOML, and keys a save keeps.
-   Usage: test_settings <scratch dir>. */
+/* settings.toml: defaults, round trips, clamps, bindings, rejected values, a file that is not TOML, kept keys. */
 #include <stdio.h>
 #include <string.h>
 
@@ -36,7 +33,6 @@ static bool read_text(const char *text, NwSettings *s)
     return write_text(text) && nw_settings_load(s, root);
 }
 
-/* Whether root holds name. */
 static bool exists(const char *name)
 {
     char path[1200];
@@ -124,6 +120,10 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[audio]\nmaster_volume = 250\nvoice_volume = -3\n") == 100000);
     CHECK(read_volumes("[audio]\nmaster_volume = \"5\"\nvoice_volume = 0x10\n") == 100016);
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
+
+    nw_settings_defaults(&s);
+    CHECK(s.unused_title);
+    CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

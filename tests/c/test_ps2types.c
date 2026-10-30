@@ -1,5 +1,4 @@
-/* PS2 mirror structs (gen/nw_ps2types.h): every named bitfield sets exactly its PS2 bit range. Sizes, alignments
-   and offsets are _Static_asserts in the header, so building this test proves them on the host compiler. */
+/* gen/nw_ps2types.h: every named bitfield sets exactly its PS2 bit range; the layouts are _Static_asserts there. */
 #include <stdio.h>
 #include <stdlib.h>
 

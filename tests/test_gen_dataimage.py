@@ -18,9 +18,8 @@ import typedb  # noqa: E402
 
 
 def fixture_elf(cb_offset: int, bad: str = "", trip: bool = False) -> bytes:
-    """The fixture's retail image (fixtures/mini sections.json): one PT_LOAD at 0x00100000. bad: a pointer into
-    .text ("text") or into a microcode package ("vu"); trip: two bytes the image cannot reproduce (a C value, a
-    padding byte)."""
+    """One PT_LOAD at 0x00100000. bad: a pointer into "text" or a "vu" package; trip: two bytes the image cannot
+    reproduce (a C value, a padding byte)."""
     base, filesz, memsz = 0x00100000, 0x1100, 0x1300
     seg = bytearray(filesz)
 

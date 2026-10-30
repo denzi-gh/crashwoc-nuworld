@@ -1,18 +1,8 @@
 #!/usr/bin/env python3
 """Run the game on PCSX2 and in the headless port over the same vblanks and pokes, and diff their states.
 
-1. PCSX2, booted and on its way to the title (PINE): tools/pcsx2_dump.py saves its EE RAM at --vblanks and makes
-   the --poke writes (they stand in for pad input), into <out>/pcsx2.
-2. The port: crashwoc-nuworld --dump at the vblanks PCSX2's states hold, --poke as the writes landed on PCSX2, into
-   <out>/port.
-3. tools/ps2_diff.py per vblank: one summary line each, the blocks that differ first at that vblank, and the full
-   report of the first vblank that differs to <out>/<vblank>.txt.
-
-  python tools/lockstep.py --exe build/release/crashwoc-nuworld.exe --out <dir> --vblanks 100,500
-      [--poke 300:new_level=0x25,...] [--after GameMode=1] [--slot 28011 --sstates <dir> --slots 4-10]
-      [--skip-pcsx2]
-
-Run it with Python 3.14 (pcsx2_dump.py reads the states' zstd entries). --skip-pcsx2 reuses <out>/pcsx2.
+The port dumps at the vblanks PCSX2's states hold, poked as the writes landed there (they stand in for pad input).
+Needs Python 3.14: pcsx2_dump.py reads the states' zstd entries.
 """
 from __future__ import annotations
 

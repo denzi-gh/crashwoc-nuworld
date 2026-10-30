@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 """Prove that the port patches leave the PS2 build unchanged.
 
-Compiles the decomp's `current` objects (src/ with the EE compilers, no game
-files) from the plain decomp and from the patched tree, both exported under
-build/ee, and compares them with the decomp's own check_codegen.py: every seam
-must expand to the decomp's text without NW_HOST. The plain snapshot is cached
-by the export's content.
-
-The EE build never sees host-only code, so the #ifdef NW_HOST blocks each
-concern adds are counted against port/ee_gate.toml; a change there is a
-deliberate, reviewed one. --lint runs only that count (no compiler).
-
-Runs in the decomp image; on a host it re-runs itself there with docker (repo
-at /nw, the submodule's EE toolchain mounted). Needs the toolchain once:
-python decomp/tools/setup_toolchain.py --download (in the image).
+Compares the decomp's `current` objects built from the plain and the patched tree (check_codegen.py). The EE build
+never sees host-only code, so the NW_HOST blocks each concern adds are counted against port/ee_gate.toml instead.
 """
 from __future__ import annotations
 
@@ -67,8 +56,8 @@ def lint(series: Path = patches.PATCHES, counts: Path = COUNTS) -> list[str]:
 
 
 def exports() -> str:
-    """Exports the plain and the patched decomp under build/ee; returns the plain export's content hash."""
-    patches.apply(patches.PRISTINE, EE / "pristine", EE / "no-patches")
+    """Returns the plain export's content hash, the key of its cached snapshot."""
+    patches.apply(patches.PRISTINE, EE / "pristine", None, None)
     patches.apply(patches.PRISTINE, EE / "patched")
     stamp = json.loads((EE / "pristine" / patches.STAMP).read_text(encoding="utf-8"))
     h = hashlib.sha256()
@@ -77,9 +66,9 @@ def exports() -> str:
     return h.hexdigest()[:16]
 
 
-def run(tree: Path, *cmd: str) -> subprocess.CompletedProcess:
+def run(tree: Path, *cmd: str, check: bool = True) -> subprocess.CompletedProcess:
     proc = subprocess.run(cmd, cwd=tree, capture_output=True, text=True)
-    if proc.returncode and cmd[-1] != "--compare":
+    if check and proc.returncode:
         sys.exit(f"error: {' '.join(cmd)} in {tree}:\n{proc.stdout}{proc.stderr}")
     return proc
 
@@ -104,7 +93,7 @@ def gate(key: str) -> int:
         build(EE / "pristine")
         run(EE / "pristine", sys.executable, "tools/check_codegen.py", "--snapshot", "--file", str(snap))
     build(EE / "patched")
-    proc = run(EE / "patched", sys.executable, "tools/check_codegen.py", "--file", str(snap), "--compare")
+    proc = run(EE / "patched", sys.executable, "tools/check_codegen.py", "--file", str(snap), "--compare", check=False)
     print(proc.stdout.rstrip())
     if proc.returncode:
         print(proc.stderr.rstrip(), file=sys.stderr)

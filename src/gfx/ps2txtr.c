@@ -1,5 +1,4 @@
-/* nups2/ps2txtr, which the port replaces (port/units.toml): the textures of the TexList slots decoded for the
-   renderer instead of GS upload packets. */
+/* nups2/ps2txtr replaced (port/units.toml): TexList textures decoded for the renderer instead of GS upload packets. */
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>

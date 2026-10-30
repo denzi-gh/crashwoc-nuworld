@@ -1,5 +1,4 @@
-/* The EE threads of src/shim/ee.c under the decomp's bgload (BGLoadInit, BGLoadStart, BGSuspendMain, BGLoadEnd and
-   its VBlankFn): on a stepped clock with the test's thread as the main thread, then on a real game thread. */
+/* The EE threads of src/shim/ee.c under the decomp's bgload, on a stepped clock and then on a real game thread. */
 #include <stdio.h>
 #include <string.h>
 

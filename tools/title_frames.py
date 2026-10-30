@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 """Pair the port's title cut frames (crashwoc-nuworld --capture) with PCSX2's (tools/pcsx2_capture.py).
 
-Each PCSX2 screen <vblank>.png gets the port frame among vblank-3 .. vblank+1
-that differs least from it (mean absolute difference of grey 160x120 thumbnails,
-both shown 4:3; PCSX2 letterboxes the frame into 448 of its 480 rows, which are
-cut out first) as its pair; the offset is the vblanks between the frame the EE
-built and the one PCSX2 showed, and should be the same for every pair. Writes
-<out>/<vblank>.png (PCSX2, the port, their difference x4, side by side) and prints
-one line per pair. Standard library only.
-
-  python tools/title_frames.py --pcsx2 <dir> --port <dir> --out <dir>
+Each PCSX2 screen pairs with the port frame among vblank-3 .. vblank+1 whose grey thumbnail differs least; the offset
+(EE frame to shown frame) should be the same for every pair. Standard library only.
 """
 from __future__ import annotations
 

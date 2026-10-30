@@ -1,5 +1,4 @@
-/* The .gsc loader override (src/port/nugscn.c) on the synthetic scene; locally the animation library of every .gsc
-   of the imported disc. Usage: test_nugscn <scratch dir> | retail. */
+/* The .gsc loader override (src/port/nugscn.c) on a synthetic scene; with `retail`, every .gsc's animation library. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -298,9 +297,8 @@ static AnimStats retail = ANIM_STATS_INIT;
 static unsigned retail_scenes, retail_alib;
 
 
-/* On the game thread: a load error is fatal there. The anims are the ones the instances play (NuGScnUpdate); the
-   bit counts they need come from the .cut and .ani loaders in the game. INTRO/FINAL and TITLES/TITLESPL are
-   truncated, never drawn by the game, and skipped as by --scene-check. */
+/* On the game thread: a load error is fatal there. In the game the .cut and .ani loaders build the bit counts;
+   INTRO/FINAL and TITLES/TITLESPL are truncated, never drawn, and skipped as by --scene-check. */
 static int retail_main(int argc, char **argv)
 {
     (void)argc, (void)argv;

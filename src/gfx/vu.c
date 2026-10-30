@@ -55,10 +55,8 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "void main()\n"
     "{\n"
-    /* ptl.vsm: a particle aged t = time - birth falls under gravity; k = rate * t picks the table entry whose offsets,
-       lerped to the next by k's fraction, its corners add in GS units before the divide, in the order (v0, uv0),
-       (v2, uv2), (v0 + v1, uv1), (v2 + v1, uv3) that strips them; the entry's colour is not lerped. Dead before its
-       birth or past entry 62.9. */
+    /* ptl.vsm: entry k = rate * t (t = time - birth) gives the corner offsets in GS units before the divide, lerped to
+       the next but the colour not; dead before birth or past entry 62.9. */
     "#if PROGRAM == PTL\n"
     "    const int strip[6] = int[6](0, 1, 2, 1, 2, 3);\n"
     "    int corner = strip[gl_VertexID];\n"
@@ -98,10 +96,8 @@ static const char nw_vu_vs[] =
     "    v_uv = a_tex.xy;\n"
     "    v_col = a_col;\n"
     "#elif PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
-    /* skinmod.vsm first: each delta of a shape with a weight moves the point. Then skin.vsm: the weights (not
-       normalised) sum the point under each of its joints' palette matrices, the normal turns under the heaviest joint
-       alone. skin lights the material diffuse, with no vertex colour; skinxuv (as trixuv) takes the material colour
-       unlit and its texcoords from the normal; sknglass (as triglass) those times VU 0x14.z. */
+    /* skinmod.vsm, then skin.vsm: the weights are not normalised, and the normal turns under the heaviest joint alone.
+       skin lights the material diffuse without vertex colour; skinxuv and sknglass work as trixuv and triglass. */
     "    vec3 q = a_pos;\n"
     "    for (uint k = 0u; k < a_nrmjoint.y && u_blend.y > 0; k++) {\n"
     "        vec4 d = texelFetch(u_deltas, int(a_delta + k));\n"
@@ -129,10 +125,8 @@ static const char nw_vu_vs[] =
     "    v_uv *= u_vu[0].z;\n"
     "#endif\n"
     "#endif\n"
-    /* water.vsm, wateruv.vsm: the wave a vertex picks by its normal's y (VU 0x1B2 + (y & 31)) lifts it along the local
-       y by its w and moves its texcoords by its x and y, the wave in camera space, times VU 0x14.z. water takes the
-       material colour and the frame copy at the vertex's pixel (in the fragment program); wateruv its vertex colour
-       and its own texcoords. */
+    /* water.vsm, wateruv.vsm: the normal's y picks the wave; water takes the material colour and the frame copy (in the
+       fragment program), wateruv its vertex colour and texcoords. */
     "#elif PROGRAM == WATER || PROGRAM == WATERUV\n"
     "    vec4 wave = u_wave[int(a_tex.z) & 31];\n"
     "    gl_Position = u_lv * vec4(a_pos.x, a_pos.y + wave.w, a_pos.z, 1.0);\n"
@@ -291,9 +285,8 @@ static const char nw_vu_fs[] =
     "void main()\n"
     "{\n"
     "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
-    /* water, triglass and sknglass add the GS coordinates times VU 0x15.xy to the texcoords, offset to the frame's
-       corner (water from its size in VU 0x15.zw, the glass by VU 0x14.xy), and clamp them below its far edge. The VU
-       does this per vertex; per pixel it holds where the GPU's clipping makes vertices the VU's clipper would not. */
+    /* The frame-copy texcoords (water's size in VU 0x15.zw, the glass offset in VU 0x14.xy), per pixel rather than per
+       vertex as the VU, so they hold on vertices the GPU's clipping makes. */
     "#if PROGRAM == WATER || PROGRAM == TRIGLASS || PROGRAM == SKNGLASS\n"
     "    vec2 gs = gl_FragCoord.xy * u_frag.xy + u_frag.zw;\n"
     "#if PROGRAM == WATER\n"

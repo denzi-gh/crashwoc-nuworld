@@ -1,7 +1,5 @@
-/* Generated converters (gen/nw_convert.c) over every record: PRNG PS2 bytes with the padding left zero, data
-   pointers mapped above 4 GB, code pointers through a fake funcmap. Checks nw_xr(nw_x(b)) == b, the host
-   values, the bitfield positions, nw_xoff and nw_xoff_host for every leaf and the field path of a fatal error.
-   A converter that reaches a fatal hook (port/convert.toml) only has to fail. */
+/* gen/nw_convert.c on random bytes for every record: nw_xr(nw_x(b)) == b, host values, bitfields, nw_xoff and
+   nw_xoff_host per leaf, the path of a fatal error; a converter with a fatal hook only has to fail. */
 #include <inttypes.h>
 #include <setjmp.h>
 #include <stdio.h>

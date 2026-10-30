@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include "platform/paths.h"
+#include "vfs/dat.h"
 #include "vfs/extract.h"
 
 struct NwVfsFile {
@@ -257,6 +258,109 @@ char *nw_vfs_resolve(const NwVfs *vfs, const char *game_path)
     }
     SDL_SetError("%s: not found", game_path);
     return NULL;
+}
+
+/* What an overlay never replaces: the boot ELF, SYSTEM.CNF, the IRX modules and DUMMY.DAT. */
+static bool nw_vfs_fixed(const char *key)
+{
+    size_t len = SDL_strlen(key);
+    return SDL_strcmp(key, "SYSTEM.CNF") == 0 || SDL_strcmp(key, "SLES_503.86") == 0 ||
+           (len > 4 && SDL_strcmp(key + len - 4, ".IRX") == 0) || SDL_strcmp(key, "DUMMY.DAT") == 0 ||
+           SDL_strncmp(key, "DUMMY.DAT/", 10) == 0;
+}
+
+/* The newest overlay (slot 0) only replaces: disc files, or entries of the disc's archives. */
+static bool nw_vfs_check_overlay(const NwVfs *vfs, void (*conflict)(void *user, const char *key), void *user)
+{
+    const NwVfsMount *m = &vfs->mounts[NW_VFS_OVERLAY];
+    NwVfs disc; /* the disc alone, so an archive's entries are the disc's; a view, never shut down */
+    SDL_zero(disc);
+    disc.mounts[NW_VFS_DISC] = vfs->mounts[NW_VFS_DISC];
+    NwDat dat;
+    SDL_zero(dat);
+    char archive[NW_VFS_PATH_MAX] = "";
+    bool ok = true;
+    for (uint32_t i = 0; ok && i < m->count; i++) {
+        const char *key = m->entries[i].key, *path = m->entries[i].path;
+        const char *dat_end = SDL_strstr(key, ".DAT/");
+        if (nw_vfs_fixed(key)) {
+            ok = SDL_SetError("%s: an overlay never replaces it", path);
+        } else if (SDL_strncmp(key, "SFX.DAT/", 8) == 0) {
+            /* Only ATS.DAT and CHARS.DAT entries go through NuDat (src/port/nudat.c); NUSOUND reads SFX.DAT itself. */
+            ok = SDL_SetError("%s: the sound driver reads SFX.DAT whole; replace SFX.DAT itself", path);
+        } else if (!nw_vfs_lookup(&vfs->mounts[NW_VFS_DISC], key)) {
+            if (!dat_end) {
+                ok = SDL_SetError("%s: not on the disc (an overlay only replaces)", path);
+                break;
+            }
+            size_t n = (size_t)(dat_end - key) + 4;
+            if (SDL_strncmp(archive, key, n) != 0 || archive[n] != '\0') {
+                nw_dat_close(&dat);
+                SDL_memcpy(archive, key, n);
+                archive[n] = '\0';
+                ok = nw_dat_open(&dat, &disc, archive);
+            }
+            char entry[NW_VFS_PATH_MAX];
+            SDL_strlcpy(entry, key + n + 1, sizeof(entry));
+            for (char *c = entry; *c; c++) {
+                *c = *c == '/' ? '\\' : *c;
+            }
+            if (ok && nw_dat_find(&dat, entry) < 0) {
+                ok = SDL_SetError("%s: no such entry in %s", path, archive);
+            }
+        }
+        for (int s = NW_VFS_OVERLAY + 1; ok && conflict && s < NW_VFS_DISC; s++) {
+            if (nw_vfs_lookup(&vfs->mounts[s], key)) {
+                conflict(user, key);
+                break;
+            }
+        }
+    }
+    nw_dat_close(&dat);
+    return ok;
+}
+
+bool nw_vfs_overlay(NwVfs *vfs, const char *dir, void (*conflict)(void *user, const char *key), void *user)
+{
+    if (!vfs->mounts[NW_VFS_DISC].root) {
+        return SDL_SetError("%s: no disc to overlay", dir);
+    }
+    if (vfs->mounts[NW_VFS_DISC - 1].root) {
+        return SDL_SetError("%s: more than %d overlays", dir, NW_VFS_OVERLAYS);
+    }
+    SDL_memmove(&vfs->mounts[NW_VFS_OVERLAY + 1], &vfs->mounts[NW_VFS_OVERLAY],
+                (NW_VFS_OVERLAYS - 1) * sizeof(NwVfsMount));
+    SDL_zero(vfs->mounts[NW_VFS_OVERLAY]);
+    if (nw_vfs_mount(vfs, NW_VFS_OVERLAY, dir) && nw_vfs_check_overlay(vfs, conflict, user)) {
+        return true;
+    }
+    nw_vfs_unmount(&vfs->mounts[NW_VFS_OVERLAY]);
+    SDL_memmove(&vfs->mounts[NW_VFS_OVERLAY], &vfs->mounts[NW_VFS_OVERLAY + 1],
+                (NW_VFS_OVERLAYS - 1) * sizeof(NwVfsMount));
+    SDL_zero(vfs->mounts[NW_VFS_DISC - 1]);
+    return false;
+}
+
+void nw_vfs_overlay_each(const NwVfs *vfs, const char *prefix,
+                         void (*fn)(void *user, const char *rest, const char *path), void *user)
+{
+    size_t n = SDL_strlen(prefix);
+    for (int s = NW_VFS_OVERLAY; s < NW_VFS_DISC; s++) {
+        const NwVfsMount *m = &vfs->mounts[s];
+        for (uint32_t i = 0; i < m->count; i++) {
+            const char *key = m->entries[i].key;
+            bool newer = false;
+            for (int t = NW_VFS_OVERLAY; t < s && !newer; t++) {
+                newer = nw_vfs_lookup(&vfs->mounts[t], key) != NULL;
+            }
+            char *path = NULL;
+            if (SDL_strncmp(key, prefix, n) == 0 && !newer &&
+                SDL_asprintf(&path, "%s%s", m->root, m->entries[i].path) >= 0) {
+                fn(user, key + n, path);
+                SDL_free(path);
+            }
+        }
+    }
 }
 
 NwVfsFile *nw_vfs_open(const NwVfs *vfs, const char *game_path, NwVfsMode mode)

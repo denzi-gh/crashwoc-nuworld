@@ -1,6 +1,5 @@
-/* src/port/wide.c: retail untouched, the frame width and camera aspect for each picture aspect, the HUD's reach
-   and anchors, the draw radii, the clamps; a request taken once at a frame's end outside a load, with the frame, main's
-   widths and the viewport. */
+/* src/port/wide.c: frame width, camera aspect, HUD, draw radii and clamps per picture aspect, and a request applied
+   once at a frame's end outside a load. */
 #include <math.h>
 #include <stdio.h>
 

@@ -4,8 +4,8 @@
 
 struct nugscn_s;
 
-/* NuGScnRemove, then the scene's textures and its load (src/port/heap.h): records, meshes and sprites. A scene the
-   game drops without it goes when a later load writes over its heap range. */
+/* NuGScnRemove plus the scene's textures and host records, meshes and sprites; a scene the game drops without it is
+   freed when a later load overwrites its heap range. */
 void nw_gscn_remove(struct nugscn_s *scene);
 
 #endif

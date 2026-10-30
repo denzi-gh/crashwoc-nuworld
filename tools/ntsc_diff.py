@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""Diff the PAL boot ELF (SLES_503.86, 50 Hz) against the US one (SLUS_202.38, 60 Hz) per function and per data
-symbol, telling the rate differences (a tick's amounts x6/5 or x36/25 at 50 Hz, tick counts x5/6) from the rest.
+"""Diff the PAL boot ELF (SLES_503.86, 50 Hz) against the US one (SLUS_202.38, 60 Hz), telling rates from the rest.
 
-  python tools/ntsc_diff.py functions [--disasm NAME]  literals, immediates and structure per function
-  python tools/ntsc_diff.py data                        .data/.sdata/.rodata values per symbol
-  python tools/ntsc_diff.py check [--decomp DIR]        the decomp built with NW_HZ's NTSC values vs the US ELF, and
-                                                        with its PAL values vs the PAL ELF (must be equal)
-  python tools/ntsc_diff.py table [--check]             writes the rate fields as src/port/hz_table.inc
-
---pal / NUWORLD_PAL_ELF and --us / NUWORLD_US_ELF name the ELFs (the user's, never committed). Differences that are
-not a rate (US 1.00 vs PAL 1.03, languages, sound ids) are listed in tools/ntsc_diff_known.txt: "regex  # reason"
-over "func:<unit>/<name>" (its structure), "func:<unit>/<name>+0x<off>" (one site), "data:<symbol>+0x<off>" and
-"data:<symbol>+size"; "+regex" marks a rate the ratios miss, "-regex" no rate although the ratio fits.
+At 50 Hz a tick's amounts are x6/5 (x36/25 per tick squared) and tick counts x5/6.
+  functions [--disasm NAME]  literals, immediates and structure per function
+  data                       .data/.sdata/.rodata values per symbol
+  check [--decomp DIR]       decomp built with NW_HZ's NTSC values vs the US ELF, its PAL values vs the PAL ELF
+  table [--check]            writes the rate fields as src/port/hz_table.inc
+ntsc_diff_known.txt names: func:<unit>/<name> (structure), func:<unit>/<name>+0x<off>, data:<symbol>+0x<off>|+size.
 """
 from __future__ import annotations
 
@@ -342,8 +337,7 @@ class Elf:
 
 
 class Obj:
-    """A relocatable object's functions as tokens: relocations say what is an address and what a literal. A
-    literal the unit borrows from retail (an undefined D_<address>) is read from elf."""
+    """An object's functions as tokens; a literal borrowed from retail (an undefined D_<address>) is read from elf."""
 
     def __init__(self, path: Path, unit: str, elf: Elf):
         self.unit, self.elf = unit, elf
@@ -498,8 +492,7 @@ def cmd_functions(args) -> int:
 
 @dataclass
 class Field:
-    """One differing value of a data symbol (a float, or an aligned int of 1, 2 or 4 bytes) at off; addr is the
-    symbol's PAL address."""
+    """A differing data value at off (a float, or an aligned 1, 2 or 4-byte int); addr is the symbol's PAL address."""
     symbol: str
     off: int
     size: int

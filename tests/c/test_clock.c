@@ -1,6 +1,5 @@
-/* The vblank clock (src/platform/clock.c), the game thread's yield points (src/port/game.c), the vblank interrupts
-   of src/port/ps2video.c and the EE semaphores of src/shim/ee.c. The test's thread acts as the game thread on a
-   stepped clock until the last check, which starts a real one and parks it. */
+/* The vblank clock, the game thread's yield points, the vblank interrupts and the EE semaphores; the test's thread
+   is the game thread on a stepped clock until the last check. */
 #include <stdio.h>
 #include <string.h>
 

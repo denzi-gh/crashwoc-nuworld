@@ -1,6 +1,5 @@
-/* EE kernel: threads, semaphores, caches. The decomp calls them by their nw_ee_* names (port/nw_ee.h). Each EE
-   thread is a host thread; they pass a baton, so one runs at a time and switches only where the EE kernel would:
-   in a call that blocks or readies a thread, and on the return from an interrupt (nw_ee_schedule). */
+/* EE kernel threads, semaphores and caches (nw_ee_*, port/nw_ee.h); each EE thread is a host thread passing a baton,
+   so one runs at a time and switches only where the EE kernel would (blocking or readying calls, interrupt returns). */
 #include <setjmp.h>
 #include <stdbool.h>
 
@@ -9,7 +8,6 @@
 #include "port/game.h"
 #include "shim/shim.h"
 
-/* EE kernel error codes. */
 #define NW_KE_ILLEGAL_THID (-406)
 #define NW_KE_UNKNOWN_THID (-407)
 #define NW_KE_UNKNOWN_SEMID (-408)
@@ -70,8 +68,8 @@ typedef struct NwEeThread {
     jmp_buf exit;
 } NwEeThread;
 
-/* Thread ids are the slot + 1; slot 0 is the main thread, running from the start. Only the thread holding the
-   baton changes thread states; the hand-over goes through the lock. */
+/* Thread ids are slot + 1, slot 0 being the main thread; only the baton holder changes thread states, handing over
+   through the lock. */
 static struct {
     NwEeThread threads[NW_EE_THREADS];
     int current;  /* under lock: the slot holding the baton */

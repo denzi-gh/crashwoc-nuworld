@@ -258,7 +258,10 @@ void nw_video_event(const SDL_Event *e)
     if (e->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || !s || e->window.data2 <= 0) {
         return;
     }
-    nw_video_wide(s, (float)e->window.data1 / (float)e->window.data2);
+    int w, h;
+    nw_display_compose(nw_video.platform->window); /* SDL puts a restored fullscreen window back at monitor size */
+    nw_display_size(nw_video.platform->window, &w, &h);
+    nw_video_wide(s, h > 0 ? (float)w / (float)h : nw_video.aspect);
     if (s->window != NW_WINDOW_WINDOWED || (SDL_GetWindowFlags(nw_video.platform->window) &
                                             (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_MINIMIZED))) {
         return;
@@ -279,7 +282,7 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
         nw_video_render(s);
     }
     int w, h;
-    SDL_GetWindowSizeInPixels(nw_video.platform->window, &w, &h);
+    nw_display_size(nw_video.platform->window, &w, &h);
     if (s->aspect != was->aspect || s->hud != was->hud) {
         nw_video_wide(s, h > 0 ? (float)w / (float)h : nw_video.aspect);
     }

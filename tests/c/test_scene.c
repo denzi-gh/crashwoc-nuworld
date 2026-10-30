@@ -1,4 +1,4 @@
-/* Scene geometry: the VIF decoder and the NU20 reader on synthetic data. Usage: test_scene <scratch dir>. */
+/* Scene geometry: the VIF decoder and the NU20 reader on synthetic data. */
 #include <stdio.h>
 #include <string.h>
 

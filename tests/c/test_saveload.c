@@ -1,8 +1,5 @@
-/* The port's gamelib/saveload under the decomp's own loadsaveCallEachFrame and UpdateSaveSlots, frame by frame as
-   ProcMenu runs them: the first card check, load, save, delete and format, their statuses and the menus' flags; the
-   sync calls; no card; a save that cannot be written or comes from a newer build. With "card", the PS2 card image
-   NUWORLD_TEST_CARD (exit 77 without it) is imported and must come back byte for byte, through the file and through
-   the game. Usage: test_saveload <scratch dir> [card]. */
+/* The port's gamelib/saveload under the decomp's loadsaveCallEachFrame and UpdateSaveSlots, frame by frame as
+   ProcMenu runs them; with "card", NUWORLD_TEST_CARD must come back byte for byte. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -1,15 +1,10 @@
-"""The title cut's sound trace from a stepped boot (local only; run_local.py passes the data root). Runs the port
-with --stepped --boot-check --trace-sound and checks, up to UPTO vblanks of the cut,
+"""The title cut's sound trace from a stepped boot (local only), up to UPTO vblanks of the cut.
 
-  - by default, that a second run traces it the same;
-  - with --pcsx2 <trace>, that it matches tools/pcsx2_trace.py's trace of PCSX2: every line up to the switch to
-    logos2 and the end of the logos stream exactly, the two music channels' key-ons each within a vblank, in
-    either order (which stream slot the module starts first follows its ticks since boot, and the boot's own disc
-    reads take no time here);
-  - with --instant, the same on a run with instant loading (--hardware-speed off); against --pcsx2 from the logos
-    stream's key-on, which comes sooner: the switch to logos2 and the stream's end exactly, each music key-on at
-    most a vblank after PCSX2's, and the stub hits of a run at the hardware speed. The logo's texanim counts from
-    the cut's start, not the key-on, so against the cut it runs as much later; it is not compared.
+  default    a second run traces the same
+  --pcsx2 T  PCSX2's trace exactly up to logos2 and the logos stream's end; music key-ons within a vblank, either
+             order (stream slot order follows the module's ticks since boot; boot disc reads take no time here)
+  --instant  instant loading; against --pcsx2 counted from the logos key-on (the texanim is not compared), music at
+             most a vblank later, and the stub hits of a hardware-speed run
 
     run_local.py python tests/cut_trace.py <crashwoc-nuworld> {root} [--pcsx2 tests/fixtures/pcsx2_title_cut.txt]
         [--instant]
@@ -43,8 +38,7 @@ def stubs(lines: list[str]) -> list[tuple]:
 
 
 def events(lines: list[str]) -> dict:
-    """The switch to logos2, the logos stream's key-on and end (channel 4: 0 -> 1 -> 0), the music channels' key-ons
-    (0, 1)."""
+    """Vblanks of the switch to logos2, logos stream key-on and end (channel 4) and music key-ons (channels 0, 1)."""
     found = {"world": None, "keyon": None, "logos_end": None, "music": {}}
     keyed = False
     for line in lines:

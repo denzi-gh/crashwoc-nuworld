@@ -58,20 +58,40 @@ python tools/patches.py rebase <decomp sha>  # move the series and the submodule
 conflict, resolve it in `build/patch-work`, `git add` the files, `git rebase --continue`, then run
 `python tools/patches.py rebuild`.
 
+Single retail values that a seam wraps are rules, not patches: `port/values/hz.toml` names each 50/60 Hz value
+by file, function, value and which of its matches it is, and the build wraps it as `NW_HZ(pal, ntsc)` after the
+patches. A decomp change that adds or removes such a value stops the build at its rule; one that only reorders
+the function keeps the count, so every function with rules is locked too (below). `python tools/ntsc_diff.py
+check` proves the NTSC values.
+
 A patch must leave the PS2 build unchanged: host behaviour goes behind a `nu_port.h` seam or `#ifdef NW_HOST`.
 `python tools/ee_gate.py` proves it (Docker with the decomp image and its toolchain): it compiles the decomp with the
 EE compilers with and without the patches and compares the objects. Host-only blocks are invisible to it, so their
 count per concern is kept in `port/ee_gate.toml`; change it together with the patch that needs it.
 
-To run code before, after or instead of a decomp function, list it under `wrap` in `port/units.toml` and define it
-in NuWorld: the decomp's definition stays as `<name>__retail` (declared in the generated `<unit>.retail.h`), and
-NuWorld's takes every call, the decomp's own included. A file `static` that NuWorld code must reach goes under
-`expose`: the generated wrapper drops its `static`, the name stays.
+Changes to how the game plays or what it shows live in `src/gameplay/`, each behind a `[game]` setting in
+`NwProfile` (`gameplay/gameplay.h`). With every switch off the profile is the retail game: only the windowed boot
+fills it from `settings.toml`, so every check, test and pad-script run plays retail. A feature marks its code with
+`NW_DEVIATION(<switch>)`, its `NwProfile` field, which stops the game if that code runs with the switch off.
 
-A decomp function that NuWorld defines itself (an override or a wrap in `port/units.toml`) is locked in
-`port/copies.lock`.
-`python tools/copies.py --check` fails when a decomp update changes one, so its NuWorld definition gets a look
-(then `--update`), and when a port patch edits one: that edit never compiles.
+To run code before, after or instead of a decomp function, list it under `wrap` in `port/units.toml` and define it
+in NuWorld: the decomp's definition stays as `<name>__retail`, and NuWorld's takes every call, the decomp's own
+included. Include the generated `<unit>.retail.h`: it declares `<name>__retail` and the decomp's prototype of
+`<name>`, so the compiler holds NuWorld's definition to the decomp's signature. A file `static` that NuWorld code
+must reach goes under `expose`: the generated wrapper drops its `static`, the name stays.
+
+Files and assets are replaced without code: `--overlay DIR` (with `--boot`, up to four, the later wins) lays a
+folder over the disc. Each file in it replaces the disc file of the same path, or, in a folder named after an
+archive (`ATS.DAT/LEVELS/...`), that archive's entry; `SFX.DAT` is replaced only whole, the sound driver reads it
+itself. An overlay only replaces: a file the disc lacks, the boot ELF, `SYSTEM.CNF`, the IRX modules and
+`DUMMY.DAT` stop the start, and a file two overlays have is reported. The mod format with manifests (`mods/`) comes
+with the engine rewrite.
+
+The decomp functions NuWorld depends on by their text are locked in `port/copies.lock`: each override in
+`port/units.toml` (NuWorld's copy) and each function with value rules. `python tools/copies.py --check` fails when
+a decomp update changes one, so it gets a look (bring the copy in line, or run `python tools/ntsc_diff.py check`;
+then `--update`), and when a port patch edits an overridden one: that edit never compiles. A wrap is not locked:
+the decomp's C compiles as it is.
 
 ## Game data
 

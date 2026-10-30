@@ -1,6 +1,5 @@
-/* Debug builds (NW_HIGH_HEAP): every free page below 4 GB is reserved before main, so the heaps, the records and the
-   game's buffers all lie above it and a pointer kept in 32 bits cannot work by chance. ASan builds keep their own
-   layout (its shadow memory is below 4 GB on Linux). */
+/* Debug builds (NW_HIGH_HEAP): every free page below 4 GB is reserved before main, so a pointer kept in 32 bits
+   cannot work by chance. ASan builds keep their own layout (its shadow memory is below 4 GB on Linux). */
 #ifdef NW_HIGH_HEAP
 #ifndef _WIN32
 #define _GNU_SOURCE /* MAP_FIXED_NOREPLACE */

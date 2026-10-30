@@ -1,5 +1,4 @@
-/* The port's Nu render layer (src/gfx/nurndr.c, nustream.c, numtl.c, nutex.c, ps2txtr.c, which override or replace
-   those decomp units): what its parts share. Game thread. */
+/* What the port's Nu render layer (nurndr.c, nustream.c, numtl.c, nutex.c, ps2txtr.c) shares; game thread. */
 #ifndef NUWORLD_GFX_RNDR_H
 #define NUWORLD_GFX_RNDR_H
 
@@ -22,15 +21,13 @@ typedef struct NwStateBlock {
 
 const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl);
 
-/* The texture of a TexList slot, by its nups2tex_s: the GS memory the port keeps. Takes gpu (NULL: none) and
-   queues its upload; the slot's texture before it is freed. */
+/* Takes gpu (NULL: none) as the slot's texture and queues its upload; the slot's texture before is freed. */
 void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
 /* tid as NuTexCreate returns it; NULL for 0, a surface (< 0) or a slot with no decoded texture. */
 const NwGpuTex *nw_rndr_texture(int tid);
 void nw_rndr_texture_free(int tid);
-/* A tid in GS memory: -1 and -3 the back and front buffer, a render target at its address as NuTexSetRenderTarget
-   finds it; addr 0 for any other, and for the Z buffer and the palette and Z render targets the port does not draw
-   (reported once). */
+/* -1 and -3 the back and front buffer, a render target at its GS address; addr 0 for the rest, such as the Z buffer
+   and palette and Z targets the port does not draw (reported once). */
 NwSurf nw_ps2tx_surf(int tid);
 /* The render targets as wide as a frame was wide (NuLightMatInit's, InitGlass's, NuWaterInit's) to a frame now that
    wide; GS memory they reserved stays where it is. */
@@ -57,8 +54,7 @@ typedef struct NwRecord {
     struct NwRecord *next;
 } NwRecord;
 
-/* A record of op under the current view and local matrix, with the stream's material and microcode, appended to
-   stream; it latches the stream's block at VU 0x0C as retail's attr & 0x43 picks it: 1 the RT lights, 2 the
+/* Under the current view and local matrix; latches the VU 0x0C block by attr & 0x43 as retail: 1 the RT lights, 2 the
    specular UV matrix, 0x40 the fx matrix. */
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
 /* The same as a VERTS record of n vertices, three a triangle, which the caller writes at *v. */

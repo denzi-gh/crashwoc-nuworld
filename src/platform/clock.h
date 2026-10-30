@@ -1,6 +1,5 @@
-/* The virtual vblank clock: edges at a fixed rate on absolute deadlines (t0 + k * period, so no drift), counted
-   for the game thread. Real time runs it on its own thread; stepped mode emits an edge whenever someone waits for
-   one (deterministic runs and tests). */
+/* The virtual vblank clock: edges on absolute deadlines (t0 + k * period, no drift), from its own thread in real time
+   or emitted on each wait when stepped (deterministic runs and tests). */
 #ifndef NUWORLD_PLATFORM_CLOCK_H
 #define NUWORLD_PLATFORM_CLOCK_H
 

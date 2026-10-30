@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-"""The --check-scenes lines of every .gsc, decoded by the crashwoc tooling (nus_scene.py, nus_ps2.py, ps2_texture.py,
-rnc.py).
+"""The --check-scenes lines of every .gsc as the crashwoc tooling decodes it (nus_scene, nus_ps2, ps2_texture, rnc).
 
-  python tools/gsc_hash.py --data-dir <root> [--tooling <dir>] [--compare <crashwoc-nuworld>]
-
-The tooling comes from --tooling or $CRASHWOC_TOOLING; without it the exit code is 77 (skipped).
+Exits 77 (skipped) without the tooling (--tooling or $CRASHWOC_TOOLING).
 """
 from __future__ import annotations
 

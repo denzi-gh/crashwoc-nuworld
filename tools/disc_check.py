@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 """Every disc file decoded twice: crashwoc-nuworld --check-disc against the crashwoc tooling and WrathSDK.
 
-  python tools/disc_check.py --data-dir <root> --compare <crashwoc-nuworld> [--tooling <dir>] [--wrathsdk <dir>]
-
-Bytes: each disc file and each entry of ATS/CHARS/SFX.DAT, RNC-unpacked (rnc.py, unpack_dat.py), as the FILE/DAT
-lines of --check-disc. Structure: the .gsc lines of --check-scenes (tools/gsc_hash.py), and what the Python readers
-make of the rest: .ai/.crt/.lgt/.obj/.wmp written back byte for byte (WrathSDK formats), .ptl (nus_ptl.py), .ghg
-(WrathSDK nus_ghg.py). The table at the end lists per extension what decoded it. The tooling comes from --tooling or
-$CRASHWOC_TOOLING, WrathSDK from --wrathsdk or $WRATHSDK; without them the exit code is 77 (skipped).
+Compares the RNC-unpacked bytes of every file and .DAT entry and the .gsc scene lines; WrathSDK formats must write
+back byte for byte, .ptl and .ghg must parse. Exits 77 (skipped) without the tooling or WrathSDK.
 """
 from __future__ import annotations
 
@@ -27,8 +22,7 @@ import gsc_hash  # noqa: E402
 
 SKIP = 77
 ROUND_TRIP = ("ai", "crt", "lgt", "obj", "wmp")
-# The retail ctests whose C loaders read every file of an extension (cmake/decomp.cmake); the level files the game
-# loads itself are covered by levels-retail.
+# The retail ctests whose C loaders read every file of an extension (cmake/decomp.cmake).
 C_TESTS = {
     "gsc": "check-scenes-retail nugscn-retail", "ghg": "nughg-retail", "cut": "nucut-retail",
     "ani": "nuanim-retail", "bsa": "nuanim-retail", "ter": "terrain-retail", "shd": "shadcom-retail",

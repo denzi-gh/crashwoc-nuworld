@@ -1,5 +1,4 @@
-/* The .ghg loader override (src/port/nuhgobj.c) on a synthetic file; locally on every .ghg of the imported disc.
-   Usage: test_nughg <scratch dir> | retail. */
+/* The .ghg loader override (src/port/nuhgobj.c) on a synthetic file; with `retail`, every .ghg of the disc. */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>

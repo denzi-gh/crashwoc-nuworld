@@ -6,8 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* PCSX2 shows the frame of a few vblanks before its savestate: the frames from BEFORE before to AFTER after each
-   requested vblank are saved. */
+/* PCSX2's savestate shows a frame a few vblanks old, so the frames from BEFORE before to AFTER after are saved. */
 #define NW_CAPTURE_BEFORE 3
 #define NW_CAPTURE_AFTER 1
 
@@ -21,7 +20,6 @@ void nw_capture_published(uint64_t seq, int vbcnt);
 uint64_t nw_capture_wanted(int *vblank);
 /* Render thread: that packet is saved, the game thread goes on. */
 void nw_capture_release(void);
-/* Every requested frame is past. */
 bool nw_capture_finished(void);
 
 #endif

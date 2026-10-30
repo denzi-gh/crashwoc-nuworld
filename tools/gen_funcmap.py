@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Generate the function map: retail PS2 address -> host function.
 
-Writes <unit>.funcmap.inc (included at the end of the unit's TU, so it can
-reach statics) and funcmap.c (the unit index) under --out.
+<unit>.funcmap.inc is included at the end of the unit's TU so it can reach statics; funcmap.c is the unit index.
 """
 from __future__ import annotations
 

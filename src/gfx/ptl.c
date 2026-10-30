@@ -1,6 +1,5 @@
-/* nups2/ptl, which the port replaces (port/units.toml): the particle sets and effect lists SetupDebris carves out of
-   debbuffer, in retail's layout, as the debris code writes into them. A set's link to the next is an offset from it
-   on the host; NuRndrParticleGroup (src/gfx/nurndr.c) follows it. */
+/* nups2/ptl replaced (port/units.toml): SetupDebris's particle sets and effect lists in retail's layout; on the host a
+   set links to the next by an offset, which NuRndrParticleGroup follows. */
 #include <stdint.h>
 
 #include "gamelib/debris.h"

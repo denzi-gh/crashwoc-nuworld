@@ -327,8 +327,7 @@ class Package:
         return None
 
     def label(self, vu: int) -> str:
-        """A branch target's name. The .dsm defines its entry labels before the code it includes, so the last name
-        at an address is the one the code itself defines."""
+        """The last name at vu: a .dsm defines its entry labels before the code it includes defines its own."""
         names = self.labels.get(vu)
         return names[-1] if names else f"0x{vu:04x}"
 

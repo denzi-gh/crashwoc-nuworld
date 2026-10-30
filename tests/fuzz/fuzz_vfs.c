@@ -1,15 +1,5 @@
-/* libFuzzer target for the VFS readers, the VIF decoder and the save readers (no game data). The first byte picks
-   the reader, the rest is its input:
-     0  a disc image (.iso or raw .bin, detected): nw_disc_open, nw_iso_index, nw_verify_identity, every file
-        looked up again and read at both ends;
-     1  a cue sheet: u16 LE length, the sheet, then the image (fuzz.bin, also the cue's own name with .bin);
-     2  a .DAT archive opened through the VFS, listed, every entry found by its path and loaded;
-     3  a .gsc geom (DMA chain and VIF stream): nw_vif_decode, every triangle checked against the vertices;
-     4  a save document: what parses is written, read back and written again to the same text, and records it
-        decodes to are merged back and decode the same;
-     5  a PS2 memory card image: the save file looked up and read.
-   The readers open files, so each input is written to a scratch folder under $TMPDIR first.
-   Built with -DNUWORLD_FUZZ=ON; nuworld_fuzz_seeds writes the seed corpus from the synthetic test builders. */
+/* libFuzzer target (-DNUWORLD_FUZZ=ON) for the VFS readers, the VIF decoder and the save readers; the first byte picks
+   the reader. */
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,7 +125,7 @@ static void fuzz_cue(const uint8_t *data, size_t size)
     if (len > size) {
         return;
     }
-    /* FILE stays inside the scratch folder: no separators or drive letters, nothing else on the host is opened. */
+    /* FILE stays inside the scratch folder. */
     for (size_t i = 0; i < len; i++) {
         if (data[i] == '/' || data[i] == '\\' || data[i] == ':') {
             return;

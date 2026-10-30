@@ -1,6 +1,5 @@
-/* nups2/ps2dma, nups2/asmdma and nups2/vu1man, which the port replaces (port/units.toml): the packet writers the
-   boot reaches. They write retail's DMA tags and VIF codes into the caller's buffer (NuLightInit keeps its
-   packets to send again); nothing sends them yet (M3). Also the scratchpad allocator. */
+/* The packet writers of nups2/ps2dma, asmdma and vu1man that the boot reaches (port/units.toml), unsent until M3, and
+   the scratchpad allocator. */
 #include <stdint.h>
 #include <string.h>
 

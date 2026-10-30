@@ -308,8 +308,6 @@ void nw_doc_unset(NwDocTable *t, const char *name)
     }
 }
 
-/* Parsing. */
-
 static bool nw_doc_fail(NwDocParse *ps, const char *what)
 {
     SDL_SetError("line %d: %s", ps->line, what);
@@ -715,8 +713,6 @@ bool nw_doc_parse(NwDoc *doc, const char *text, size_t size)
     }
     return true;
 }
-
-/* Writing. */
 
 static bool nw_doc_write_str(NwDocBuf *b, const uint8_t *s, size_t len)
 {

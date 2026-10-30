@@ -1,6 +1,5 @@
-/* Display-rate interpolation: the game thread keys the draws of a frame packet by the object they belong to and their
-   place in it; the render thread pairs a packet's draws with the packet before's by key and blends what they are
-   drawn under toward the newer one. GL-free. */
+/* Display-rate interpolation: the game thread keys draws by object, the render thread pairs them with the packet
+   before's by key and blends toward the newer one; GL-free. */
 #ifndef NUWORLD_GFX_INTERP_H
 #define NUWORLD_GFX_INTERP_H
 

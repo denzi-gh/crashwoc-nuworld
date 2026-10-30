@@ -1,7 +1,5 @@
-/* gamelib/saveload, which the port replaces (port/units.toml): the memory card (port 0, slot 0) is the saves folder,
-   always there, formatted and with room. The async calls keep retail's statuses, errors and frame steps, which
-   game/loadsave's UpdateSaveSlots and the menus read: a request runs on the next saveloadASCallEachFrame, and the
-   statuses after it are each seen for one frame. */
+/* Replaces gamelib/saveload (port/units.toml): the card in port 0, slot 0 is the saves folder, always there, formatted
+   and with room; requests run on the next saveloadASCallEachFrame with retail's statuses, errors and frame steps. */
 #include "port/saveload.h"
 
 #include <stddef.h>

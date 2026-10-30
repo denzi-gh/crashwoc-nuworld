@@ -1,8 +1,6 @@
-/* The decomp's newlib on the host (libm and rand, compiled per port/units.toml): every name it defines takes
- * an nw_ prefix, so decomp code calls the decomp's libm and rand (the same results on every OS, the PS2's
- * RAND_MAX) while SDL, Dear ImGui and the C runtime keep the host's. SDL3 and MinGW define some of the same
- * fdlibm names. The newlib units' wrappers include it first (tools/tu_filter.py); nw_prelude.h includes it
- * after the host headers, whose math.h pastes these names into its own macros. */
+/* nw_ prefixes for the decomp's newlib (libm, rand): decomp code gets the same results on every OS and the PS2's
+ * RAND_MAX, while SDL, Dear ImGui and the C runtime keep the host's. Newlib units include it first, nw_prelude.h after
+ * the host headers, whose math.h pastes these names into its own macros. */
 #ifndef NUWORLD_PORT_NW_NEWLIB_H
 #define NUWORLD_PORT_NW_NEWLIB_H
 
