@@ -7,6 +7,8 @@
 
 typedef struct NwProfile {
     bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
+    /* Enhanced movement */
+    bool fast_monkey_bars; /* Crash climbs the monkey bars twice as fast */
 } NwProfile;
 
 extern NwProfile nw_profile;

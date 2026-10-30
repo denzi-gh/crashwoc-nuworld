@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "gameplay/monkeybars.h"
 #include "gameplay/title.h"
 #include "port/game.h"
 
@@ -10,6 +11,7 @@ NwProfile nw_profile;
 void nw_profile_apply(const NwProfile *p)
 {
     nw_profile = *p;
+    nw_monkey_bars_apply();
 }
 
 void nw_deviation_off(const char *sw)

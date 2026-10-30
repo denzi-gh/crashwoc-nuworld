@@ -124,6 +124,9 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(s.unused_title);
     CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
+    nw_settings_defaults(&s);
+    CHECK(!s.fast_monkey_bars);
+    CHECK(read_text("[game]\nfast_monkey_bars = true\n", &s) && s.fast_monkey_bars);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

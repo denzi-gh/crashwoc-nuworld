@@ -714,7 +714,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     if (nw_pad_script) {
         fprintf(stderr, NW_APP_NAME ": --pad-script plays the retail game: no [game] switches\n");
     } else {
-        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title });
+        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title,
+                                       .fast_monkey_bars = settings.fast_monkey_bars });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
