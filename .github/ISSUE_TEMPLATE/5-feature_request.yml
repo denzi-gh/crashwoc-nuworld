@@ -6,51 +6,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Small convenience changes go in a Quality of Life suggestion.
-
-        NuWorld plays like the original by default. Changes to the original behaviour are added as options.
-  - type: checkboxes
-    id: checklist
-    attributes:
-      label: Before opening this issue
-      options:
-        - label: This issue contains one feature only
-          required: true
-  - type: dropdown
-    id: category
-    attributes:
-      label: Category
-      options:
-        - Graphics
-        - Framerate / performance
-        - Controls / input
-        - Audio
-        - Camera
-        - UI / menus
-        - Accessibility
-        - Modding
-        - Platform support
-        - Other
-    validations:
-      required: true
+        One feature per issue. NuWorld plays like the original by default, so changes to how it plays become options.
   - type: textarea
-    id: solution
+    id: description
     attributes:
       label: What should the feature do?
     validations:
       required: true
-  - type: dropdown
-    id: vanilla
-    attributes:
-      label: Does this change how the original game looks or plays?
-      description: If yes, it would be added as an option that is off by default.
-      options:
-        - "No"
-        - "Yes, it should be an option"
-        - "I'm not sure"
-    validations:
-      required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: Anything else?

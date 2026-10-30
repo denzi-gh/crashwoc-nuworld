@@ -6,58 +6,20 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check the [Building](https://github.com/denzi-gh/crashwoc-nuworld#building) section of the README first.
         Most build failures come from a missing submodule (`git submodule update --init --recursive`)
         or, on Windows, from not using an MSYS2 **CLANG64** shell.
-  - type: checkboxes
-    id: checklist
-    attributes:
-      label: Before opening this issue
-      options:
-        - label: I am building the latest `main` commit, and the `decomp/` submodule is checked out.
-          required: true
-        - label: I tried a clean build (deleted the `build/` folder).
-          required: true
   - type: input
-    id: commit
+    id: environment
     attributes:
-      label: Commit
-      description: The output of `git rev-parse --short HEAD`.
-    validations:
-      required: true
-  - type: dropdown
-    id: os
-    attributes:
-      label: Operating system / environment
-      options:
-        - Windows (MSYS2 CLANG64)
-        - Windows (other environment)
-        - Linux (name the distro below)
-        - Other (name it below)
-    validations:
-      required: true
-  - type: input
-    id: os-details
-    attributes:
-      label: Linux distro / other environment
-      placeholder: "Example: Ubuntu 24.04"
-  - type: input
-    id: versions
-    attributes:
-      label: Tool versions
-      description: The output of `clang --version`, `cmake --version` and `ninja --version`.
-      render: text
+      label: Commit and OS
+      placeholder: "Example: 5e766a9, Windows 11 MSYS2 CLANG64"
     validations:
       required: true
   - type: textarea
     id: log
     attributes:
       label: Build log
-      description: The full output of the failing command, not only the last lines.
+      description: The full output of the failing command.
       render: text
     validations:
       required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: Anything else?
