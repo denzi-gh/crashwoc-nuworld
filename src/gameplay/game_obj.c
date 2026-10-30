@@ -5,6 +5,7 @@
 #include "gameplay/air.h"
 #include "gameplay/crash.h"
 #include "gameplay/ground.h"
+#include "gameplay/line2d.h"
 
 /* Declared by no header. */
 extern f32 in_speed;
@@ -26,4 +27,5 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
     in_speed = speed;
     in_f_friction = forward;
     in_s_friction = side;
+    nw_line2d_hold(&Character[0]);
 }

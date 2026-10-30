@@ -10,7 +10,9 @@
 #include "gameplay/edges.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
+#include "gameplay/line2d.h"
 #include "gameplay/monkeybars.h"
+#include "nu3d/nugscn.h"
 #include "nu_port.h"
 #include "numath/nutrig.h"
 #include "port/hz.h"
@@ -26,6 +28,7 @@ extern f32 in_speed;
 extern f32 in_f_friction;
 extern f32 in_s_friction;
 extern NwTerI *TerI;
+extern struct rail_s Rail[];
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 
 static int failures;
@@ -510,6 +513,40 @@ static void edge_grip(void)
     TerI = was;
 }
 
+/* A side-on rail along z, 2 wide: left spline at x 0, right at x 2. */
+static struct nuvec_s rail_left[2] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 10.0f } };
+static struct nuvec_s rail_right[2] = { { 2.0f, 0.0f, 0.0f }, { 2.0f, 0.0f, 10.0f } };
+static struct nugspline_s spline_left = { 2, sizeof(struct nuvec_s), "left", (char *)rail_left };
+static struct nugspline_s spline_right = { 2, sizeof(struct nuvec_s), "right", (char *)rail_right };
+
+/* Crash at x on the rail in camera mode with momentum mom_x across it; his momentum across after the hold. */
+static float line_frame(float x, u8 mode, float mom_x)
+{
+    struct creature_s *c = &Character[0];
+    c->obj.pos = (struct nuvec_s){ x, 0.0f, 5.0f };
+    c->obj.mom = (struct nuvec_s){ mom_x, 0.0f, 0.05f };
+    c->obj.RPos = (RailPosition){ .iRAIL = 0, .iALONG = 0, .fALONG = 0.5f, .fACROSS = x / 2.0f, .mode = mode };
+    nw_line2d_hold(c);
+    CHECK(near(c->obj.mom.z, 0.05f, 1e-5f));
+    return c->obj.mom.x;
+}
+
+/* Side-on, the drift across goes and a small pull brings him back to where he came in; elsewhere and off, retail. */
+static void line_2d(void)
+{
+    NwProfile retail = { 0 }, on = { .movement = { .crash = { .line_2d = true } } };
+    Rail[0] = (struct rail_s){ .pLEFT = &spline_left, .pRIGHT = &spline_right, .edges = 2 };
+    crash_at(50, &on);
+    CHECK(fabsf(line_frame(1.0f, 4, 0.03f)) < 1e-6f);
+    CHECK(near(line_frame(1.04f, 8, 0.03f), -0.04f * 0.25f, 1e-4f));
+    CHECK(near(line_frame(1.6f, 4, 0.0f), -0.02f, 1e-5f));    /* at most 1 a second */
+    CHECK(line_frame(1.6f, 1, 0.03f) == 0.03f);                /* camera behind: free */
+    CHECK(fabsf(line_frame(1.6f, 4, 0.03f)) < 1e-6f);          /* back side-on: the new line */
+    crash_at(50, &retail);
+    CHECK(line_frame(1.6f, 4, 0.03f) == 0.03f);
+    Rail[0] = (struct rail_s){ 0 };
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -525,6 +562,7 @@ int main(void)
     grip();
     long_spin();
     edge_grip();
+    line_2d();
 
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
     CHECK(nw_movement_profile(&(NwMovement)NW_MOVEMENT_RETAIL) == NW_MOVEMENT_PROFILE_RETAIL);
