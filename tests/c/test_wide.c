@@ -7,7 +7,7 @@
 #include "nu3d/nuvport.h"
 #include "port/wide.h"
 
-extern float WUMPAOBJSX, WUMPATXTSX, LIVESOBJSX, CRATEOBJSX;
+extern float WUMPAOBJSX, WUMPATXTSX, LIVESOBJSX, CRATEOBJSX, PANELCRUNCHX, FIREBOSSBARX;
 extern int PS2_VCNTR_X, PS2_REZ_W;
 extern int SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
 extern volatile int bgload_complete;
@@ -47,6 +47,9 @@ int main(void)
     CHECK(nw_wide.width == 1706 && near(nw_wide.hud, 854.0f / 640.0f));
     CHECK(near(WUMPAOBJSX, -0.8f - 214.0f / 640.0f) && near(WUMPATXTSX - WUMPAOBJSX, 0.1f) &&
           near(LIVESOBJSX, 0.53f + 214.0f / 640.0f) && CRATEOBJSX == -0.29f);
+    /* The boss head is drawn at depth 1.25, its bar at 1: on screen the head moves as far, less its inset */
+    CHECK(near(FIREBOSSBARX, 0.65f + 214.0f / 640.0f) &&
+          near(PANELCRUNCHX, 1.01f + 1.25f * (214.0f / 640.0f - 0.08f)));
     nw_wide_set(32.0f / 9.0f, 0.0f);
     CHECK(near(nw_wide.hud, nw_wide.k) && near(WUMPAOBJSX, -0.8f - 1066.0f / 640.0f));
     nw_wide_set(32.0f / 9.0f, 4.0f / 3.0f);
@@ -59,6 +62,7 @@ int main(void)
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f);
     nw_wide_set(0.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide_width() == 640 && near(WUMPAOBJSX, -0.8f) && near(LIVESOBJSX, 0.53f));
+    CHECK(near(PANELCRUNCHX, 1.01f) && near(FIREBOSSBARX, 0.65f));
 
     struct nuviewport_s *vp = NuVpGetCurrentViewport();
     PS2_VCNTR_X = 0x800;
