@@ -20,13 +20,20 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
     static const NwMovement nhanced = NW_MOVEMENT_NHANCED;
     const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
+    const NwMechMovement *mc = &m->mech, *mn = &nhanced.mech;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
-    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+#define NW_MECH_SET(f, ...) || mc->f
+#define NW_MECH_SAME(f, ...) &&mc->f == mn->f
+    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                      NW_MECH_MOVEMENT(NW_MECH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
-                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME));
+                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
+                         NW_MECH_MOVEMENT(NW_MECH_SAME, NW_MECH_SAME, NW_MECH_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
+#undef NW_MECH_SET
+#undef NW_MECH_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
@@ -56,6 +63,7 @@ static void nw_profile_poll(void)
     if (asked) {
         nw_profile.movement = p.movement;
         nw_profile.air_indicator = p.air_indicator;
+        nw_profile.hitboxes = p.hitboxes;
         nw_monkey_bars_apply();
         nw_air_apply();
         nw_ground_apply();

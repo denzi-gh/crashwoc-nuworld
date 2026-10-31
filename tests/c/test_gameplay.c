@@ -13,15 +13,23 @@
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
+#include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
 #include "numath/nutrig.h"
+#include "numath/nuvec.h"
 #include "nups2/ps2ctl.h"
 #include "port/hz.h"
 
 extern struct MoveInfo CrashMoveInfo;
 extern struct MoveInfo CocoMoveInfo;
+extern struct MoveInfo MechMoveInfo;
+extern struct cammtx_s GameCam[];
+extern struct nuvec_s plr_target_firepos;
+extern f32 vtog_time;
+extern f32 vtog_duration;
+extern s32 fadeval;
 extern s32 plr_terrain_ok;
 extern s32 VEHICLECONTROL;
 extern struct ldata_s *LDATA;
@@ -795,6 +803,300 @@ static void hazard_hitboxes(void)
     GAMEOBJECTCOUNT = 0;
 }
 
+/* Retail with one of the mech's switches on, its values at N. Hanced's. */
+static NwProfile only_mech(size_t offset)
+{
+    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
+    *(bool *)((char *)&p.movement.mech + offset) = true;
+    return p;
+}
+
+#define ONLY_MECH(f) only_mech(offsetof(NwMechMovement, f))
+
+/* crash_at, then Crash in the mech. */
+static void mech_at(int hz, const NwProfile *p)
+{
+    crash_at(hz, p);
+    VEHICLECONTROL = 1;
+    vtog_time = vtog_duration = 1.0f;
+    MechMoveInfo.WALKSPEED = 0.018f;
+    GameTimer.frame = 1000;
+    fadeval = 0;
+    GameCam[0].yrot = 0;
+    Character[0].obj.vehicle = 0x44;
+    Character[0].obj.RADIUS = 0.35f;
+    Character[0].obj.attack = 0x400;
+    pad = (struct nupad_s){ 0 };
+}
+
+/* The take-off's frame sees a walk, so MoveMECH takes the running jump; the frame after the real stick again. */
+static void mech_stand_jump(void)
+{
+    NwProfile retail = { 0 }, on = ONLY_MECH(stand_jump);
+    struct creature_s *c = &Character[0];
+    mech_at(50, &on);
+    c->obj.ground = 1;
+    pad.paddata = 0x40;
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == MechMoveInfo.WALKSPEED);
+    nw_mech_after(c, &pad);
+    CHECK(c->obj.pad_speed == 0.0f);
+    c->obj.pad_speed = MechMoveInfo.RUNSPEED; /* running already */
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == MechMoveInfo.RUNSPEED);
+    nw_mech_after(c, &pad);
+    c->obj.pad_speed = 0.0f;
+    c->target = 1; /* aiming: no jump */
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == 0.0f);
+    c->target = 0;
+    GameTimer.frame = 10; /* no stick at the level's start */
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == 0.0f);
+    mech_at(50, &retail);
+    c->obj.ground = 1;
+    pad.paddata = 0x40;
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == 0.0f);
+    /* Not in the mech, nothing. */
+    mech_at(50, &on);
+    VEHICLECONTROL = 0;
+    c->obj.ground = 1;
+    pad.paddata = 0x40;
+    nw_mech_before(c, &pad);
+    CHECK(c->obj.pad_speed == 0.0f);
+}
+
+static void mech_shot(void)
+{
+    NwProfile retail = { 0 }, on = ONLY_MECH(shot_stop);
+    struct creature_s *c = &Character[0];
+    /* A tap: released before tap ran out still fires. */
+    mech_at(50, &on);
+    c->target = 2;
+    c->tap = 7;
+    nw_mech_before(c, &pad);
+    CHECK(c->tap == 0);
+    mech_at(50, &retail);
+    c->target = 2;
+    c->tap = 7;
+    nw_mech_before(c, &pad);
+    CHECK(c->tap == 7);
+    on.movement.mech.shot_tap = false;
+    mech_at(50, &on);
+    c->target = 2;
+    c->tap = 7;
+    nw_mech_before(c, &pad);
+    CHECK(c->tap == 7);
+
+    /* The stop after it ends shot_stop_ms on, once he steers. */
+    for (int hz = 50; hz <= 60; hz += 10) {
+        mech_at(hz, &(NwProfile){ .movement = NW_MOVEMENT_NHANCED });
+        int frames = 150 * hz / 1000;
+        c->target = 2;
+        nw_mech_before(c, &pad);
+        c->fire = 30;
+        c->tap = 35;
+        nw_mech_after(c, &pad);
+        c->target = 0;
+        for (int frame = 1; frame <= frames; frame++) {
+            GameTimer.frame++;
+            c->obj.pad_speed = frame == frames ? MechMoveInfo.RUNSPEED : 0.0f;
+            nw_mech_before(c, &pad);
+            nw_mech_after(c, &pad);
+            CHECK(frame == frames ? c->fire == 0 && c->tap == 0 : c->fire == 30);
+        }
+    }
+    mech_at(50, &retail);
+    c->target = 2;
+    nw_mech_before(c, &pad);
+    c->fire = 30;
+    c->tap = 35;
+    nw_mech_after(c, &pad);
+    c->target = 0;
+    GameTimer.frame += 100;
+    c->obj.pad_speed = MechMoveInfo.RUNSPEED;
+    nw_mech_after(c, &pad);
+    CHECK(c->fire == 30 && c->tap == 35);
+}
+
+static void mech_aim_walk(void)
+{
+    NwProfile retail = { 0 }, on = ONLY_MECH(aim_walk);
+    static struct nupad_s copy;
+    struct creature_s *c = &Character[0];
+    float friction = 0.0072f;
+    mech_at(50, &on);
+    pad.rdata.l_alg_x = 255;
+    pad.rdata.l_alg_y = 127;
+    pad.rdata.r_alg_x = 0;
+    pad.rdata.r_alg_y = 200;
+    CHECK(nw_mech_pad(c, &pad, &copy) == &pad); /* not aiming */
+    c->target = 1;
+    CHECK(nw_mech_pad(c, &pad, &copy) == &copy && copy.rdata.l_alg_x == 0 && copy.rdata.l_alg_y == 200);
+    CHECK(pad.rdata.l_alg_x == 255 && pad.rdata.r_alg_x == 0);
+    /* Retail's aim stops him; the left stick walks him to the right, still facing ahead. */
+    in_speed = 0.0f;
+    in_f_friction = in_s_friction = friction;
+    MoveLoopXZ(&c->obj, &c->obj.thdg);
+    CHECK(near(c->obj.mom.x, friction, 1e-4f) && fabsf(c->obj.mom.z) < 1e-4f && c->obj.hdg == 0);
+    CHECK(in_speed == 0.0f && in_f_friction == friction);
+    for (int i = 0; i < 20; i++) {
+        MoveLoopXZ(&c->obj, &c->obj.thdg);
+    }
+    CHECK(near(c->obj.mom.x, MechMoveInfo.WALKSPEED * 1.5f, 1e-4f));
+    /* The camera turned a quarter: the same stick goes the camera's right. */
+    mech_at(50, &on);
+    c->target = 1;
+    GameCam[0].yrot = 0x4000;
+    pad.rdata.l_alg_x = 255;
+    pad.rdata.l_alg_y = 127;
+    nw_mech_pad(c, &pad, &copy);
+    in_speed = 0.0f;
+    in_f_friction = in_s_friction = friction;
+    MoveLoopXZ(&c->obj, &c->obj.thdg);
+    CHECK(fabsf(c->obj.mom.x) < 1e-4f && near(fabsf(c->obj.mom.z), friction, 1e-4f));
+    /* In the dead zone he stands. */
+    mech_at(50, &on);
+    c->target = 1;
+    pad.rdata.l_alg_x = 150;
+    pad.rdata.l_alg_y = 127;
+    nw_mech_pad(c, &pad, &copy);
+    in_speed = 0.0f;
+    MoveLoopXZ(&c->obj, &c->obj.thdg);
+    CHECK(c->obj.mom.x == 0.0f && c->obj.mom.z == 0.0f);
+    mech_at(50, &retail);
+    c->target = 1;
+    CHECK(nw_mech_pad(c, &pad, &copy) == &pad);
+}
+
+/* plr_target_dir as MovePlayer builds it. */
+static struct nuvec_s aim_dir(const struct creature_s *c)
+{
+    static struct nuvec_s ahead = { 0.0f, 0.0f, 1.0f };
+    struct nuvec_s d;
+    NuVecRotateX(&d, &ahead, -(u16)c->obj.target_xrot & 0xFFFF);
+    NuVecRotateY(&d, &d, c->obj.hdg + (u16)c->obj.target_yrot);
+    return d;
+}
+
+static void mech_aim(void)
+{
+    NwProfile retail = { 0 }, fast = ONLY_MECH(aim_fast), assist = ONLY_MECH(aim_assist);
+    struct creature_s *c = &Character[0];
+    mech_at(50, &fast);
+    c->target = 1;
+    c->obj.pad_speed = MechMoveInfo.RUNSPEED;
+    c->obj.pad_dx = 1.0f;
+    nw_mech_aim(c);
+    CHECK(abs(c->obj.target_yrot - (int)(10923 * 1.5f / 32.0f)) <= 1 && c->obj.target_xrot == 0);
+    c->fire = 1; /* the shot's animation holds it */
+    c->obj.target_yrot = 0;
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0);
+    mech_at(50, &retail);
+    c->target = 1;
+    c->obj.pad_speed = MechMoveInfo.RUNSPEED;
+    c->obj.pad_dx = 1.0f;
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0);
+
+    /* Assist: it settles on the creature, up and to the side, as plr_target_dir points. */
+    static struct obj_s enemy;
+    enemy = (struct obj_s){ .pos = { 1.0f, 2.5f, 10.0f }, .vulnerable = 0x100, .SCALE = 1.0f };
+    pObj[0] = &enemy;
+    GAMEOBJECTCOUNT = 1;
+    plr_target_firepos = (struct nuvec_s){ 0.0f, 1.0f, 0.0f };
+    struct nuvec_s to = { 1.0f, 1.5f, 10.0f };
+    float len = sqrtf(to.x * to.x + to.y * to.y + to.z * to.z);
+    for (int h = 0; h < 2; h++) {
+        mech_at(50, &assist);
+        nw_mech_aim(c); /* not aiming: the next frame has no muzzle yet */
+        c->target = 1;
+        c->obj.hdg = h ? 0x1000 : 0;
+        c->obj.target_yrot = h ? -0x1000 : 0;
+        nw_mech_aim(c);
+        CHECK(c->obj.target_xrot == 0 && c->obj.target_yrot == (h ? -0x1000 : 0));
+        for (int i = 0; i < 300; i++) {
+            nw_mech_aim(c);
+        }
+        struct nuvec_s d = aim_dir(c);
+        CHECK((d.x * to.x + d.y * to.y + d.z * to.z) / len > 0.999f);
+        CHECK(c->obj.target_xrot > 0);
+    }
+    /* Outside the cone, out of reach, not shootable, or dead: no pull. */
+    enemy.pos = (struct nuvec_s){ 10.0f, 1.0f, 0.0f };
+    mech_at(50, &assist);
+    c->target = 1;
+    nw_mech_aim(c);
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0);
+    enemy.pos = (struct nuvec_s){ 0.0f, 1.0f, 25.0f };
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0 && c->obj.target_xrot == 0);
+    enemy.pos = (struct nuvec_s){ 2.0f, 1.0f, 10.0f };
+    enemy.vulnerable = 0x20;
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0);
+    enemy.vulnerable = 0x100;
+    enemy.dead = 1;
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot == 0);
+    enemy.dead = 0;
+    nw_mech_aim(c);
+    CHECK(c->obj.target_yrot > 0);
+    /* It stays inside retail's reach. */
+    enemy.pos = (struct nuvec_s){ 9.397f, 1.0f, 3.42f }; /* 70 degrees */
+    c->obj.target_yrot = 0x2800;
+    for (int i = 0; i < 300; i++) {
+        nw_mech_aim(c);
+    }
+    CHECK(c->obj.target_yrot <= 0x2AAB && c->obj.target_yrot > 0x2A00);
+    pObj[0] = NULL;
+    GAMEOBJECTCOUNT = 0;
+}
+
+static void mech_hitbox(void)
+{
+    NwProfile retail = { 0 }, on = ONLY_MECH(hitbox), crash = ONLY(hazard_hitboxes);
+    static struct obj_s enemy;
+    struct obj_s *mech = &Character[0].obj;
+    enemy = (struct obj_s){ .attack = 1, .vulnerable = 2, .RADIUS = 0.5f, .SCALE = 1.0f,
+                            .min = { -1.0f, 0.0f, -1.0f }, .max = { 1.0f, 1.0f, 1.0f } };
+    pObj[0] = &enemy;
+    GAMEOBJECTCOUNT = 1;
+    float cut = 0.35f * 0.3f;
+    mech_at(50, &on);
+    nw_hazards_shrink(mech);
+    CHECK(near(enemy.RADIUS, 0.5f - cut, 1e-5f) && near(enemy.max.x, 1.0f - cut, 1e-5f));
+    CHECK(near(enemy.min.z, -1.0f + cut, 1e-5f) && enemy.max.y == 1.0f && mech->RADIUS == 0.35f);
+    nw_hazards_restore();
+    CHECK(enemy.RADIUS == 0.5f && enemy.max.x == 1.0f && enemy.min.z == -1.0f);
+    enemy.vulnerable = 0x400; /* the mech's own attack breaks it */
+    nw_hazards_shrink(mech);
+    CHECK(enemy.RADIUS == 0.5f);
+    nw_hazards_restore();
+    enemy.vulnerable = 2;
+    CHECK(near(nw_hazards_chase(mech), 0.35f, 1e-6f) && near(mech->RADIUS, 0.35f * 0.7f, 1e-5f));
+    mech->RADIUS = 0.35f;
+    CHECK(near(nw_hazards_radius(mech), 0.35f * 0.7f, 1e-5f));
+    /* Crash's switch is not the mech's, and the other way round. */
+    mech_at(50, &crash);
+    nw_hazards_shrink(mech);
+    CHECK(enemy.RADIUS == 0.5f && nw_hazards_chase(mech) == 0.35f && mech->RADIUS == 0.35f);
+    nw_hazards_restore();
+    crash_at(50, &on);
+    nw_hazards_shrink(&Character[0].obj);
+    CHECK(enemy.RADIUS == 0.5f);
+    nw_hazards_restore();
+    mech_at(50, &retail);
+    nw_hazards_shrink(mech);
+    CHECK(enemy.RADIUS == 0.5f && nw_hazards_chase(mech) == 0.35f && nw_hazards_radius(mech) == 0.35f);
+    nw_hazards_restore();
+    pObj[0] = NULL;
+    GAMEOBJECTCOUNT = 0;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -814,6 +1116,11 @@ int main(void)
     line_2d();
     hazard_hitboxes();
     air_jump();
+    mech_stand_jump();
+    mech_shot();
+    mech_aim_walk();
+    mech_aim();
+    mech_hitbox();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -827,6 +1134,14 @@ int main(void)
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.mech.aim_speed = 400;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.mech.aim_fast = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.mech.hitbox_size = 90;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

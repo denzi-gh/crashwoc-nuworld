@@ -50,19 +50,42 @@ typedef struct NwCrashMovement {
     NW_CRASH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCrashMovement;
 
+/* The mech's options ([game.movement.mech]), the same scheme. */
+#define NW_MECH_MOVEMENT(SW, FLAG, VAL) \
+    SW(stand_jump, "Running jump from a standstill", "it jumps off at once and steers like a running jump") \
+    SW(shot_stop, "Shorter stop after a shot", "steering or jumping ends the stop after a shot early") \
+    VAL(shot_stop_ms, "Stop ms", 150, 0, 600, "the least it stands after a shot") \
+    FLAG(shot_tap, "Quick tap fires", true, "a short press still fires; the PS2's drops it") \
+    SW(aim_walk, "Walk while aiming", "while aiming the right stick or the d-pad aims and the left stick walks") \
+    VAL(aim_walk_speed, "Walk speed %", 150, 50, 400, "percent of its walk; its run is 444") \
+    SW(aim_fast, "Faster aiming", "the aim follows the stick sooner") \
+    VAL(aim_speed, "Aim speed %", 250, 100, 500, "percent of the PS2's") \
+    SW(aim_assist, "Aim assist", "the aim bends toward the nearest enemy in front") \
+    VAL(assist_cone, "Assist cone deg", 20, 5, 45, "how far off the aim an enemy still pulls it") \
+    VAL(assist_pull, "Assist pull %", 50, 0, 100, "how hard it pulls") \
+    SW(hitbox, "Fitting hitbox", "what can kill it reaches about as far as it is drawn") \
+    VAL(hitbox_size, "Hitbox %", 70, 50, 100, "percent of the PS2's radius")
+
+typedef struct NwMechMovement {
+    NW_MECH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwMechMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
     NwCrashMovement crash;
+    NwMechMovement mech;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
 #define NW_CRASH_ON(f, ...) .f = true,
 #define NW_CRASH_DEFAULT(f, label, def, ...) .f = def,
 #define NW_MOVEMENT_RETAIL \
-    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
-    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {
@@ -77,6 +100,7 @@ typedef struct NwProfile {
     bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
     NwMovement movement;
     bool air_indicator; /* a ring on the floor under Crash while he is in the air */
+    bool hitboxes; /* the debug menu's view of every collision shape, not saved */
 } NwProfile;
 
 extern NwProfile nw_profile;
