@@ -49,50 +49,57 @@ static char *file_text(void)
     return SDL_LoadFile(path, NULL);
 }
 
-/* key = value through settings.toml and back; s holds it after. */
-static void crash_key(const char *key, NwSettings *s, const char *value)
+/* [game.movement.<table>] key = value through settings.toml and back; s holds it after. */
+static void movement_key(const char *table, const char *key, NwSettings *s, const char *value)
 {
     char text[128], *file = NULL;
-    SDL_snprintf(text, sizeof(text), "[game.movement.crash]\n%s = %s\n", key, value);
+    SDL_snprintf(text, sizeof(text), "[game.movement.%s]\n%s = %s\n", table, key, value);
     CHECK(read_text(text, s) && nw_settings_save(s, root) && (file = file_text()));
-    SDL_snprintf(text, sizeof(text), "# game.movement.crash.%s: ", key);
-    CHECK(file && SDL_strstr(file, "\n[game.movement.crash]\n") && SDL_strstr(file, text));
+    SDL_snprintf(text, sizeof(text), "\n[game.movement.%s]\n", table);
+    CHECK(file && SDL_strstr(file, text));
+    SDL_snprintf(text, sizeof(text), "# game.movement.%s.%s: ", table, key);
+    CHECK(file && SDL_strstr(file, text));
     SDL_free(file);
     nw_settings_defaults(s);
     CHECK(nw_settings_load(s, root));
 }
 
-static void crash_switch(const char *key, size_t offset, bool def)
+/* offset: the field's in NwSettings. */
+static void movement_switch(const char *table, const char *key, size_t offset, bool def)
 {
     NwSettings s;
-    bool *field = (bool *)((char *)&s.movement.crash + offset);
+    bool *field = (bool *)((char *)&s + offset);
     char text[128];
     nw_settings_defaults(&s);
     CHECK(*field == def);
     SDL_snprintf(text, sizeof(text), "[game.movement]\n%s = %s\n", key, def ? "false" : "true");
     CHECK(read_text(text, &s) && *field == def);
-    crash_key(key, &s, def ? "false" : "true");
+    movement_key(table, key, &s, def ? "false" : "true");
     CHECK(*field == !def);
 }
 
-static void crash_value(const char *key, size_t offset, int def, int lo, int hi)
+static void movement_value(const char *table, const char *key, size_t offset, int def, int lo, int hi)
 {
     NwSettings s;
-    int *field = (int *)((char *)&s.movement.crash + offset);
+    int *field = (int *)((char *)&s + offset);
     char value[16];
     nw_settings_defaults(&s);
     CHECK(*field == def);
     SDL_snprintf(value, sizeof(value), "%d", hi + 100);
-    crash_key(key, &s, value);
+    movement_key(table, key, &s, value);
     CHECK(*field == hi);
     SDL_snprintf(value, sizeof(value), "%d", lo - 100);
-    crash_key(key, &s, value);
+    movement_key(table, key, &s, value);
     CHECK(*field == lo);
 }
 
-#define CRASH_SWITCH(f, ...) crash_switch(#f, offsetof(NwCrashMovement, f), true);
-#define CRASH_FLAG(f, label, def, ...) crash_switch(#f, offsetof(NwCrashMovement, f), def);
-#define CRASH_VALUE(f, label, def, lo, hi, ...) crash_value(#f, offsetof(NwCrashMovement, f), def, lo, hi);
+#define CRASH_SWITCH(f, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), true);
+#define CRASH_FLAG(f, label, def, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), def);
+#define CRASH_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("crash", #f, offsetof(NwSettings, movement.crash.f), def, lo, hi);
+#define SUB_SWITCH(f, ...) movement_switch("submarine", #f, offsetof(NwSettings, movement.submarine.f), true);
+#define SUB_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("submarine", #f, offsetof(NwSettings, movement.submarine.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -199,6 +206,15 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.crash.grip && s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall);
+    NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
+    /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.submarine.turning &&
+          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 125);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.submarine.speed);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
+          s.movement.submarine.hitbox && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.submarine.turning);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

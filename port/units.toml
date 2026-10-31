@@ -141,19 +141,20 @@ schema = 1
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" } }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
-"game/creature" = { treatment = "compile", wrap = ["DrawCreatures"] }
+"game/creature" = { treatment = "compile", wrap = ["DrawCreatures", "MovePlayer"] }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
-"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions"] }
+"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions", "ObjectRotation",
+    "UpdateProjectiles", "AddProjectile"] }
 "game/visi" = { treatment = "compile" }
 "game/vehicle" = { treatment = "compile" }
 "game/vehsupp" = { treatment = "compile" }
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }
 "game/edcrate" = { treatment = "editor" }
-"game/ai" = { treatment = "compile" }
+"game/ai" = { treatment = "compile", wrap = ["MoveCreature"] }
 "game/edwumpa" = { treatment = "editor" }
 "game/edai" = { treatment = "editor" }
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
@@ -167,7 +168,7 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH"] }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH", "MoveSUBMARINE"] }
 "game/chase" = { treatment = "compile" }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }

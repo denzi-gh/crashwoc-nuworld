@@ -112,7 +112,10 @@ def prototype(cursor, host: str, exposed: bool = False) -> str:
     if body is None:
         raise FilterError(f"{cursor.spelling}: definition without a body")
     name_at = cursor.location.offset
-    head = [t for t in cursor.get_tokens()
+    # By file offsets: a leading macro (an attribute) starts the extent in its expansion, where libclang has no tokens.
+    tu = cursor.translation_unit
+    extent = tu.get_extent(cursor.location.file.name, (cursor.extent.start.offset, body.extent.start.offset))
+    head = [t for t in tu.get_tokens(extent=extent)
             if t.extent.start.offset < body.extent.start.offset
             and t.kind != cindex.TokenKind.COMMENT and t.spelling not in INLINE_WORDS
             and not (exposed and t.spelling == "static")]
