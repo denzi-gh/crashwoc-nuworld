@@ -6,6 +6,7 @@
 #include "game/gametypes.h"
 #include "gameplay/gameplay.h"
 #include "nu_port.h"
+#include "nups2/ps2ctl.h"
 
 /* Declared by no header. */
 extern struct MoveInfo CrashMoveInfo;
@@ -23,6 +24,15 @@ static const struct {
 static float nw_ground_run = 1.0f;
 static float nw_ground_anims[sizeof(nw_ground_runs) / sizeof(nw_ground_runs[0])] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static short nw_ground_spin = 16;
+static float nw_ground_slide_speed = 1.0f;
+static short nw_ground_slide = 25;
+static bool nw_ground_was_sliding;
+static struct nuvec_s nw_ground_mom;
+
+static short nw_ground_frames(int ms)
+{
+    return (short)((ms * NW_HZ(50, 60) + 500) / 1000);
+}
 
 static float nw_ground_scale(void)
 {
@@ -47,12 +57,50 @@ void nw_ground_apply(void)
     short spin = 16;
     if (c->long_spin) {
         NW_DEVIATION(movement.crash.long_spin);
-        spin = (short)((c->spin_ms * NW_HZ(50, 60) + 500) / 1000);
+        spin = nw_ground_frames(c->spin_ms);
     }
     if (CrashMoveInfo.SPINFRAMES == nw_ground_spin) {
         CrashMoveInfo.SPINFRAMES = spin;
     }
     nw_ground_spin = spin;
+    float slide_speed = 1.0f;
+    short slide = 25;
+    if (c->slide) {
+        NW_DEVIATION(movement.crash.slide);
+        slide_speed = c->slide_speed / 100.0f;
+        slide = nw_ground_frames(c->slide_ms);
+    }
+    if (CrashMoveInfo.SLIDESPEED == base_dash * nw_ground_slide_speed) {
+        CrashMoveInfo.SLIDESPEED = base_dash * slide_speed;
+    }
+    if (CrashMoveInfo.SLIDEFRAMES == nw_ground_slide) {
+        CrashMoveInfo.SLIDEFRAMES = slide;
+    }
+    nw_ground_slide_speed = slide_speed;
+    nw_ground_slide = slide;
+}
+
+/* slide: retail lets a slide run its whole time and then stops him dead. */
+void nw_ground_before(struct creature_s *plr, const struct nupad_s *pad)
+{
+    const NwCrashMovement *c = &nw_profile.movement.crash;
+    nw_ground_was_sliding = plr->slide != 0;
+    nw_ground_mom = plr->obj.mom;
+    if (c->slide && c->slide_cancel && plr->slide > 1 && !(pad->paddata & 0x28) &&
+        nw_ground_slide - plr->slide >= nw_ground_frames(c->slide_min_ms)) {
+        NW_DEVIATION(movement.crash.slide);
+        plr->slide = 1;
+    }
+}
+
+void nw_ground_after(struct creature_s *plr)
+{
+    const NwCrashMovement *c = &nw_profile.movement.crash;
+    if (c->slide && c->slide_keep && nw_ground_was_sliding && plr->slide == 0 && !plr->crawl) {
+        NW_DEVIATION(movement.crash.slide);
+        plr->obj.mom.x = nw_ground_mom.x;
+        plr->obj.mom.z = nw_ground_mom.z;
+    }
 }
 
 void nw_ground_loop(const struct creature_s *plr, float forward)

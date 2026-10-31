@@ -26,6 +26,12 @@
     VAL(grip_brake, "Braking %", 200, 100, 400, "percent of the PS2's") \
     SW(long_spin, "Longer spin", "the spin attack lasts longer") \
     VAL(spin_ms, "Spin length ms", 400, 320, 600, "the PS2's is 320") \
+    SW(slide, "Crash 2 slide", "a faster slide he comes out of running") \
+    VAL(slide_speed, "Slide speed %", 115, 100, 150, "percent of the PS2's") \
+    VAL(slide_ms, "Slide length ms", 400, 300, 600, "the PS2's is 500") \
+    FLAG(slide_keep, "Keep speed after it", true, "the slide's speed carries on instead of stopping dead") \
+    FLAG(slide_cancel, "Let go to stand up", true, "letting go of crouch ends the slide") \
+    VAL(slide_min_ms, "Shortest slide ms", 150, 0, 400, "how long it lasts at least when let go") \
     SW(edge_grip, "Edge grip", "a beveled platform edge holds him instead of sliding him off") \
     VAL(edge_reach, "Edge reach %", 75, 45, 90, "how far past an edge he stands, percent of his radius; the PS2's 45") \
     SW(line_2d, "Hold 2D line", "in side-on sections he stays on the line he came in on") \

@@ -202,6 +202,7 @@ static void crash_at(int hz, const NwProfile *p)
     CrashMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
     CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
+    CrashMoveInfo.SLIDESPEED = NW_HZ(0.096f, 0.080000006f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
     VEHICLECONTROL = 0;
     nw_profile_apply(p);
@@ -605,6 +606,50 @@ static void long_spin(void)
     CrashMoveInfo.SPINFRAMES = 16;
 }
 
+/* MoveCRASH's slide timer, crouch held or let go; his speed after the frame. */
+static float slide_frame(bool crouch)
+{
+    struct creature_s *c = &Character[0];
+    pad.paddata = crouch ? 0x20 : 0;
+    nw_ground_before(c, &pad);
+    if (c->slide && --c->slide == 0) {
+        c->crawl = crouch;
+        c->obj.mom.x = c->obj.mom.z = 0.0f;
+    }
+    nw_ground_after(c);
+    return c->obj.mom.z;
+}
+
+static void slide(void)
+{
+    NwProfile retail = { 0 }, on = ONLY(slide);
+    struct creature_s *c = &Character[0];
+    crash_at(60, &on);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24 && CrashMoveInfo.SLIDESPEED == 0.080000006f * 1.15f);
+    crash_at(50, &on);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 20 && CrashMoveInfo.SLIDESPEED == 0.096f * 1.15f);
+    c->slide = 20;
+    c->obj.mom.z = 0.11f;
+    CHECK(slide_frame(true) == 0.11f && slide_frame(false) == 0.11f && c->slide == 18); /* too soon to stand */
+    c->slide = 12;
+    CHECK(slide_frame(false) == 0.11f && c->slide == 0 && !c->crawl); /* stood up early, still running */
+    c->slide = 1;
+    CHECK(slide_frame(true) == 0.0f && c->crawl); /* held to the end: crawls */
+    on.movement.crash.slide_keep = false;
+    on.movement.crash.slide_cancel = false;
+    crash_at(50, &on);
+    c->slide = 12;
+    c->obj.mom.z = 0.11f;
+    CHECK(slide_frame(false) == 0.11f && c->slide == 11);
+    c->slide = 1;
+    CHECK(slide_frame(false) == 0.0f);
+    crash_at(50, &retail);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 25 && CrashMoveInfo.SLIDESPEED == 0.096f);
+    c->slide = 1;
+    c->obj.mom.z = 0.11f;
+    CHECK(slide_frame(false) == 0.0f);
+}
+
 static NwTerI contact;
 
 /* A contact at normal y (world), under his centre when below; true when it became a floor. */
@@ -764,6 +809,7 @@ int main(void)
     run_speed();
     grip();
     long_spin();
+    slide();
     edge_grip();
     line_2d();
     hazard_hitboxes();
