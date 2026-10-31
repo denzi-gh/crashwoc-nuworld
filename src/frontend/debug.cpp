@@ -58,6 +58,16 @@ void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *u
     }
 }
 
+void nw_debug_panel_key(const char *menu, const char *title, SDL_Scancode key, NwDebugFn draw, void *user)
+{
+    NwDebugItem *item = nw_debug_add(NW_DEBUG_PANEL, menu, title);
+    if (item) {
+        item->fn = draw;
+        item->user = user;
+        item->key = key;
+    }
+}
+
 void nw_debug_toggle(const char *menu, const char *label, bool *value)
 {
     NwDebugItem *item = nw_debug_add(NW_DEBUG_TOGGLE, menu, label);
@@ -109,6 +119,20 @@ bool nw_debug_button(const char *label)
     return ImGui::Button(label);
 }
 
+bool nw_debug_checkbox(const char *label, bool *value)
+{
+    return ImGui::Checkbox(label, value);
+}
+
+void nw_debug_indent(bool in)
+{
+    if (in) {
+        ImGui::Indent();
+    } else {
+        ImGui::Unindent();
+    }
+}
+
 void nw_debug_same_line(float column)
 {
     ImGui::SameLine(column * ImGui::GetFontSize());
@@ -121,7 +145,7 @@ bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool l
 
 bool nw_debug_slider_int(const char *label, int *value, int lo, int hi)
 {
-    return ImGui::SliderInt(label, value, lo, hi);
+    return ImGui::SliderInt(label, value, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
 }
 
 bool nw_debug_combo(const char *label, int *index, const char *const *items, int count)
@@ -154,29 +178,50 @@ bool nw_debug_selectable(const char *label, bool selected)
     return ImGui::Selectable(label, selected);
 }
 
-static void nw_debug_menus(void)
+/* menu is the path's first len characters or a submenu of it. */
+static bool nw_debug_under(const char *menu, const char *path, size_t len)
+{
+    return len == 0 || (SDL_strncmp(menu, path, len) == 0 && (menu[len] == '\0' || menu[len] == '/'));
+}
+
+static void nw_debug_menu_item(NwDebugItem *item)
+{
+    if (item->kind == NW_DEBUG_TOGGLE) {
+        ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
+        ImGui::MenuItem(item->label, NULL, item->value);
+        ImGui::PopItemFlag();
+    } else if (item->kind == NW_DEBUG_PANEL) {
+        ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL, &item->open);
+    } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
+        item->fn(item->user);
+    }
+}
+
+/* The items and submenus under path's first len characters, each where its first item was registered. */
+static void nw_debug_menu(const char *path, size_t len)
 {
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
-        const char *menu = nw_debug.items[i].menu;
-        bool first = true;
-        for (uint32_t j = 0; j < i && first; j++) {
-            first = SDL_strcmp(nw_debug.items[j].menu, menu) != 0;
-        }
-        if (!first || !ImGui::BeginMenu(menu)) {
+        NwDebugItem *item = &nw_debug.items[i];
+        if (!nw_debug_under(item->menu, path, len)) {
             continue;
         }
-        for (uint32_t j = i; j < nw_debug.nitems; j++) {
-            NwDebugItem *item = &nw_debug.items[j];
-            if (SDL_strcmp(item->menu, menu) != 0) {
-                continue;
-            }
-            if (item->kind != NW_DEBUG_ACTION) {
-                ImGui::MenuItem(item->label, NULL, item->kind == NW_DEBUG_TOGGLE ? item->value : &item->open);
-            } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
-                item->fn(item->user);
-            }
+        if (len && item->menu[len] == '\0') {
+            nw_debug_menu_item(item);
+            continue;
         }
-        ImGui::EndMenu();
+        const char *name = item->menu + (len ? len + 1 : 0);
+        const char *end = SDL_strchr(name, '/');
+        size_t n = end ? (size_t)(end - name) : SDL_strlen(name), sub = (size_t)(name - item->menu) + n;
+        bool first = true;
+        for (uint32_t j = 0; j < i && first; j++) {
+            first = !nw_debug_under(nw_debug.items[j].menu, item->menu, sub);
+        }
+        char label[64];
+        SDL_strlcpy(label, name, SDL_min(n + 1, sizeof(label)));
+        if (first && ImGui::BeginMenu(label)) {
+            nw_debug_menu(item->menu, sub);
+            ImGui::EndMenu();
+        }
     }
 }
 
@@ -195,6 +240,26 @@ static void nw_debug_panels(void)
             item->fn(item->user);
         }
         ImGui::End();
+    }
+}
+
+static void nw_debug_set_shown(bool shown)
+{
+    nw_debug.shown = shown;
+    ImGui::GetIO().ClearInputKeys();
+    ImGui::GetIO().ClearInputMouse();
+}
+
+/* Closing hides the overlay too when no other panel is open. */
+static void nw_debug_key_panel(NwDebugItem *panel)
+{
+    panel->open = !nw_debug.shown || !panel->open;
+    bool other = false;
+    for (uint32_t i = 0; i < nw_debug.nitems; i++) {
+        other = other || (nw_debug.items[i].kind == NW_DEBUG_PANEL && nw_debug.items[i].open);
+    }
+    if (panel->open != nw_debug.shown && (panel->open || !other)) {
+        nw_debug_set_shown(panel->open);
     }
 }
 
@@ -229,9 +294,7 @@ bool nw_debug_event(const SDL_Event *e)
     }
     if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_F1) {
         if (!e->key.repeat) {
-            nw_debug.shown = !nw_debug.shown;
-            ImGui::GetIO().ClearInputKeys();
-            ImGui::GetIO().ClearInputMouse();
+            nw_debug_set_shown(!nw_debug.shown);
         }
         return true;
     }
@@ -240,6 +303,12 @@ bool nw_debug_event(const SDL_Event *e)
         if (item->kind == NW_DEBUG_ACTION && item->key && item->key == e->key.scancode) {
             if (!e->key.repeat) {
                 item->fn(item->user);
+            }
+            return true;
+        }
+        if (item->kind == NW_DEBUG_PANEL && item->key && item->key == e->key.scancode) {
+            if (!e->key.repeat) {
+                nw_debug_key_panel(item);
             }
             return true;
         }
@@ -289,7 +358,7 @@ void nw_debug_frame(void)
         char rate[32];
         SDL_snprintf(rate, sizeof(rate), "%.0f fps", ImGui::GetIO().Framerate);
         ImGui::TextDisabled(NW_APP_NAME);
-        nw_debug_menus();
+        nw_debug_menu("", 0);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(rate).x);
         ImGui::TextUnformatted(rate);
         ImGui::EndMainMenuBar();

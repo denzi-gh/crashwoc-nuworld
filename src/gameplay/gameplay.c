@@ -4,6 +4,8 @@
 
 #include <SDL3/SDL.h>
 
+#include "gameplay/air.h"
+#include "gameplay/ground.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/title.h"
 #include "port/game.h"
@@ -17,8 +19,14 @@ static NwProfile nw_profile_ask;
 NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
     static const NwMovement nhanced = NW_MOVEMENT_NHANCED;
-    bool retail = m->monkey_bar_speed <= 100;
-    bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed;
+    const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
+#define NW_CRASH_SET(f, ...) || c->f
+#define NW_CRASH_SAME(f, ...) &&c->f == n->f
+    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+    bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
+                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME));
+#undef NW_CRASH_SET
+#undef NW_CRASH_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
@@ -26,6 +34,8 @@ void nw_profile_apply(const NwProfile *p)
 {
     nw_profile = *p;
     nw_monkey_bars_apply();
+    nw_air_apply();
+    nw_ground_apply();
 }
 
 void nw_profile_request(const NwProfile *p)
@@ -47,6 +57,8 @@ static void nw_profile_poll(void)
         nw_profile.movement = p.movement;
         nw_profile.air_indicator = p.air_indicator;
         nw_monkey_bars_apply();
+        nw_air_apply();
+        nw_ground_apply();
     }
 }
 

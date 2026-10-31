@@ -99,8 +99,8 @@ schema = 1
 "nups2/clipping" = { treatment = "compile" }
 
 # gamelib
-"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"] }
-"gamelib/debris" = { treatment = "compile" }
+"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"], wrap = ["NewTerrainScaleY", "TerrainImpact"] }
+"gamelib/debris" = { treatment = "compile", wrap = ["DebrisCollisionCheck"] }
 "gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
     "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
     "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"] }
@@ -146,7 +146,7 @@ schema = 1
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
-"game/game_obj" = { treatment = "compile" }
+"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions"] }
 "game/visi" = { treatment = "compile" }
 "game/vehicle" = { treatment = "compile" }
 "game/vehsupp" = { treatment = "compile" }
@@ -167,7 +167,7 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile", wrap = ["AnimateCRASH"] }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH"] }
 "game/chase" = { treatment = "compile" }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }
