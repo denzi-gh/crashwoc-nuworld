@@ -13,6 +13,7 @@
 #include "nu3d/nugscn.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nuvport.h"
+#include "numath/numtx.h"
 #include "numath/nutrig.h"
 
 extern int PS2_VCNTR_X, PS2_REZ_W;
@@ -20,6 +21,7 @@ extern TerrainSetType *CurTerr;
 extern struct nugscn_s *world_scene[32];
 extern s32 SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
 extern struct nucamera_s *pNuCam;
+extern float PANEL3DMULX;
 extern volatile s32 bgload_complete;
 extern char vu_load_glass_mpg[], vu_load_water_mpg[], vu_load_wateruv_mpg[];
 
@@ -156,6 +158,27 @@ void nw_wide_vp(int paused)
 int nw_wide_vp_x(void)
 {
     return NuVpGetCurrentViewport()->x - ((PS2_VCNTR_X - (nw_wide.width >> 1)) << 4);
+}
+
+/* The screen takes x over depth, so a model's depth smears it sideways by its centre's x over depth. Past retail's
+   picture edge (PANEL3DMULX at depth 1) that ratio is capped at the edge's: the depth's x share moves into x. */
+float nw_wide_hud_shear(float x, float z)
+{
+    if (!(z > 0.0f)) {
+        return 0.0f;
+    }
+    float r = x / z;
+    return r - (r > PANEL3DMULX ? PANEL3DMULX : r < -PANEL3DMULX ? -PANEL3DMULX : r);
+}
+
+void nw_wide_hud(struct numtx_s *m)
+{
+    float s = nw_wide_hud_shear(m->_30, m->_32);
+    if (s != 0.0f) {
+        m->_00 += s * m->_02;
+        m->_10 += s * m->_12;
+        m->_20 += s * m->_22;
+    }
 }
 
 static int nw_wide_special(const struct nuspecial_s *specials, int n, const struct nuinstance_s *inst)

@@ -19,6 +19,7 @@
 #include "nu_port.h"
 #include "numath/numtx.h"
 #include "numath/nuvec.h"
+#include "port/wide.h"
 
 /* Declared by no header. */
 extern struct objtab_s ObjTab[201];
@@ -155,6 +156,7 @@ void nw_boss_health_bar(float x, float y, float z, float xs, float ys, int healt
     m._30 = x * PANEL3DMULX;
     m._31 = y * PANEL3DMULY;
     m._32 = z;
+    NW_WIDE_HUD(&m);
     struct rndrstream_s *rs = &nw_boss_health_mtl->rs;
     NuRndrStreamAddMtl(rs, nw_boss_health_mtl);
     for (int k = 1; k <= lines; k++) {
@@ -228,6 +230,7 @@ static void nw_boss_health_cortex(u16 xrot, u16 yrot, float x, float y, float z,
     m._32 = z;
     m._30 = x * PANEL3DMULX;
     m._31 = y * PANEL3DMULY;
+    NW_WIDE_HUD(&m);
     EvalModelAnim(model, &nw_boss_health_anim, &m, nw_boss_health_tmtx, &dwa, NULL);
     NuHGobjRndrMtxDwa(model->obj, &m, 1, NULL, nw_boss_health_tmtx, dwa);
 }
@@ -333,6 +336,12 @@ bool nw_boss_health_head(u16 xrot, u16 yrot, int rot, float x, float y, float z,
     m._30 = x * PANEL3DMULX + d.x;
     m._31 = y * PANEL3DMULY + d.y;
     m._32 = z + d.z;
+    /* NW_WIDE_HUD as for the Crunch head: the boss model's origin lies far from its head */
+    float s = nw_wide_hud_shear(x * PANEL3DMULX, z);
+    m._00 += s * m._02;
+    m._10 += s * m._12;
+    m._20 += s * m._22;
+    m._30 += s * (m._32 - z);
     NuHGobjRndrMtxDwa(boss, &m, 1, NULL, tmtx, dwa);
     return true;
 }

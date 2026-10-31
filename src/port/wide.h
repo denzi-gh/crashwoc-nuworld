@@ -17,5 +17,7 @@ void nw_wide_request(float aspect, float hud);
 void nw_wide_poll(void);
 /* The VU0 clip test's box: whether it is inside retail's 4:3 frustum, for NW_WIDE_SEEN. */
 void nw_wide_clip(int retail_visible);
+/* NW_WIDE_HUD's shear (x gained per depth) for a HUD point at panel camera x, z; 0 inside retail's picture. */
+float nw_wide_hud_shear(float x, float z);
 
 #endif
