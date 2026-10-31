@@ -195,6 +195,12 @@ static void boss_health(void)
     CHECK(strcmp(text, "  5%") == 0);
     nw_boss_health_percent(-3, text);
     CHECK(strcmp(text, "  0%") == 0);
+    /* Crunch Time: 4 - its attack phase, which is 4 - Cortex's hits. */
+    CHECK(nw_boss_health_crunch_time_hp(0) == 4);
+    CHECK(nw_boss_health_crunch_time_hp(3) == 1);
+    CHECK(nw_boss_health_crunch_time_hp(4) == 0);
+    CHECK(nw_boss_health_crunch_time_hp(9) == 0);
+    CHECK(nw_boss_health_crunch_time_hp((unsigned)-1) == 4);
 
     /* Off draws nothing; on without the panel's bar loaded neither. */
     nw_profile_apply(&(NwProfile){ 0 });

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/creature.h"
 #include "game/gametypes.h"
 #include "gameplay/gameplay.h"
 #include "gfx/rndr.h"
@@ -19,10 +20,19 @@
 extern struct objtab_s ObjTab[201];
 extern struct game_s Game;
 extern s32 Level;
+extern s32 PLAYERCOUNT;
+extern struct gtimer_s GlobalTimer;
+extern f32 NuTrigTable[];
+extern u32 crunchtime_attack_phase;
 extern f32 PANEL3DMULX, PANEL3DMULY;
+extern f32 FIREBOSSBARX, FIREBOSSBARY, FIREBOSSBARZ, FIREBOSSBARSCALEX, FIREBOSSBARSCALEY;
+extern f32 PANELCRUNCHX, PANELCRUNCHY, PANELCRUNCHZ, PANELCRUNCHSCALE;
+extern u16 PANELCRUNCHXROT;
 
 void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, s32 align, s32 colour);
 void AddSpacesIntoText(char *text, u32 flags);
+void BossBar(f32 x, f32 y, f32 z, f32 xs, f32 ys, s32 health, s32 maxhealth);
+s32 DrawPanel3DTempCharacter(u16 xrot, u16 yrot, u16 zrot, s32 rot, f32 x, f32 y, f32 z, f32 scale);
 
 #define NW_BOSS_HEALTH_FILL 0xBB    /* BossBar's fill; 0xB9 is its frame */
 #define NW_BOSS_HEALTH_PHASES 8     /* more is a bar without phases */
@@ -124,6 +134,28 @@ void nw_boss_health_bar(float x, float y, float z, float xs, float ys, int healt
         }
         nw_rndr_strip(v, 4, &m, rs);
     }
+}
+
+int nw_boss_health_crunch_time_hp(unsigned phase)
+{
+    int hp = 4 - (int)phase;
+    return hp < 0 ? 0 : hp > 4 ? 4 : hp;
+}
+
+/* The GameCube's DrawPanel branch for Level 0x19. */
+void nw_boss_health_crunch_time(void)
+{
+    if (!nw_profile.boss_health || Level != 0x19 || !PLAYERCOUNT || !player || player->obj.finished) {
+        return;
+    }
+    NW_DEVIATION(boss_health);
+    BossBar(FIREBOSSBARX, FIREBOSSBARY, FIREBOSSBARZ, FIREBOSSBARSCALEX, FIREBOSSBARSCALEY,
+            nw_boss_health_crunch_time_hp(crunchtime_attack_phase), 4);
+    /* DrawPanel's wobble */
+    short wobble_x = (short)(NuTrigTable[(((GlobalTimer.frame % 250) << 16) / 250) & 0xFFFF] * 2731.0f + 1820.0f);
+    short wobble_y = (short)(NuTrigTable[((((GlobalTimer.frame % 200) << 16) / 200) + 0x4000) & 0xFFFF] * 2731.0f);
+    DrawPanel3DTempCharacter((u16)(wobble_x + (s16)PANELCRUNCHXROT), (u16)(-wobble_y + 0x2000), 0, 0, PANELCRUNCHX,
+                             PANELCRUNCHY - 0.1f, PANELCRUNCHZ, PANELCRUNCHSCALE);
 }
 
 void nw_boss_health_release(void)

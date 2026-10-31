@@ -162,8 +162,8 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/bosshealth.c src/gameplay/crash.c
   src/gameplay/creature.c src/gameplay/debris.c
   src/gameplay/edges.c src/gameplay/game_obj.c src/gameplay/gameplay.c src/gameplay/ground.c src/gameplay/hazards.c
-  src/gameplay/line2d.c src/gameplay/monkeybars.c src/gameplay/move.c src/gameplay/numtl.c src/gameplay/terrain.c
-  src/gameplay/title.c src/gameplay/vehicle.c
+  src/gameplay/line2d.c src/gameplay/monkeybars.c src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c
+  src/gameplay/terrain.c src/gameplay/title.c src/gameplay/vehicle.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c

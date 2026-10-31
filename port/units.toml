@@ -153,12 +153,12 @@ schema = 1
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }
 "game/edcrate" = { treatment = "editor" }
-"game/ai" = { treatment = "compile" }
+"game/ai" = { treatment = "compile", expose = ["crunchtime_attack_phase"] }
 "game/edwumpa" = { treatment = "editor" }
 "game/edai" = { treatment = "editor" }
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
 "game/glass" = { treatment = "compile" }
-"game/panel" = { treatment = "compile" }
+"game/panel" = { treatment = "compile", wrap = ["DrawPanelDebris"] }
 "game/text" = { treatment = "compile", override = ["NewLanguage"] }
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }
