@@ -1,6 +1,7 @@
 #include "gameplay/bosshealth.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
+#include "nu_port.h"
 #include "numath/numtx.h"
 
 /* Declared by no header. */
@@ -32,7 +34,8 @@ extern u16 PANELCRUNCHXROT;
 void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, s32 align, s32 colour);
 void AddSpacesIntoText(char *text, u32 flags);
 void BossBar(f32 x, f32 y, f32 z, f32 xs, f32 ys, s32 health, s32 maxhealth);
-s32 DrawPanel3DTempCharacter(u16 xrot, u16 yrot, u16 zrot, s32 rot, f32 x, f32 y, f32 z, f32 scale);
+int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
+                      float **dwa);
 
 #define NW_BOSS_HEALTH_FRAME 0xB9   /* BossBar's frame and fill */
 #define NW_BOSS_HEALTH_FILL 0xBB
@@ -41,8 +44,12 @@ s32 DrawPanel3DTempCharacter(u16 xrot, u16 yrot, u16 zrot, s32 rot, f32 x, f32 y
 #define NW_BOSS_HEALTH_RGBA 0x10, 0x10, 0x10, 0x80
 #define NW_BOSS_HEALTH_TEXT_Y 0.13f /* the percent over the bar */
 #define NW_BOSS_HEALTH_TEXT_SCALE 0.6f
+#define NW_BOSS_HEALTH_CORTEX 2 /* the GameCube's panel character in Crunch Time, in its idle */
+#define NW_BOSS_HEALTH_IDLE 0x22
 
 static struct numtl_s *nw_boss_health_mtl;
+static AnimPacket nw_boss_health_anim;
+static bool nw_boss_health_anim_set;
 
 int nw_boss_health_lines(int maxhealth)
 {
@@ -153,6 +160,50 @@ int nw_boss_health_crunch_time_hp(unsigned phase)
     return hp < 0 ? 0 : hp > 4 ? 4 : hp;
 }
 
+/* InitObjectTable's find for an entry whose levbits leave out this level. */
+static void nw_boss_health_find(int i)
+{
+    struct objtab_s *e = &ObjTab[i];
+    if (!e->obj.special && *e->scene && NuSpecialFind(*e->scene, &e->obj, e->name)) {
+        e->obj.special->instance->flags.visible = e->visible;
+    }
+}
+
+/* DrawPanel3DTempCharacter (rot 0) for the GameCube's Crunch Time character, with an animation of its own: PS2's
+   temp_character stays unset there. */
+static void nw_boss_health_cortex(u16 xrot, u16 yrot, float x, float y, float z, float scale)
+{
+    s32 i = CRemap[NW_BOSS_HEALTH_CORTEX];
+    if (i == -1) {
+        return;
+    }
+    struct CharacterModel *model = &CModel[i];
+    if (!nw_boss_health_anim_set) {
+        ResetAnimPacket(&nw_boss_health_anim, NW_BOSS_HEALTH_IDLE);
+        nw_boss_health_anim_set = true;
+    }
+    nw_boss_health_anim.oldaction = nw_boss_health_anim.action;
+    if ((u16)nw_boss_health_anim.action < 0x76 && (u16)nw_boss_health_anim.newaction < 0x76) {
+        UpdateAnimPacket(model, &nw_boss_health_anim, NW_HZ(0.59999996f, 0.5f), 0.0f);
+    }
+    struct nuvec_s s = { scale, scale, scale };
+    struct numtx_s m;
+    static struct numtx_s tmtx[0x100];
+    float **dwa;
+    NuMtxSetScale(&m, &s);
+    if (xrot != 0) {
+        NuMtxRotateX(&m, xrot);
+    }
+    if (yrot != 0) {
+        NuMtxRotateY(&m, yrot);
+    }
+    m._32 = z;
+    m._30 = x * PANEL3DMULX;
+    m._31 = y * PANEL3DMULY;
+    EvalModelAnim(model, &nw_boss_health_anim, &m, tmtx, &dwa, NULL);
+    NuHGobjRndrMtxDwa(model->obj, &m, 1, NULL, tmtx, dwa);
+}
+
 /* The GameCube's DrawPanel branch for Level 0x19. */
 void nw_boss_health_crunch_time(void)
 {
@@ -160,16 +211,19 @@ void nw_boss_health_crunch_time(void)
         return;
     }
     NW_DEVIATION(boss_health);
+    nw_boss_health_find(NW_BOSS_HEALTH_FRAME);
+    nw_boss_health_find(NW_BOSS_HEALTH_FILL);
     BossBar(FIREBOSSBARX, FIREBOSSBARY, FIREBOSSBARZ, FIREBOSSBARSCALEX, FIREBOSSBARSCALEY,
             nw_boss_health_crunch_time_hp(crunchtime_attack_phase), 4);
     /* DrawPanel's wobble */
     short wobble_x = (short)(NuTrigTable[(((GlobalTimer.frame % 250) << 16) / 250) & 0xFFFF] * 2731.0f + 1820.0f);
     short wobble_y = (short)(NuTrigTable[((((GlobalTimer.frame % 200) << 16) / 200) + 0x4000) & 0xFFFF] * 2731.0f);
-    DrawPanel3DTempCharacter((u16)(wobble_x + (s16)PANELCRUNCHXROT), (u16)(-wobble_y + 0x2000), 0, 0, PANELCRUNCHX,
-                             PANELCRUNCHY - 0.1f, PANELCRUNCHZ, PANELCRUNCHSCALE);
+    nw_boss_health_cortex((u16)(wobble_x + (s16)PANELCRUNCHXROT), (u16)(-wobble_y + 0x2000), PANELCRUNCHX,
+                          PANELCRUNCHY - 0.1f, PANELCRUNCHZ, PANELCRUNCHSCALE);
 }
 
 void nw_boss_health_release(void)
 {
     nw_boss_health_mtl = NULL;
+    nw_boss_health_anim_set = false;
 }
