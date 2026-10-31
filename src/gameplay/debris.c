@@ -3,8 +3,9 @@
 #include "numath/numathtypes.h"
 #include "gamelib/debris.retail.h"
 #include "gameplay/hazards.h"
+#include "gameplay/submarine.h"
 
 s32 DebrisCollisionCheck(struct nuvec_s *pos, f32 radius)
 {
-    return DebrisCollisionCheck__retail(pos, nw_hazards_particle(radius));
+    return DebrisCollisionCheck__retail(pos, nw_sub_particle(nw_hazards_particle(radius)));
 }

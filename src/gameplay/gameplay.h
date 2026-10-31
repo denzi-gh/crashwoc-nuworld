@@ -50,19 +50,43 @@ typedef struct NwCrashMovement {
     NW_CRASH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCrashMovement;
 
+/* The submarine's options ([game.movement.submarine]), the same scheme. */
+#define NW_SUB_MOVEMENT(SW, FLAG, VAL) \
+    SW(turning, "Free turning", "any push to the side turns it that way, also mid-turn; no stop facing the screen") \
+    VAL(turn_speed, "Turn speed %", 200, 100, 400, "percent of the PS2's") \
+    VAL(pitch_speed, "Climb and dive turn %", 200, 100, 400, "how fast it noses up and down, percent of the PS2's") \
+    SW(speed, "Faster sub", "a faster sub, quicker to speed and to stop") \
+    VAL(speed_top, "Top speed %", 125, 100, 200, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 200, 100, 400, "percent of the PS2's") \
+    VAL(speed_brake, "Braking %", 200, 100, 400, "percent of the PS2's") \
+    SW(hitbox, "Fitting hitbox", "fish, mines and shots reach about as far as it is drawn") \
+    VAL(hitbox_size, "Hitbox %", 75, 50, 100, "percent of the PS2's; walls, crates and fruit keep the PS2's") \
+    SW(weapons, "Weapon tuning", "the torpedo's and the bomb's reload and speed as set below") \
+    VAL(torpedo_rate, "Torpedo rate % (2/s)", 100, 100, 400, "how often it fires, percent of the PS2's 2 a second") \
+    VAL(torpedo_speed, "Torpedo speed %", 100, 100, 300, "percent of the PS2's; it flies as long, so farther") \
+    VAL(bomb_rate, "Bomb rate % (1/s)", 100, 100, 400, "how often it drops one, percent of the PS2's 1 a second") \
+    VAL(bomb_speed, "Bomb speed %", 100, 100, 300, "how fast it sinks, percent of the PS2's")
+
+typedef struct NwSubMovement {
+    NW_SUB_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwSubMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
     NwCrashMovement crash;
+    NwSubMovement submarine;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
 #define NW_CRASH_ON(f, ...) .f = true,
 #define NW_CRASH_DEFAULT(f, label, def, ...) .f = def,
 #define NW_MOVEMENT_RETAIL \
-    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
-    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {

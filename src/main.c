@@ -673,25 +673,23 @@ static void nw_boot_speed(void *user)
 
 static const char *const nw_movement_profiles[] = { "Retail", "N. Hanced", "Custom" };
 
-static void nw_boot_crash_flag(const char *label, bool *value)
+static void nw_boot_flag(const char *label, bool *value)
 {
     nw_debug_indent(true);
     nw_debug_checkbox(label, value);
     nw_debug_indent(false);
 }
 
-static void nw_boot_crash_value(const char *label, int *value, int lo, int hi)
+static void nw_boot_value(const char *label, int *value, int lo, int hi)
 {
     nw_debug_indent(true);
     nw_debug_slider_int(label, value, lo, hi);
     nw_debug_indent(false);
 }
 
-static void nw_boot_movement(void *user)
+/* The profile and its buttons, the same on Crash's and the submarine's panels. */
+static void nw_boot_profile(NwSettings *s)
 {
-    NwSettings *s = user;
-    NwCrashMovement *c = &s->movement.crash;
-
     nw_debug_label(nw_movement_profiles[nw_movement_profile(&s->movement)]);
     nw_debug_same_line(6.0f);
     if (nw_debug_button("Retail")) {
@@ -701,18 +699,40 @@ static void nw_boot_movement(void *user)
     if (nw_debug_button("N. Hanced")) {
         s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     }
-#define NW_CRASH_SWITCH_ITEM(f, label, ...) nw_debug_checkbox(label, &c->f);
-#define NW_CRASH_FLAG_ITEM(f, label, ...) nw_boot_crash_flag(label, &c->f);
-#define NW_CRASH_VALUE_ITEM(f, label, def, lo, hi, ...) nw_boot_crash_value(label, &c->f, lo, hi);
-    NW_CRASH_MOVEMENT(NW_CRASH_SWITCH_ITEM, NW_CRASH_FLAG_ITEM, NW_CRASH_VALUE_ITEM)
-#undef NW_CRASH_SWITCH_ITEM
-#undef NW_CRASH_FLAG_ITEM
-#undef NW_CRASH_VALUE_ITEM
+}
+
+#define NW_BOOT_SWITCH_ITEM(f, label, ...) nw_debug_checkbox(label, &c->f);
+#define NW_BOOT_FLAG_ITEM(f, label, ...) nw_boot_flag(label, &c->f);
+#define NW_BOOT_VALUE_ITEM(f, label, def, lo, hi, ...) nw_boot_value(label, &c->f, lo, hi);
+
+static void nw_boot_movement(void *user)
+{
+    NwSettings *s = user;
+    NwCrashMovement *c = &s->movement.crash;
+
+    nw_boot_profile(s);
+    NW_CRASH_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
     nw_debug_slider_int("Monkey Bar Speed %", &s->movement.monkey_bar_speed, 100, 500);
     if (nw_pad_script) {
         nw_debug_text("--pad-script plays retail: changes take effect at the next start");
     }
 }
+
+static void nw_boot_submarine(void *user)
+{
+    NwSettings *s = user;
+    NwSubMovement *c = &s->movement.submarine;
+
+    nw_boot_profile(s);
+    NW_SUB_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
+#undef NW_BOOT_SWITCH_ITEM
+#undef NW_BOOT_FLAG_ITEM
+#undef NW_BOOT_VALUE_ITEM
 
 static void nw_boot_levels(void *user)
 {
@@ -780,6 +800,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     nw_control_panel_start(&settings.controls);
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);

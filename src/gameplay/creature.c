@@ -1,7 +1,14 @@
-/* Wraps of game/creature: the air indicator's hook. */
+/* Wraps of game/creature: the air indicator's and the submarine's hooks. */
 #include "game/creature.h"
 #include "game/creature.retail.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/submarine.h"
+
+void MovePlayer(struct creature_s *c, struct nupad_s *pad)
+{
+    nw_sub_move(c);
+    MovePlayer__retail(c, pad);
+}
 
 void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
 {

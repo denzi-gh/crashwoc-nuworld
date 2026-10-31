@@ -7,6 +7,7 @@
 #include "gameplay/air.h"
 #include "gameplay/ground.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/submarine.h"
 #include "gameplay/title.h"
 #include "port/game.h"
 
@@ -20,13 +21,20 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
     static const NwMovement nhanced = NW_MOVEMENT_NHANCED;
     const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
+    const NwSubMovement *sc = &m->submarine, *sn = &nhanced.submarine;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
-    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+#define NW_SUB_SET(f, ...) || sc->f
+#define NW_SUB_SAME(f, ...) &&sc->f == sn->f
+    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                      NW_SUB_MOVEMENT(NW_SUB_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
-                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME));
+                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
+                         NW_SUB_MOVEMENT(NW_SUB_SAME, NW_SUB_SAME, NW_SUB_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
+#undef NW_SUB_SET
+#undef NW_SUB_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
@@ -36,6 +44,7 @@ void nw_profile_apply(const NwProfile *p)
     nw_monkey_bars_apply();
     nw_air_apply();
     nw_ground_apply();
+    nw_sub_apply();
 }
 
 void nw_profile_request(const NwProfile *p)
@@ -59,6 +68,7 @@ static void nw_profile_poll(void)
         nw_monkey_bars_apply();
         nw_air_apply();
         nw_ground_apply();
+        nw_sub_apply();
     }
 }
 

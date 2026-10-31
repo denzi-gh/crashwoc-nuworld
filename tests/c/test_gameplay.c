@@ -14,14 +14,20 @@
 #include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/submarine.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
 #include "numath/nutrig.h"
+#include "numath/nuvec.h"
 #include "nups2/ps2ctl.h"
 #include "port/hz.h"
 
 extern struct MoveInfo CrashMoveInfo;
 extern struct MoveInfo CocoMoveInfo;
+extern struct MoveInfo SubmarineMoveInfo;
+extern f32 D_005F28F8[];
+extern struct nuvec_s v001;
+extern s32 vtog_blend;
 extern s32 plr_terrain_ok;
 extern s32 VEHICLECONTROL;
 extern struct ldata_s *LDATA;
@@ -795,6 +801,348 @@ static void hazard_hitboxes(void)
     GAMEOBJECTCOUNT = 0;
 }
 
+/* Retail's submarine data at hz with Crash in the sub, then p. */
+static void sub_at(int hz, const NwProfile *p)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(&(NwProfile){ 0 });
+    SubmarineMoveInfo.WALKSPEED = NW_HZ(0.024999999f, 0.020833334f);
+    SubmarineMoveInfo.RUNSPEED = NW_HZ(0.06f, 0.050000004f);
+    nw_profile_apply(p);
+    memset(&Character[0], 0, sizeof(Character[0]));
+    VEHICLECONTROL = 1;
+    vtog_blend = 0;
+    Character[0].obj.vehicle = 0x20;
+}
+
+/* Retail with one of the submarine's switches on, its values at N. Hanced's. */
+static NwProfile sub_only(size_t offset)
+{
+    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
+    *(bool *)((char *)&p.movement.submarine + offset) = true;
+    return p;
+}
+
+#define SUB_ONLY(f) sub_only(offsetof(NwSubMovement, f))
+
+/* The stick at full tilt: dx across, angle as MovePlayer gives it (0 up, 0x4000 right). */
+static void sub_stick(float dx, u16 angle)
+{
+    Character[0].obj.pad_speed = SubmarineMoveInfo.RUNSPEED;
+    Character[0].obj.pad_dx = dx;
+    Character[0].obj.pad_angle = angle;
+}
+
+/* A frame of MovePlayer's heading, with a turn of retail's the hook throws away. */
+static void sub_frame(void)
+{
+    GameTimer.frame++;
+    nw_sub_move(&Character[0]);
+    Character[0].obj.hdg += 0x1234;
+    nw_sub_turn(&Character[0]);
+}
+
+static int sub_turn_to(u16 hdg)
+{
+    int frames = 0;
+    while (Character[0].obj.hdg != hdg && frames < 100) {
+        sub_frame();
+        frames++;
+    }
+    return frames;
+}
+
+static void sub_turning(void)
+{
+    NwProfile on = SUB_ONLY(turning), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct obj_s *sub = &Character[0].obj;
+
+    /* A diagonal turns it right round, through the screen; 0x369 a frame at 200 %. */
+    sub_at(50, &on);
+    sub_stick(-0.7f, 0xA000);
+    int pal = sub_turn_to(0x8000);
+    CHECK(pal == 19 && sub->thdg == 0x8000);
+    sub_at(60, &on);
+    sub_stick(-0.7f, 0xA000);
+    int ntsc = sub_turn_to(0x8000);
+    CHECK(fabsf(pal / 50.0f - ntsc / 60.0f) <= 1.0f / 50.0f);
+    /* Back mid-turn, and a turn finishes with the stick let go. */
+    sub_at(50, &on);
+    sub_stick(-0.7f, 0xA000);
+    for (int i = 0; i < 5; i++) {
+        sub_frame();
+    }
+    CHECK(sub->hdg == 5 * 0x6D2);
+    sub_stick(0.7f, 0x6000);
+    sub_frame();
+    CHECK(sub->hdg == 4 * 0x6D2 && sub->thdg == 0);
+    sub_stick(-0.7f, 0xA000);
+    sub_frame();
+    sub->pad_speed = 0.0f;
+    CHECK(sub_turn_to(0x8000) == 14);
+    /* Up and down keep it facing, also the screen. */
+    sub_stick(0.0f, 0);
+    sub_frame();
+    CHECK(sub->hdg == 0x8000);
+    GameTimer.frame += 10;
+    sub->hdg = 0x4000;
+    sub_frame();
+    CHECK(sub->hdg == 0x4000);
+    /* Turn speed. */
+    on.movement.submarine.turn_speed = 400;
+    sub_at(50, &on);
+    sub_stick(-0.7f, 0xA000);
+    sub_frame();
+    CHECK(sub->hdg == 4 * 0x369);
+    /* Getting in, on foot, the switch off: retail's turn. */
+    vtog_blend = 1;
+    sub_frame();
+    CHECK(sub->hdg == 4 * 0x369 + 0x1234);
+    vtog_blend = 0;
+    VEHICLECONTROL = 0;
+    sub_frame();
+    CHECK(sub->hdg == 4 * 0x369 + 2 * 0x1234);
+    sub_at(50, &retail);
+    sub_stick(-0.7f, 0xA000);
+    sub_frame();
+    CHECK(sub->hdg == 0x1234);
+}
+
+/* Frames from level until the nose is 3/4 of the way up. */
+static int sub_climb(void)
+{
+    struct obj_s *sub = &Character[0].obj;
+    int frames = 0;
+    sub->xrot = 0;
+    sub_stick(0.0f, 0);
+    while ((s16)sub->xrot < 0x3000 && frames < 1000) {
+        nw_sub_pitch_before(sub);
+        sub->xrot += 0x10;
+        nw_sub_pitch(sub, 2);
+        frames++;
+    }
+    return frames;
+}
+
+static void sub_pitch(void)
+{
+    NwProfile on = SUB_ONLY(turning), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct obj_s *sub = &Character[0].obj;
+
+    /* At 100 % retail's PAL seek, a 32nd of the way; 200 % as fast in seconds at both rates. */
+    on.movement.submarine.pitch_speed = 100;
+    sub_at(50, &on);
+    sub_stick(0.0f, 0);
+    nw_sub_pitch_before(sub);
+    nw_sub_pitch(sub, 2);
+    CHECK(sub->xrot == 0x200);
+    on.movement.submarine.pitch_speed = 200;
+    sub_at(50, &on);
+    int pal = sub_climb();
+    sub_at(60, &on);
+    int ntsc = sub_climb();
+    CHECK(pal >= 21 && pal <= 23 && fabsf(pal / 50.0f - ntsc / 60.0f) <= 1.0f / 50.0f);
+    /* Let go, it levels out. */
+    sub->pad_speed = 0.0f;
+    nw_sub_pitch_before(sub);
+    nw_sub_pitch(sub, 2);
+    CHECK((s16)sub->xrot < 0x3000);
+    /* Not the sub's branch, the switch off: retail's. */
+    sub_at(50, &on);
+    sub_stick(0.0f, 0);
+    nw_sub_pitch_before(sub);
+    sub->xrot = 0x10;
+    nw_sub_pitch(sub, 1);
+    CHECK(sub->xrot == 0x10);
+    sub->flags = 0x10000;
+    nw_sub_pitch(sub, 2);
+    CHECK(sub->xrot == 0x10);
+    sub_at(50, &retail);
+    sub_stick(0.0f, 0);
+    nw_sub_pitch_before(sub);
+    sub->xrot = 0x10;
+    nw_sub_pitch(sub, 2);
+    CHECK(sub->xrot == 0x10);
+}
+
+/* Frames to the stick's speed from rest (stop: to rest from it), MovePlayer's step then the hook's. */
+static int sub_frames(bool stop)
+{
+    struct obj_s *sub = &Character[0].obj;
+    float step = NW_HZ(0.00144f, 0.001f);
+    int frames = 0;
+    sub_stick(1.0f, 0x4000);
+    float top = sub->pad_speed;
+    sub->xrot = 0;
+    sub->mom = (struct nuvec_s){ 0.0f, 0.0f, stop ? top : 0.0f };
+    if (stop) {
+        sub->pad_speed = 0.0f;
+    }
+    while ((stop ? sub->mom.z > 0.0f : sub->mom.z < top) && frames < 1000) {
+        sub->mom.z = stop ? fmaxf(sub->mom.z - step, 0.0f) : fminf(sub->mom.z + step, top);
+        nw_sub_accel(&sub->mom);
+        frames++;
+    }
+    return frames;
+}
+
+static void sub_speed(void)
+{
+    NwProfile on = SUB_ONLY(speed), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct obj_s *sub = &Character[0].obj;
+
+    /* Retail: 0.06 a frame, 0.00144 a frame more each frame. */
+    sub_at(50, &retail);
+    CHECK(SubmarineMoveInfo.RUNSPEED == 0.06f && sub_frames(false) == 42 && sub_frames(true) == 42);
+    /* 125 % top speed, to it and to rest twice as fast, as fast in seconds at 60 Hz. */
+    sub_at(50, &on);
+    CHECK(near(SubmarineMoveInfo.RUNSPEED, 0.075f, 1e-6f) && near(SubmarineMoveInfo.WALKSPEED, 0.03125f, 1e-6f));
+    int pal = sub_frames(false);
+    CHECK(pal == 27 && sub_frames(true) == 27);
+    sub_at(60, &on);
+    CHECK(near(SubmarineMoveInfo.RUNSPEED, 0.0625f, 1e-6f));
+    CHECK(fabsf(pal / 50.0f - sub_frames(false) / 60.0f) <= 1.0f / 50.0f);
+    /* Climbing: the same on y. */
+    sub_at(50, &on);
+    sub_stick(0.0f, 0);
+    sub->xrot = 0x4000;
+    struct nuvec_s want;
+    NuVecRotateX(&want, &v001, -sub->xrot);
+    nw_sub_accel(&sub->mom);
+    CHECK(near(fabsf(sub->mom.y), 0.00144f, 1e-4f) && (sub->mom.y > 0.0f) == (want.y > 0.0f) && sub->mom.z == 0.0f);
+    /* Only the sub's own speed, not dead, between frames as the menu changes it. */
+    struct nuvec_s other = { 0.0f, 0.0f, 0.0f };
+    nw_sub_accel(&other);
+    CHECK(other.y == 0.0f && other.z == 0.0f);
+    sub_stick(1.0f, 0x4000);
+    sub->xrot = 0;
+    sub->mom = (struct nuvec_s){ 0.0f, 0.0f, 0.0f };
+    sub->dead = 1;
+    nw_sub_accel(&sub->mom);
+    CHECK(sub->mom.z == 0.0f);
+    on.movement.submarine.speed_top = 200;
+    nw_profile_request(&on);
+    nw_gameplay_swap();
+    CHECK(near(SubmarineMoveInfo.RUNSPEED, 0.12f, 1e-6f));
+    /* Retail puts its values back, but leaves one something else wrote. */
+    nw_profile_request(&retail);
+    nw_gameplay_swap();
+    CHECK(SubmarineMoveInfo.RUNSPEED == 0.06f && SubmarineMoveInfo.WALKSPEED == 0.024999999f);
+    SubmarineMoveInfo.RUNSPEED = 0.5f;
+    nw_profile_apply(&on);
+    CHECK(SubmarineMoveInfo.RUNSPEED == 0.5f && SubmarineMoveInfo.WALKSPEED != 0.024999999f);
+    sub_at(50, &retail);
+}
+
+static void sub_hitbox(void)
+{
+    NwProfile on = SUB_ONLY(hitbox), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct obj_s *sub = &Character[0].obj;
+
+    /* 75 % round its middle, once however deep the calls nest, back exactly. */
+    struct CharacterData *d = &CData[0x20];
+    float min = d->min.y, max = d->max.y;
+    sub_at(50, &on);
+    sub->RADIUS = 0.7f;
+    sub->SCALE = 1.0f;
+    sub->pos.y = 1.6f;
+    sub->bot = -0.6f;
+    sub->top = 0.5f;
+    sub->objbot = 1.0f;
+    sub->objtop = 2.1f;
+    nw_sub_shrink();
+    CHECK(near(sub->RADIUS, 0.525f, 1e-6f) && near(sub->objbot, 1.1375f, 1e-6f) && near(sub->objtop, 1.9625f, 1e-6f));
+    CHECK(near(sub->bot, -0.4625f, 1e-6f) && near(sub->top, 0.3625f, 1e-6f));
+    CHECK(near(d->min.y, min + (max - min) * 0.125f, 1e-6f) && near(d->max.y, max - (max - min) * 0.125f, 1e-6f));
+    nw_sub_shrink();
+    nw_sub_restore();
+    CHECK(near(sub->RADIUS, 0.525f, 1e-6f));
+    nw_sub_restore();
+    CHECK(sub->RADIUS == 0.7f && near(sub->objbot, 1.0f, 1e-6f) && near(sub->objtop, 2.1f, 1e-6f));
+    CHECK(sub->bot == -0.6f && sub->top == 0.5f && d->min.y == min && d->max.y == max);
+    CHECK(near(nw_sub_particle(0.2f), 0.15f, 1e-6f));
+    /* Its height taken afresh in between (GetTopBot, NewTopBot after a move) comes back at the new place. */
+    nw_sub_shrink();
+    sub->pos.y = 2.0f;
+    sub->bot = d->min.y;
+    sub->top = d->max.y;
+    sub->objbot = sub->pos.y + sub->bot;
+    sub->objtop = sub->pos.y + sub->top;
+    CHECK(near(sub->objtop - sub->objbot, (max - min) * 0.75f, 1e-5f));
+    nw_sub_restore();
+    CHECK(near(sub->objbot, 2.0f + min, 1e-5f) && near(sub->objtop, 2.0f + max, 1e-5f) && d->min.y == min);
+    /* On foot and the switch off: retail's. */
+    VEHICLECONTROL = 0;
+    nw_sub_shrink();
+    CHECK(sub->RADIUS == 0.7f && nw_sub_particle(0.2f) == 0.2f);
+    nw_sub_restore();
+    sub_at(50, &retail);
+    sub->RADIUS = 0.7f;
+    nw_sub_shrink();
+    CHECK(sub->RADIUS == 0.7f && nw_sub_particle(0.2f) == 0.2f);
+    nw_sub_restore();
+}
+
+static void sub_weapons(void)
+{
+    NwProfile on = SUB_ONLY(weapons), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct creature_s *plr = &Character[0];
+    struct nuvec_s torpedo = { 0.0f, 0.0f, 0.16f }, bomb, v;
+
+    /* Reloads by the rate, the same in seconds at 60 Hz; one already running stays. */
+    on.movement.submarine.torpedo_rate = 200;
+    on.movement.submarine.bomb_rate = 400;
+    sub_at(50, &on);
+    nw_sub_fire_before(plr);
+    plr->fire = 0x19;
+    plr->tap = 0x32;
+    nw_sub_fire_after(plr);
+    CHECK(plr->fire == 13 && plr->tap == 13);
+    plr->fire = 5;
+    nw_sub_fire_before(plr);
+    nw_sub_fire_after(plr);
+    CHECK(plr->fire == 5);
+    sub_at(60, &on);
+    nw_sub_fire_before(plr);
+    plr->fire = 0x1E;
+    nw_sub_fire_after(plr);
+    CHECK(plr->fire == 15);
+    /* Torpedo and bomb speed, only while the sub fires its own. */
+    on.movement.submarine.torpedo_speed = 200;
+    on.movement.submarine.bomb_speed = 200;
+    sub_at(50, &on);
+    plr->obj.mom.y = 0.01f;
+    bomb = (struct nuvec_s){ 0.0f, 0.01f - 0.02f, 0.0f };
+    nw_sub_fire_before(plr);
+    CHECK(nw_sub_launch(4, &torpedo, &plr->obj, &v) == &v && near(v.z, 0.32f, 1e-6f) && torpedo.z == 0.16f);
+    CHECK(nw_sub_launch(10, &bomb, &plr->obj, &v) == &v && near(v.y, -0.03f, 1e-5f));
+    CHECK(nw_sub_launch(4, &torpedo, &Character[1].obj, &v) == &torpedo);
+    CHECK(nw_sub_launch(2, &torpedo, &plr->obj, &v) == &torpedo);
+    nw_sub_fire_after(plr);
+    CHECK(nw_sub_launch(4, &torpedo, &plr->obj, &v) == &torpedo);
+    /* The bomb sinks toward SPRINTSPEED, which is terminal_fall_speed. */
+    CHECK((void *)D_005F28F8 == (void *)&SubmarineMoveInfo.SPRINTSPEED);
+    SubmarineMoveInfo.SPRINTSPEED = 0.08f;
+    sub_at(50, &(NwProfile){ 0 });
+    SubmarineMoveInfo.SPRINTSPEED = 0.08f;
+    nw_profile_apply(&on);
+    CHECK(near(SubmarineMoveInfo.SPRINTSPEED, 0.16f, 1e-6f));
+    nw_profile_apply(&retail);
+    CHECK(SubmarineMoveInfo.SPRINTSPEED == 0.08f);
+    /* On foot and the switch off: retail's. */
+    sub_at(50, &on);
+    VEHICLECONTROL = 0;
+    nw_sub_fire_before(plr);
+    plr->fire = 0x19;
+    nw_sub_fire_after(plr);
+    CHECK(plr->fire == 0x19 && nw_sub_launch(4, &torpedo, &plr->obj, &v) == &torpedo);
+    sub_at(50, &retail);
+    nw_sub_fire_before(plr);
+    plr->fire = 0x19;
+    nw_sub_fire_after(plr);
+    CHECK(plr->fire == 0x19);
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -814,6 +1162,11 @@ int main(void)
     line_2d();
     hazard_hitboxes();
     air_jump();
+    sub_turning();
+    sub_pitch();
+    sub_speed();
+    sub_hitbox();
+    sub_weapons();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -827,6 +1180,13 @@ int main(void)
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .submarine = { .turning = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.submarine.speed_top = 200;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.submarine.hitbox_size = 50;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

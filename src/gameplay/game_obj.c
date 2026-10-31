@@ -7,6 +7,7 @@
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
+#include "gameplay/submarine.h"
 
 /* Declared by no header. */
 extern f32 in_speed;
@@ -34,6 +35,29 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
 void PlayerCreatureCollisions(struct obj_s *obj)
 {
     nw_hazards_shrink(obj);
+    nw_sub_shrink();
     PlayerCreatureCollisions__retail(obj);
+    nw_sub_restore();
     nw_hazards_restore();
+}
+
+void ObjectRotation(struct obj_s *obj, s32 mode, s32 blend)
+{
+    nw_sub_pitch_before(obj);
+    ObjectRotation__retail(obj, mode, blend);
+    nw_sub_pitch(obj, mode);
+}
+
+void UpdateProjectiles(void)
+{
+    nw_sub_shrink();
+    UpdateProjectiles__retail();
+    nw_sub_restore();
+}
+
+void AddProjectile(struct nuvec_s *src, struct nuvec_s *dst, struct nuvec_s *mom, s32 type, u16 yrot,
+                   struct obj_s *owner)
+{
+    struct nuvec_s v;
+    AddProjectile__retail(src, dst, nw_sub_launch(type, mom, owner, &v), type, yrot, owner);
 }
