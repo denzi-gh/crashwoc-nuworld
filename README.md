@@ -82,7 +82,8 @@ Updates on NuWorld are posted on [Discord](https://discord.gg/kmCPpW4KvJ).
 
 ## Credits
 
-[Kenney](https://kenney.nl) Input Prompts (CC0), Atkinson Hyperlegible (SIL OFL), [SDL3](https://libsdl.org).
+[Kenney](https://kenney.nl) Input Prompts (CC0), Atkinson Hyperlegible (SIL OFL), [SDL3](https://libsdl.org),
+[Dear ImGui](https://github.com/ocornut/imgui), and the SPU2 interpolation table from [PCSX2](https://pcsx2.net).
 
 NuWorld is a fan project and not affiliated with Activision or Traveller's Tales.
 
