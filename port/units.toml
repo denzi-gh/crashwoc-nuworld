@@ -148,7 +148,7 @@ schema = 1
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
 "game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions"] }
 "game/visi" = { treatment = "compile" }
-"game/vehicle" = { treatment = "compile" }
+"game/vehicle" = { treatment = "compile", wrap = ["BossBar"] }
 "game/vehsupp" = { treatment = "compile" }
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }

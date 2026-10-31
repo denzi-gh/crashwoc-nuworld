@@ -18,6 +18,7 @@ typedef struct NwSettings {
     bool unused_title;   /* the unused title menu instead of the logos and the title cut, from the next start */
     NwMovement movement; /* [game.movement], N. Hanced Movement */
     bool air_indicator;  /* a ring under Crash where he lands while he is in the air */
+    bool boss_health;    /* phase lines on the boss bar */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
     float aspect;        /* [video]: the picture's width over its height, 0 = the screen's or window's */
