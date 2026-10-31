@@ -145,7 +145,7 @@ bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool l
 
 bool nw_debug_slider_int(const char *label, int *value, int lo, int hi)
 {
-    return ImGui::SliderInt(label, value, lo, hi);
+    return ImGui::SliderInt(label, value, lo, hi, "%d", ImGuiSliderFlags_AlwaysClamp);
 }
 
 bool nw_debug_combo(const char *label, int *index, const char *const *items, int count)

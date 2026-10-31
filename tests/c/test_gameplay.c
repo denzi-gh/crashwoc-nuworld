@@ -315,7 +315,7 @@ static void jump_fall(void)
         p.movement.crash.jump_height = i & 4 ? 130 : 100;
         Arc arc = jump(50, &p, 100), ntsc = jump(60, &p, 120);
         float height = pal.apex * p.movement.crash.jump_height / 100.0f;
-        CHECK(near(arc.apex, height, 0.03f) && arc.reach >= pal.reach * 0.97f && arc.pull <= 61.0f);
+        CHECK(near(arc.apex, height, 0.03f) && arc.reach >= pal.reach * 0.995f && arc.pull <= 61.0f);
         CHECK(near(ntsc.apex, arc.apex, 0.03f) && fabsf(ntsc.time - arc.time) <= 0.03f);
     }
 
@@ -626,7 +626,9 @@ static void edge_grip(void)
     unsigned char *own = Character[0].obj.gndflags.chrs, other[2] = { 0 };
     TerI = &contact;
     crash_at(50, &on);
-    CHECK(held(2, 0.5f, true, own) && held(3, 0.5f, true, own) && held(0x13, 0.45f, true, own));
+    CHECK(!held(2, 0.5f, true, own)); /* no drop under him: a step or a ridge */
+    Character[0].obj.pos.y = 1.0f;
+    CHECK(held(2, 0.5f, true, own) && held(3, 0.5f, true, own) && !held(0x13, 0.5f, true, own));
     CHECK(!held(1, 0.5f, true, own) && !held(2, 0.3f, true, own) && !held(2, 0.5f, false, own));
     CHECK(!held(2, 0.5f, true, other));
     CHECK(!held(2, 0.8f, true, own) && contact.uhitnorm.y == 0.8f);
@@ -645,11 +647,14 @@ static void edge_grip(void)
     }
     on.movement.crash.edge_reach = 90;
     crash_at(50, &on);
+    Character[0].obj.shadow = 2000000.0f; /* no floor at all */
     CHECK(held(2, 0.3f, true, own));
     on.movement.crash.edge_reach = 45;
     crash_at(50, &on);
+    Character[0].obj.pos.y = 1.0f;
     CHECK(!held(2, 0.6f, true, own));
     crash_at(50, &retail);
+    Character[0].obj.pos.y = 1.0f;
     CHECK(!held(2, 0.5f, true, own));
     TerI = was;
 }
@@ -667,6 +672,7 @@ static float line_frame(float x, u8 mode, float mom_x)
     c->obj.pos = (struct nuvec_s){ x, 0.0f, 5.0f };
     c->obj.mom = (struct nuvec_s){ mom_x, 0.0f, 0.05f };
     c->obj.RPos = (RailPosition){ .iRAIL = 0, .iALONG = 0, .fALONG = 0.5f, .fACROSS = x / 2.0f, .mode = mode };
+    GameTimer.frame++;
     nw_line2d_hold(c);
     CHECK(near(c->obj.mom.z, 0.05f, 1e-5f));
     return c->obj.mom.x;
@@ -682,6 +688,14 @@ static void line_2d(void)
     CHECK(near(line_frame(1.6f, 4, 0.0f), -0.02f, 1e-5f));
     CHECK(line_frame(1.6f, 1, 0.03f) == 0.03f);
     CHECK(fabsf(line_frame(1.6f, 4, 0.03f)) < 1e-6f);
+    /* The stick straight into depth walks there, and the line moves with him. */
+    Character[0].obj.pad_speed = 0.5f;
+    Character[0].obj.thdg = 0x4000;
+    CHECK(line_frame(1.7f, 4, 0.03f) == 0.03f);
+    Character[0].obj.thdg = 0x1000;
+    CHECK(fabsf(line_frame(1.75f, 4, 0.03f)) < 1e-6f);
+    Character[0].obj.pad_speed = 0.0f;
+    CHECK(fabsf(line_frame(1.75f, 4, 0.03f)) < 1e-6f);
     on.movement.crash.line_pull = 0;
     crash_at(50, &on);
     CHECK(fabsf(line_frame(1.0f, 4, 0.0f)) < 1e-6f && fabsf(line_frame(1.04f, 4, 0.03f)) < 1e-6f);
@@ -716,6 +730,12 @@ static void hazard_hitboxes(void)
     CHECK(enemy.RADIUS == 0.5f);
     nw_hazards_restore();
     CHECK(nw_hazards_particle(0.225f) == 0.225f * 0.5f);
+    enemy.min.x = 0.0f; /* off its origin: shrinks round its own middle */
+    enemy.max.x = 2.0f;
+    nw_hazards_shrink(crash);
+    CHECK(near(enemy.min.x, 0.2f, 1e-5f) && near(enemy.max.x, 1.8f, 1e-5f));
+    nw_hazards_restore();
+    CHECK(enemy.min.x == 0.0f && enemy.max.x == 2.0f);
     on.movement.crash.hazard_enemy = 50;
     on.movement.crash.hazard_fire = 25;
     crash_at(50, &on);

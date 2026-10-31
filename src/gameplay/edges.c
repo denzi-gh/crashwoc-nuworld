@@ -53,8 +53,11 @@ void nw_edges_impact(const unsigned char *flags)
     if (type == 0 || !nw_edges_crash(flags)) {
         return;
     }
+    /* Only over a drop (MovePlayer's own test, against last frame's shadow): not a step in his way or a ridge. */
     const NwCrashMovement *c = &nw_profile.movement.crash;
-    nw_edges_rim = c->edge_grip && (type == 2 || type == 3 || type == 0x12 || type == 0x13) && TerI->hitnorm.y > 0.0f &&
+    const struct obj_s *o = &Character[0].obj;
+    bool drop = o->shadow >= 2000000.0f || o->pos.y + o->bot * o->SCALE - o->shadow > 0.1f;
+    nw_edges_rim = c->edge_grip && (type == 2 || type == 3) && drop && TerI->hitnorm.y > 0.0f &&
                    TerI->uhitnorm.y < 0.707f &&
                    TerI->uhitnorm.y >= nw_edges_normal(c->edge_reach / 100.0f, TerI->yscale);
     if (nw_edges_rim) {

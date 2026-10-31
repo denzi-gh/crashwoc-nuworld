@@ -2,6 +2,7 @@
 
 #include "game/creature.h"
 #include "game/gametypes.h"
+#include "gameplay/crash.h"
 #include "gameplay/gameplay.h"
 #include "nu_port.h"
 #include "nups2/ps2ctl.h"
@@ -122,13 +123,13 @@ static bool nw_air_continued(void)
     return GameTimer.frame - nw_air_frame <= 1;
 }
 
-/* Belly flop and Death Tornado keep retail's physics. */
+/* Belly flop and the Death Tornado's hover keep retail's physics. */
 static bool nw_air_flying(const struct creature_s *plr)
 {
-    bool tornado = (ExtraMoves != 0 || (Game.powerbits & 4) != 0) && plr->spin != 0 &&
-                   plr->spin_frame < plr->spin_frames - CrashMoveInfo.SPINRESETFRAMES;
-    return !plr->obj.ground && !plr->obj.dangle && !plr->obj.transporting && !plr->freeze &&
-           !(plr->slam != 0 && plr->slam < 3) && !tornado;
+    bool hover = (ExtraMoves != 0 || (Game.powerbits & 4) != 0) && plr->spin >= 3 &&
+                 plr->spin_frame < plr->spin_frames - CrashMoveInfo.SPINRESETFRAMES;
+    return nw_crash_on_foot(plr) && !plr->obj.ground && !plr->obj.dangle && !plr->obj.transporting && !plr->freeze &&
+           !(plr->slam != 0 && plr->slam < 3) && !hover;
 }
 
 void nw_air_loop(const struct creature_s *plr, float forward)
@@ -169,6 +170,12 @@ void nw_air_before(struct creature_s *plr, const struct nupad_s *pad)
     nw_air_fall = plr->obj.mom.y;
     nw_air_jump = plr->jump;
     nw_air_faked_fall = nw_air_faked_jump = nw_air_faked_power = false;
+    /* Falling on the arc: end retail's pin so MoveCRASH's attack and belly flop checks see him fall too. */
+    if (c->jump_fall && nw_air_arc && nw_air_continued() && plr->obj.mom.y <= 0.0f &&
+        plr->jump_frame < plr->jump_frames) {
+        NW_DEVIATION(movement.crash.jump_fall);
+        plr->jump_frame = plr->jump_frames;
+    }
     if (!c->air_jump || !(power || c->air_jump_free) || !nw_air_flying(plr) || plr->obj.dead) {
         return;
     }
@@ -214,6 +221,8 @@ void nw_air_move(struct creature_s *plr, const struct nupad_s *pad)
         NW_DEVIATION(movement.crash.jump_fall);
         nw_air_arc = true;
         nw_air_cut = false;
+        plr->obj.mom.x *= nw_air_shape.reach;
+        plr->obj.mom.z *= nw_air_shape.reach;
         plr->obj.mom.y = nw_air_shape.launch * dt;
     } else if (nw_air_arc) {
         nw_air_arc = c->jump_fall && nw_air_continued() && nw_air_flying(plr) && !plr->obj.dead && !plr->obj.boing &&

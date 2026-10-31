@@ -408,6 +408,11 @@ bool nw_settings_load(NwSettings *s, const char *root)
             nw_settings_take(k, v, s);
         }
     }
+    /* A file from before Crash's options that chose the PS2's movement keeps it. */
+    const char *crash[] = { "game", "movement", "crash" };
+    if (s->movement.monkey_bar_speed <= 100 && !nw_doc_table(&doc, crash, 3)) {
+        s->movement.crash = ((NwMovement)NW_MOVEMENT_RETAIL).crash;
+    }
     nw_doc_free(&doc);
     return got > 0;
 }

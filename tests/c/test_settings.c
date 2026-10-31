@@ -193,6 +193,12 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.movement.monkey_bar_speed == 100);
     NW_CRASH_MOVEMENT(CRASH_SWITCH, CRASH_FLAG, CRASH_VALUE)
+    /* A file from before Crash's options that chose the PS2's movement keeps it; one with them keeps theirs. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.crash.jump_fall &&
+          !s.movement.crash.air_jump && s.movement.crash.air_jump_ledge && s.movement.crash.run_top == 120);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.crash.grip && s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

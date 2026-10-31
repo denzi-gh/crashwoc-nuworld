@@ -15,7 +15,7 @@ static struct {
 } nw_hazards_saved[64];
 static int nw_hazards_count;
 
-/* Only what can hurt Crash while he can't hurt it, so his own reach stays; box or circle, both in XZ. */
+/* Only what can hurt Crash while he can't hurt it, so his own reach stays; the circle or the box, in XZ. */
 void nw_hazards_shrink(struct obj_s *obj)
 {
     nw_hazards_count = 0;
@@ -34,11 +34,12 @@ void nw_hazards_shrink(struct obj_s *obj)
         nw_hazards_saved[nw_hazards_count].min = po->min;
         nw_hazards_saved[nw_hazards_count].max = po->max;
         nw_hazards_count++;
+        float cx = (po->min.x + po->max.x) * 0.5f, cz = (po->min.z + po->max.z) * 0.5f;
         po->RADIUS *= k;
-        po->min.x *= k;
-        po->min.z *= k;
-        po->max.x *= k;
-        po->max.z *= k;
+        po->min.x = cx + (po->min.x - cx) * k;
+        po->min.z = cz + (po->min.z - cz) * k;
+        po->max.x = cx + (po->max.x - cx) * k;
+        po->max.z = cz + (po->max.z - cz) * k;
     }
 }
 
