@@ -12,11 +12,13 @@
 #include "gfx/rndr.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
+#include "nu3d/nuhgobj.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
 #include "nu_port.h"
 #include "numath/numtx.h"
+#include "numath/nuvec.h"
 
 /* Declared by no header. */
 extern struct objtab_s ObjTab[201];
@@ -36,6 +38,7 @@ void AddSpacesIntoText(char *text, u32 flags);
 void BossBar(f32 x, f32 y, f32 z, f32 xs, f32 ys, s32 health, s32 maxhealth);
 int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
                       float **dwa);
+void NuHGobjEval(struct NUHGOBJ_s *hobj, int njanims, struct NUJOINTANIM_s *janim, struct numtx_s *mtx_array);
 
 #define NW_BOSS_HEALTH_FRAME 0xB9   /* BossBar's frame and fill */
 #define NW_BOSS_HEALTH_FILL 0xBB
@@ -46,10 +49,25 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
 #define NW_BOSS_HEALTH_TEXT_SCALE 0.6f
 #define NW_BOSS_HEALTH_CORTEX 2 /* the GameCube's panel character in Crunch Time, in its idle */
 #define NW_BOSS_HEALTH_IDLE 0x22
+#define NW_BOSS_HEALTH_CRUNCH_HEAD 0xBC /* the panel's Crunch head */
+#define NW_BOSS_HEALTH_FIRE_BOSS 0x9C
+#define NW_BOSS_HEALTH_WEATHER_BOSS 0x86
+#define NW_BOSS_HEALTH_FIRE_PITCH 0x1400 /* the Fire boss's idle looks down */
+#define NW_BOSS_HEALTH_BAR_SHIFT -0.12f /* the Fire and Air bars, clear of the bigger boss heads */
 
 static struct numtl_s *nw_boss_health_mtl;
-static AnimPacket nw_boss_health_anim;
+static AnimPacket nw_boss_health_anim; /* Cortex's, then the boss head's */
 static bool nw_boss_health_anim_set;
+static struct numtx_s nw_boss_health_tmtx[0x100];
+
+float nw_boss_health_bar_x(float x)
+{
+    if (!nw_profile.boss_health || (Level != 0x16 && Level != 0x18)) {
+        return x;
+    }
+    NW_DEVIATION(boss_health);
+    return x + NW_BOSS_HEALTH_BAR_SHIFT;
+}
 
 int nw_boss_health_lines(int maxhealth)
 {
@@ -169,15 +187,9 @@ static void nw_boss_health_find(int i)
     }
 }
 
-/* DrawPanel3DTempCharacter (rot 0) for the GameCube's Crunch Time character, with an animation of its own: PS2's
-   temp_character stays unset there. */
-static void nw_boss_health_cortex(u16 xrot, u16 yrot, float x, float y, float z, float scale)
+/* The panel character's idle, stepped as the game thread steps TempAnim. */
+static void nw_boss_health_animate(struct CharacterModel *model)
 {
-    s32 i = CRemap[NW_BOSS_HEALTH_CORTEX];
-    if (i == -1) {
-        return;
-    }
-    struct CharacterModel *model = &CModel[i];
     if (!nw_boss_health_anim_set) {
         ResetAnimPacket(&nw_boss_health_anim, NW_BOSS_HEALTH_IDLE);
         nw_boss_health_anim_set = true;
@@ -186,22 +198,143 @@ static void nw_boss_health_cortex(u16 xrot, u16 yrot, float x, float y, float z,
     if ((u16)nw_boss_health_anim.action < 0x76 && (u16)nw_boss_health_anim.newaction < 0x76) {
         UpdateAnimPacket(model, &nw_boss_health_anim, NW_HZ(0.59999996f, 0.5f), 0.0f);
     }
+}
+
+/* DrawPanel3DTempCharacter's matrix (rot 0) without its translation. */
+static void nw_boss_health_turn(struct numtx_s *m, float scale, u16 xrot, u16 yrot)
+{
     struct nuvec_s s = { scale, scale, scale };
-    struct numtx_s m;
-    static struct numtx_s tmtx[0x100];
-    float **dwa;
-    NuMtxSetScale(&m, &s);
+    NuMtxSetScale(m, &s);
     if (xrot != 0) {
-        NuMtxRotateX(&m, xrot);
+        NuMtxRotateX(m, xrot);
     }
     if (yrot != 0) {
-        NuMtxRotateY(&m, yrot);
+        NuMtxRotateY(m, yrot);
     }
+}
+
+/* DrawPanel3DTempCharacter for the GameCube's Crunch Time character: PS2's temp_character stays unset there. */
+static void nw_boss_health_cortex(u16 xrot, u16 yrot, float x, float y, float z, float scale)
+{
+    s32 i = CRemap[NW_BOSS_HEALTH_CORTEX];
+    if (i == -1) {
+        return;
+    }
+    struct CharacterModel *model = &CModel[i];
+    nw_boss_health_animate(model);
+    struct numtx_s m;
+    float **dwa;
+    nw_boss_health_turn(&m, scale, xrot, yrot);
     m._32 = z;
     m._30 = x * PANEL3DMULX;
     m._31 = y * PANEL3DMULY;
-    EvalModelAnim(model, &nw_boss_health_anim, &m, tmtx, &dwa, NULL);
-    NuHGobjRndrMtxDwa(model->obj, &m, 1, NULL, tmtx, dwa);
+    EvalModelAnim(model, &nw_boss_health_anim, &m, nw_boss_health_tmtx, &dwa, NULL);
+    NuHGobjRndrMtxDwa(model->obj, &m, 1, NULL, nw_boss_health_tmtx, dwa);
+}
+
+/* A joint by the last part of its name ("head|rightEar" is "rightEar"), -1 for none. */
+static int nw_boss_health_joint(const struct NUHGOBJ_s *o, const char *name)
+{
+    for (int j = 0; j < o->num_joints; j++) {
+        const char *n = o->joints[j].name;
+        const char *bar = n ? strrchr(n, '|') : NULL;
+        if (n && strcmp(bar ? bar + 1 : n, name) == 0) {
+            return j;
+        }
+    }
+    return -1;
+}
+
+static struct nuvec_s nw_boss_health_at(const struct numtx_s *m)
+{
+    return (struct nuvec_s){ m->_30, m->_31, m->_32 };
+}
+
+static float nw_boss_health_span(const struct numtx_s *a, const struct numtx_s *b)
+{
+    float dx = a->_30 - b->_30, dy = a->_31 - b->_31, dz = a->_32 - b->_32;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+/* The head joint, its ear span and their positions in tmtx; false without them. */
+static bool nw_boss_health_ears(const struct NUHGOBJ_s *o, const struct numtx_s *tmtx, int *head, struct nuvec_s *at,
+                                float *span)
+{
+    int h = nw_boss_health_joint(o, "head"), l = nw_boss_health_joint(o, "leftEar");
+    int r = nw_boss_health_joint(o, "rightEar");
+    if (h < 0 || l < 0 || r < 0) {
+        return false;
+    }
+    *head = h;
+    *at = nw_boss_health_at(&tmtx[h]);
+    *span = nw_boss_health_span(&tmtx[l], &tmtx[r]);
+    return *span > 0.0f;
+}
+
+static bool nw_boss_health_under(const struct NUHGOBJ_s *o, int j, int head)
+{
+    for (; j >= 0; j = o->joints[j].parent_ix) {
+        if (j == head) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool nw_boss_health_head(u16 xrot, u16 yrot, int rot, float x, float y, float z, float scale)
+{
+    if (!nw_profile.boss_health || rot != 0 || (Level != 0x16 && Level != 0x18)) {
+        return false;
+    }
+    NW_DEVIATION(boss_health);
+    if (Level == 0x16) {
+        xrot = (u16)(xrot + NW_BOSS_HEALTH_FIRE_PITCH);
+    }
+    s32 b = CRemap[Level == 0x16 ? NW_BOSS_HEALTH_FIRE_BOSS : NW_BOSS_HEALTH_WEATHER_BOSS];
+    s32 c = CRemap[NW_BOSS_HEALTH_CRUNCH_HEAD];
+    if (b == -1 || c == -1) {
+        return false;
+    }
+    struct NUHGOBJ_s *boss = CModel[b].obj, *crunch = CModel[c].obj;
+    struct numtx_s *tmtx = nw_boss_health_tmtx;
+    struct nuvec_s crunch_at, boss_at;
+    float crunch_span, boss_span;
+    int crunch_head, boss_head;
+    NuHGobjEval(crunch, 0, NULL, tmtx);
+    if (!nw_boss_health_ears(crunch, tmtx, &crunch_head, &crunch_at, &crunch_span)) {
+        return false;
+    }
+    nw_boss_health_animate(&CModel[b]);
+    struct numtx_s m;
+    float **dwa;
+    NuMtxSetIdentity(&m);
+    EvalModelAnim(&CModel[b], &nw_boss_health_anim, &m, tmtx, &dwa, NULL);
+    if (!nw_boss_health_ears(boss, tmtx, &boss_head, &boss_at, &boss_span)) {
+        return false;
+    }
+    /* Everything but the head folds into it: the body has no size left to draw. */
+    for (int j = 0; j < boss->num_joints; j++) {
+        if (!nw_boss_health_under(boss, j, boss_head)) {
+            memset(&tmtx[j], 0, sizeof(tmtx[j]));
+            tmtx[j]._30 = boss_at.x;
+            tmtx[j]._31 = boss_at.y;
+            tmtx[j]._32 = boss_at.z;
+            tmtx[j]._33 = 1.0f;
+        }
+    }
+    /* The boss's head as big as the Crunch head and where its head joint would be. */
+    float boss_scale = scale * crunch_span / boss_span;
+    struct numtx_s turn;
+    nw_boss_health_turn(&turn, 1.0f, xrot, yrot);
+    struct nuvec_s d = { crunch_at.x * scale - boss_at.x * boss_scale, crunch_at.y * scale - boss_at.y * boss_scale,
+                         crunch_at.z * scale - boss_at.z * boss_scale };
+    NuVecMtxTransform(&d, &d, &turn);
+    nw_boss_health_turn(&m, boss_scale, xrot, yrot);
+    m._30 = x * PANEL3DMULX + d.x;
+    m._31 = y * PANEL3DMULY + d.y;
+    m._32 = z + d.z;
+    NuHGobjRndrMtxDwa(boss, &m, 1, NULL, tmtx, dwa);
+    return true;
 }
 
 /* The GameCube's DrawPanel branch for Level 0x19. */
