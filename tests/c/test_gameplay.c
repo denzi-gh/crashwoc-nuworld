@@ -186,6 +186,15 @@ static void boss_health(void)
     CHECK(nw_boss_health_lines(3) == 2);
     CHECK(nw_boss_health_lines(4) == 3);
     CHECK(nw_boss_health_lines(100) == 0);
+    char text[8];
+    nw_boss_health_percent(100, text);
+    CHECK(strcmp(text, "100%") == 0);
+    nw_boss_health_percent(73, text);
+    CHECK(strcmp(text, " 73%") == 0);
+    nw_boss_health_percent(5, text);
+    CHECK(strcmp(text, "  5%") == 0);
+    nw_boss_health_percent(-3, text);
+    CHECK(strcmp(text, "  0%") == 0);
 
     /* Off draws nothing; on without the panel's bar loaded neither. */
     nw_profile_apply(&(NwProfile){ 0 });

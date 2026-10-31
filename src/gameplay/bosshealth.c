@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "game/gametypes.h"
@@ -16,18 +17,48 @@
 
 /* Declared by no header. */
 extern struct objtab_s ObjTab[201];
+extern struct game_s Game;
+extern s32 Level;
 extern f32 PANEL3DMULX, PANEL3DMULY;
+
+void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, s32 align, s32 colour);
+void AddSpacesIntoText(char *text, u32 flags);
 
 #define NW_BOSS_HEALTH_FILL 0xBB    /* BossBar's fill; 0xB9 is its frame */
 #define NW_BOSS_HEALTH_PHASES 8     /* more is a bar without phases */
 #define NW_BOSS_HEALTH_WIDTH 0.015f /* a line's width, of the bar's */
 #define NW_BOSS_HEALTH_RGBA 0x10, 0x10, 0x10, 0x80
+#define NW_BOSS_HEALTH_TEXT_Y 0.13f /* the percent over the bar's right end */
+#define NW_BOSS_HEALTH_TEXT_SCALE 0.6f
 
 static struct numtl_s *nw_boss_health_mtl;
 
 int nw_boss_health_lines(int maxhealth)
 {
     return maxhealth >= 2 && maxhealth <= NW_BOSS_HEALTH_PHASES ? maxhealth - 1 : 0;
+}
+
+/* DrawPanel's glider health: three digits, the leading zeros blanked. */
+void nw_boss_health_percent(int percent, char text[8])
+{
+    snprintf(text, 8, "%.3i%%", percent < 0 ? 0 : percent > 100 ? 100 : percent);
+    if (text[0] == '0') {
+        text[0] = ' ';
+        if (text[1] == '0') {
+            text[1] = ' ';
+        }
+    }
+}
+
+static void nw_boss_health_text(float x, float y, float z, int health, int maxhealth)
+{
+    char text[16];
+    nw_boss_health_percent(maxhealth > 0 ? health * 100 / maxhealth : 0, text);
+    if (Game.language == 0x63) {
+        AddSpacesIntoText(text, 1);
+    }
+    Text3D(text, x, y + NW_BOSS_HEALTH_TEXT_Y, z, NW_BOSS_HEALTH_TEXT_SCALE, NW_BOSS_HEALTH_TEXT_SCALE,
+           NW_BOSS_HEALTH_TEXT_SCALE, 8, 0);
 }
 
 static struct numtl_s *nw_boss_health_material(void)
@@ -52,11 +83,13 @@ static struct numtl_s *nw_boss_health_material(void)
 
 void nw_boss_health_bar(float x, float y, float z, float xs, float ys, int health, int maxhealth)
 {
-    (void)health;
     if (!nw_profile.boss_health) {
         return;
     }
     NW_DEVIATION(boss_health);
+    if (Level == 0x18) {
+        nw_boss_health_text(x, y, z, health, maxhealth);
+    }
     int lines = nw_boss_health_lines(maxhealth);
     struct objtab_s *fill = &ObjTab[NW_BOSS_HEALTH_FILL];
     if (!lines || !fill->obj.scene || !fill->obj.special) {
