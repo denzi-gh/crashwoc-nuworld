@@ -8,6 +8,7 @@
 #include "game/gametypes.h"
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/bosshealth.h"
 #include "gameplay/edges.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
@@ -176,6 +177,40 @@ static void air_indicator(void)
     CHECK(nw_profile.air_indicator);
     nw_gameplay_swap();
     CHECK(!nw_profile.air_indicator);
+}
+
+static void boss_health(void)
+{
+    /* Rumble's and Fire's 3, Crunch Time's 4; Air Crunch's 100 has no phases. */
+    CHECK(nw_boss_health_lines(1) == 0);
+    CHECK(nw_boss_health_lines(3) == 2);
+    CHECK(nw_boss_health_lines(4) == 3);
+    CHECK(nw_boss_health_lines(100) == 0);
+    char text[8];
+    nw_boss_health_percent(100, text);
+    CHECK(strcmp(text, "100%") == 0);
+    nw_boss_health_percent(73, text);
+    CHECK(strcmp(text, " 73%") == 0);
+    nw_boss_health_percent(5, text);
+    CHECK(strcmp(text, "  5%") == 0);
+    nw_boss_health_percent(-3, text);
+    CHECK(strcmp(text, "  0%") == 0);
+    /* Crunch Time: 4 - its attack phase, which is 4 - Cortex's hits. */
+    CHECK(nw_boss_health_crunch_time_hp(0) == 4);
+    CHECK(nw_boss_health_crunch_time_hp(3) == 1);
+    CHECK(nw_boss_health_crunch_time_hp(4) == 0);
+    CHECK(nw_boss_health_crunch_time_hp(9) == 0);
+    CHECK(nw_boss_health_crunch_time_hp((unsigned)-1) == 4);
+
+    /* Off draws nothing; on without the panel's bar loaded neither. */
+    nw_profile_apply(&(NwProfile){ 0 });
+    nw_boss_health_bar(0.65f, -0.85f, 1.0f, -0.1f, 0.1f, 2, 3);
+    nw_profile_apply(&(NwProfile){ .boss_health = true });
+    nw_boss_health_bar(0.65f, -0.85f, 1.0f, -0.1f, 0.1f, 2, 3);
+    nw_profile_request(&(NwProfile){ .boss_health = false });
+    CHECK(nw_profile.boss_health);
+    nw_gameplay_swap();
+    CHECK(!nw_profile.boss_health);
 }
 
 static bool near(float a, float b, float within)
@@ -802,6 +837,7 @@ int main(void)
     monkey_bars(60, 0.013f);
     monkey_bar_anim();
     air_indicator();
+    boss_health();
     jump_fall();
     jump_distance();
     air_momentum();

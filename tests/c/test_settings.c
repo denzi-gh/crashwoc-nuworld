@@ -180,6 +180,15 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && !s.air_indicator);
     nw_settings_defaults(&s);
+    CHECK(s.boss_health);
+    CHECK(read_text("[game]\nboss_health = false\n", &s) && !s.boss_health);
+    CHECK(nw_settings_save(&s, root));
+    char *boss = file_text();
+    CHECK(boss && SDL_strstr(boss, "\nboss_health = false\n") && SDL_strstr(boss, "# game.boss_health: "));
+    SDL_free(boss);
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && !s.boss_health);
+    nw_settings_defaults(&s);
     CHECK(s.movement.monkey_bar_speed == ((NwMovement)NW_MOVEMENT_NHANCED).monkey_bar_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 900\n", &s) && s.movement.monkey_bar_speed == 500);

@@ -5,9 +5,11 @@
 
 #include "nu_port.h"
 #include "nu3d/nuvport.h"
+#include "numath/numtx.h"
 #include "port/wide.h"
 
-extern float WUMPAOBJSX, WUMPATXTSX, LIVESOBJSX, CRATEOBJSX;
+extern float WUMPAOBJSX, WUMPATXTSX, LIVESOBJSX, CRATEOBJSX, PANELCRUNCHX, FIREBOSSBARX;
+extern float PANEL3DMULX;
 extern int PS2_VCNTR_X, PS2_REZ_W;
 extern int SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
 extern volatile int bgload_complete;
@@ -47,6 +49,9 @@ int main(void)
     CHECK(nw_wide.width == 1706 && near(nw_wide.hud, 854.0f / 640.0f));
     CHECK(near(WUMPAOBJSX, -0.8f - 214.0f / 640.0f) && near(WUMPATXTSX - WUMPAOBJSX, 0.1f) &&
           near(LIVESOBJSX, 0.53f + 214.0f / 640.0f) && CRATEOBJSX == -0.29f);
+    /* The boss head is drawn at depth 1.25, its bar at 1: on screen the head moves as far, less its inset */
+    CHECK(near(FIREBOSSBARX, 0.65f + 214.0f / 640.0f) &&
+          near(PANELCRUNCHX, 1.01f + 1.25f * (214.0f / 640.0f - 0.08f)));
     nw_wide_set(32.0f / 9.0f, 0.0f);
     CHECK(near(nw_wide.hud, nw_wide.k) && near(WUMPAOBJSX, -0.8f - 1066.0f / 640.0f));
     nw_wide_set(32.0f / 9.0f, 4.0f / 3.0f);
@@ -59,6 +64,22 @@ int main(void)
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f);
     nw_wide_set(0.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide_width() == 640 && near(WUMPAOBJSX, -0.8f) && near(LIVESOBJSX, 0.53f));
+    CHECK(near(PANELCRUNCHX, 1.01f) && near(FIREBOSSBARX, 0.65f));
+
+    /* A HUD model past the 4:3 edge is smeared by its depth as at the edge; inside it, as retail */
+    PANEL3DMULX = 640.0f / 1200.0f;
+    struct numtx_s hud = { ._00 = 1.0f, ._02 = 0.5f, ._11 = 1.0f, ._22 = 1.0f, ._33 = 1.0f, ._30 = 0.4f, ._32 = 1.0f };
+    nw_wide_hud(&hud);
+    CHECK(hud._00 == 1.0f && hud._20 == 0.0f);
+    hud._30 = 2.0f * PANEL3DMULX * 1.25f;
+    hud._32 = 1.25f;
+    nw_wide_hud(&hud);
+    CHECK(near(hud._00, 1.0f + 0.5f * PANEL3DMULX) && near(hud._20, PANEL3DMULX) && hud._10 == 0.0f);
+    hud._00 = 1.0f;
+    hud._20 = 0.0f;
+    hud._30 = -hud._30;
+    nw_wide_hud(&hud);
+    CHECK(near(hud._00, 1.0f - 0.5f * PANEL3DMULX) && near(hud._20, -PANEL3DMULX));
 
     struct nuviewport_s *vp = NuVpGetCurrentViewport();
     PS2_VCNTR_X = 0x800;

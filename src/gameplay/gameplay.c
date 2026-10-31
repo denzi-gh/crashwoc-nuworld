@@ -56,6 +56,7 @@ static void nw_profile_poll(void)
     if (asked) {
         nw_profile.movement = p.movement;
         nw_profile.air_indicator = p.air_indicator;
+        nw_profile.boss_health = p.boss_health;
         nw_monkey_bars_apply();
         nw_air_apply();
         nw_ground_apply();

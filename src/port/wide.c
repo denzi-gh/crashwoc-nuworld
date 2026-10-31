@@ -13,6 +13,7 @@
 #include "nu3d/nugscn.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nuvport.h"
+#include "numath/numtx.h"
 #include "numath/nutrig.h"
 
 extern int PS2_VCNTR_X, PS2_REZ_W;
@@ -20,6 +21,7 @@ extern TerrainSetType *CurTerr;
 extern struct nugscn_s *world_scene[32];
 extern s32 SWIDTH, MAXVPSIZEX, MAXVPSIZEY;
 extern struct nucamera_s *pNuCam;
+extern float PANEL3DMULX;
 extern volatile s32 bgload_complete;
 extern char vu_load_glass_mpg[], vu_load_water_mpg[], vu_load_wateruv_mpg[];
 
@@ -29,11 +31,13 @@ static SDL_AtomicInt nw_wide_shown = { 640 }; /* nw_wide.width for other threads
 static SDL_AtomicInt nw_wide_asked;           /* a request waits */
 static SDL_AtomicInt nw_wide_asks[2];         /* its aspect and HUD reach, as float bits */
 
-/* game/panel's HUD anchors in panel x (-1 to 1 spans retail's 4:3 picture) and the side they keep to. The pause
-   screen's (PAUSEPANELX) stay: it is drawn in retail's 4:3 area (nw_wide_vp). */
+/* game/panel's HUD anchors in panel x (-1 to 1 spans retail's 4:3 picture at depth 1) and the side they keep to; the
+   panel heads with their depth. The pause screen's (PAUSEPANELX) stay: it is drawn in retail's 4:3 area
+   (nw_wide_vp). */
 extern float WUMPAOBJSX, WUMPATXTSX, BONUSWUMPAOBJSX, BONUSWUMPATXTSX, LIVESOBJSX, LIVESTXTSX, BONUSLIVESOBJSX,
     BONUSLIVESTXTSX, NEWLIFEOBJSX, NEWBONUSLIFEOBJSX, PANELCRUNCHX, PANELSINKX, PANELBLIMPX, RUMBOSSBARX, ATMBOSSBARX,
     FIREBOSSBARX, PANELRINGX;
+extern float PANELCRUNCHZ, PANELSINKZ, PANELBLIMPZ;
 static const struct {
     float *x;
     float side;
@@ -44,6 +48,23 @@ static const struct {
     { &PANELBLIMPX, 1.0f },      { &RUMBOSSBARX, 1.0f },   { &ATMBOSSBARX, 1.0f },      { &FIREBOSSBARX, 1.0f },
     { &PANELRINGX, 1.0f },
 };
+static const struct {
+    const float *x, *z;
+} nw_wide_heads[] = { { &PANELCRUNCHX, &PANELCRUNCHZ }, { &PANELSINKX, &PANELSINKZ }, { &PANELBLIMPX, &PANELBLIMPZ } };
+#define NW_WIDE_HEAD_IN 0.08f /* how much less the panel heads move out, so the picture's edge does not cut them */
+
+/* How far an anchor sits out for the HUD reach h: the extra reach; for a panel head a little less, over its depth
+   since the screen takes panel x over depth */
+static float nw_wide_out(const float *x, float h)
+{
+    float out = h - 1.0f;
+    for (size_t i = 0; i < sizeof(nw_wide_heads) / sizeof(nw_wide_heads[0]); i++) {
+        if (nw_wide_heads[i].x == x) {
+            return (out - (out < NW_WIDE_HEAD_IN ? out : NW_WIDE_HEAD_IN)) * *nw_wide_heads[i].z;
+        }
+    }
+    return out;
+}
 
 void nw_wide_set(float aspect, float hud)
 {
@@ -56,7 +77,8 @@ void nw_wide_set(float aspect, float hud)
     h = h < 1.0f ? 1.0f : h > k ? k : h;
     /* Each anchor moves out by the HUD's extra reach, so an icon and its count keep their spacing */
     for (size_t i = 0; i < sizeof(nw_wide_anchors) / sizeof(nw_wide_anchors[0]); i++) {
-        *nw_wide_anchors[i].x += nw_wide_anchors[i].side * (h - nw_wide.hud);
+        float *x = nw_wide_anchors[i].x;
+        *x += nw_wide_anchors[i].side * (nw_wide_out(x, h) - nw_wide_out(x, nw_wide.hud));
     }
     /* A radius r around the camera reaches depth r / sqrt(1 + zx^2) at the view's side edge (zx = x clip ratio,
        tan(fov / 2) / aspect, fov 0.75): the draw radii grow to keep retail's edge depth. */
@@ -136,6 +158,27 @@ void nw_wide_vp(int paused)
 int nw_wide_vp_x(void)
 {
     return NuVpGetCurrentViewport()->x - ((PS2_VCNTR_X - (nw_wide.width >> 1)) << 4);
+}
+
+/* The screen takes x over depth, so a model's depth smears it sideways by its centre's x over depth. Past retail's
+   picture edge (PANEL3DMULX at depth 1) that ratio is capped at the edge's: the depth's x share moves into x. */
+float nw_wide_hud_shear(float x, float z)
+{
+    if (!(z > 0.0f)) {
+        return 0.0f;
+    }
+    float r = x / z;
+    return r - (r > PANEL3DMULX ? PANEL3DMULX : r < -PANEL3DMULX ? -PANEL3DMULX : r);
+}
+
+void nw_wide_hud(struct numtx_s *m)
+{
+    float s = nw_wide_hud_shear(m->_30, m->_32);
+    if (s != 0.0f) {
+        m->_00 += s * m->_02;
+        m->_10 += s * m->_12;
+        m->_20 += s * m->_22;
+    }
 }
 
 static int nw_wide_special(const struct nuspecial_s *specials, int n, const struct nuinstance_s *inst)
