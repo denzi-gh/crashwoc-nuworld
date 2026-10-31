@@ -34,11 +34,12 @@ void AddSpacesIntoText(char *text, u32 flags);
 void BossBar(f32 x, f32 y, f32 z, f32 xs, f32 ys, s32 health, s32 maxhealth);
 s32 DrawPanel3DTempCharacter(u16 xrot, u16 yrot, u16 zrot, s32 rot, f32 x, f32 y, f32 z, f32 scale);
 
-#define NW_BOSS_HEALTH_FILL 0xBB    /* BossBar's fill; 0xB9 is its frame */
+#define NW_BOSS_HEALTH_FRAME 0xB9   /* BossBar's frame and fill */
+#define NW_BOSS_HEALTH_FILL 0xBB
 #define NW_BOSS_HEALTH_PHASES 8     /* more is a bar without phases */
 #define NW_BOSS_HEALTH_WIDTH 0.015f /* a line's width, of the bar's */
 #define NW_BOSS_HEALTH_RGBA 0x10, 0x10, 0x10, 0x80
-#define NW_BOSS_HEALTH_TEXT_Y 0.13f /* the percent over the bar's right end */
+#define NW_BOSS_HEALTH_TEXT_Y 0.13f /* the percent over the bar */
 #define NW_BOSS_HEALTH_TEXT_SCALE 0.6f
 
 static struct numtl_s *nw_boss_health_mtl;
@@ -60,15 +61,26 @@ void nw_boss_health_percent(int percent, char text[8])
     }
 }
 
-static void nw_boss_health_text(float x, float y, float z, int health, int maxhealth)
+static struct nugobj_s *nw_boss_health_gobj(int i)
 {
+    struct objtab_s *e = &ObjTab[i];
+    return e->obj.scene && e->obj.special ? e->obj.scene->gobjs[e->obj.special->instance->objid] : NULL;
+}
+
+static void nw_boss_health_text(float x, float y, float z, float xs, int health, int maxhealth)
+{
+    struct nugobj_s *frame = nw_boss_health_gobj(NW_BOSS_HEALTH_FRAME);
+    if (!frame) {
+        return;
+    }
     char text[16];
     nw_boss_health_percent(maxhealth > 0 ? health * 100 / maxhealth : 0, text);
     if (Game.language == 0x63) {
         AddSpacesIntoText(text, 1);
     }
-    Text3D(text, x, y + NW_BOSS_HEALTH_TEXT_Y, z, NW_BOSS_HEALTH_TEXT_SCALE, NW_BOSS_HEALTH_TEXT_SCALE,
-           NW_BOSS_HEALTH_TEXT_SCALE, 8, 0);
+    float mid = x + (frame->min.x + frame->max.x) * 0.5f * xs / PANEL3DMULX;
+    Text3D(text, mid, y + NW_BOSS_HEALTH_TEXT_Y, z, NW_BOSS_HEALTH_TEXT_SCALE, NW_BOSS_HEALTH_TEXT_SCALE,
+           NW_BOSS_HEALTH_TEXT_SCALE, 0, 0);
 }
 
 static struct numtl_s *nw_boss_health_material(void)
@@ -98,14 +110,13 @@ void nw_boss_health_bar(float x, float y, float z, float xs, float ys, int healt
     }
     NW_DEVIATION(boss_health);
     if (Level == 0x18) {
-        nw_boss_health_text(x, y, z, health, maxhealth);
+        nw_boss_health_text(x, y, z, xs, health, maxhealth);
     }
     int lines = nw_boss_health_lines(maxhealth);
-    struct objtab_s *fill = &ObjTab[NW_BOSS_HEALTH_FILL];
-    if (!lines || !fill->obj.scene || !fill->obj.special) {
+    struct nugobj_s *gobj = nw_boss_health_gobj(NW_BOSS_HEALTH_FILL);
+    if (!lines || !gobj) {
         return;
     }
-    struct nugobj_s *gobj = fill->obj.scene->gobjs[fill->obj.special->instance->objid];
     /* BossBar scales the fill towards its origin: a phase ends where the fill's far end is then. */
     float end = fabsf(gobj->max.x) >= fabsf(gobj->min.x) ? gobj->max.x : gobj->min.x;
     float half = fabsf(gobj->max.x - gobj->min.x) * NW_BOSS_HEALTH_WIDTH * 0.5f;
