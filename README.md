@@ -34,12 +34,14 @@ need your own copy of the game (PAL, SLES-50386, v1.03).
 > NuWorld is **not** meant to be played yet, even though most things already work. The first release will be the
 > movement beta. Issues and pull requests are closed until then.
 
-## What it adds
+## NuWorld Features
 
 - 50 or 60 Hz, any aspect ratio, frame interpolation
 - Window, fullscreen and borderless, resolution scale, MSAA
 - Remappable gamepad and keyboard, rumble, button prompts
 - Readable saves, import of PS2 and PCSX2 saves
+- *many Quality of Life changes and additions*
+- **new native Gameplay features**
 
 ## NuWorld first startup
 
@@ -82,8 +84,11 @@ Updates on NuWorld are posted on [Discord](https://discord.gg/kmCPpW4KvJ).
 
 ## Credits
 
-[Kenney](https://kenney.nl) Input Prompts (CC0), Atkinson Hyperlegible (SIL OFL), [SDL3](https://libsdl.org),
-[Dear ImGui](https://github.com/ocornut/imgui), and the SPU2 interpolation table from [PCSX2](https://pcsx2.net).
+- [Kenney](https://kenney.nl) Input Prompts (CC0)
+- Atkinson Hyperlegible (SIL OFL)
+- [SDL3](https://libsdl.org),
+- [Dear ImGui](https://github.com/ocornut/imgui)
+- SPU2 interpolation table from [PCSX2](https://pcsx2.net).
 
 NuWorld is a fan project and not affiliated with Activision or Traveller's Tales.
 
