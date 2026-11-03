@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Five Worlds icon</title>
+  <rect id="background" width="1024" height="1024" rx="230.4" ry="230.4" fill="#05060F"/>
+  <g id="earth">
+    <path id="earth-inner" fill="#C9814A" d="M520.03 420.19 L525.39 358.98 L756.49 369.71 L674.62 417.35 Z"/>
+    <path id="earth-outer" fill="#8A4212" d="M688.59 447.03 L777.48 414.32 L851.26 746.04 L745.90 673.36 Z"/>
+  </g>
+  <g id="water">
+    <path id="water-inner" fill="#4BE3FF" d="M601.80 491.27 L661.66 477.45 L722.88 700.55 L652.27 637.41 Z"/>
+    <path id="water-outer" fill="#0090FF" d="M628.36 659.87 L686.94 734.30 L394.25 906.98 L430.82 784.32 Z"/>
+  </g>
+  <g id="fire">
+    <path id="fire-inner" fill="#FF8000" d="M559.47 591.00 L591.11 643.66 L397.85 770.82 L436.07 684.16 Z"/>
+    <path id="fire-outer" fill="#FF4510" d="M407.33 668.36 L354.64 747.07 L99.96 522.07 L227.92 518.94 Z"/>
+  </g>
+  <g id="air">
+    <path id="air-inner" fill="#FFFFFF" d="M451.54 581.55 L411.23 627.92 L230.57 483.41 L324.80 492.99 Z"/>
+    <path id="air-outer" fill="#BFF4FF" d="M330.95 460.77 L239.81 434.98 L375.10 123.24 L417.61 243.97 Z"/>
+  </g>
+  <g id="space">
+    <path id="space-inner" fill="#B0FF2E" d="M427.17 475.99 L370.61 451.98 L452.22 235.51 L472.24 328.09 Z"/>
+    <path id="space-outer" fill="#3BFF14" d="M504.78 323.98 L501.14 229.33 L839.43 261.66 L737.74 339.41 Z"/>
+  </g>
+</svg>
