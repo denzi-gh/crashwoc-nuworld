@@ -123,6 +123,20 @@ typedef struct NwAtlasMovement {
     NW_ATLAS_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwAtlasMovement;
 
+/* The plane's options ([game.movement.plane]), the same scheme: Tornado Alley and Atmospheric Pressure. */
+#define NW_PLANE_MOVEMENT(SW, FLAG, VAL) \
+    SW(steering, "Sharper steering", "it noses up and down and banks sooner, the same at 60 Hz as at 50") \
+    VAL(deadzone, "Stick deadzone %", 10, 5, 30, "how far the stick counts as centred; the PS2's 25") \
+    VAL(pitch_response, "Pitch response %", 250, 100, 500, "how fast it noses up and down, percent of the PS2's") \
+    VAL(bank_response, "Bank response %", 150, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
+    FLAG(push_dive, "Push to dive", true, "the stick forward noses down as on the PS2; off, forward climbs") \
+    SW(aim, "Shots on the reticle", "in Tornado Alley the shots fly where the reticle points") \
+    VAL(aim_assist, "Assist cone deg", 3, 0, 10, "an enemy this close to the reticle draws the shots; 0 none")
+
+typedef struct NwPlaneMovement {
+    NW_PLANE_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwPlaneMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
@@ -131,6 +145,7 @@ typedef struct NwMovement {
     NwSubMovement submarine;
     NwJeepMovement jeep;
     NwAtlasMovement atlasphere;
+    NwPlaneMovement plane;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
@@ -141,13 +156,15 @@ typedef struct NwMovement {
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .plane = { NW_PLANE_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
     { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .plane = { NW_PLANE_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {
