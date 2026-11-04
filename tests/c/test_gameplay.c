@@ -7,10 +7,12 @@
 
 #include "game/creature.h"
 #include "game/gametypes.h"
+#include "game/vehicle.h"
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/bosshealth.h"
 #include "gameplay/edges.h"
+#include "gameplay/firefly.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
@@ -20,6 +22,7 @@
 #include "gameplay/submarine.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
+#include "numath/numtx.h"
 #include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/ps2ctl.h"
@@ -255,6 +258,7 @@ static NwProfile only(size_t offset)
 #define SUB_ONLY(f) only(offsetof(NwMovement, submarine.f))
 #define JEEP_ONLY(f) only(offsetof(NwMovement, jeep.f))
 #define ATLAS_ONLY(f) only(offsetof(NwMovement, atlasphere.f))
+#define FIREFLY_ONLY(f) only(offsetof(NwMovement, firefly.f))
 
 /* Retail's Crash data and globals at hz, then p. */
 static void crash_at(int hz, const NwProfile *p)
@@ -1758,6 +1762,206 @@ static void atlasphere(void)
     memset(&EarthBoss, 0, sizeof(EarthBoss));
 }
 
+extern struct GLIDERSTRUCT PlayerGlider;
+extern struct battleship_s BattleShipList[6];
+extern struct gunboat_s GunBoatList[4];
+extern struct zoffa_s EnemyZoffa[4];
+extern struct gliderbomb_s GliderBombs[10];
+extern struct creature_s *player;
+extern f32 Level_TargetTime;
+extern f32 TorpedoTime;
+extern f32 FlyingLevelCompleteTimer;
+extern f32 Level_GliderFloor;
+extern f32 Level_GliderCeiling;
+extern f32 Level_GliderCurrentCeiling;
+extern f32 Level_GliderRadius;
+extern f32 Level_GliderCentreX;
+extern f32 Level_GliderCentreZ;
+extern s32 FlyingLevelExtro;
+extern s32 FireFlyIntroOn;
+extern s32 WBIntroOn;
+void ControlGlider(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void ControlGlider__retail(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void GliderFire(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+
+/* The firefly in level, its arena's values, a battleship 30 ahead of the camera at hz, then p. */
+static void firefly_at(int hz, const NwProfile *p, s32 level)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(p);
+    Level = level;
+    memset(&Character[0], 0, sizeof(Character[0]));
+    Character[0].obj.vehicle = 0x8B;
+    player = &Character[0];
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    PlayerGlider.Cre = &Character[0];
+    PlayerGlider.Position = (struct nuvec_s){ 40.0f, 15.0f, 50.0f };
+    PlayerGlider.AngleY = 30.0f;
+    Level_GliderFloor = 3.0f;
+    Level_GliderCeiling = Level_GliderCurrentCeiling = 25.0f;
+    Level_GliderRadius = 90.0f;
+    Level_GliderCentreX = 40.32f;
+    Level_GliderCentreZ = 52.09f;
+    Level_TargetTime = level == 0x12 ? 1.3f : 0.7f;
+    FlyingLevelCompleteTimer = 1.0f;
+    FlyingLevelExtro = FireFlyIntroOn = WBIntroOn = 0;
+    memset(BattleShipList, 0, sizeof(BattleShipList));
+    memset(GunBoatList, 0, sizeof(GunBoatList));
+    memset(EnemyZoffa, 0, sizeof(EnemyZoffa));
+    memset(GliderBombs, 0, sizeof(GliderBombs));
+    BattleShipList[0].active = 1;
+    BattleShipList[0].hitpoints = 3;
+    BattleShipList[0].pos = (struct nuvec_s){ 0.0f, 0.0f, 30.0f };
+    memset(&GameCam[0], 0, sizeof(GameCam[0]));
+    NuMtxSetIdentity(&GameCam[0].m);
+    pad = (struct nupad_s){ 0 };
+    pad.rdata.l_alg_x = pad.rdata.l_alg_y = 127;
+}
+
+/* One ControlGlider from bank tiltz and pitch tiltx, the stick at (lx, ly); retail's if retail. */
+static struct GLIDERSTRUCT firefly_steer_once(int hz, const NwProfile *p, s32 level, u8 lx, u8 ly, float tiltz,
+                                              float tiltx, bool retail)
+{
+    firefly_at(hz, p, level);
+    PlayerGlider.TiltZ = tiltz;
+    PlayerGlider.TiltX = tiltx;
+    pad.rdata.l_alg_x = lx;
+    pad.rdata.l_alg_y = ly;
+    if (retail) {
+        ControlGlider__retail(&PlayerGlider, &pad);
+    } else {
+        ControlGlider(&PlayerGlider, &pad);
+    }
+    return PlayerGlider;
+}
+
+static bool firefly_steer_retail(int hz, const NwProfile *p, s32 level, u8 lx, u8 ly, float tiltz, float tiltx)
+{
+    struct GLIDERSTRUCT r = firefly_steer_once(hz, p, level, lx, ly, tiltz, tiltx, true);
+    struct GLIDERSTRUCT t = firefly_steer_once(hz, p, level, lx, ly, tiltz, tiltx, false);
+    return memcmp(&r, &t, sizeof(r)) == 0;
+}
+
+static void firefly_steer(void)
+{
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, on = FIREFLY_ONLY(steering);
+    NwProfile plain = on;
+    plain.movement.firefly.steer_response = plain.movement.firefly.steer_turn = 100;
+    plain.movement.firefly.pitch_response = 100;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        /* Retail, and the switch at 100 % everywhere, are retail's. */
+        CHECK(firefly_steer_retail(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &plain, 0x12, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &plain, 0x12, 127, 127, 40.0f, -20.0f));
+        /* Banking in and climbing at twice the speed, turning 25 % more. */
+        struct GLIDERSTRUCT r = firefly_steer_once(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f, true);
+        struct GLIDERSTRUCT b = firefly_steer_once(hz, &on, 0x12, 255, 0, 0.0f, 0.0f, false);
+        CHECK(fabsf(r.DestTiltZ) > 30.0f && fabsf(r.DestTiltX) > 20.0f);
+        CHECK(b.DestTiltZ == r.DestTiltZ && b.DestTiltX == r.DestTiltX);
+        CHECK(near(r.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
+        CHECK(near(b.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.05f)), 1e-4f));
+        CHECK(near(b.TiltX, r.DestTiltX * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
+        CHECK(near(b.AngleY - 30.0f, b.TiltZ * 2.0f * dt * 0.25f, 1e-3f));
+        /* Levelling out at twice the speed too. */
+        r = firefly_steer_once(hz, &retail, 0x12, 127, 127, 40.0f, 0.0f, true);
+        b = firefly_steer_once(hz, &on, 0x12, 127, 127, 40.0f, 0.0f, false);
+        CHECK(r.DestTiltZ == 0.0f && near(40.0f - r.TiltZ, 40.0f * (1.0f - powf(2.0f, -dt / 0.05f)), 1e-4f));
+        CHECK(near(40.0f - b.TiltZ, 40.0f * (1.0f - powf(2.0f, -dt / 0.025f)), 1e-4f));
+        /* The other gliders, and the firefly on autopilot, stay retail's. */
+        CHECK(firefly_steer_retail(hz, &nhanced, 0xD, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &nhanced, 0x1A, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &nhanced, 0x24, 255, 0, 0.0f, 0.0f));
+        firefly_at(hz, &nhanced, 0x12);
+        PlayerGlider.AutoPilot = 1;
+        struct GLIDERSTRUCT a = PlayerGlider;
+        ControlGlider__retail(&a, &pad);
+        ControlGlider(&PlayerGlider, &pad);
+        CHECK(memcmp(&a, &PlayerGlider, sizeof(a)) == 0);
+    }
+    nw_profile_apply(&retail);
+}
+
+/* GliderFire with X held or not. */
+static void firefly_fire(bool held)
+{
+    pad.paddata = held ? 0x40 : 0;
+    GliderFire(&PlayerGlider, &pad);
+}
+
+static bool firefly_bomb(void)
+{
+    for (int i = 0; i < 10; i++) {
+        if (GliderBombs[i].life) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void firefly_lock_on(void)
+{
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, on = FIREFLY_ONLY(lock_on);
+    struct nuvec_s at;
+    float progress;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        /* Retail: X locks in 1.3 s, letting go before cancels it. */
+        firefly_at(hz, &retail, 0x12);
+        firefly_fire(true);
+        CHECK(PlayerGlider.TargetOn && PlayerGlider.TargetTimer == 1.3f);
+        firefly_fire(false);
+        CHECK(!PlayerGlider.TargetOn);
+        CHECK(!nw_firefly_marker());
+
+        /* The marker: what X locks. */
+        firefly_at(hz, &on, 0x12);
+        CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_TARGET && at.z == 30.0f);
+        /* In 1 s, and let go early it fires once it is locked. */
+        firefly_fire(true);
+        CHECK(PlayerGlider.TargetOn && PlayerGlider.TargetTimer == 1.0f && Level_TargetTime == 1.0f);
+        firefly_fire(false);
+        CHECK(PlayerGlider.TargetOn && nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOCKING);
+        CHECK(progress > 0.0f && progress < 0.1f);
+        int frames = 1;
+        while (PlayerGlider.TargetOn && frames < 2 * hz) {
+            if (PlayerGlider.TargetTimer == 0.0f) {
+                CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOCKED && progress == 1.0f);
+            }
+            firefly_fire(false);
+            frames++;
+        }
+        CHECK(abs(frames - hz) <= 2);
+        CHECK(firefly_bomb() && PlayerGlider.FireTimer == TorpedoTime);
+        CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_RELOAD && progress < 0.1f);
+        /* Quick tap off: letting go early drops it, and the marker shows it lost. */
+        on.movement.firefly.lock_tap = false;
+        firefly_at(hz, &on, 0x12);
+        firefly_fire(true);
+        firefly_fire(false);
+        CHECK(!PlayerGlider.TargetOn && nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOST && progress == 1.0f);
+        CHECK(at.z == 30.0f);
+        on.movement.firefly.lock_tap = true;
+        /* Turned off, the lock time is retail's again. */
+        nw_profile_apply(&retail);
+        firefly_fire(false);
+        CHECK(Level_TargetTime == 1.3f);
+
+        /* The unused airship level shares the lock-on and stays retail's. */
+        firefly_at(hz, &nhanced, 0x24);
+        PlayerGlider.TargetOn = 1;
+        PlayerGlider.TargetTimer = 0.5f;
+        PlayerGlider.MovingTargetPoint = &BattleShipList[0].pos;
+        firefly_fire(false);
+        CHECK(Level_TargetTime == 0.7f);
+        CHECK(!PlayerGlider.TargetOn && !nw_firefly_marker());
+    }
+    nw_profile_apply(&retail);
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    memset(BattleShipList, 0, sizeof(BattleShipList));
+    memset(GliderBombs, 0, sizeof(GliderBombs));
+    Level = 0;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -1792,6 +1996,8 @@ int main(void)
     jeep_speed();
     jeep_grip();
     atlasphere();
+    firefly_steer();
+    firefly_lock_on();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -1842,6 +2048,15 @@ int main(void)
     m.atlasphere.guard_push = false;
     CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .atlasphere = { .brake = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.firefly.lock_ms = 1300;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.firefly.steering = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.firefly.lock_tap = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .firefly = { .lock_on = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

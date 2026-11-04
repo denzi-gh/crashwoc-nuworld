@@ -113,6 +113,10 @@ static void movement_value(const char *table, const char *key, size_t offset, in
     movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def);
 #define ATLAS_VALUE(f, label, def, lo, hi, ...) \
     movement_value("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def, lo, hi);
+#define FIREFLY_SWITCH(f, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), true);
+#define FIREFLY_FLAG(f, label, def, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), def);
+#define FIREFLY_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("firefly", #f, offsetof(NwSettings, movement.firefly.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -262,6 +266,15 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = false\n", &s) &&
           s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.atlasphere.edge_guard);
+    NW_FIREFLY_MOVEMENT(FIREFLY_SWITCH, FIREFLY_FLAG, FIREFLY_VALUE)
+    /* The same for the firefly's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.firefly.lock_on &&
+          !s.movement.firefly.steering && s.movement.firefly.lock_tap && s.movement.firefly.lock_ms == 1000);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.firefly.lock_on && s.movement.firefly.steering);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.firefly]\nsteering = false\n", &s) &&
+          s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.firefly.steering);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);
