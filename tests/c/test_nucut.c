@@ -110,48 +110,50 @@ static void check_cut(struct NUGCUTSCENE_s *def, char *file, const CutFile *f)
     CHECK(def->bounds->max.z == 3.0f);
 
     struct NUGCUTCAMSYS_s *cam = def->camdef;
-    CHECK(cam->count == 2 && cam->cams == (struct NUGCUTCAM_s *)(file + f->cams) && cam->first_camera == 1);
-    CHECK(cam->cams[0].flags == 1 && cam->cams[0].mtx._30 == 1.0f && cam->cams[1].anim_ix == 1);
-    CHECK(memcmp(cam->remap, file + f->camsys + 0x11, 15) == 0 && cam->remap[14] == 0x7E && cam->remap[2] == -1);
-    check_anim2(cam->anim, file, f->camanim_flags, 3);
-    CHECK(cam->anim->curves[0].constant == 0.5f);
-    CHECK(eval_synth(cam->anim, 0, 2.0f) == 0.5f && eval_synth(cam->anim, 1, 1.0f) == 2.0f);
-    CHECK(eval_synth(cam->anim, 1, 2.0f) == 4.0f && eval_synth(cam->anim, 2, 2.0f) == 7.0f);
-    CHECK(eval_synth(cam->anim, 2, 3.5f) == 9.0f);
-    struct NUSTATEANIM_s *sa = cam->stateanim;
+    CHECK(cam->ncutcams == 2 && cam->cutcams == (struct NUGCUTCAM_s *)(file + f->cams) && cam->initial_camid == 1);
+    CHECK(cam->cutcams[0].flags == 1 && cam->cutcams[0].mtx._30 == 1.0f && cam->cutcams[1].anim_ix == 1);
+    CHECK(memcmp(cam->remap_table, file + f->camsys + 0x11, 15) == 0 && cam->remap_table[14] == 0x7E
+          && cam->remap_table[2] == -1);
+    check_anim2(cam->camanim, file, f->camanim_flags, 3);
+    CHECK(cam->camanim->curves[0].constant == 0.5f);
+    CHECK(eval_synth(cam->camanim, 0, 2.0f) == 0.5f && eval_synth(cam->camanim, 1, 1.0f) == 2.0f);
+    CHECK(eval_synth(cam->camanim, 1, 2.0f) == 4.0f && eval_synth(cam->camanim, 2, 2.0f) == 7.0f);
+    CHECK(eval_synth(cam->camanim, 2, 3.5f) == 9.0f);
+    struct NUSTATEANIM_s *sa = cam->camchanges;
     CHECK(sa->count == 2 && sa->times == (float *)(file + f->cam_times) && sa->times[1] == 20.0f);
     CHECK(sa->values == (unsigned char *)file + f->cam_values && sa->values[1] == 1);
 
     struct NUGCUTLOCATORSYS_s *ls = def->locatordef;
     CHECK(ls->count == 2 && ls->ntypes == 2);
     struct NUGCUTLOCATOR_s *loc = ls->locators;
-    CHECK(((struct numtx_s *)loc[0].pad)->_30 == 5.0f && *(float *)&loc[0].pad[0x40] == 0.25f);
-    CHECK(loc[0].value == 0.75f && *(int *)loc[0].pad54 == 3 && loc[0].flags == 0x9 && loc[0].type == 1);
+    CHECK(loc[0].mtx._30 == 5.0f && loc[0].pivot.x == 0.25f);
+    CHECK(loc[0].rate == 0.75f && loc[0].direction == 3 && loc[0].flags == 0x9 && loc[0].locator_type == 1);
     CHECK(loc[0].joint_ix == 0xFF && loc[1].anim == NULL && loc[1].flags == 0x8 && loc[1].joint_ix == 4);
     check_anim2(loc[0].anim, file, f->locanim_flags, 1);
     CHECK(eval_synth(loc[0].anim, 0, 2.0f) == 4.0f);
-    CHECK(strcmp(ls->types[0].name, "debris") == 0 && ls->types[0].flags == 1 && ls->types[0].fn == 0xFF);
+    CHECK(strcmp(ls->types[0].name, "debris") == 0 && ls->types[0].flags == 1 && ls->types[0].ix == 0xFF);
     CHECK(strcmp(ls->types[1].name, "func") == 0 && ls->types[1].flags == 2);
 
     struct NUGCUTRIGID_s *r = def->rigiddef->rigids;
     CHECK(def->rigiddef->count == 2 && r[0].name == file + f->names && r[1].name == NULL);
     CHECK(r[0].mtx._30 == 10.0f && r[0].locators == (void *)1 && r[0].nlocators == 1 && r[0].flags == 3);
-    CHECK(r[0].obj.scene == NULL && r[0].obj.special == NULL && r[0].stateanim == NULL);
+    CHECK(r[0].special.scene == NULL && r[0].special.special == NULL && r[0].visibiltyanim == NULL);
     check_anim2(r[0].anim, file, f->rigidanim_flags, 9);
     CHECK(r[0].anim->curves[8].constant == 8.5f && eval_synth(r[0].anim, 4, 3.0f) == 4.5f);
-    CHECK((nusintptr)r[1].locators == (int32_t)0x8BC618E8 && r[1].anim == NULL && r[1].stateanim->count == 1);
+    CHECK((nusintptr)r[1].locators == (int32_t)0x8BC618E8 && r[1].anim == NULL && r[1].visibiltyanim->count == 1);
 
     struct NUGCUTCHAR_s *c = def->chardef->chars;
     CHECK(def->chardef->count == 1 && strcmp(c->name, "char0") == 0 && c->mtx._30 == 11.0f);
     CHECK(c->locators == NULL && c->nlocators == 1 && c->character == NULL && c->face_anim == NULL);
-    CHECK(*(float *)c->pad58 == 0.5f && c->flags == 1 && c->pad5D == 2 && c->pad61[0] == 7);
+    CHECK(c->animrate == 0.5f && c->flags == 1 && c->animix == 2 && c->blendframes == 7);
     check_anim2(c->char_anim, file, f->charanim_flags, 3);
     check_anim2(c->joint_anim, file, f->jointanim_flags, 1);
     CHECK(eval_synth(c->char_anim, 0, 2.0f) == 4.0f && eval_synth(c->char_anim, 2, 3.0f) == 9.0f);
 
     struct NUGCUTTRIGGERSYS_s *ts = def->triggerdef;
-    CHECK(ts->count == 1 && ts->triggers[0].target == -1 && ts->triggers[0].name == file + f->names + 25);
-    CHECK(ts->triggers[0].anim->count == 3 && ts->triggers[0].anim->times == (float *)(file + f->trig_times));
+    CHECK(ts->count == 1 && ts->triggers[0].ix == -1 && ts->triggers[0].triggername == file + f->names + 25);
+    CHECK(ts->triggers[0].enableflag1anim->count == 3
+          && ts->triggers[0].enableflag1anim->times == (float *)(file + f->trig_times));
 }
 
 static struct NUGCUTSCENE_s *found_chars;
@@ -181,8 +183,8 @@ static void test_fixup(struct NUGCUTSCENE_s *def)
     NuSetCutSceneFindCharactersFn(find_chars);
     NuGCutSceneFixUp(def, NULL, &sys);
     CHECK(found_chars == def && def->chardef->chars[0].locators == &def->locatordef->locators[0]);
-    CHECK(def->locatordef->types[0].fn == 0xFFFF && def->locatordef->types[1].fn == 0);
-    CHECK(def->triggerdef->triggers[0].target == 1);
+    CHECK(def->locatordef->types[0].ix == 0xFFFF && def->locatordef->types[1].ix == 0);
+    CHECK(def->triggerdef->triggers[0].ix == 1);
     NuSetCutSceneFindCharactersFn(NULL);
     NuGCutSceneSysInit(NULL);
 }
@@ -378,9 +380,9 @@ static void retail_file(const char *path)
     RetailStats was = retail;
 
     if (def->camdef) {
-        retail.cams += def->camdef->count;
-        retail.states += def->camdef->stateanim != NULL;
-        retail_anim(path, file, size, def->camdef->anim, seen, &nseen);
+        retail.cams += def->camdef->ncutcams;
+        retail.states += def->camdef->camchanges != NULL;
+        retail_anim(path, file, size, def->camdef->camanim, seen, &nseen);
     }
     if (def->locatordef) {
         retail.locators += def->locatordef->count;
@@ -392,7 +394,7 @@ static void retail_file(const char *path)
     for (int i = 0; def->rigiddef && i < def->rigiddef->count; i++) {
         struct NUGCUTRIGID_s *r = &def->rigiddef->rigids[i];
         retail.rigids++;
-        retail.states += r->stateanim != NULL;
+        retail.states += r->visibiltyanim != NULL;
         retail_anim(path, file, size, r->anim, seen, &nseen);
     }
     for (int i = 0; def->chardef && i < def->chardef->count; i++) {

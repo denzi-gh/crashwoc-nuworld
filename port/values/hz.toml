@@ -349,7 +349,7 @@ sites = [
 [[file]]
 path = "src/game/font3d.c"
 sites = [
-  { fn = "Update3DFontObjects", pal = "anim_step", nth = 0, of = 1, ntsc = "0.5f" },
+  { fn = "Update3DFontObjects", pal = "0.59999996f", nth = 0, of = 1, ntsc = "0.5f" },
 ]
 
 [[file]]

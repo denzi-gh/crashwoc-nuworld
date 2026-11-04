@@ -36,22 +36,22 @@ extern char vu_load_faceon_mpg[], vu_load_tricu_mpg[], vu_load_tric_mpg[], vu_lo
 extern struct nucamera_s global_camera;
 extern struct numtx_s numtx_identity;
 
-struct rndrstream_s *rndrstream_system;
-struct rndrstream_s *rndrstream_3d_u;
-struct rndrstream_s *rndrstream_mtl_sort;
-struct rndrstream_s *rndrstream_faceon;
-struct rndrstream_s *rndrstream_3d_l;
-struct rndrstream_s *rndrstream_ptl;
-struct rndrstream_s *rndrstream_ot_sort;
-void *rndrstream_fx_microcode; /* the fx stream's program, NuRndrStreamFxMPG's */
+extern struct rndrstream_s *rndrstream_system;
+extern struct rndrstream_s *rndrstream_3d_u;
+extern struct rndrstream_s *rndrstream_mtl_sort;
+extern struct rndrstream_s *rndrstream_faceon;
+extern struct rndrstream_s *rndrstream_3d_l;
+extern struct rndrstream_s *rndrstream_ptl;
+extern struct rndrstream_s *rndrstream_ot_sort;
+extern void *rndrstream_fx_microcode; /* the fx stream's program, NuRndrStreamFxMPG's */
 
 static struct rndrstream_s rndrstream_pool[NW_STREAMS];
 static struct rndrstream_s *rndrstream_sorted[NW_STREAMS];
 static int rndrstream_count;
 static u8 *stream_outbuf[2];
 static int stream_outbuf_size;
-extern int D_0062EA74; /* retail's rndrstream_buffer_index, flipped by NuRndrSwapStreamBuffers */
-#define rndrstream_buffer_index D_0062EA74
+extern int rndrstream_buffid; /* flipped by NuRndrSwapStreamBuffers */
+#define rndrstream_buffer_index rndrstream_buffid
 
 /* The records and view copies of a frame, in blocks that never move; one arena per output buffer, so a material
    stream left unflushed at a swap keeps its records for the next frame as retail keeps its packets. */

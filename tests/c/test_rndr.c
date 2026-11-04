@@ -26,7 +26,7 @@
 
 extern char vu_load_tri_mpg[], vu_load_tric_mpg[], vu_load_tricu_mpg[], vu_load_trica_mpg[], vu_load_xformuv_mpg[],
     vu_load_fx2_mpg[];
-extern struct nutexslot_s *D_0062EBEC;
+extern struct nutexslot_s *tinfo;
 extern int no_default_font, PS2_REZ_W, PS2_REZ_H, PS2_VCNTR_X, PS2_VCNTR_Y;
 extern struct numtl_s *numtl_defaultmtl2d;
 extern struct nucamera_s global_camera;
@@ -161,7 +161,7 @@ static void test_native(void)
     size_t up;
     int tid = make_native(&b, &up);
     CHECK(tid == 1);
-    const struct nutexslot_s *e = &D_0062EBEC[0];
+    const struct nutexslot_s *e = &tinfo[0];
     CHECK(e->valid && e->native && e->type == 4 && e->width == 8 && e->height == 8 && e->mmcnt == 1);
     CHECK(e->ps2tex.mipcount == 2 && e->ps2tex.psm == 0x14 && e->ps2tex.tcc && e->ps2tex.tw == 3);
     CHECK(e->ps2tex.mipdata[0] == b.buf + up && e->ps2tex.tbw[1] == 2 && e->ps2tex.reqsize[0] == 128);
@@ -192,7 +192,7 @@ static void test_bitmap(void)
     const NwTex *t = &nw_rndr_texture(tid)->tex;
     CHECK(tid > 0 && t && t->type == 3 && t->tcc && t->ncolours == 0 && t->nlevels == 1);
     CHECK(t && memcmp(t->levels[0].texels + 4, (uint8_t[]){ bits[7], bits[6], bits[5], bits[4] >> 1 }, 4) == 0);
-    CHECK(D_0062EBEC[tid - 1].ps2tex.psm == 0 && D_0062EBEC[tid - 1].ps2tex.mipcount == 1);
+    CHECK(tinfo[tid - 1].ps2tex.psm == 0 && tinfo[tid - 1].ps2tex.mipcount == 1);
 
     spec = (struct nutex_s){ 2, 8, 8, 0, bits, NULL };
     t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
@@ -207,13 +207,13 @@ static void test_bitmap(void)
     spec = (struct nutex_s){ 5, 16, 16, 2, bits, pal };
     t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && t->ncolours == 256 && t->nlevels == 2 && t->levels[1].width == 8);
-    CHECK(t && t->levels[1].texels[9] == bits[256 + 9] && D_0062EBEC[tid - 1].ps2tex.mipcount == 2);
+    CHECK(t && t->levels[1].texels[9] == bits[256 + 9] && tinfo[tid - 1].ps2tex.mipcount == 2);
 
     /* Over 512 texels a side, the level takes every second texel of every second row. */
     spec = (struct nutex_s){ 5, 1024, 16, 0, bits, pal };
     t = &nw_rndr_texture(tid = NuTexCreate(&spec))->tex;
     CHECK(t && t->nlevels == 1 && t->levels[0].width == 512 && t->levels[0].height == 8);
-    CHECK(t && t->levels[0].texels[513] == bits[2048 + 2] && D_0062EBEC[tid - 1].ps2tex.tw == 10);
+    CHECK(t && t->levels[0].texels[513] == bits[2048 + 2] && tinfo[tid - 1].ps2tex.tw == 10);
 }
 
 /* NuMtlUpdate with CreateStateBlock on gfx/mtl: the state block, its VU words and the microcode packages. */
@@ -1059,10 +1059,10 @@ static void test_render_target(void)
     int temp = NuTexCreate(&spec);
     spec = (struct nutex_s){ 8, 64, 64, 0, NULL, NULL };
     int pal = NuTexCreate(&spec);
-    const struct nups2tex_s *t = &D_0062EBEC[rt - 1].ps2tex;
+    const struct nups2tex_s *t = &tinfo[rt - 1].ps2tex;
     CHECK(rt > 0 && t->tbp[0] != 0 && t->psm == 0 && t->tcc && t->tw == 8 && t->th == 7 && t->tbw[0] == 4);
-    CHECK(nw_rndr_texture(rt) == NULL && D_0062EBEC[temp - 1].ps2tex.tbp[0] == 0);
-    CHECK(D_0062EBEC[temp - 1].ps2tex.psm == 1 && !D_0062EBEC[temp - 1].ps2tex.tcc);
+    CHECK(nw_rndr_texture(rt) == NULL && tinfo[temp - 1].ps2tex.tbp[0] == 0);
+    CHECK(tinfo[temp - 1].ps2tex.psm == 1 && !tinfo[temp - 1].ps2tex.tcc);
     NuTexAssignAddr(temp, 0x1234);
 
     struct numtl_s *m = NuMtlCreate(1), *grab = NuMtlCreate(1), *p8 = NuMtlCreate(1);

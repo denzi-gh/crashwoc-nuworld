@@ -11,7 +11,7 @@
 #include "port/xfile.h"
 
 #define gcutscn_srcfile "..\\nu2crash.ps2\\gamelib\\gcutscn.c"
-#define NW_CUT_REMAP 15 /* NUGCUTCAMSYS_s.remap: the rest of the file's 0x20-byte record */
+#define NW_CUT_REMAP 15 /* NUGCUTCAMSYS_s.remap_table: the rest of the file's 0x20-byte record */
 
 /* Records the host reads in place from the file. */
 _Static_assert(sizeof(struct NUGCUTCAM_s) == sizeof(nw_ps2_NUGCUTCAM_s), "NUGCUTCAM_s");
@@ -135,17 +135,18 @@ static char *nw_cut_name(const NwCutLoad *ld, const struct NUGCUTSCENE_s *def, c
 
 static void nw_cut_cams(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
 {
-    char *p = NW_CUT_PTR(ld, def->camdef, offsetof(nw_ps2_NUGCUTCAMSYS_s, remap) + NW_CUT_REMAP);
-    struct NUGCUTCAMSYS_s *camdef = nw_heap_side_new(ld->side, offsetof(struct NUGCUTCAMSYS_s, remap) + NW_CUT_REMAP,
-                                                     _Alignof(struct NUGCUTCAMSYS_s));
+    char *p = NW_CUT_PTR(ld, def->camdef, offsetof(nw_ps2_NUGCUTCAMSYS_s, remap_table) + NW_CUT_REMAP);
+    struct NUGCUTCAMSYS_s *camdef = nw_heap_side_new(
+        ld->side, offsetof(struct NUGCUTCAMSYS_s, remap_table) + NW_CUT_REMAP, _Alignof(struct NUGCUTCAMSYS_s));
     NW_FILE_X(NUGCUTCAMSYS_s, camdef, p);
-    memcpy(camdef->remap, p + offsetof(nw_ps2_NUGCUTCAMSYS_s, remap), NW_CUT_REMAP);
+    memcpy(camdef->remap_table, p + offsetof(nw_ps2_NUGCUTCAMSYS_s, remap_table), NW_CUT_REMAP);
     def->camdef = camdef;
-    camdef->cams = (struct NUGCUTCAM_s *)NW_CUT_PTR(ld, camdef->cams, camdef->count * sizeof(nw_ps2_NUGCUTCAM_s));
-    if (camdef->anim) {
-        camdef->anim = nw_cut_anim2(ld, camdef->anim);
+    camdef->cutcams =
+        (struct NUGCUTCAM_s *)NW_CUT_PTR(ld, camdef->cutcams, camdef->ncutcams * sizeof(nw_ps2_NUGCUTCAM_s));
+    if (camdef->camanim) {
+        camdef->camanim = nw_cut_anim2(ld, camdef->camanim);
     }
-    camdef->stateanim = nw_cut_stateanim(ld, camdef->stateanim);
+    camdef->camchanges = nw_cut_stateanim(ld, camdef->camchanges);
 }
 
 static void nw_cut_locators(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
@@ -188,7 +189,7 @@ static void nw_cut_rigids(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
         if (rigid->anim) {
             rigid->anim = nw_cut_anim2(ld, rigid->anim);
         }
-        rigid->stateanim = nw_cut_stateanim(ld, rigid->stateanim);
+        rigid->visibiltyanim = nw_cut_stateanim(ld, rigid->visibiltyanim);
     }
 }
 
@@ -230,9 +231,9 @@ static void nw_cut_triggers(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
     for (int i = 0; p && i < count; i++) {
         struct NUGCUTTRIGGER_s *trigger = &triggerdef->triggers[i];
         NW_FILE_X(NUGCUTTRIGGER_s, trigger, p + i * sizeof(nw_ps2_NUGCUTTRIGGER_s));
-        char *name = NW_CUT_PTR(ld, trigger->name, 1);
-        trigger->name = name ? nw_cut_str(ld, name - ld->base) : NULL;
-        trigger->anim = nw_cut_stateanim(ld, trigger->anim);
+        char *name = NW_CUT_PTR(ld, trigger->triggername, 1);
+        trigger->triggername = name ? nw_cut_str(ld, name - ld->base) : NULL;
+        trigger->enableflag1anim = nw_cut_stateanim(ld, trigger->enableflag1anim);
     }
 }
 

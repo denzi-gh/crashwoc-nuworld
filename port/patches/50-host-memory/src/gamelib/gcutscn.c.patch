@@ -9,7 +9,7 @@
      }
  }
 @@ -863,6 +864,7 @@ struct instNUGCUTCAMSYS_s *instNuCGutCamSysCreate(struct NUGCUTCAMSYS_s *def, un
-     if (def && def->count && heap) {
+     if (def && def->ncutcams && heap) {
          camsys = (struct instNUGCUTCAMSYS_s *)ALIGN16(heap->intaddr);
          heap->voidptr = (char *)camsys + sizeof(struct instNUGCUTCAMSYS_s);
 +        NW_HEAP_TWIN(camsys, heap->voidptr, 1, 0x10);

@@ -1,6 +1,6 @@
 --- a/src/game/deb3.c
 +++ b/src/game/deb3.c
-@@ -865,7 +865,7 @@ void JonExtraDraw(void)
+@@ -856,7 +856,7 @@ void JonExtraDraw(void)
          vec.z = NuTrigTable[(u16)(maskx / 50 + 0x4000)] * 3.0f + vec.z;
          if (i != -1) {
              Draw3DCharacter(&vec, 0,
