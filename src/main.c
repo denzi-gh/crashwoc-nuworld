@@ -687,7 +687,7 @@ static void nw_boot_value(const char *label, int *value, int lo, int hi)
     nw_debug_indent(false);
 }
 
-/* The profile and its buttons, the same on Crash's and the mech's panels. */
+/* The profile and its buttons, the same on every movement panel. */
 static void nw_boot_profile(NwSettings *s)
 {
     nw_debug_label(nw_movement_profiles[nw_movement_profile(&s->movement)]);
@@ -725,6 +725,18 @@ static void nw_boot_mech(void *user)
 
     nw_boot_profile(s);
     NW_MECH_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
+static void nw_boot_submarine(void *user)
+{
+    NwSettings *s = user;
+    NwSubMovement *c = &s->movement.submarine;
+
+    nw_boot_profile(s);
+    NW_SUB_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
     if (nw_pad_script) {
         nw_debug_text("--pad-script plays retail: changes take effect at the next start");
     }
@@ -813,6 +825,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {

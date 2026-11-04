@@ -146,14 +146,15 @@ schema = 1
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
-"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions"] }
+"game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions", "ObjectRotation",
+    "UpdateProjectiles", "AddProjectile"] }
 "game/visi" = { treatment = "compile" }
 "game/vehicle" = { treatment = "compile", wrap = ["BossBar"] }
 "game/vehsupp" = { treatment = "compile" }
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }
 "game/edcrate" = { treatment = "editor" }
-"game/ai" = { treatment = "compile", expose = ["crunchtime_attack_phase"] }
+"game/ai" = { treatment = "compile", wrap = ["MoveCreature"], expose = ["crunchtime_attack_phase"] }
 "game/edwumpa" = { treatment = "editor" }
 "game/edai" = { treatment = "editor" }
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
@@ -167,7 +168,7 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH", "MoveMECH"] }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH", "MoveMECH", "MoveSUBMARINE"] }
 "game/chase" = { treatment = "compile", wrap = ["UpdateChase"] }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }

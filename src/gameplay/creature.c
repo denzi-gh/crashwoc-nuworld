@@ -1,15 +1,17 @@
-/* Wraps of game/creature: the air indicator's, the hitbox view's and the mech's hooks. */
+/* Wraps of game/creature: the air indicator's, the hitbox view's and the vehicles' hooks. */
 #include "game/creature.h"
 #include "game/creature.retail.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/hitboxes.h"
 #include "gameplay/mech.h"
+#include "gameplay/submarine.h"
 #include "nups2/ps2ctl.h"
 
 void MovePlayer(struct creature_s *c, struct nupad_s *pad)
 {
     static struct nupad_s aim;
     nw_mech_aim(c);
+    nw_sub_move(c);
     MovePlayer__retail(c, nw_mech_pad(c, pad, &aim));
 }
 
