@@ -125,6 +125,8 @@ set(nw_decomp_flags
 if(MINGW)
   list(APPEND nw_decomp_flags -mno-ms-bitfields)
 endif()
+
+list(APPEND nw_decomp_flags -ffp-exception-behavior=maytrap)
 # The decomp's libm, not values clang folds with the build machine's libm (glibc and UCRT differ).
 foreach(fn sin cos tan asin acos atan atan2 exp log log10 pow fmod)
   list(APPEND nw_decomp_flags -fno-builtin-${fn} -fno-builtin-${fn}f)
