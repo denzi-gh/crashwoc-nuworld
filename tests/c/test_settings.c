@@ -117,6 +117,10 @@ static void movement_value(const char *table, const char *key, size_t offset, in
 #define FIREFLY_FLAG(f, label, def, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), def);
 #define FIREFLY_VALUE(f, label, def, lo, hi, ...) \
     movement_value("firefly", #f, offsetof(NwSettings, movement.firefly.f), def, lo, hi);
+#define PLANE_SWITCH(f, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), true);
+#define PLANE_FLAG(f, label, def, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), def);
+#define PLANE_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("plane", #f, offsetof(NwSettings, movement.plane.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -275,6 +279,15 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.firefly]\nsteering = false\n", &s) &&
           s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.firefly.steering);
+    NW_PLANE_MOVEMENT(PLANE_SWITCH, PLANE_FLAG, PLANE_VALUE)
+    /* The same for the plane's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.plane.steering &&
+          !s.movement.plane.aim && s.movement.plane.push_dive && s.movement.plane.pitch_response == 250);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.plane.steering && s.movement.plane.aim);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.plane]\naim = false\n", &s) &&
+          s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.plane.steering);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

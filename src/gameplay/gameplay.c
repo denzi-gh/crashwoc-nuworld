@@ -27,6 +27,7 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
     const NwJeepMovement *jc = &m->jeep, *jn = &nhanced.jeep;
     const NwAtlasMovement *ac = &m->atlasphere, *an = &nhanced.atlasphere;
     const NwFireflyMovement *fc = &m->firefly, *fn = &nhanced.firefly;
+    const NwPlaneMovement *pc = &m->plane, *pn = &nhanced.plane;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
 #define NW_MECH_SET(f, ...) || mc->f
@@ -39,19 +40,23 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 #define NW_ATLAS_SAME(f, ...) &&ac->f == an->f
 #define NW_FIREFLY_SET(f, ...) || fc->f
 #define NW_FIREFLY_SAME(f, ...) &&fc->f == fn->f
+#define NW_PLANE_SET(f, ...) || pc->f
+#define NW_PLANE_SAME(f, ...) &&pc->f == pn->f
     bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
                                                       NW_MECH_MOVEMENT(NW_MECH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
                                                       NW_SUB_MOVEMENT(NW_SUB_SET, NW_CRASH_NONE, NW_CRASH_NONE)
                                                       NW_JEEP_MOVEMENT(NW_JEEP_SET, NW_CRASH_NONE, NW_CRASH_NONE)
                                                       NW_ATLAS_MOVEMENT(NW_ATLAS_SET, NW_CRASH_NONE, NW_CRASH_NONE)
-                                                      NW_FIREFLY_MOVEMENT(NW_FIREFLY_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+                                                      NW_FIREFLY_MOVEMENT(NW_FIREFLY_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                      NW_PLANE_MOVEMENT(NW_PLANE_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
                     (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
                          NW_MECH_MOVEMENT(NW_MECH_SAME, NW_MECH_SAME, NW_MECH_SAME)
                          NW_SUB_MOVEMENT(NW_SUB_SAME, NW_SUB_SAME, NW_SUB_SAME)
                          NW_JEEP_MOVEMENT(NW_JEEP_SAME, NW_JEEP_SAME, NW_JEEP_SAME)
                          NW_ATLAS_MOVEMENT(NW_ATLAS_SAME, NW_ATLAS_SAME, NW_ATLAS_SAME)
-                         NW_FIREFLY_MOVEMENT(NW_FIREFLY_SAME, NW_FIREFLY_SAME, NW_FIREFLY_SAME));
+                         NW_FIREFLY_MOVEMENT(NW_FIREFLY_SAME, NW_FIREFLY_SAME, NW_FIREFLY_SAME)
+                         NW_PLANE_MOVEMENT(NW_PLANE_SAME, NW_PLANE_SAME, NW_PLANE_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
 #undef NW_MECH_SET
@@ -64,6 +69,8 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 #undef NW_ATLAS_SAME
 #undef NW_FIREFLY_SET
 #undef NW_FIREFLY_SAME
+#undef NW_PLANE_SET
+#undef NW_PLANE_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
