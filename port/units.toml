@@ -144,7 +144,7 @@ schema = 1
 "game/listman" = { treatment = "compile" }
 "game/creature" = { treatment = "compile", wrap = ["DrawCreatures", "LoadCharacterModels", "MovePlayer"] }
 "game/inst" = { treatment = "compile" }
-"game/camera" = { treatment = "compile" }
+"game/camera" = { treatment = "compile", wrap = ["MoveGameCamera"] }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu", "SeekRot"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
 "game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions", "ObjectRotation",

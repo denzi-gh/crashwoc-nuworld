@@ -162,12 +162,12 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosshealth.c
-  src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c src/gameplay/edges.c
-  src/gameplay/firefly.c
+  src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c
+  src/gameplay/edges.c src/gameplay/firefly.c
   src/gameplay/game.c src/gameplay/game_obj.c src/gameplay/gameplay.c src/gameplay/ground.c src/gameplay/hazards.c
   src/gameplay/hitboxes.c src/gameplay/jeep.c src/gameplay/line2d.c src/gameplay/mech.c src/gameplay/monkeybars.c
   src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c src/gameplay/plane.c src/gameplay/spacefighter.c
-  src/gameplay/submarine.c
+  src/gameplay/steadycam.c src/gameplay/submarine.c
   src/gameplay/terrain.c src/gameplay/title.c src/gameplay/vehicle.c
   src/platform/highheap.c
   src/shim/cdvd.c
