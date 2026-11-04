@@ -755,11 +755,12 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_run_hz = settings.hz;
     }
     char aspect_name[32];
-    SDL_Log("settings: %d Hz, hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s",
+    SDL_Log("settings: %d Hz, hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s, "
+            "boss health %s",
             nw_run_hz, settings.hardware_speed ? "on" : "off",
             nw_settings_aspect_name(settings.aspect, aspect_name, sizeof(aspect_name)),
             settings.interpolation ? "on" : "off", nw_movement_profiles[nw_movement_profile(&settings.movement)],
-            settings.air_indicator ? "on" : "off");
+            settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off");
     int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
         return code;
@@ -773,10 +774,12 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     } else {
         nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title,
                                        .movement = settings.movement,
-                                       .air_indicator = settings.air_indicator });
+                                       .air_indicator = settings.air_indicator,
+                                       .boss_health = settings.boss_health });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_toggle("Game", "Air indicator", &settings.air_indicator);
+    nw_debug_toggle("Game", "Boss health", &settings.boss_health);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
@@ -819,9 +822,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             nw_audio_set_buses(settings.master_volume, settings.voice_volume);
             nw_input_set_controls(&settings.controls);
             if (!nw_pad_script && (SDL_memcmp(&settings.movement, &applied.movement, sizeof(settings.movement)) != 0 ||
-                                   settings.air_indicator != applied.air_indicator)) {
+                                   settings.air_indicator != applied.air_indicator ||
+                                   settings.boss_health != applied.boss_health)) {
                 nw_profile_request(&(NwProfile){ .movement = settings.movement,
-                                                 .air_indicator = settings.air_indicator });
+                                                 .air_indicator = settings.air_indicator,
+                                                 .boss_health = settings.boss_health });
             }
             nw_video_apply(&settings, &applied);
             applied = settings;

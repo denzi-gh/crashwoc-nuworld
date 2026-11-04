@@ -226,6 +226,8 @@ static const NwSettingKey nw_settings_keys[] = {
               "from the next start" },
     { .table = "game", .name = "air_indicator", .kind = NW_SETTING_BOOL, NW_FIELD(air_indicator),
       .help = "true shows a ring on the floor under Crash while he is in the air, where he lands" },
+    { .table = "game", .name = "boss_health", .kind = NW_SETTING_BOOL, NW_FIELD(boss_health),
+      .help = "true splits the boss bar into the boss's phases" },
     { .table = "game", .sub = "movement", .name = "monkey_bar_speed", .kind = NW_SETTING_INT,
       NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
       .help = "N. Hanced Movement: Crash's speed on the monkey bars, 100-500 percent of the PS2's; 350 is N. Hanced's" },
@@ -263,6 +265,7 @@ void nw_settings_defaults(NwSettings *s)
     s->unused_title = true;
     s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     s->air_indicator = true;
+    s->boss_health = true;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;
