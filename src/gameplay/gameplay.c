@@ -6,6 +6,7 @@
 
 #include "gameplay/air.h"
 #include "gameplay/ground.h"
+#include "gameplay/jeep.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/title.h"
 #include "port/game.h"
@@ -20,13 +21,20 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
     static const NwMovement nhanced = NW_MOVEMENT_NHANCED;
     const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
+    const NwJeepMovement *jc = &m->jeep, *jn = &nhanced.jeep;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
-    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+#define NW_JEEP_SET(f, ...) || jc->f
+#define NW_JEEP_SAME(f, ...) &&jc->f == jn->f
+    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                      NW_JEEP_MOVEMENT(NW_JEEP_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
-                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME));
+                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
+                         NW_JEEP_MOVEMENT(NW_JEEP_SAME, NW_JEEP_SAME, NW_JEEP_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
+#undef NW_JEEP_SET
+#undef NW_JEEP_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
@@ -36,6 +44,7 @@ void nw_profile_apply(const NwProfile *p)
     nw_monkey_bars_apply();
     nw_air_apply();
     nw_ground_apply();
+    nw_jeep_apply();
 }
 
 void nw_profile_request(const NwProfile *p)
@@ -59,6 +68,7 @@ static void nw_profile_poll(void)
         nw_monkey_bars_apply();
         nw_air_apply();
         nw_ground_apply();
+        nw_jeep_apply();
     }
 }
 

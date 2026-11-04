@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "game/creature.h"
@@ -35,7 +36,17 @@ extern NwTerI *TerI;
 extern struct rail_s Rail[];
 extern struct obj_s *pObj[64];
 extern s32 GAMEOBJECTCOUNT;
+extern s32 Level;
+extern s32 vtog_blend;
+extern RailPosition *best_cRPos;
+extern f32 SMOKEYSPEED;
+extern f32 SMOKEYBOOSTSPEED;
+extern f32 OFFROADERSEEK;
+extern f32 OFFROADERSPEEDTIME;
+extern struct MoveInfo OffRoaderMoveInfo;
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
+u16 SeekRot(u16 a, u16 b, s32 shift);
+u16 SeekRot__retail(u16 a, u16 b, s32 shift);
 
 static int failures;
 
@@ -795,6 +806,175 @@ static void hazard_hitboxes(void)
     GAMEOBJECTCOUNT = 0;
 }
 
+/* Retail with one of the jeep's switches on, its values at N. Hanced's. */
+static NwProfile jeep_only(size_t offset)
+{
+    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
+    *(bool *)((char *)&p.movement.jeep + offset) = true;
+    return p;
+}
+
+#define JEEP_ONLY(f) jeep_only(offsetof(NwJeepMovement, f))
+
+static RailPosition jeep_rail;
+
+/* Retail's off-roader data at hz, then p; Crash driving it on a rail at 0x4000. */
+static void jeep_at(int hz, const NwProfile *p, int level)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(&(NwProfile){ 0 });
+    SMOKEYSPEED = 8.0f;
+    SMOKEYBOOSTSPEED = 12.0f;
+    OFFROADERSEEK = 0.02f;
+    OFFROADERSPEEDTIME = 2.0f;
+    OffRoaderMoveInfo.RUNSPEED = NW_HZ(0.12f, 0.10000001f);
+    OffRoaderMoveInfo.SPRINTSPEED = NW_HZ(0.17999999f, 0.15f);
+    nw_profile_apply(p);
+    memset(&Character[0], 0, sizeof(Character[0]));
+    Character[0].obj.vehicle = 0x99;
+    VEHICLECONTROL = 1;
+    Level = level;
+    vtog_blend = 0;
+    jeep_rail = (RailPosition){ .angle = 0x4000, .mode = 1 };
+    best_cRPos = &jeep_rail;
+}
+
+/* MovePlayer's turn toward the rail plus off. */
+static u16 jeep_turn(u16 hdg, s32 off, s32 shift)
+{
+    Character[0].obj.hdg = hdg;
+    Character[0].obj.thdg = (u16)(jeep_rail.angle + off);
+    return SeekRot(hdg, Character[0].obj.thdg, shift);
+}
+
+/* The turn and its target as retail's. */
+static bool jeep_turn_retail(u16 hdg, s32 off, s32 shift)
+{
+    u16 target = (u16)(jeep_rail.angle + off);
+    return jeep_turn(hdg, off, shift) == SeekRot__retail(hdg, target, shift) && Character[0].obj.thdg == target;
+}
+
+static void jeep_steer(void)
+{
+    NwProfile retail = { 0 }, on = JEEP_ONLY(steering);
+    static const s32 offs[] = { 0x2AAB, -0x2AAB, 0x1000, -0x1000, 0x123, -1, 0 };
+    static const u16 hdgs[] = { 0x4000, 0x3000, 0x5555, 0xFFF0, 0x0010 };
+    jeep_at(50, &retail, 3);
+    CHECK(jeep_turn(0x4000, 0x2000, 5) == 0x4100 && Character[0].obj.thdg == 0x6000);
+    for (size_t h = 0; h < sizeof(hdgs) / sizeof(hdgs[0]); h++) {
+        for (size_t o = 0; o < sizeof(offs) / sizeof(offs[0]); o++) {
+            jeep_at(50, &retail, 3);
+            CHECK(jeep_turn_retail(hdgs[h], offs[o], 5));
+            jeep_at(60, &retail, 8);
+            CHECK(jeep_turn_retail(hdgs[h], offs[o], 3));
+        }
+    }
+    /* 100% at 50 Hz is retail */
+    on.movement.jeep.steer_response = on.movement.jeep.steer_angle = 100;
+    for (size_t h = 0; h < sizeof(hdgs) / sizeof(hdgs[0]); h++) {
+        for (size_t o = 0; o < sizeof(offs) / sizeof(offs[0]); o++) {
+            jeep_at(50, &on, 3);
+            CHECK(jeep_turn_retail(hdgs[h], offs[o], 5));
+            jeep_at(50, &on, 8);
+            CHECK(jeep_turn_retail(hdgs[h], offs[o], 3));
+        }
+    }
+    /* 200% */
+    on = JEEP_ONLY(steering);
+    jeep_at(50, &on, 8);
+    CHECK(abs((s16)(jeep_turn(0x4000, 0x1000, 3) - (0x4000 + 960))) <= 1); /* 0x1000 * (1 - (7/8)^2) */
+    jeep_at(50, &on, 3);
+    CHECK(abs((s16)(jeep_turn(0x4000, 0x2000, 5) - (0x4000 + 504))) <= 1); /* 0x2000 * (1 - (31/32)^2) */
+    CHECK(abs((s16)(jeep_turn(0x4000, -0x2000, 5) - (0x4000 - 504))) <= 1);
+    /* 60 Hz */
+    on.movement.jeep.steer_response = 100;
+    jeep_at(60, &on, 8);
+    u16 hdg = 0x4000 + 0x1000;
+    for (int i = 0; i < 60; i++) {
+        hdg = jeep_turn(hdg, 0, 3);
+    }
+    float left = (float)(hdg - 0x4000) / 0x1000;
+    CHECK(fabsf(left - powf(7.0f / 8.0f, 50.0f)) < 0.01f);
+    /* angle */
+    on.movement.jeep.steer_angle = 50;
+    jeep_at(50, &on, 8);
+    jeep_turn(0x4000, 0x1000, 3);
+    CHECK(Character[0].obj.thdg == 0x4800);
+    jeep_turn(0x4000, -0x1000, 3);
+    CHECK(Character[0].obj.thdg == 0x3800);
+    on.movement.jeep.steer_angle = 150;
+    jeep_at(50, &on, 3);
+    jeep_turn(0x4000, 0x2AAB, 5);
+    CHECK(Character[0].obj.thdg == 0x4000 + 0x3FFF);
+    jeep_turn(0x4000, 0, 5);
+    CHECK(Character[0].obj.thdg == 0x4000);
+    /* other SeekRots */
+    jeep_at(50, &on, 8);
+    CHECK(jeep_turn_retail(0x4000, 0x1000, 2) && jeep_turn_retail(0x4000, 0x1000, 5));
+    Character[0].obj.hdg = 0x4000;
+    Character[0].obj.thdg = 0x5000;
+    CHECK(SeekRot(0x3000, 0x5000, 3) == SeekRot__retail(0x3000, 0x5000, 3) && Character[0].obj.thdg == 0x5000);
+    CHECK(SeekRot(0x4000, 0x4800, 3) == SeekRot__retail(0x4000, 0x4800, 3) && Character[0].obj.thdg == 0x5000);
+    vtog_blend = 1;
+    CHECK(jeep_turn_retail(0x4000, 0x1000, 3));
+    vtog_blend = 0;
+    best_cRPos = NULL;
+    CHECK(jeep_turn_retail(0x4000, 0x1000, 3));
+    best_cRPos = &jeep_rail;
+    VEHICLECONTROL = 0;
+    CHECK(jeep_turn_retail(0x4000, 0x1000, 3));
+    VEHICLECONTROL = 1;
+    Character[0].obj.vehicle = -1;
+    CHECK(jeep_turn_retail(0x4000, 0x1000, 3));
+    best_cRPos = NULL;
+    Level = 35;
+}
+
+static void jeep_speed(void)
+{
+    NwProfile retail = { 0 }, on = JEEP_ONLY(speed);
+    jeep_at(50, &on, 3);
+    CHECK(SMOKEYSPEED == 8.0f * 1.5f && SMOKEYBOOSTSPEED == 12.0f * 1.5f);
+    CHECK(OFFROADERSPEEDTIME == 2.0f * (1.1f / 1.5f));
+    CHECK(near(SMOKEYSPEED * OFFROADERSPEEDTIME, 8.0f * 2.0f * 1.1f, 1e-6f));
+    CHECK(near(SMOKEYBOOSTSPEED * OFFROADERSPEEDTIME, 12.0f * 2.0f * 1.1f, 1e-6f));
+    CHECK(OffRoaderMoveInfo.RUNSPEED == 0.12f * 1.1f && OffRoaderMoveInfo.SPRINTSPEED == 0.17999999f * 1.1f);
+    jeep_at(60, &on, 8);
+    CHECK(OffRoaderMoveInfo.RUNSPEED == 0.10000001f * 1.1f && OffRoaderMoveInfo.SPRINTSPEED == 0.15f * 1.1f);
+    CHECK(SMOKEYSPEED == 8.0f * 1.5f && OFFROADERSPEEDTIME == 2.0f * (1.1f / 1.5f));
+    on.movement.jeep.speed_top = 150;
+    on.movement.jeep.speed_accel = 100;
+    nw_profile_apply(&on);
+    CHECK(SMOKEYSPEED == 8.0f && OFFROADERSPEEDTIME == 2.0f * 1.5f && OffRoaderMoveInfo.RUNSPEED == 0.10000001f * 1.5f);
+    jeep_at(50, &retail, 3);
+    CHECK(SMOKEYSPEED == 8.0f && SMOKEYBOOSTSPEED == 12.0f && OFFROADERSPEEDTIME == 2.0f);
+    CHECK(OffRoaderMoveInfo.RUNSPEED == 0.12f && OffRoaderMoveInfo.SPRINTSPEED == 0.17999999f);
+    /* A value someone else wrote stays. */
+    SMOKEYSPEED = 5.0f;
+    OffRoaderMoveInfo.RUNSPEED = 0.2f;
+    nw_profile_apply(&on);
+    CHECK(SMOKEYSPEED == 5.0f && OffRoaderMoveInfo.RUNSPEED == 0.2f && OFFROADERSPEEDTIME == 2.0f * 1.5f);
+    nw_profile_apply(&retail);
+    CHECK(SMOKEYSPEED == 5.0f && OffRoaderMoveInfo.RUNSPEED == 0.2f && OFFROADERSPEEDTIME == 2.0f);
+    jeep_at(50, &retail, 35);
+}
+
+static void jeep_grip(void)
+{
+    NwProfile retail = { 0 }, on = JEEP_ONLY(grip);
+    jeep_at(50, &on, 3);
+    CHECK(OFFROADERSEEK == 0.02f * 3.0f && SMOKEYSPEED == 8.0f && OffRoaderMoveInfo.RUNSPEED == 0.12f);
+    on.movement.jeep.grip_speed = 1000;
+    nw_profile_apply(&on);
+    CHECK(OFFROADERSEEK == 0.02f * 10.0f);
+    nw_profile_apply(&retail);
+    CHECK(OFFROADERSEEK == 0.02f);
+    OFFROADERSEEK = 0.05f;
+    nw_profile_apply(&on);
+    CHECK(OFFROADERSEEK == 0.05f);
+    jeep_at(50, &retail, 35);
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -814,6 +994,9 @@ int main(void)
     line_2d();
     hazard_hitboxes();
     air_jump();
+    jeep_steer();
+    jeep_speed();
+    jeep_grip();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -827,6 +1010,16 @@ int main(void)
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.jeep.steer_response = 400;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.jeep.grip_speed = 500;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.jeep.steering = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .jeep = { .speed = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
