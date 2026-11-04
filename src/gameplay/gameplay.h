@@ -91,12 +91,28 @@ typedef struct NwSubMovement {
     NW_SUB_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwSubMovement;
 
+/* The jeep's options ([game.movement.jeep]), the same scheme. */
+#define NW_JEEP_MOVEMENT(SW, FLAG, VAL) \
+    SW(steering, "Sharper steering", "it turns in quicker, the same at 60 Hz as at 50") \
+    VAL(steer_response, "Steering response %", 200, 100, 400, "how fast it turns where the stick points") \
+    VAL(steer_angle, "Steering angle %", 100, 50, 150, "how far it turns off the track, percent of the PS2's") \
+    SW(grip, "Grip", "less drift at speed in Smokey and the Bandicoot") \
+    VAL(grip_speed, "Grip at speed %", 300, 100, 1000, "percent of the PS2's") \
+    SW(speed, "Faster jeep", "a higher top speed, reached sooner") \
+    VAL(speed_top, "Top speed %", 110, 100, 150, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 150, 100, 300, "Smokey and the Bandicoot's run-up, percent of the PS2's")
+
+typedef struct NwJeepMovement {
+    NW_JEEP_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwJeepMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
     NwCrashMovement crash;
     NwMechMovement mech;
     NwSubMovement submarine;
+    NwJeepMovement jeep;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
@@ -105,11 +121,13 @@ typedef struct NwMovement {
 #define NW_MOVEMENT_RETAIL \
     { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
     { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {

@@ -203,6 +203,11 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
 #define NW_SUB_FLAG_KEY(f, label, def, text) { NW_SUB_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_SUB_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_SUB_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_JEEP_KEY(f) .table = "game", .sub = "movement", .sub2 = "jeep", .name = #f, NW_FIELD(movement.jeep.f)
+#define NW_JEEP_SWITCH_KEY(f, label, text) { NW_JEEP_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_JEEP_FLAG_KEY(f, label, def, text) { NW_JEEP_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_JEEP_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_JEEP_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 
 static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
@@ -245,6 +250,7 @@ static const NwSettingKey nw_settings_keys[] = {
     NW_CRASH_MOVEMENT(NW_CRASH_SWITCH_KEY, NW_CRASH_FLAG_KEY, NW_CRASH_VALUE_KEY)
     NW_MECH_MOVEMENT(NW_MECH_SWITCH_KEY, NW_MECH_FLAG_KEY, NW_MECH_VALUE_KEY)
     NW_SUB_MOVEMENT(NW_SUB_SWITCH_KEY, NW_SUB_FLAG_KEY, NW_SUB_VALUE_KEY)
+    NW_JEEP_MOVEMENT(NW_JEEP_SWITCH_KEY, NW_JEEP_FLAG_KEY, NW_JEEP_VALUE_KEY)
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -426,7 +432,7 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     /* A file from before the vehicles' options that chose the PS2's movement keeps it. */
     const char *crash[] = { "game", "movement", "crash" }, *mech[] = { "game", "movement", "mech" };
-    const char *submarine[] = { "game", "movement", "submarine" };
+    const char *submarine[] = { "game", "movement", "submarine" }, *jeep[] = { "game", "movement", "jeep" };
     if (s->movement.monkey_bar_speed <= 100 && !nw_doc_table(&doc, crash, 3)) {
         s->movement.crash = ((NwMovement)NW_MOVEMENT_RETAIL).crash;
     }
@@ -439,6 +445,9 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     if (retail && !nw_doc_table(&doc, submarine, 3)) {
         s->movement.submarine = ((NwMovement)NW_MOVEMENT_RETAIL).submarine;
+    }
+    if (retail && !nw_doc_table(&doc, jeep, 3)) {
+        s->movement.jeep = ((NwMovement)NW_MOVEMENT_RETAIL).jeep;
     }
     nw_doc_free(&doc);
     return got > 0;

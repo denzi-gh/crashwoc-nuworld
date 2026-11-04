@@ -6,6 +6,7 @@
 
 #include "gameplay/air.h"
 #include "gameplay/ground.h"
+#include "gameplay/jeep.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/submarine.h"
 #include "gameplay/title.h"
@@ -23,25 +24,32 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
     const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
     const NwMechMovement *mc = &m->mech, *mn = &nhanced.mech;
     const NwSubMovement *sc = &m->submarine, *sn = &nhanced.submarine;
+    const NwJeepMovement *jc = &m->jeep, *jn = &nhanced.jeep;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
 #define NW_MECH_SET(f, ...) || mc->f
 #define NW_MECH_SAME(f, ...) &&mc->f == mn->f
 #define NW_SUB_SET(f, ...) || sc->f
 #define NW_SUB_SAME(f, ...) &&sc->f == sn->f
+#define NW_JEEP_SET(f, ...) || jc->f
+#define NW_JEEP_SAME(f, ...) &&jc->f == jn->f
     bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
                                                       NW_MECH_MOVEMENT(NW_MECH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
-                                                          NW_SUB_MOVEMENT(NW_SUB_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+                                                          NW_SUB_MOVEMENT(NW_SUB_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                              NW_JEEP_MOVEMENT(NW_JEEP_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
                     (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
                          NW_MECH_MOVEMENT(NW_MECH_SAME, NW_MECH_SAME, NW_MECH_SAME)
-                             NW_SUB_MOVEMENT(NW_SUB_SAME, NW_SUB_SAME, NW_SUB_SAME));
+                             NW_SUB_MOVEMENT(NW_SUB_SAME, NW_SUB_SAME, NW_SUB_SAME)
+                                 NW_JEEP_MOVEMENT(NW_JEEP_SAME, NW_JEEP_SAME, NW_JEEP_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
 #undef NW_MECH_SET
 #undef NW_MECH_SAME
 #undef NW_SUB_SET
 #undef NW_SUB_SAME
+#undef NW_JEEP_SET
+#undef NW_JEEP_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
@@ -52,6 +60,7 @@ void nw_profile_apply(const NwProfile *p)
     nw_air_apply();
     nw_ground_apply();
     nw_sub_apply();
+    nw_jeep_apply();
 }
 
 void nw_profile_request(const NwProfile *p)
@@ -78,6 +87,7 @@ static void nw_profile_poll(void)
         nw_air_apply();
         nw_ground_apply();
         nw_sub_apply();
+        nw_jeep_apply();
     }
 }
 

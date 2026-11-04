@@ -104,6 +104,10 @@ static void movement_value(const char *table, const char *key, size_t offset, in
 #define SUB_SWITCH(f, ...) movement_switch("submarine", #f, offsetof(NwSettings, movement.submarine.f), true);
 #define SUB_VALUE(f, label, def, lo, hi, ...) \
     movement_value("submarine", #f, offsetof(NwSettings, movement.submarine.f), def, lo, hi);
+#define JEEP_SWITCH(f, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), true);
+#define JEEP_FLAG(f, label, def, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), def);
+#define JEEP_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("jeep", #f, offsetof(NwSettings, movement.jeep.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -234,6 +238,15 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
           s.movement.submarine.hitbox && !s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.submarine.turning);
+    NW_JEEP_MOVEMENT(JEEP_SWITCH, JEEP_FLAG, JEEP_VALUE)
+    /* The same for the jeep's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.jeep.steering &&
+          !s.movement.jeep.speed && s.movement.jeep.steer_response == 200);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.jeep.steering);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
+          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.jeep.steering);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

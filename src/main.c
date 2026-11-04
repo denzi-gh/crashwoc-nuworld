@@ -742,6 +742,18 @@ static void nw_boot_submarine(void *user)
     }
 }
 
+static void nw_boot_jeep(void *user)
+{
+    NwSettings *s = user;
+    NwJeepMovement *c = &s->movement.jeep;
+
+    nw_boot_profile(s);
+    NW_JEEP_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
 #undef NW_BOOT_SWITCH_ITEM
 #undef NW_BOOT_FLAG_ITEM
 #undef NW_BOOT_VALUE_ITEM
@@ -826,6 +838,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Jeep", SDL_SCANCODE_F5, nw_boot_jeep, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
