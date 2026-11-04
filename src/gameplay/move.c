@@ -3,7 +3,9 @@
 #include "game/move.retail.h"
 #include "gameplay/air.h"
 #include "gameplay/ground.h"
+#include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/submarine.h"
 
 void MoveCRASH(struct creature_s *plr, struct nupad_s *pad)
 {
@@ -14,9 +16,24 @@ void MoveCRASH(struct creature_s *plr, struct nupad_s *pad)
     nw_ground_after(plr);
 }
 
+void MoveMECH(struct creature_s *plr, struct nupad_s *pad)
+{
+    nw_mech_before(plr, pad);
+    MoveMECH__retail(plr, pad);
+    nw_mech_after(plr, pad);
+}
+
 void AnimateCRASH(struct creature_s *plr)
 {
     AnimateCRASH__retail(plr);
     nw_monkey_bars_animate(plr);
     nw_ground_animate(plr);
+}
+
+void MoveSUBMARINE(struct creature_s *plr, struct nupad_s *pad)
+{
+    nw_sub_turn(plr);
+    nw_sub_fire_before(plr);
+    MoveSUBMARINE__retail(plr, pad);
+    nw_sub_fire_after(plr);
 }

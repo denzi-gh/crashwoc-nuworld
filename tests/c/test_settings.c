@@ -49,50 +49,70 @@ static char *file_text(void)
     return SDL_LoadFile(path, NULL);
 }
 
-/* key = value through settings.toml and back; s holds it after. */
-static void crash_key(const char *key, NwSettings *s, const char *value)
+/* [game.movement.<table>] key = value through settings.toml and back; s holds it after. */
+static void movement_key(const char *table, const char *key, NwSettings *s, const char *value)
 {
     char text[128], *file = NULL;
-    SDL_snprintf(text, sizeof(text), "[game.movement.crash]\n%s = %s\n", key, value);
+    SDL_snprintf(text, sizeof(text), "[game.movement.%s]\n%s = %s\n", table, key, value);
     CHECK(read_text(text, s) && nw_settings_save(s, root) && (file = file_text()));
-    SDL_snprintf(text, sizeof(text), "# game.movement.crash.%s: ", key);
-    CHECK(file && SDL_strstr(file, "\n[game.movement.crash]\n") && SDL_strstr(file, text));
+    SDL_snprintf(text, sizeof(text), "\n[game.movement.%s]\n", table);
+    CHECK(file && SDL_strstr(file, text));
+    SDL_snprintf(text, sizeof(text), "# game.movement.%s.%s: ", table, key);
+    CHECK(file && SDL_strstr(file, text));
     SDL_free(file);
     nw_settings_defaults(s);
     CHECK(nw_settings_load(s, root));
 }
 
-static void crash_switch(const char *key, size_t offset, bool def)
+/* offset: the field's in NwSettings. */
+static void movement_switch(const char *table, const char *key, size_t offset, bool def)
 {
     NwSettings s;
-    bool *field = (bool *)((char *)&s.movement.crash + offset);
+    bool *field = (bool *)((char *)&s + offset);
     char text[128];
     nw_settings_defaults(&s);
     CHECK(*field == def);
     SDL_snprintf(text, sizeof(text), "[game.movement]\n%s = %s\n", key, def ? "false" : "true");
     CHECK(read_text(text, &s) && *field == def);
-    crash_key(key, &s, def ? "false" : "true");
+    movement_key(table, key, &s, def ? "false" : "true");
     CHECK(*field == !def);
 }
 
-static void crash_value(const char *key, size_t offset, int def, int lo, int hi)
+static void movement_value(const char *table, const char *key, size_t offset, int def, int lo, int hi)
 {
     NwSettings s;
-    int *field = (int *)((char *)&s.movement.crash + offset);
+    int *field = (int *)((char *)&s + offset);
     char value[16];
     nw_settings_defaults(&s);
     CHECK(*field == def);
     SDL_snprintf(value, sizeof(value), "%d", hi + 100);
-    crash_key(key, &s, value);
+    movement_key(table, key, &s, value);
     CHECK(*field == hi);
     SDL_snprintf(value, sizeof(value), "%d", lo - 100);
-    crash_key(key, &s, value);
+    movement_key(table, key, &s, value);
     CHECK(*field == lo);
 }
 
-#define CRASH_SWITCH(f, ...) crash_switch(#f, offsetof(NwCrashMovement, f), true);
-#define CRASH_FLAG(f, label, def, ...) crash_switch(#f, offsetof(NwCrashMovement, f), def);
-#define CRASH_VALUE(f, label, def, lo, hi, ...) crash_value(#f, offsetof(NwCrashMovement, f), def, lo, hi);
+#define CRASH_SWITCH(f, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), true);
+#define CRASH_FLAG(f, label, def, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), def);
+#define CRASH_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("crash", #f, offsetof(NwSettings, movement.crash.f), def, lo, hi);
+#define MECH_SWITCH(f, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), true);
+#define MECH_FLAG(f, label, def, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), def);
+#define MECH_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("mech", #f, offsetof(NwSettings, movement.mech.f), def, lo, hi);
+#define SUB_SWITCH(f, ...) movement_switch("submarine", #f, offsetof(NwSettings, movement.submarine.f), true);
+#define SUB_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("submarine", #f, offsetof(NwSettings, movement.submarine.f), def, lo, hi);
+#define JEEP_SWITCH(f, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), true);
+#define JEEP_FLAG(f, label, def, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), def);
+#define JEEP_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("jeep", #f, offsetof(NwSettings, movement.jeep.f), def, lo, hi);
+#define ATLAS_SWITCH(f, ...) movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), true);
+#define ATLAS_FLAG(f, label, def, ...) \
+    movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def);
+#define ATLAS_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -180,6 +200,15 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && !s.air_indicator);
     nw_settings_defaults(&s);
+    CHECK(s.boss_health);
+    CHECK(read_text("[game]\nboss_health = false\n", &s) && !s.boss_health);
+    CHECK(nw_settings_save(&s, root));
+    char *boss = file_text();
+    CHECK(boss && SDL_strstr(boss, "\nboss_health = false\n") && SDL_strstr(boss, "# game.boss_health: "));
+    SDL_free(boss);
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && !s.boss_health);
+    nw_settings_defaults(&s);
     CHECK(s.movement.monkey_bar_speed == ((NwMovement)NW_MOVEMENT_NHANCED).monkey_bar_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 900\n", &s) && s.movement.monkey_bar_speed == 500);
@@ -193,12 +222,46 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && s.movement.monkey_bar_speed == 100);
     NW_CRASH_MOVEMENT(CRASH_SWITCH, CRASH_FLAG, CRASH_VALUE)
-    /* A file from before Crash's options that chose the PS2's movement keeps it; one with them keeps theirs. */
+    NW_MECH_MOVEMENT(MECH_SWITCH, MECH_FLAG, MECH_VALUE)
+    /* A file from before Crash's or the mech's options that chose the PS2's movement keeps it; one with them keeps
+       theirs. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.crash.jump_fall &&
           !s.movement.crash.air_jump && s.movement.crash.air_jump_ledge && s.movement.crash.run_top == 120);
+    CHECK(!s.movement.mech.stand_jump && !s.movement.mech.hitbox && s.movement.mech.shot_tap &&
+          s.movement.mech.shot_stop_ms == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.crash.grip && s.movement.crash.jump_fall);
+          s.movement.crash.grip && s.movement.crash.jump_fall && s.movement.mech.stand_jump);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.mech]\naim_fast = true\n", &s) &&
+          !s.movement.crash.jump_fall && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall);
+    NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
+    /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.submarine.turning &&
+          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 125);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.submarine.speed);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
+          s.movement.submarine.hitbox && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.submarine.turning);
+    NW_JEEP_MOVEMENT(JEEP_SWITCH, JEEP_FLAG, JEEP_VALUE)
+    /* The same for the jeep's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.jeep.steering &&
+          !s.movement.jeep.speed && s.movement.jeep.steer_response == 200);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.jeep.steering);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
+          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.jeep.steering);
+    NW_ATLAS_MOVEMENT(ATLAS_SWITCH, ATLAS_FLAG, ATLAS_VALUE)
+    /* The same for the atlasphere's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.atlasphere.brake &&
+          !s.movement.atlasphere.edge_guard && s.movement.atlasphere.guard_push &&
+          s.movement.atlasphere.brake_force == 200);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = false\n", &s) &&
+          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.atlasphere.edge_guard);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

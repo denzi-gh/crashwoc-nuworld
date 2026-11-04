@@ -50,19 +50,104 @@ typedef struct NwCrashMovement {
     NW_CRASH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCrashMovement;
 
+/* The mech's options ([game.movement.mech]), the same scheme. */
+#define NW_MECH_MOVEMENT(SW, FLAG, VAL) \
+    SW(stand_jump, "Running jump from a standstill", "it jumps off at once and steers like a running jump") \
+    SW(shot_stop, "Shorter stop after a shot", "steering or jumping ends the stop after a shot early") \
+    VAL(shot_stop_ms, "Stop ms", 150, 0, 600, "the least it stands after a shot") \
+    FLAG(shot_tap, "Quick tap fires", true, "a short press still fires; the PS2's drops it") \
+    SW(aim_walk, "Walk while aiming", "while aiming the right stick or the d-pad aims and the left stick walks") \
+    VAL(aim_walk_speed, "Walk speed %", 150, 50, 400, "percent of its walk; its run is 444") \
+    SW(aim_fast, "Faster aiming", "the aim follows the stick sooner") \
+    VAL(aim_speed, "Aim speed %", 250, 100, 500, "percent of the PS2's") \
+    SW(aim_assist, "Aim assist", "the aim bends toward the nearest enemy in front") \
+    VAL(assist_cone, "Assist cone deg", 20, 5, 45, "how far off the aim an enemy still pulls it") \
+    VAL(assist_pull, "Assist pull %", 50, 0, 100, "how hard it pulls") \
+    SW(hitbox, "Fitting hitbox", "what can kill it reaches about as far as it is drawn") \
+    VAL(hitbox_size, "Hitbox %", 70, 50, 100, "percent of the PS2's radius")
+
+typedef struct NwMechMovement {
+    NW_MECH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwMechMovement;
+
+/* The submarine's options ([game.movement.submarine]), the same scheme. */
+#define NW_SUB_MOVEMENT(SW, FLAG, VAL) \
+    SW(turning, "Free turning", "any push to the side turns it that way, also mid-turn; no stop facing the screen") \
+    VAL(turn_speed, "Turn speed %", 200, 100, 400, "percent of the PS2's") \
+    VAL(pitch_speed, "Climb and dive turn %", 200, 100, 400, "how fast it noses up and down, percent of the PS2's") \
+    SW(speed, "Faster sub", "a faster sub, quicker to speed and to stop") \
+    VAL(speed_top, "Top speed %", 125, 100, 200, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 200, 100, 400, "percent of the PS2's") \
+    VAL(speed_brake, "Braking %", 200, 100, 400, "percent of the PS2's") \
+    SW(hitbox, "Fitting hitbox", "fish, mines and shots reach about as far as it is drawn") \
+    VAL(hitbox_size, "Hitbox %", 75, 50, 100, "percent of the PS2's; walls, crates and fruit keep the PS2's") \
+    SW(weapons, "Weapon tuning", "the torpedo's and the bomb's reload and speed as set below") \
+    VAL(torpedo_rate, "Torpedo rate % (2/s)", 100, 100, 400, "how often it fires, percent of the PS2's 2 a second") \
+    VAL(torpedo_speed, "Torpedo speed %", 100, 100, 300, "percent of the PS2's; it flies as long, so farther") \
+    VAL(bomb_rate, "Bomb rate % (1/s)", 100, 100, 400, "how often it drops one, percent of the PS2's 1 a second") \
+    VAL(bomb_speed, "Bomb speed %", 100, 100, 300, "how fast it sinks, percent of the PS2's")
+
+typedef struct NwSubMovement {
+    NW_SUB_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwSubMovement;
+
+/* The jeep's options ([game.movement.jeep]), the same scheme. */
+#define NW_JEEP_MOVEMENT(SW, FLAG, VAL) \
+    SW(steering, "Sharper steering", "it turns in quicker, the same at 60 Hz as at 50") \
+    VAL(steer_response, "Steering response %", 200, 100, 400, "how fast it turns where the stick points") \
+    VAL(steer_angle, "Steering angle %", 100, 50, 150, "how far it turns off the track, percent of the PS2's") \
+    SW(grip, "Grip", "less drift at speed in Smokey and the Bandicoot") \
+    VAL(grip_speed, "Grip at speed %", 300, 100, 1000, "percent of the PS2's") \
+    SW(speed, "Faster jeep", "a higher top speed, reached sooner") \
+    VAL(speed_top, "Top speed %", 110, 100, 150, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 150, 100, 300, "Smokey and the Bandicoot's run-up, percent of the PS2's")
+
+typedef struct NwJeepMovement {
+    NW_JEEP_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwJeepMovement;
+
+/* The atlasphere's options ([game.movement.atlasphere]), the same scheme. None touches acceleration or coasting. */
+#define NW_ATLAS_MOVEMENT(SW, FLAG, VAL) \
+    SW(steer, "Sharper steering", "the ball turns tighter toward the stick and keeps its speed through the turn") \
+    VAL(steer_turn, "Turn sharpness %", 200, 100, 400, "percent of the PS2's push across the roll") \
+    SW(brake, "Faster braking", "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
+    VAL(brake_force, "Braking %", 200, 100, 400, "percent of the PS2's push against the roll") \
+    VAL(coast_brake, "Let-go braking %", 0, 0, 100, "with the stick let go it slows too, percent of the PS2's push") \
+    SW(edge_guard, "Edge guard", "rolling slowly at a pit, the ball stops at its edge") \
+    VAL(guard_reach, "Look-ahead ms", 300, 100, 600, "how far ahead it looks for a pit, as time at its speed") \
+    VAL(guard_speed, "Up to speed", 6, 2, 13, "units a second it still stops from; its top is 11, a boost 13") \
+    VAL(guard_brake, "Edge braking %", 300, 100, 500, "percent of the PS2's push") \
+    FLAG(guard_push, "Push to roll in", true, "pushing the stick at the pit rolls in as on the PS2")
+
+typedef struct NwAtlasMovement {
+    NW_ATLAS_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwAtlasMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
     NwCrashMovement crash;
+    NwMechMovement mech;
+    NwSubMovement submarine;
+    NwJeepMovement jeep;
+    NwAtlasMovement atlasphere;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
 #define NW_CRASH_ON(f, ...) .f = true,
 #define NW_CRASH_DEFAULT(f, label, def, ...) .f = def,
 #define NW_MOVEMENT_RETAIL \
-    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
-    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {
@@ -77,13 +162,15 @@ typedef struct NwProfile {
     bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
     NwMovement movement;
     bool air_indicator; /* a ring on the floor under Crash while he is in the air */
+    bool boss_health;   /* phase lines on the boss bar */
+    bool hitboxes;      /* the debug menu's view of every collision shape, not saved */
 } NwProfile;
 
 extern NwProfile nw_profile;
 
 /* The windowed boot, before the game thread starts. */
 void nw_profile_apply(const NwProfile *p);
-/* Asks the game thread for p's movement and air indicator at its next swap */
+/* Asks the game thread for p's movement, air indicator and boss health at its next swap */
 void nw_profile_request(const NwProfile *p);
 
 /* Marks where a feature changes the game; reached with its NwProfile switch off (every retail run), the game stops. */

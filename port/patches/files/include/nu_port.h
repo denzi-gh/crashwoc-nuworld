@@ -131,9 +131,11 @@ float nw_ee_fdiv(float a, float b);
  * NW_WIDE_PVS draws an instance the PVS hid when the wider view needs it; NW_WIDE_ANIM does the same for its animation
  * except where that carries collision; NW_WIDE_SEEN narrows a draw result to retail's 4:3 frustum for logic;
  * nw_wide_vp moves the viewport origin for the pause shrink (paused 0-25) to retail's 4:3 area, nw_wide_vp_x is its
- * offset from the frame's left edge in 1/16 pixels. */
+ * offset from the frame's left edge in 1/16 pixels; NW_WIDE_HUD gives a HUD model past retail's 4:3 picture the
+ * perspective it has at the picture's edge. */
 #ifdef NW_HOST
 struct nuinstance_s;
+struct numtx_s;
 struct nw_wide_s {
     float k;       /* view width over retail's 4:3 width */
     float aspect;  /* h/w */
@@ -149,12 +151,14 @@ void nw_wide_mark(void);
 int nw_wide_seen(int drawn);
 void nw_wide_vp(int paused);
 int nw_wide_vp_x(void);
+void nw_wide_hud(struct numtx_s *m);
 #define NW_WIDE(ps2, host) (host)
 #define NW_WIDE_SCALE(x, f) ((x) * (f))
 #define NW_WIDE_ONLY(stmt) stmt
 #define NW_WIDE_PVS(test) ((test) || nw_wide.pvs_all)
 #define NW_WIDE_ANIM(inst, test) nw_wide_anim(inst, test)
 #define NW_WIDE_SEEN(drawn) (nw_wide_mark(), nw_wide_seen(drawn))
+#define NW_WIDE_HUD(m) nw_wide_hud(m)
 #else
 #define NW_WIDE(ps2, host) (ps2)
 #define NW_WIDE_SCALE(x, f) (x)
@@ -162,6 +166,7 @@ int nw_wide_vp_x(void);
 #define NW_WIDE_PVS(test) (test)
 #define NW_WIDE_ANIM(inst, test) (test)
 #define NW_WIDE_SEEN(drawn) (drawn)
+#define NW_WIDE_HUD(m)
 #endif
 
 /* Display-rate interpolation (NuWorld's src/gfx/interp.c): NW_INTERP_KEY names the object the following draws belong
