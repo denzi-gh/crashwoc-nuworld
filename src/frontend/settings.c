@@ -192,6 +192,11 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
 #define NW_CRASH_FLAG_KEY(f, label, def, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_CRASH_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_CRASH_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_COCO_KEY(f) .table = "game", .sub = "movement", .sub2 = "coco", .name = #f, NW_FIELD(movement.coco.f)
+#define NW_COCO_SWITCH_KEY(f, label, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_COCO_FLAG_KEY(f, label, def, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_COCO_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_COCO_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_MECH_KEY(f) .table = "game", .sub = "movement", .sub2 = "mech", .name = #f, NW_FIELD(movement.mech.f)
 #define NW_MECH_SWITCH_KEY(f, label, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_MECH_FLAG_KEY(f, label, def, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
@@ -254,6 +259,7 @@ static const NwSettingKey nw_settings_keys[] = {
       NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
       .help = "N. Hanced Movement: Crash's speed on the monkey bars, 100-500 percent of the PS2's; 350 is N. Hanced's" },
     NW_CRASH_MOVEMENT(NW_CRASH_SWITCH_KEY, NW_CRASH_FLAG_KEY, NW_CRASH_VALUE_KEY)
+    NW_COCO_MOVEMENT(NW_COCO_SWITCH_KEY, NW_COCO_FLAG_KEY, NW_COCO_VALUE_KEY)
     NW_MECH_MOVEMENT(NW_MECH_SWITCH_KEY, NW_MECH_FLAG_KEY, NW_MECH_VALUE_KEY)
     NW_SUB_MOVEMENT(NW_SUB_SWITCH_KEY, NW_SUB_FLAG_KEY, NW_SUB_VALUE_KEY)
     NW_JEEP_MOVEMENT(NW_JEEP_SWITCH_KEY, NW_JEEP_FLAG_KEY, NW_JEEP_VALUE_KEY)
@@ -439,6 +445,7 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     /* A file from before the vehicles' options that chose the PS2's movement keeps it. */
     const char *crash[] = { "game", "movement", "crash" }, *mech[] = { "game", "movement", "mech" };
+    const char *coco[] = { "game", "movement", "coco" };
     const char *submarine[] = { "game", "movement", "submarine" }, *jeep[] = { "game", "movement", "jeep" };
     const char *atlasphere[] = { "game", "movement", "atlasphere" };
     if (s->movement.monkey_bar_speed <= 100 && !nw_doc_table(&doc, crash, 3)) {
@@ -448,6 +455,9 @@ bool nw_settings_load(NwSettings *s, const char *root)
     bool retail =
         s->movement.monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
 #undef NW_CRASH_SET
+    if (retail && !nw_doc_table(&doc, coco, 3)) {
+        s->movement.coco = ((NwMovement)NW_MOVEMENT_RETAIL).coco;
+    }
     if (retail && !nw_doc_table(&doc, mech, 3)) {
         s->movement.mech = ((NwMovement)NW_MOVEMENT_RETAIL).mech;
     }

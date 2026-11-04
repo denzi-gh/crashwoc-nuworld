@@ -251,12 +251,13 @@ static NwProfile only(size_t offset)
 }
 
 #define ONLY(f) only(offsetof(NwMovement, crash.f))
+#define COCO_ONLY(f) only(offsetof(NwMovement, coco.f))
 #define MECH_ONLY(f) only(offsetof(NwMovement, mech.f))
 #define SUB_ONLY(f) only(offsetof(NwMovement, submarine.f))
 #define JEEP_ONLY(f) only(offsetof(NwMovement, jeep.f))
 #define ATLAS_ONLY(f) only(offsetof(NwMovement, atlasphere.f))
 
-/* Retail's Crash data and globals at hz, then p. */
+/* Retail's Crash and Coco data and globals at hz, then p. */
 static void crash_at(int hz, const NwProfile *p)
 {
     nw_hz_set(hz);
@@ -266,11 +267,21 @@ static void crash_at(int hz, const NwProfile *p)
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
     CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
     CrashMoveInfo.SLIDESPEED = NW_HZ(0.096f, 0.080000006f);
+    CocoMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
+    CocoMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CocoMoveInfo.RUNSPEED = NW_HZ(0.06f, 0.050000004f);
+    CocoMoveInfo.SPRINTSPEED = NW_HZ(0.089999996f, 0.075f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
     VEHICLECONTROL = 0;
     nw_profile_apply(p);
     memset(&Character[0], 0, sizeof(Character[0]));
     Character[0].obj.vehicle = -1;
+}
+
+static void coco_at(int hz, const NwProfile *p)
+{
+    crash_at(hz, p);
+    Character[0].obj.character = 1;
 }
 
 /* pull: the largest change of vertical speed in a frame after take-off, units a second squared. */
@@ -279,12 +290,19 @@ typedef struct Arc {
 } Arc;
 
 static struct nupad_s pad;
+static short jump_character; /* who jump() takes off, Crash or Coco */
+static signed char jump_type = 1;
 
-/* MoveCRASH's jump steps. */
+static struct MoveInfo *jump_info(void)
+{
+    return jump_character ? &CocoMoveInfo : &CrashMoveInfo;
+}
+
+/* MoveCRASH's and MoveCOCO's jump steps. */
 static void retail_jump(struct creature_s *c, bool held)
 {
     if (c->jump && c->jump_frame < c->jump_frames) {
-        c->obj.mom.y = CrashMoveInfo.JUMPHEIGHT / CrashMoveInfo.JUMPFRAMES2;
+        c->obj.mom.y = jump_info()->JUMPHEIGHT / jump_info()->JUMPFRAMES2;
     }
     if (!c->obj.ground) {
         c->obj.mom.y += GRAVITY;
@@ -292,7 +310,7 @@ static void retail_jump(struct creature_s *c, bool held)
     if (c->jump && c->jump_frame < c->jump_frames) {
         c->jump_frame++;
     }
-    if (c->jump == 1 && held && c->jump_frames < CrashMoveInfo.JUMPFRAMES2) {
+    if (c->jump == 1 && held && c->jump_frames < jump_info()->JUMPFRAMES2) {
         c->jump_frames++;
     } else if (c->jump == 1 && !held) {
         c->jump = 3;
@@ -304,15 +322,16 @@ static Arc jump(int hz, const NwProfile *p, int hold)
 {
     crash_at(hz, p);
     struct creature_s *c = &Character[0];
-    float run = CrashMoveInfo.RUNSPEED, friction = NW_HZ(0.0072f, 0.005f), dt = 1.0f / hz;
+    c->obj.character = jump_character;
+    float run = jump_info()->RUNSPEED, friction = NW_HZ(0.0072f, 0.005f), dt = 1.0f / hz;
     c->obj.mom.z = run;
     GameTimer.frame++;
     pad.paddata = pad.paddata_db = 0x40;
     c->obj.ground = 1;
     nw_air_before(c, &pad);
     c->jump = 1;
-    c->jump_type = 1;
-    c->jump_frames = CrashMoveInfo.JUMPFRAMES0;
+    c->jump_type = jump_type;
+    c->jump_frames = jump_info()->JUMPFRAMES0;
     c->jump_frame = 0;
     c->obj.ground = 0;
     nw_air_move(c, &pad);
@@ -711,6 +730,129 @@ static void slide(void)
     c->slide = 1;
     c->obj.mom.z = 0.11f;
     CHECK(slide_frame(false) == 0.0f);
+
+    /* Each level's LoadCharacterModels sets the length from his animation: 23 frames at 50 Hz, 28 at 60. */
+    crash_at(50, &on);
+    CrashMoveInfo.SLIDEFRAMES = 23;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 20);
+    nw_profile_request(&retail);
+    nw_gameplay_swap();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 23);
+    nw_hz_set(60);
+    CrashMoveInfo.SLIDEFRAMES = 28;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 28);
+    nw_profile_apply(&on);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24);
+    CrashMoveInfo.SLIDEFRAMES = 28;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24);
+    nw_profile_apply(&retail);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 28);
+    CrashMoveInfo.SLIDEFRAMES = 25;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 25);
+}
+
+static void coco_jump(void)
+{
+    NwProfile retail = { 0 }, on = COCO_ONLY(jump_fall), his = ONLY(jump_fall);
+    jump_character = 1;
+    for (jump_type = 1; jump_type <= 2; jump_type++) {
+        Arc pal = jump(50, &retail, 100), arc = jump(50, &on, 100), ntsc = jump(60, &on, 120);
+        CHECK(near(arc.apex, pal.apex, 0.05f) && near(arc.reach, pal.reach, 0.05f));
+        CHECK(fabsf(arc.time - pal.time) <= 0.05f && arc.early > pal.early && arc.pull <= 61.0f);
+        CHECK(near(ntsc.apex, arc.apex, 0.03f) && fabsf(ntsc.time - arc.time) <= 0.03f);
+        Arc crash = jump(50, &his, 100);
+        CHECK(crash.apex == pal.apex && crash.reach == pal.reach && crash.time == pal.time);
+    }
+    jump_type = 1;
+    on.movement.coco.jump_height = 130;
+    CHECK(near(jump(50, &on, 100).apex, jump(50, &retail, 100).apex * 1.3f, 0.03f));
+    on.movement.coco.jump_height = 100;
+    Arc coco = jump(50, &on, 100);
+    jump_character = 0;
+    Arc crash = jump(50, &his, 100), pal = jump(50, &retail, 100), off = jump(50, &on, 100);
+    CHECK(coco.apex == crash.apex && coco.time == crash.time);
+    CHECK(off.apex == pal.apex && off.reach == pal.reach && off.time == pal.time);
+    crash_at(60, &on);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 15);
+    crash_at(60, &retail);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 15);
+
+    /* Her run speed in the air, her dash in a dash jump. */
+    float step = 0.0072f;
+    on = COCO_ONLY(jump_distance);
+    coco_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.024f), 0.06f, 1e-5f));
+    on = COCO_ONLY(air_momentum);
+    coco_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step * 0.25f, 1e-5f));
+    his = ONLY(air_momentum);
+    coco_at(50, &his);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+    on = COCO_ONLY(dash_jump);
+    coco_at(50, &on);
+    struct creature_s *c = &Character[0];
+    c->obj.ground = 1;
+    nw_air_move(c, &pad);
+    GameTimer.frame++;
+    c->obj.ground = 0;
+    c->jump = 1;
+    c->sprint = 1;
+    CHECK(near(dash_frame(0.08f), 0.08f + step, 1e-5f));
+    c->jump = 3;
+    c->sprint = 0;
+    CHECK(near(dash_frame(0.088f), 0.089999996f, 1e-5f));
+}
+
+static void coco_run(void)
+{
+    NwProfile retail = { 0 }, on = COCO_ONLY(run_speed), nhanced = { .movement = NW_MOVEMENT_NHANCED };
+    float step = 0.0072f;
+    coco_at(60, &on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.060000002f * 1.2f && CocoMoveInfo.SPRINTSPEED == 0.080000006f * 1.2f);
+    CHECK(CrashMoveInfo.RUNSPEED == 0.060000002f);
+    coco_at(50, &on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.072f * 1.2f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_forward(0.0f, CocoMoveInfo.RUNSPEED), step * 1.5f, 1e-5f));
+
+    static struct CharacterModel coco;
+    static struct animlist run_anim = { .speed = 1.2f }, dash_anim = { .speed = 1.2f };
+    coco.animlist[0x3A] = &run_anim;
+    coco.animlist[0x48] = &dash_anim;
+    Character[0].obj.model = &coco;
+    nw_ground_animate(&Character[0]);
+    CHECK(near(run_anim.speed, 1.2f * 1.44f, 1e-5f) && near(dash_anim.speed, 1.2f * 1.28f, 1e-5f));
+    nw_profile_apply(&retail);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.06f && CocoMoveInfo.SPRINTSPEED == 0.089999996f);
+    nw_ground_animate(&Character[0]);
+    CHECK(run_anim.speed == 1.2f && dash_anim.speed == 1.2f);
+    CocoMoveInfo.RUNSPEED = 0.5f;
+    nw_profile_apply(&on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.5f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
+    CocoMoveInfo.RUNSPEED = 0.06f;
+    coco_at(50, &nhanced);
+    CHECK(CocoMoveInfo.RUNSPEED == CrashMoveInfo.RUNSPEED && CocoMoveInfo.SPRINTSPEED == CrashMoveInfo.SPRINTSPEED);
+
+    on = COCO_ONLY(grip);
+    coco_at(50, &on);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_side(0.05f), 0.05f - 3.0f * step, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 2.0f * step, 1e-5f));
+    /* Crash's switches leave her retail. */
+    NwProfile his = ONLY(run_speed);
+    his.movement.crash.grip = true;
+    coco_at(50, &his);
+    Character[0].obj.ground = 1;
+    CHECK(CocoMoveInfo.RUNSPEED == 0.06f);
+    CHECK(near(loop_forward(0.0f, 0.06f), step, 1e-5f) && near(loop_side(0.05f), 0.05f - step, 1e-5f));
+    crash_at(50, &retail);
 }
 
 static NwTerI contact;
@@ -1778,6 +1920,8 @@ int main(void)
     line_2d();
     hazard_hitboxes();
     air_jump();
+    coco_jump();
+    coco_run();
     mech_stand_jump();
     mech_shot();
     mech_aim_walk();
@@ -1805,6 +1949,14 @@ int main(void)
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.coco.run_top = 150;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.coco.grip = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.coco.run_top = 130;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
     m = (NwMovement)NW_MOVEMENT_RETAIL;
     m.mech.aim_speed = 400;
     CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);

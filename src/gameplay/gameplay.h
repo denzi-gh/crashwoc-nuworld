@@ -28,7 +28,7 @@
     VAL(spin_ms, "Spin length ms", 400, 320, 600, "the PS2's is 320") \
     SW(slide, "Crash 2 slide", "a faster slide he comes out of running") \
     VAL(slide_speed, "Slide speed %", 115, 100, 150, "percent of the PS2's") \
-    VAL(slide_ms, "Slide length ms", 400, 300, 600, "the PS2's is 500") \
+    VAL(slide_ms, "Slide length ms", 400, 300, 600, "the PS2's is 467") \
     FLAG(slide_keep, "Keep speed after it", true, "the slide's speed carries on instead of stopping dead") \
     FLAG(slide_cancel, "Let go to stand up", true, "letting go of crouch ends the slide") \
     VAL(slide_min_ms, "Shortest slide ms", 150, 0, 400, "how long it lasts at least when let go") \
@@ -49,6 +49,29 @@
 typedef struct NwCrashMovement {
     NW_CRASH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCrashMovement;
+
+/* Coco's options ([game.movement.coco]), the same scheme, under Crash's names. */
+#define NW_COCO_MOVEMENT(SW, FLAG, VAL) \
+    SW(jump_fall, "Crash 4 jump arc", "a Crash 4 style jump: quick launch, soft top, a fall that builds up") \
+    VAL(jump_float, "Apex float %", 100, 0, 200, "how long the jump floats at the top") \
+    VAL(jump_weight, "Fall weight %", 100, 100, 200, "how hard the fall builds up") \
+    VAL(jump_height, "Jump height %", 100, 100, 130, "percent of the PS2's jump height") \
+    SW(jump_distance, "Predictable jump distance", "in a jump any stick tilt is a full run") \
+    VAL(air_accel, "Air acceleration %", 200, 100, 400, "percent of the PS2's") \
+    SW(air_momentum, "Air momentum", "mid-air with the stick let go she keeps some momentum") \
+    VAL(air_drift, "Momentum kept %", 75, 0, 100, "how much of the PS2's slow-down she skips") \
+    SW(dash_jump, "Dash jump momentum", "a jump out of a dash keeps its speed") \
+    VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of the dash's extra speed kept to the ground") \
+    SW(run_speed, "Faster run", "a faster run and dash, quicker to speed") \
+    VAL(run_top, "Top speed % of Crash's", 120, 100, 150, "percent of Crash's PS2 run and dash; hers are 83 and 94") \
+    VAL(run_accel, "Acceleration %", 150, 100, 300, "percent of the PS2's") \
+    SW(grip, "Grip", "less slippery stops and turns; ice stays slippery") \
+    VAL(grip_turn, "Turn grip %", 300, 100, 500, "percent of the PS2's") \
+    VAL(grip_brake, "Braking %", 200, 100, 400, "percent of the PS2's")
+
+typedef struct NwCocoMovement {
+    NW_COCO_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwCocoMovement;
 
 /* The mech's options ([game.movement.mech]), the same scheme. */
 #define NW_MECH_MOVEMENT(SW, FLAG, VAL) \
@@ -127,6 +150,7 @@ typedef struct NwAtlasMovement {
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
     NwCrashMovement crash;
+    NwCocoMovement coco;
     NwMechMovement mech;
     NwSubMovement submarine;
     NwJeepMovement jeep;
@@ -138,12 +162,14 @@ typedef struct NwMovement {
 #define NW_CRASH_DEFAULT(f, label, def, ...) .f = def,
 #define NW_MOVEMENT_RETAIL \
     { .monkey_bar_speed = 100, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .coco = { NW_COCO_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
     { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .coco = { NW_COCO_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \

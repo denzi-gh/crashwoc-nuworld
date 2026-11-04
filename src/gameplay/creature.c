@@ -1,7 +1,8 @@
-/* Wraps of game/creature: the air indicator's, the hitbox view's and the vehicles' hooks. */
+/* Wraps of game/creature: the air indicator's, the hitbox view's, the vehicles' and the slide's hooks. */
 #include "game/creature.h"
 #include "game/creature.retail.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/ground.h"
 #include "gameplay/hitboxes.h"
 #include "gameplay/mech.h"
 #include "gameplay/submarine.h"
@@ -13,6 +14,12 @@ void MovePlayer(struct creature_s *c, struct nupad_s *pad)
     nw_mech_aim(c);
     nw_sub_move(c);
     MovePlayer__retail(c, nw_mech_pad(c, pad, &aim));
+}
+
+void LoadCharacterModels(void)
+{
+    LoadCharacterModels__retail();
+    nw_ground_loaded();
 }
 
 void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)

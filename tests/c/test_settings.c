@@ -97,6 +97,10 @@ static void movement_value(const char *table, const char *key, size_t offset, in
 #define CRASH_FLAG(f, label, def, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), def);
 #define CRASH_VALUE(f, label, def, lo, hi, ...) \
     movement_value("crash", #f, offsetof(NwSettings, movement.crash.f), def, lo, hi);
+#define COCO_SWITCH(f, ...) movement_switch("coco", #f, offsetof(NwSettings, movement.coco.f), true);
+#define COCO_FLAG(f, label, def, ...) movement_switch("coco", #f, offsetof(NwSettings, movement.coco.f), def);
+#define COCO_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("coco", #f, offsetof(NwSettings, movement.coco.f), def, lo, hi);
 #define MECH_SWITCH(f, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), true);
 #define MECH_FLAG(f, label, def, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), def);
 #define MECH_VALUE(f, label, def, lo, hi, ...) \
@@ -233,6 +237,15 @@ int main(int argc, char *argv[])
           s.movement.crash.grip && s.movement.crash.jump_fall && s.movement.mech.stand_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.mech]\naim_fast = true\n", &s) &&
           !s.movement.crash.jump_fall && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
+    NW_COCO_MOVEMENT(COCO_SWITCH, COCO_FLAG, COCO_VALUE)
+    /* The same for Coco's. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.jump_fall &&
+          !s.movement.coco.grip && s.movement.coco.run_top == 120);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.coco.grip && s.movement.coco.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.coco]\ngrip = false\n", &s) &&
+          !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.coco.grip);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall);
     NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
     /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
