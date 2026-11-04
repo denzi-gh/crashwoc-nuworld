@@ -108,6 +108,11 @@ static void movement_value(const char *table, const char *key, size_t offset, in
 #define JEEP_FLAG(f, label, def, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), def);
 #define JEEP_VALUE(f, label, def, lo, hi, ...) \
     movement_value("jeep", #f, offsetof(NwSettings, movement.jeep.f), def, lo, hi);
+#define ATLAS_SWITCH(f, ...) movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), true);
+#define ATLAS_FLAG(f, label, def, ...) \
+    movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def);
+#define ATLAS_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -247,6 +252,16 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
           !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.jeep.steering);
+    NW_ATLAS_MOVEMENT(ATLAS_SWITCH, ATLAS_FLAG, ATLAS_VALUE)
+    /* The same for the atlasphere's: a retail file from before them stays retail, any other takes the defaults. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.atlasphere.brake &&
+          !s.movement.atlasphere.edge_guard && s.movement.atlasphere.guard_push &&
+          s.movement.atlasphere.brake_force == 200);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = false\n", &s) &&
+          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.atlasphere.edge_guard);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

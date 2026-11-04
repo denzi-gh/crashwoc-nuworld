@@ -1659,6 +1659,141 @@ static void jeep_grip(void)
     jeep_at(50, &retail, 35);
 }
 
+extern struct NEWBUGGY PlayerAtlas, EarthBoss;
+extern s32 Level;
+void ProcessMovementAtlas(struct NEWBUGGY *Atlas, f32 DeltaTime);
+
+/* Retail with one of the atlasphere's switches on, its values at N. Hanced's. */
+static NwProfile atlas_only(size_t offset)
+{
+    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
+    *(bool *)((char *)&p.movement.atlasphere + offset) = true;
+    return p;
+}
+
+#define ATLAS_ONLY(f) atlas_only(offsetof(NwAtlasMovement, f))
+
+static s32 roll_ground = 2; /* the ball's onground as the step sees it, after ProcessAtlas's shift */
+
+/* b after one step under p, rolling at vx along +x, the stick at ang degrees (90 is +x) by mag. */
+static struct NEWBUGGY roll(struct NEWBUGGY *b, const NwProfile *p, float vx, float ang, float mag, float dt)
+{
+    nw_profile_apply(p);
+    memset(b, 0, sizeof(*b));
+    b->type = b == &PlayerAtlas ? 1 : 2;
+    b->ball_radius = 0.65f;
+    b->onground = roll_ground;
+    b->lastnormal = (struct nuvec_s){ 0.0f, 1.0f, 0.0f };
+    b->ball_vel = (struct nuvec_s){ vx, 0.0f, 0.0f };
+    b->inputang = ang;
+    b->inputmag = mag;
+    ProcessMovementAtlas(b, dt);
+    return *b;
+}
+
+/* Whether that step under p comes out as retail's. */
+static bool as_retail(struct NEWBUGGY *b, const NwProfile *p, float vx, float ang, float mag, float dt)
+{
+    struct NEWBUGGY r = roll(b, &(NwProfile){ 0 }, vx, ang, mag, dt);
+    struct NEWBUGGY t = roll(b, p, vx, ang, mag, dt);
+    return memcmp(&r, &t, sizeof(r)) == 0;
+}
+
+/* The tests have no terrain: NewShadowMask finds no floor anywhere, a pit wherever the guard looks. */
+static void atlasphere(void)
+{
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED };
+    NwProfile steer = ATLAS_ONLY(steer), brake = ATLAS_ONLY(brake), guard = ATLAS_ONLY(edge_guard);
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        struct NEWBUGGY r, b;
+
+        /* Steering across a roll along +x: about twice the turn, at retail's speed. */
+        r = roll(&PlayerAtlas, &retail, 5.0f, 0.0f, 1.0f, dt);
+        CHECK(r.ball_vel.z > 0.1f);
+        b = roll(&PlayerAtlas, &steer, 5.0f, 0.0f, 1.0f, dt);
+        CHECK(near(hypotf(b.ball_vel.x, b.ball_vel.z), hypotf(r.ball_vel.x, r.ball_vel.z), 1e-5f));
+        CHECK(b.ball_vel.z > 1.95f * r.ball_vel.z && b.ball_vel.z < 2.0f * r.ball_vel.z);
+        CHECK(near(b.ball_target.z, r.ball_target.z + 0.5f * dt * (b.ball_vel.z - r.ball_vel.z), 1e-4f));
+        CHECK(b.ball_vel.y == r.ball_vel.y && b.ball_target.y == r.ball_target.y);
+        steer.movement.atlasphere.steer_turn = 400;
+        CHECK(roll(&PlayerAtlas, &steer, 5.0f, 0.0f, 1.0f, dt).ball_vel.z > 3.8f * r.ball_vel.z);
+        steer.movement.atlasphere.steer_turn = 200;
+        /* With the roll it stays, let go too. */
+        r = roll(&PlayerAtlas, &retail, 5.0f, 90.0f, 1.0f, dt);
+        CHECK(near(roll(&PlayerAtlas, &steer, 5.0f, 90.0f, 1.0f, dt).ball_vel.x, r.ball_vel.x, 1e-6f));
+        CHECK(as_retail(&PlayerAtlas, &steer, 5.0f, 0.0f, 0.0f, dt));
+
+        /* Pulling back against the roll: that push twice, the rest retail's. */
+        r = roll(&PlayerAtlas, &retail, 5.0f, 270.0f, 1.0f, dt);
+        CHECK(r.ball_force.x < -7.0f && r.ball_vel.x > 0.0f);
+        b = roll(&PlayerAtlas, &brake, 5.0f, 270.0f, 1.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x + r.ball_force.x * dt, 1e-5f));
+        CHECK(near(b.ball_target.x, r.ball_target.x + 0.5f * dt * dt * r.ball_force.x, 1e-6f));
+        CHECK(b.ball_vel.y == r.ball_vel.y && b.ball_target.y == r.ball_target.y);
+        brake.movement.atlasphere.brake_force = 400;
+        b = roll(&PlayerAtlas, &brake, 5.0f, 270.0f, 1.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x + 3.0f * r.ball_force.x * dt, 1e-5f));
+        /* It stops the roll, never turns it back. */
+        b = roll(&PlayerAtlas, &brake, 0.2f, 270.0f, 1.0f, dt);
+        CHECK(fabsf(b.ball_vel.x) < 1e-6f);
+        brake.movement.atlasphere.brake_force = 200;
+        /* Steering across the roll, pushing with it and letting go stay retail's. */
+        CHECK(as_retail(&PlayerAtlas, &brake, 5.0f, 0.0f, 1.0f, dt));
+        CHECK(as_retail(&PlayerAtlas, &brake, 5.0f, 90.0f, 1.0f, dt));
+        CHECK(as_retail(&PlayerAtlas, &brake, 5.0f, 0.0f, 0.0f, dt));
+        /* Let-go braking: that share of the stick's push, which is more in the earth boss's arena. */
+        brake.movement.atlasphere.coast_brake = 50;
+        r = roll(&PlayerAtlas, &retail, 5.0f, 0.0f, 0.0f, dt);
+        b = roll(&PlayerAtlas, &brake, 5.0f, 0.0f, 0.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x - 0.5f * 7.9863551f * dt, 1e-5f) && b.ball_vel.z == r.ball_vel.z);
+        s32 level = Level;
+        Level = 0x15;
+        r = roll(&PlayerAtlas, &retail, 5.0f, 0.0f, 0.0f, dt);
+        b = roll(&PlayerAtlas, &brake, 5.0f, 0.0f, 0.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x - 0.5f * 9.998477f * dt, 1e-5f));
+        Level = level;
+        brake.movement.atlasphere.coast_brake = 0;
+
+        /* Edge guard, let go: it slows by its speed over the look-ahead... */
+        r = roll(&PlayerAtlas, &retail, 3.0f, 0.0f, 0.0f, dt);
+        b = roll(&PlayerAtlas, &guard, 3.0f, 0.0f, 0.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x * (1.0f - dt / 0.3f), 1e-5f));
+        CHECK(near(b.ball_target.x, r.ball_target.x - 0.5f * dt * dt * r.ball_vel.x / 0.3f, 1e-6f));
+        /* ...by its braking at most... */
+        guard.movement.atlasphere.guard_brake = 100;
+        b = roll(&PlayerAtlas, &guard, 3.0f, 0.0f, 0.0f, dt);
+        CHECK(near(b.ball_vel.x, r.ball_vel.x - 7.9863551f * dt, 1e-5f));
+        guard.movement.atlasphere.guard_brake = 300;
+        /* ...and at the edge it backs off. */
+        b = roll(&PlayerAtlas, &guard, 0.2f, 0.0f, 0.0f, dt);
+        CHECK(near(b.ball_vel.x, -0.05f, 1e-4f));
+        /* Pushed at the pit it rolls in, unless Push to roll in is off; a light push does not count. */
+        CHECK(as_retail(&PlayerAtlas, &guard, 3.0f, 90.0f, 1.0f, dt));
+        r = roll(&PlayerAtlas, &retail, 3.0f, 90.0f, 1.0f, dt);
+        guard.movement.atlasphere.guard_push = false;
+        CHECK(roll(&PlayerAtlas, &guard, 3.0f, 90.0f, 1.0f, dt).ball_vel.x < r.ball_vel.x);
+        guard.movement.atlasphere.guard_push = true;
+        r = roll(&PlayerAtlas, &retail, 3.0f, 90.0f, 0.4f, dt);
+        CHECK(roll(&PlayerAtlas, &guard, 3.0f, 90.0f, 0.4f, dt).ball_vel.x < r.ball_vel.x);
+        /* Faster than Up to speed it rolls on. */
+        CHECK(as_retail(&PlayerAtlas, &guard, 8.0f, 0.0f, 0.0f, dt));
+
+        /* Every switch on: the earth boss's ball, and the player's in the air, stay retail's. */
+        CHECK(as_retail(&EarthBoss, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(!as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        roll_ground = 0;
+        CHECK(as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(as_retail(&PlayerAtlas, &nhanced, 3.0f, 0.0f, 0.0f, dt));
+        roll_ground = 4; /* touched the step before last */
+        CHECK(!as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        roll_ground = 2;
+    }
+    nw_profile_apply(&retail);
+    memset(&PlayerAtlas, 0, sizeof(PlayerAtlas));
+    memset(&EarthBoss, 0, sizeof(EarthBoss));
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -1692,6 +1827,7 @@ int main(void)
     jeep_steer();
     jeep_speed();
     jeep_grip();
+    atlasphere();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -1730,6 +1866,18 @@ int main(void)
     m.jeep.steering = false;
     CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .jeep = { .speed = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.atlasphere.guard_speed = 13;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.atlasphere.edge_guard = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.atlasphere.coast_brake = 25;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m.atlasphere.coast_brake = 0;
+    m.atlasphere.guard_push = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .atlasphere = { .brake = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);
