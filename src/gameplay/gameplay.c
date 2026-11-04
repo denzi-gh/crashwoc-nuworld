@@ -20,13 +20,20 @@ NwMovementProfile nw_movement_profile(const NwMovement *m)
 {
     static const NwMovement nhanced = NW_MOVEMENT_NHANCED;
     const NwCrashMovement *c = &m->crash, *n = &nhanced.crash;
+    const NwAtlasMovement *ac = &m->atlasphere, *an = &nhanced.atlasphere;
 #define NW_CRASH_SET(f, ...) || c->f
 #define NW_CRASH_SAME(f, ...) &&c->f == n->f
-    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
+#define NW_ATLAS_SET(f, ...) || ac->f
+#define NW_ATLAS_SAME(f, ...) &&ac->f == an->f
+    bool retail = m->monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE)
+                                                      NW_ATLAS_MOVEMENT(NW_ATLAS_SET, NW_CRASH_NONE, NW_CRASH_NONE));
     bool enhanced = m->monkey_bar_speed == nhanced.monkey_bar_speed &&
-                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME));
+                    (true NW_CRASH_MOVEMENT(NW_CRASH_SAME, NW_CRASH_SAME, NW_CRASH_SAME)
+                         NW_ATLAS_MOVEMENT(NW_ATLAS_SAME, NW_ATLAS_SAME, NW_ATLAS_SAME));
 #undef NW_CRASH_SET
 #undef NW_CRASH_SAME
+#undef NW_ATLAS_SET
+#undef NW_ATLAS_SAME
     return retail ? NW_MOVEMENT_PROFILE_RETAIL : enhanced ? NW_MOVEMENT_PROFILE_NHANCED : NW_MOVEMENT_PROFILE_CUSTOM;
 }
 
