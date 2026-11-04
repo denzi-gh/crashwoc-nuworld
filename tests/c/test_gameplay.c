@@ -17,6 +17,7 @@
 #include "gameplay/line2d.h"
 #include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/steadycam.h"
 #include "gameplay/submarine.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
@@ -235,6 +236,30 @@ static void boss_health(void)
     CHECK(nw_profile.boss_health);
     nw_gameplay_swap();
     CHECK(!nw_profile.boss_health);
+}
+
+static void steadycam(void)
+{
+    NwSteadyCam s = { 0 };
+    CHECK(nw_steadycam_follow(&s, 0, 1, 0, true, 100) == 1.0f);
+    /* A jump: 100 holds the take-off height, 50 half of it, 0 the PS2's. */
+    CHECK(nw_steadycam_follow(&s, 0.1f, 2, 0, false, 100) == 1.0f);
+    CHECK(nw_steadycam_follow(&s, 0.2f, 2, 0, false, 50) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.3f, 2, 0, false, 0) == 2.0f);
+    /* Below the take-off it follows him down; landing higher it follows him up. */
+    CHECK(nw_steadycam_follow(&s, 0.4f, 0.5f, 0, false, 100) == 0.5f);
+    CHECK(nw_steadycam_follow(&s, 0.5f, 1.5f, 0, false, 100) == 0.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 1.5f, 0, true, 100) == 1.5f);
+    /* Far over the take-off (a spring) it follows again, and a warp starts over. */
+    CHECK(nw_steadycam_follow(&s, 0.6f, 3.0f, 0, false, 100) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 4.0f, 0, false, 100) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 5.0f, 0, false, 100) == 2.0f);
+    CHECK(nw_steadycam_follow(&s, 9.0f, 5.0f, 0, false, 100) == 5.0f);
+
+    nw_profile_request(&(NwProfile){ .camera_stability = 70 });
+    nw_gameplay_swap();
+    CHECK(nw_profile.camera_stability == 70);
+    nw_profile_apply(&(NwProfile){ 0 });
 }
 
 static bool near(float a, float b, float within)
@@ -1766,6 +1791,7 @@ int main(void)
     monkey_bar_anim();
     air_indicator();
     boss_health();
+    steadycam();
     jump_fall();
     jump_distance();
     air_momentum();

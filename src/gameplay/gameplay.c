@@ -89,6 +89,7 @@ static void nw_profile_poll(void)
         nw_profile.movement = p.movement;
         nw_profile.air_indicator = p.air_indicator;
         nw_profile.boss_health = p.boss_health;
+        nw_profile.camera_stability = p.camera_stability;
         nw_profile.hitboxes = p.hitboxes;
         nw_monkey_bars_apply();
         nw_air_apply();
