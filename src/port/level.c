@@ -183,7 +183,7 @@ static void nw_level_enter(int level)
 
 bool nw_level_routing(void)
 {
-    return nw_level.intro || nw_level_pending() >= 0;
+    return nw_level.intro || nw_level_pending() >= 0 || nw_level.entering >= 0;
 }
 
 void nw_level_titles(void)
