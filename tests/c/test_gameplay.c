@@ -242,15 +242,19 @@ static bool near(float a, float b, float within)
     return fabsf(a - b) <= within * fabsf(b);
 }
 
-/* Retail with one of Crash's switches on, its values at N. Hanced's. */
+/* Retail with one switch on, its values at N. Hanced's. */
 static NwProfile only(size_t offset)
 {
     NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
-    *(bool *)((char *)&p.movement.crash + offset) = true;
+    *(bool *)((char *)&p.movement + offset) = true;
     return p;
 }
 
-#define ONLY(f) only(offsetof(NwCrashMovement, f))
+#define ONLY(f) only(offsetof(NwMovement, crash.f))
+#define MECH_ONLY(f) only(offsetof(NwMovement, mech.f))
+#define SUB_ONLY(f) only(offsetof(NwMovement, submarine.f))
+#define JEEP_ONLY(f) only(offsetof(NwMovement, jeep.f))
+#define ATLAS_ONLY(f) only(offsetof(NwMovement, atlasphere.f))
 
 /* Retail's Crash data and globals at hz, then p. */
 static void crash_at(int hz, const NwProfile *p)
@@ -854,16 +858,6 @@ static void hazard_hitboxes(void)
     GAMEOBJECTCOUNT = 0;
 }
 
-/* Retail with one of the mech's switches on, its values at N. Hanced's. */
-static NwProfile only_mech(size_t offset)
-{
-    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
-    *(bool *)((char *)&p.movement.mech + offset) = true;
-    return p;
-}
-
-#define ONLY_MECH(f) only_mech(offsetof(NwMechMovement, f))
-
 /* crash_at, then Crash in the mech. */
 static void mech_at(int hz, const NwProfile *p)
 {
@@ -883,7 +877,7 @@ static void mech_at(int hz, const NwProfile *p)
 /* The take-off's frame sees a walk, so MoveMECH takes the running jump; the frame after the real stick again. */
 static void mech_stand_jump(void)
 {
-    NwProfile retail = { 0 }, on = ONLY_MECH(stand_jump);
+    NwProfile retail = { 0 }, on = MECH_ONLY(stand_jump);
     struct creature_s *c = &Character[0];
     mech_at(50, &on);
     c->obj.ground = 1;
@@ -920,7 +914,7 @@ static void mech_stand_jump(void)
 
 static void mech_shot(void)
 {
-    NwProfile retail = { 0 }, on = ONLY_MECH(shot_stop);
+    NwProfile retail = { 0 }, on = MECH_ONLY(shot_stop);
     struct creature_s *c = &Character[0];
     /* A tap: released before tap ran out still fires. */
     mech_at(50, &on);
@@ -973,7 +967,7 @@ static void mech_shot(void)
 
 static void mech_aim_walk(void)
 {
-    NwProfile retail = { 0 }, on = ONLY_MECH(aim_walk);
+    NwProfile retail = { 0 }, on = MECH_ONLY(aim_walk);
     static struct nupad_s copy;
     struct creature_s *c = &Character[0];
     float friction = 0.0072f;
@@ -1033,7 +1027,7 @@ static struct nuvec_s aim_dir(const struct creature_s *c)
 
 static void mech_aim(void)
 {
-    NwProfile retail = { 0 }, fast = ONLY_MECH(aim_fast), assist = ONLY_MECH(aim_assist);
+    NwProfile retail = { 0 }, fast = MECH_ONLY(aim_fast), assist = MECH_ONLY(aim_assist);
     struct creature_s *c = &Character[0];
     mech_at(50, &fast);
     c->target = 1;
@@ -1109,7 +1103,7 @@ static void mech_aim(void)
 
 static void mech_hitbox(void)
 {
-    NwProfile retail = { 0 }, on = ONLY_MECH(hitbox), crash = ONLY(hazard_hitboxes);
+    NwProfile retail = { 0 }, on = MECH_ONLY(hitbox), crash = ONLY(hazard_hitboxes);
     static struct obj_s enemy;
     struct obj_s *mech = &Character[0].obj;
     enemy = (struct obj_s){ .attack = 1, .vulnerable = 2, .RADIUS = 0.5f, .SCALE = 1.0f,
@@ -1161,16 +1155,6 @@ static void sub_at(int hz, const NwProfile *p)
     vtog_blend = 0;
     Character[0].obj.vehicle = 0x20;
 }
-
-/* Retail with one of the submarine's switches on, its values at N. Hanced's. */
-static NwProfile sub_only(size_t offset)
-{
-    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
-    *(bool *)((char *)&p.movement.submarine + offset) = true;
-    return p;
-}
-
-#define SUB_ONLY(f) sub_only(offsetof(NwSubMovement, f))
 
 /* The stick at full tilt: dx across, angle as MovePlayer gives it (0 up, 0x4000 right). */
 static void sub_stick(float dx, u16 angle)
@@ -1490,16 +1474,6 @@ static void sub_weapons(void)
     CHECK(plr->fire == 0x19);
 }
 
-/* Retail with one of the jeep's switches on, its values at N. Hanced's. */
-static NwProfile jeep_only(size_t offset)
-{
-    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
-    *(bool *)((char *)&p.movement.jeep + offset) = true;
-    return p;
-}
-
-#define JEEP_ONLY(f) jeep_only(offsetof(NwJeepMovement, f))
-
 static RailPosition jeep_rail;
 
 /* Retail's off-roader data at hz, then p; Crash driving it on a rail at 0x4000. */
@@ -1662,16 +1636,6 @@ static void jeep_grip(void)
 extern struct NEWBUGGY PlayerAtlas, EarthBoss;
 extern s32 Level;
 void ProcessMovementAtlas(struct NEWBUGGY *Atlas, f32 DeltaTime);
-
-/* Retail with one of the atlasphere's switches on, its values at N. Hanced's. */
-static NwProfile atlas_only(size_t offset)
-{
-    NwProfile p = { .movement = NW_MOVEMENT_RETAIL };
-    *(bool *)((char *)&p.movement.atlasphere + offset) = true;
-    return p;
-}
-
-#define ATLAS_ONLY(f) atlas_only(offsetof(NwAtlasMovement, f))
 
 static s32 roll_ground = 2; /* the ball's onground as the step sees it, after ProcessAtlas's shift */
 
