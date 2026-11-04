@@ -41,7 +41,8 @@ schema = 1
 
 # nu3d
 "nu3d/nustream" = { treatment = "compile", override = ["*"], keep = ["NuRndrStreamResetStream", "NuRndrSwapStreamBuffers",
-    "NuRndrSetGlobalAlpha", "NuRndrStreamSetDirectionalLights", "NuRndrStreamSetAmbientLight"] }
+    "NuRndrSetGlobalAlpha", "NuRndrStreamSetDirectionalLights", "NuRndrStreamSetAmbientLight"], expose = [
+    "rndrstream_buffid"] }
 "nu3d/nucamera" = { treatment = "compile" }
 "nu3d/nucamvu0" = { treatment = "hle" }
 "nu3d/nuvport" = { treatment = "compile" }
@@ -50,7 +51,7 @@ schema = 1
 # nugscn defines a global ReadNuIFFGeomVtx too; dead: NuNodeRead, ReadNuIFFTextureSet
 "nu3d/nuscene" = { treatment = "compile", override = ["NuNodeRead", "ReadNuIFFTextureSet"], rename = { ReadNuIFFGeomVtx = "ReadNuIFFGeomVtx__nuscene" } }
 "nu3d/numtl" = { treatment = "compile", override = ["CreateStateBlock", "NuMtlBuildRenderList"], wrap = ["NuMtlRelease"] }
-"nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"] }
+"nu3d/nutex" = { treatment = "compile", override = ["NuTexCreateNative"], expose = ["tinfo", "tpid", "tex_allocmax"] }
 # kept: shadow, footprint and ripple bookkeeping and draws, volume-shadow boxes, bodies retail leaves empty.
 # NuRndrFxCode's Z-byte light passes are unreachable here (depth CLUTs instead).
 "nu3d/nurndr" = { treatment = "compile", override = ["*"], keep = ["NuHGobjEval*", "ClipLinePoint", "NuRndrEndScene",

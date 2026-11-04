@@ -10,7 +10,7 @@
  #include "nu3d/nugobj.h"
 @@ -766,7 +767,7 @@ void instNuGCutDebrisLocatorUpdate(struct NUGCUTLOCATORSYS_s *def, struct instNU
                      }
-                     CalculateLocatorDirection(*(int *)data->pad54, &mtx, &dir);
+                     CalculateLocatorDirection(data->direction, &mtx, &dir);
                      roty = NuAngSub(NuAtan2(dir.x, dir.z) * 10430.378f, 0x4000);
 -                    rotz = NuAtan2(NuFsqrt(dir.x * dir.x + dir.z * dir.z), -dir.y) * 10430.378f;
 +                    rotz = (s32)(NuAtan2(NuFsqrt(dir.x * dir.x + dir.z * dir.z), -dir.y) * 10430.378f);

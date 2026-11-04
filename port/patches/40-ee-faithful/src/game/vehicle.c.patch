@@ -1,6 +1,6 @@
 --- a/src/game/vehicle.c
 +++ b/src/game/vehicle.c
-@@ -3895,12 +3895,12 @@ inline s32 PossIntersect(struct nuvec_s *PosA, struct nuvec_s *VelA, struct nuve
+@@ -3892,12 +3892,12 @@ inline s32 PossIntersect(struct nuvec_s *PosA, struct nuvec_s *VelA, struct nuve
      MagVelA = NuVecMag(VelA);
      NuVecMag(&AV); /* result unused, but retail makes the call */
  
@@ -15,7 +15,7 @@
      if (Time > 0.0f && Time < MaxTime) {
          if (DotProduct(VelA, VelB) <= 0.0f) {
              return 1;
-@@ -8628,7 +8628,7 @@ void ProcessFireFlyIntro(void)
+@@ -8625,7 +8625,7 @@ void ProcessFireFlyIntro(void)
          GliderIntroCamPos.x = PlayerGlider.Position.x;
          GliderIntroCamPos.z = PlayerGlider.Position.z;
          NuVecScaleAccum(&GliderIntroCamPos, &dir,

@@ -12,12 +12,12 @@
 #define nutex_srcfile "..\\nu2crash.ps2\\nu3d\\nutex.c"
 #define NUTEX_VALID 0x10000
 
-extern struct nutexslot_s *D_0062EBEC;
-#define TexList D_0062EBEC
-extern int D_0062EBF0;
-#define nutex_cnt D_0062EBF0
-extern int D_0063305C;
-#define nutex_max D_0063305C
+extern struct nutexslot_s *tinfo;
+#define TexList tinfo
+extern int tpid;
+#define nutex_cnt tpid
+extern int tex_allocmax;
+#define nutex_max tex_allocmax
 extern int nutex_alloc_cnt;
 
 static int NuTexFindFreeSlot(void)

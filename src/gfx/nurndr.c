@@ -60,8 +60,8 @@ extern u32 curlightcol;
 extern struct nuvec_s NuRndrShadBox[2];
 extern int txupload_on;
 extern struct nucamera_s global_camera;
-extern struct nutexslot_s *D_0062EBEC;
-#define TexList D_0062EBEC
+extern struct nutexslot_s *tinfo;
+#define TexList tinfo
 
 extern struct rndrstream_s *rndrstream_system;
 extern struct rndrstream_s *rndrstream_ot_sort;
@@ -100,15 +100,16 @@ void DeRotateVectorAngles(struct nuvec_s *dir, float *xang, float *yang);
 #define NW_OT_ITEMS 0x400
 #define NW_OT_TRIS 0x800 /* a batch's most, the per-triangle buckets' slots */
 
-u32 testfootcol; /* a debug colour over every footprint's; 0 in retail */
-int testflipold = 1;
-struct nuvec_s lightfan[9];
-struct nurndrshadstore_s shadstore[256];
+extern u32 testfootcol; /* a debug colour over every footprint's; 0 in retail */
+extern int testflipold;
+extern struct nuvec_s lightfan[9];
+extern struct nurndrshadstore_s shadstore[256];
 static struct nuvec_s default_light_dir = { 0.0f, -0.75f, -0.75f }; /* retail's data */
-struct debdma_s *testforcepart; /* an effect list over every particle group's; NULL in retail */
-float testmultl = 4.0f;         /* the volume shadows' light's length over NuRndrShadowStencil's */
-float waveampx = 64.0f;         /* NuRndrWater's cell corners' sway, 1/16 pixels */
-float waveampy = 32.0f;
+/* an effect list over every particle group's; NULL in retail. The decomp's nurndrptlhead_s view of a debdma_s. */
+extern struct debdma_s *testforcepart;
+extern float testmultl; /* the volume shadows' light's length over NuRndrShadowStencil's */
+extern float waveampx;  /* NuRndrWater's cell corners' sway, 1/16 pixels */
+extern float waveampy;
 
 static const float otscale = 2.0f;
 static NwRecord *ot_bins[NW_OT_BINS];

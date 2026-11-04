@@ -38,7 +38,7 @@ extern signed char Font3DRemap[];
 extern struct numtl_s *Font3DMtlTab[5][2];
 extern struct nugscn_s *font3d_scene;
 extern struct numtl_s **nurndr_forced_mtl_table;
-extern float FONT3DSIZE, FONT3DYMUL, D_0062E358, PANEL3DMULX, PANEL3DMULY;
+extern float FONT3DSIZE, FONT3DYMUL, PANEL3DMULX, PANEL3DMULY;
 extern float font3d_xleft, font3d_xright;
 extern struct powerdata_s PData[6];
 
@@ -133,7 +133,6 @@ static void test_synthetic(const char *scratch)
     font3d_scene = sc;
     FONT3DSIZE = 0.07f;
     FONT3DYMUL = 2.0f;
-    D_0062E358 = 0.1f;
     PANEL3DMULX = 2.0f;
     PANEL3DMULY = 3.0f;
     /* Two letters 0.1 apart, centred on x 0; #c switches to colour 2 for the second. */

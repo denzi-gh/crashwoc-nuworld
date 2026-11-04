@@ -10,7 +10,7 @@
  }
  
  
-@@ -2851,6 +2852,7 @@ void DrawCrates(void) {
+@@ -2847,6 +2848,7 @@ void DrawCrates(void) {
      s32 j;
      s32 type;
      s32 character;
@@ -18,7 +18,7 @@
  
      shadows = 0;
      if ((!((((LDATA->flags & 0x200) != 0) || (Level == 0x1D)) &&
-@@ -2872,7 +2874,7 @@ void DrawCrates(void) {
+@@ -2868,7 +2870,7 @@ void DrawCrates(void) {
           !((((LDATA->flags & 0x200) != 0) || (Level == 0x1D)) &&
             (VEHICLECONTROL == 1)) &&
           (Level != 0xB))) {
@@ -27,7 +27,7 @@
          shadows = 1;
      }
      group = CrateGroup;
-@@ -2881,6 +2883,7 @@ void DrawCrates(void) {
+@@ -2877,6 +2879,7 @@ void DrawCrates(void) {
          crate = &Crate[group->iCrate];
          for (j = 0; j < group->nCrates; j++, crate++) {
              crate->in_range = 0;
@@ -35,7 +35,7 @@
              if (editor_active != 0) {
                  switch (edcrtDrawType) {
                  case 0:
-@@ -2913,14 +2916,15 @@ void DrawCrates(void) {
+@@ -2909,14 +2912,15 @@ void DrawCrates(void) {
                  dx = pCam->pos.x - crate->pos.x;
                  dz = pCam->pos.z - crate->pos.z;
                  dist2 = dx * dx + dz * dz;

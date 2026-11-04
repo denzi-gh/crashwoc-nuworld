@@ -1,6 +1,6 @@
 --- a/src/game/move.c
 +++ b/src/game/move.c
-@@ -2835,8 +2835,13 @@ void AnimateOFFROADER(struct creature_s *plr) {
+@@ -2834,8 +2834,13 @@ void AnimateOFFROADER(struct creature_s *plr) {
  void AnimateSUBMARINE(struct creature_s *plr) {
      plr->obj.anim.newaction = 0x62;
      UpdateCharacterIdle(plr, 0);
@@ -16,7 +16,7 @@
  }
  
  void AnimateMINECART(struct creature_s *plr) {
-@@ -3257,9 +3262,9 @@ void MoveTub(struct tubinfo_s *tub, s32 LEFT, s32 RIGHT) {
+@@ -3256,9 +3261,9 @@ void MoveTub(struct tubinfo_s *tub, s32 LEFT, s32 RIGHT) {
          NuVecRotateY(&p1, &p1, -ang);
          ang = -NuAtan2D(p1.y - p0.y, p1.z - p0.z);
          if (tub->count != 0 && tub->wait != 0) {

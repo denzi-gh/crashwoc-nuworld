@@ -124,6 +124,8 @@ def load_states(decomp: Path, version: str, units: list[Unit], errors: list[str]
         data = tomllib.loads(path.read_text())
         index = int(data["unit"].rsplit("-", 1)[1])
         unit = by_index.get(index)
+        if unit is None and not data.get("function"):
+            continue                    # a data-only unit
         if unit is None:
             errors.append(f"{path.name}: manifest for unit {index}, which owns no .text code")
             continue

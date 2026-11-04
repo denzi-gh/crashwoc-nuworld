@@ -14,8 +14,8 @@
 #define ps2txtr_srcfile "..\\nu2crash.ps2\\nups2\\ps2txtr.c"
 #define NW_TEX_SLOTS 0x400 /* NUTEX_MAX */
 
-extern struct nutexslot_s *D_0062EBEC;
-#define TexList D_0062EBEC
+extern struct nutexslot_s *tinfo;
+#define TexList tinfo
 extern int gs_botfree;
 extern int PS2_REZ_W;
 extern int PS2_REZ_H;

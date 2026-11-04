@@ -39,8 +39,8 @@ typedef struct NwDumpHack {
 static const NwDumpHack nw_dump_hacks[] = {
     { &nw_type_shaddata_s, &nw_type_shadslot_u, offsetof(nw_ps2_shaddata_s, table),
       offsetof(struct shaddata_s, table) },
-    { &nw_type_NUGCUTCAMSYS_s, &nw_type_s8, offsetof(nw_ps2_NUGCUTCAMSYS_s, remap),
-      offsetof(struct NUGCUTCAMSYS_s, remap) },
+    { &nw_type_NUGCUTCAMSYS_s, &nw_type_s8, offsetof(nw_ps2_NUGCUTCAMSYS_s, remap_table),
+      offsetof(struct NUGCUTCAMSYS_s, remap_table) },
 };
 
 typedef struct NwDumpBlock {

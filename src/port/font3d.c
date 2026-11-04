@@ -29,7 +29,6 @@ extern f32 font3d_dx, font3d_dy;
 extern f32 font3d_xleft, font3d_xright, font3d_xmid;
 extern f32 font3d_ytop, font3d_ybottom, font3d_ymid;
 extern f32 FONT3D_JSCALEDX, FONT3DYMUL, FONT3DSIZE;
-extern f32 D_0062E358, D_0062E35C, D_0062E360;
 extern f32 PANEL3DMULX, PANEL3DMULY;
 extern struct numtl_s **nurndr_forced_mtl_table;
 
@@ -301,9 +300,9 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
         }
     }
 
-    dx = scalex * D_0062E358;
+    dx = scalex * 0.1f;
     font3d_dx = dx;
-    dy = (scaley * D_0062E358) * FONT3DYMUL;
+    dy = (scaley * 0.1f) * FONT3DYMUL;
     font3d_dy = dy;
     i = align & 5;
     if (i == 4) {
@@ -387,8 +386,8 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
                         x0 = x;
                     }
                     if (c == (char)0xFE) {
-                        x0 = x0 - dx * D_0062E35C;
-                        y0 = y + dy * D_0062E360;
+                        x0 = x0 - dx * 0.2f;
+                        y0 = y + dy * 0.3f;
                     } else {
                         y0 = y;
                     }

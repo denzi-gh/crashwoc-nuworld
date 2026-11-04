@@ -4,5 +4,5 @@ schema = 1
 
 [host_blocks]
 "10-host-base" = 31
-"40-ee-faithful" = 1
+"40-ee-faithful" = 2
 "50-host-memory" = 9

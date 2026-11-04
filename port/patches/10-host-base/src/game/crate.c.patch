@@ -8,7 +8,7 @@
  
  #include "nu3d/nucamera.h"
  #include "nu3d/nugscn.h"
-@@ -1078,8 +1079,13 @@ extern struct nuvec_s vNEWMASK;
+@@ -1074,8 +1075,13 @@ extern struct nuvec_s vNEWMASK;
  extern s32 mask_crates;
  extern s32 newmask_advise;
  extern f32 TimeTrialWait;

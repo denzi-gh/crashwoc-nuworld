@@ -7,8 +7,8 @@
 #include "nu3d/nustream.h"
 #include "nu3d/nutex.h"
 
-extern struct nutexslot_s *D_0062EBEC;
-#define TexList D_0062EBEC
+extern struct nutexslot_s *tinfo;
+#define TexList tinfo
 extern int numtl_force_mipmap;
 extern int sys_mm_k;
 extern int sys_mm_l;
