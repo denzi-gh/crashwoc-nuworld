@@ -232,6 +232,7 @@ void NuLightHaze(int z, int paused)
         nw_lgt_stream(NuLgtSurf[12]);
         NwCmd *c = nw_rndr_rect3d(rndrstream_3d, -8, -8, PS2_REZ_W << 4, PS2_REZ_H << 4, uv, colour, z);
         c->alpha = 0x100 | 0x44;
+        c->exact = true; /* HazeColour's half alpha times the fog's passes 0x80 */
         if (!nw_lgt_polyhaze) {
             *nw_rndr_zclut(c) = nw_lgt_fog;
         }
@@ -732,7 +733,7 @@ void NuLightPolyHaze(int paused)
 
 /* The fog as a depth CLUT from fog-near to fog-far, a cosine ramp to the fog colour, instead of retail's byte passes
    (FogMat[0], [2]) and NuLgtFogMat[1]'s CLUT into NuLgtSurf[9]; Seashell's NuLightFogClear masks its alpha to a band
-   of Z. The composite and the two-pixel blur where the alpha is the fog's are retail's. */
+   of Z. The composite (As past 0x80 in the x-ray room) and the two-pixel blur by the alpha it left are retail's. */
 void NuLightFogDraw(int paused)
 {
     u32 clut[256];
@@ -805,6 +806,7 @@ void NuLightFogDraw(int paused)
             const float p2w = (float)NuPower2(PS2_REZ_W);
             NwCmd *c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)cols * 6, &v);
             c->alpha = 0x100 | 0x44;
+            c->exact = true;
             for (i = 0; i < cols; i++) {
                 const float uv[4] = { (float)i * 64.0f / p2w, 0.0f, ((float)i * 64.0f + 64.0f) / p2w,
                                       ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
@@ -817,21 +819,31 @@ void NuLightFogDraw(int paused)
             rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);
             NuRndrEndSceneEx(0);
         }
+        /* The frame two pixels on, blended in by the alpha the composite left (Ad, from the fog's CLUT as it may pass
+           0x80). One record, as each rect reads only pixels the rects before it left. */
         if (NuRndrFogBlur && NuRndrBeginSceneEx(-1, -2, 0)) {
+            NwVuSpriteVertex *v;
             nw_lgt_stream(NuLgtBackAlphaBuff);
             float v1 = (float)PS2_REZ_H / NuPower2(PS2_REZ_H);
             const int cols = (PS2_REZ_W + 63) >> 6;
             const float p2w = (float)NuPower2(PS2_REZ_W);
+            NwCmd *c = nw_rndr_verts(rndrstream_3d, NW_VERTS_GS, (uint32_t)(cols * 2 - 1) * 6, &v);
+            c->alpha = 0x100 | 0x54;
+            c->exact = true;
+            NwZClut *z = nw_rndr_zclut(c);
+            *z = nw_lgt_fog;
+            z->alpha = false;
+            z->ad = (uint8_t)((((u32)NuRndrFogCol & 0xFE000000u) >> 25) + 1);
             for (i = 0; i < cols; i++) {
                 const float a[4] = { ((float)i * 64.0f + 2.0f) / p2w, 0.0f,
                                      ((float)i * 64.0f + 62.0f + 2.0f) / p2w, v1 };
                 const float b[4] = { ((float)i * 64.0f + 64.0f) / p2w, 0.0f,
                                      ((float)i * 64.0f + 64.0f + 2.0f) / p2w, v1 };
-                nw_rndr_rect3d(rndrstream_3d, (i << 10) - 8, (ys << 4) - 8, 0x3E0, ye << 4, a,
-                               NuRndrFogBlur + 0x808080, (int)znear)->alpha = 0x100 | 0x54;
+                v = nw_rndr_rect3d_quad(v, (i << 10) - 8, (ys << 4) - 8, 0x3E0, ye << 4, a, NuRndrFogBlur + 0x808080,
+                                        (int)znear);
                 if (i < cols - 1) {
-                    nw_rndr_rect3d(rndrstream_3d, (i << 10) + 0x3D8, (ys << 4) - 8, 0x20, ye << 4, b,
-                                   NuRndrFogBlur + 0x808080, (int)znear)->alpha = 0x100 | 0x54;
+                    v = nw_rndr_rect3d_quad(v, (i << 10) + 0x3D8, (ys << 4) - 8, 0x20, ye << 4, b,
+                                            NuRndrFogBlur + 0x808080, (int)znear);
                 }
             }
             rndrstream_free = vpDmaTag_Next(rndrstream_3d->ptr.u32, 0);

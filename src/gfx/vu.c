@@ -179,6 +179,7 @@ static const char nw_vu_fs[] =
     "uniform uvec4 u_zclut;\n"     /* shift, base, far, near */
     "uniform uvec3 u_zclear;\n"    /* NuLightFogClear: on, the two Z */
     "uniform int u_zalpha;\n"      /* its alpha alone over the texture's */
+    "uniform int u_zad;\n"         /* the blend's Ad from it: the fog composite's vertex alpha; -1 none */
     "uniform sampler2D u_dst;\n"   /* the target, for the GS blend */
     "uniform ivec4 u_gsblend;\n"   /* ALPHA's A, B, C, D; -1: GL's blend */
     "uniform ivec4 u_texmode;\n" /* 0 untextured, 1 CLUT, 2 direct colour, 3 surface, 4 depth CLUT; MMAG; CLAMP u, v */
@@ -313,7 +314,8 @@ static const char nw_vu_fs[] =
     "        vec4 d = texelFetch(u_dst, ivec2(gl_FragCoord.xy), 0);\n"
     "        vec3 cd = floor(d.rgb * 255.0 + 0.5);\n"
     "        vec3 col[3] = vec3[3](c.rgb, cd, vec3(0.0));\n"
-    "        float k[3] = float[3](c.a, floor(d.a * 128.0 + 0.5), 0.0);\n"
+    "        float ad = u_zad >= 0 ? min(floor(float(u_zad) * zclut().a / 128.0), 255.0) : floor(d.a * 128.0 + 0.5);\n"
+    "        float k[3] = float[3](c.a, ad, 0.0);\n"
     "        vec3 r = floor((col[u_gsblend.x] - col[u_gsblend.y]) * k[u_gsblend.z] / 128.0) + col[u_gsblend.w];\n"
     "        o_col = vec4(clamp(r, 0.0, 255.0) / 255.0, c.a / 128.0);\n"
     "        return;\n"
@@ -324,7 +326,7 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear, zalpha, gsblend, vu, frag, wave, filter;
+        uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter;
 } nw_vu[NW_VU_PROGRAMS];
 static NwTexFilter nw_vu_filter_mode;
 
@@ -395,6 +397,7 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].zclut = glGetUniformLocation(p, "u_zclut");
     nw_vu[program].zclear = glGetUniformLocation(p, "u_zclear");
     nw_vu[program].zalpha = glGetUniformLocation(p, "u_zalpha");
+    nw_vu[program].zad = glGetUniformLocation(p, "u_zad");
     nw_vu[program].gsblend = glGetUniformLocation(p, "u_gsblend");
     nw_vu[program].vu = glGetUniformLocation(p, "u_vu");
     nw_vu[program].frag = glGetUniformLocation(p, "u_frag");
@@ -499,14 +502,15 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4fv(nw_vu[program].vu, 2, m->vu);
     glUniform4fv(nw_vu[program].frag, 1, o->frag);
     const NwVuZClut *z = m->zclut;
-    bool zonly = z && !z->alpha;
+    bool zonly = z && !z->alpha && !z->ad;
     bool textured = !zonly && m->tex && m->tex->index;
     glUniform4i(nw_vu[program].texmode, zonly ? 4 : textured ? (m->tex->surface ? 3 : m->tex->clut ? 1 : 2) : 0,
                 m->state.mmag, m->state.wms == 1, m->state.wmt == 1);
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].filter, (GLint)nw_vu_filter_mode);
-    glUniform1i(nw_vu[program].tcc, z || (textured && m->tex->tcc));
+    glUniform1i(nw_vu[program].tcc, (z && !z->ad) || (textured && m->tex->tcc));
     glUniform1i(nw_vu[program].zalpha, z && z->alpha);
+    glUniform1i(nw_vu[program].zad, z && z->ad ? z->ad - 1 : -1);
     if (z) {
         glUniform4ui(nw_vu[program].zclut, z->shift, z->base, z->far, z->near);
         glUniform3ui(nw_vu[program].zclear, z->clear[0], z->clear[1], z->clear[2]);
