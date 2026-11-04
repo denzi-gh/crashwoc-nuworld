@@ -123,6 +123,26 @@ typedef struct NwAtlasMovement {
     NW_ATLAS_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwAtlasMovement;
 
+/* The space fighter's options ([game.movement.spacefighter]), the same scheme. */
+#define NW_SPACE_MOVEMENT(SW, FLAG, VAL) \
+    SW(steering, "Sharper steering", "the nose follows the stick sooner and a lighter push steers") \
+    VAL(pitch_speed, "Climb and dive response %", 250, 100, 500, "how fast the nose moves, percent of the PS2's") \
+    VAL(bank_speed, "Bank response %", 150, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
+    VAL(turn_rate, "Turn rate %", 125, 100, 200, "its turn at a full bank, percent of the PS2's 120 degrees a second") \
+    VAL(deadzone, "Stick deadzone %", 10, 0, 25, "how far the stick moves before it steers; the PS2's is 25") \
+    SW(roll, "Barrel roll keeps speed", "a barrel roll does not slow it down") \
+    VAL(roll_kept, "Speed kept %", 100, 0, 100, "share of its speed a roll keeps; the PS2's slows to an eighth") \
+    SW(aim, "True aim", "the reticle sits on the shots' path") \
+    VAL(aim_range, "Reticle distance", 60, 20, 88, "how far ahead on the path; the shots reach 88") \
+    FLAG(aim_sweep, "Shots cannot skip targets", true, "a shot hits what it passes through between two frames") \
+    SW(aim_assist, "Aim assist", "the shots bend toward the nearest target in front") \
+    VAL(assist_cone, "Assist cone deg", 6, 2, 20, "how far off the shots a target still pulls them") \
+    VAL(assist_pull, "Assist pull %", 75, 0, 100, "how far they bend toward it")
+
+typedef struct NwSpaceMovement {
+    NW_SPACE_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
+} NwSpaceMovement;
+
 /* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
 typedef struct NwMovement {
     int monkey_bar_speed; /* Crash on the monkey bars */
@@ -131,6 +151,7 @@ typedef struct NwMovement {
     NwSubMovement submarine;
     NwJeepMovement jeep;
     NwAtlasMovement atlasphere;
+    NwSpaceMovement spacefighter;
 } NwMovement;
 
 #define NW_CRASH_NONE(...)
@@ -141,13 +162,15 @@ typedef struct NwMovement {
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .spacefighter = { NW_SPACE_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
     { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .jeep = { NW_JEEP_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
-      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
+      .atlasphere = { NW_ATLAS_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+      .spacefighter = { NW_SPACE_MOVEMENT(NW_CRASH_ON, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
 /* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {
