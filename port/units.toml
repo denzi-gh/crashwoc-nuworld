@@ -150,8 +150,8 @@ schema = 1
 "game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions", "ObjectRotation",
     "UpdateProjectiles", "AddProjectile"] }
 "game/visi" = { treatment = "compile" }
-"game/vehicle" = { treatment = "compile", wrap = ["BossBar", "ProcessMovementAtlas", "ControlGlider", "GliderFire",
-    "DrawTorpedoTarget"] }
+"game/vehicle" = { treatment = "compile", wrap = ["BossBar", "ProcessMovementAtlas", "ControlGlider",
+    "ProcessGliderMovement", "GliderFire", "DrawTorpedoTarget", "CollideGliderBullets"] }
 "game/vehsupp" = { treatment = "compile" }
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }

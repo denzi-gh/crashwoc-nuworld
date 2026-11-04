@@ -121,6 +121,12 @@ static void movement_value(const char *table, const char *key, size_t offset, in
 #define PLANE_FLAG(f, label, def, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), def);
 #define PLANE_VALUE(f, label, def, lo, hi, ...) \
     movement_value("plane", #f, offsetof(NwSettings, movement.plane.f), def, lo, hi);
+#define SPACE_SWITCH(f, ...) \
+    movement_switch("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), true);
+#define SPACE_FLAG(f, label, def, ...) \
+    movement_switch("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), def);
+#define SPACE_VALUE(f, label, def, lo, hi, ...) \
+    movement_value("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), def, lo, hi);
 
 /* hardware_speed as root's settings.toml with text reads it; -1 when it does not load. */
 static int read_speed(const char *text)
@@ -288,6 +294,16 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.plane]\naim = false\n", &s) &&
           s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.plane.steering);
+    NW_SPACE_MOVEMENT(SPACE_SWITCH, SPACE_FLAG, SPACE_VALUE)
+    /* The same for the space fighter's. */
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.spacefighter.steering &&
+          !s.movement.spacefighter.aim_assist && s.movement.spacefighter.aim_sweep &&
+          s.movement.spacefighter.pitch_speed == 250);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
+          s.movement.spacefighter.steering && s.movement.spacefighter.aim);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.spacefighter]\nroll = false\n", &s) &&
+          !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.spacefighter.aim_assist);
 
     nw_settings_defaults(&s);
     CHECK(s.hz == 60);

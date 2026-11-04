@@ -225,6 +225,12 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
 #define NW_PLANE_FLAG_KEY(f, label, def, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_PLANE_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_PLANE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_SPACE_KEY(f) \
+    .table = "game", .sub = "movement", .sub2 = "spacefighter", .name = #f, NW_FIELD(movement.spacefighter.f)
+#define NW_SPACE_SWITCH_KEY(f, label, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SPACE_FLAG_KEY(f, label, def, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SPACE_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_SPACE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 
 static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
@@ -271,6 +277,7 @@ static const NwSettingKey nw_settings_keys[] = {
     NW_ATLAS_MOVEMENT(NW_ATLAS_SWITCH_KEY, NW_ATLAS_FLAG_KEY, NW_ATLAS_VALUE_KEY)
     NW_FIREFLY_MOVEMENT(NW_FIREFLY_SWITCH_KEY, NW_FIREFLY_FLAG_KEY, NW_FIREFLY_VALUE_KEY)
     NW_PLANE_MOVEMENT(NW_PLANE_SWITCH_KEY, NW_PLANE_FLAG_KEY, NW_PLANE_VALUE_KEY)
+    NW_SPACE_MOVEMENT(NW_SPACE_SWITCH_KEY, NW_SPACE_FLAG_KEY, NW_SPACE_VALUE_KEY)
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -454,7 +461,7 @@ bool nw_settings_load(NwSettings *s, const char *root)
     const char *crash[] = { "game", "movement", "crash" }, *mech[] = { "game", "movement", "mech" };
     const char *submarine[] = { "game", "movement", "submarine" }, *jeep[] = { "game", "movement", "jeep" };
     const char *atlasphere[] = { "game", "movement", "atlasphere" }, *firefly[] = { "game", "movement", "firefly" };
-    const char *plane[] = { "game", "movement", "plane" };
+    const char *plane[] = { "game", "movement", "plane" }, *spacefighter[] = { "game", "movement", "spacefighter" };
     if (s->movement.monkey_bar_speed <= 100 && !nw_doc_table(&doc, crash, 3)) {
         s->movement.crash = ((NwMovement)NW_MOVEMENT_RETAIL).crash;
     }
@@ -479,6 +486,9 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     if (retail && !nw_doc_table(&doc, plane, 3)) {
         s->movement.plane = ((NwMovement)NW_MOVEMENT_RETAIL).plane;
+    }
+    if (retail && !nw_doc_table(&doc, spacefighter, 3)) {
+        s->movement.spacefighter = ((NwMovement)NW_MOVEMENT_RETAIL).spacefighter;
     }
     nw_doc_free(&doc);
     return got > 0;
