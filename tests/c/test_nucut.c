@@ -112,8 +112,8 @@ static void check_cut(struct NUGCUTSCENE_s *def, char *file, const CutFile *f)
     struct NUGCUTCAMSYS_s *cam = def->camdef;
     CHECK(cam->ncutcams == 2 && cam->cutcams == (struct NUGCUTCAM_s *)(file + f->cams) && cam->initial_camid == 1);
     CHECK(cam->cutcams[0].flags == 1 && cam->cutcams[0].mtx._30 == 1.0f && cam->cutcams[1].anim_ix == 1);
-    CHECK(memcmp(cam->remap_table, file + f->camsys + 0x11, 15) == 0 && cam->remap_table[14] == 0x7E
-          && cam->remap_table[2] == -1);
+    const signed char *remap = cam->remap_table;
+    CHECK(memcmp(remap, file + f->camsys + 0x11, 15) == 0 && remap[14] == 0x7E && remap[2] == -1);
     check_anim2(cam->camanim, file, f->camanim_flags, 3);
     CHECK(cam->camanim->curves[0].constant == 0.5f);
     CHECK(eval_synth(cam->camanim, 0, 2.0f) == 0.5f && eval_synth(cam->camanim, 1, 1.0f) == 2.0f);
