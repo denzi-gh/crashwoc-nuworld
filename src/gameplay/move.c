@@ -16,6 +16,13 @@ void MoveCRASH(struct creature_s *plr, struct nupad_s *pad)
     nw_ground_after(plr);
 }
 
+void MoveCOCO(struct creature_s *plr, struct nupad_s *pad)
+{
+    nw_air_before(plr, pad);
+    MoveCOCO__retail(plr, pad);
+    nw_air_move(plr, pad);
+}
+
 void MoveMECH(struct creature_s *plr, struct nupad_s *pad)
 {
     nw_mech_before(plr, pad);
@@ -27,6 +34,12 @@ void AnimateCRASH(struct creature_s *plr)
 {
     AnimateCRASH__retail(plr);
     nw_monkey_bars_animate(plr);
+    nw_ground_animate(plr);
+}
+
+void AnimateCOCO(struct creature_s *plr)
+{
+    AnimateCOCO__retail(plr);
     nw_ground_animate(plr);
 }
 

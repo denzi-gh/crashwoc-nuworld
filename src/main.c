@@ -718,6 +718,15 @@ static void nw_boot_movement(void *user)
     }
 }
 
+static void nw_boot_coco(void *user)
+{
+    NwSettings *s = user;
+    NwCocoMovement *c = &s->movement.coco;
+
+    nw_boot_profile(s);
+    NW_COCO_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+}
+
 static void nw_boot_mech(void *user)
 {
     NwSettings *s = user;
@@ -884,6 +893,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Coco", SDL_SCANCODE_F10, nw_boot_coco, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Jeep", SDL_SCANCODE_F5, nw_boot_jeep, &settings);
