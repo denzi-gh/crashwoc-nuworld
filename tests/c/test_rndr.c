@@ -1103,9 +1103,10 @@ static void test_render_target(void)
     NuRndrSwapStreamBuffers();
 }
 
-/* NuLightFogDraw with west_a's fog and a haze: ten columns in NuLgtSurf[9] under ALPHA 0x44 over a depth CLUT from the
-   fog colour at nearly full alpha to clear at fog-near; nineteen blur rects under ALPHA 0x54; the haze copies the frame
-   in 10 x 32 cells and four edge strips and blends it in at half its alpha. */
+/* NuLightFogDraw with west_a's fog and a haze: ten columns in NuLgtSurf[9] under ALPHA 0x44 over a depth CLUT
+   from the fog colour at nearly full alpha to clear at fog-near; nineteen blur rects in one record under ALPHA 0x54,
+   their Ad the composite's from the same CLUT; the haze copies the frame in 10 x 32 cells and four edge strips and
+   blends it in at half its alpha. The blends are the GS's, as As and Ad pass 0x80. */
 static void test_fog(void)
 {
     NuCameraSet(NuCameraCreate());
@@ -1122,19 +1123,27 @@ static void test_fog(void)
     NuLightFogDraw(0);
     CHECK(Hazetab[3][4].x == 5);
     const NwPacket *p = nw_rndr_packet();
-    const NwCmd *fog = NULL, *copy = NULL, *haze = NULL;
-    uint32_t blur = 0;
+    const NwCmd *fog = NULL, *copy = NULL, *haze = NULL, *blur = NULL;
+    uint32_t blurs = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
         bool alpha = c->op == NW_CMD_VERTS && c->zclut && c->zclut <= p->nzcluts && p->zcluts[c->zclut - 1].alpha;
-        fog = c->op == NW_CMD_VERTS && c->zclut && !alpha ? c : fog;
+        bool shift = c->op == NW_CMD_VERTS && c->material == NuLgtBackAlphaBuff;
+        fog = c->op == NW_CMD_VERTS && c->zclut && !alpha && !shift ? c : fog;
         haze = alpha ? c : haze;
         copy = c->op == NW_CMD_VERTS && c->material == NuLgtBackBuff ? c : copy;
-        blur += c->op == NW_CMD_VERTS && c->mode == NW_VERTS_GS && c->alpha == (0x100 | 0x54) && c->count == 6 &&
-                c->material == NuLgtBackAlphaBuff;
+        blur = shift ? c : blur;
+        blurs += shift;
     }
-    CHECK(blur == 19);
+    CHECK(blurs == 1 && blur && blur->mode == NW_VERTS_GS && blur->count == 19 * 6 && blur->alpha == (0x100 | 0x54));
+    CHECK(blur && blur->exact && blur->zclut && blur->zclut <= p->nzcluts);
+    if (blur && fog && blur->zclut && blur->zclut <= p->nzcluts && fog->zclut <= p->nzcluts) {
+        const NwZClut *z = &p->zcluts[blur->zclut - 1];
+        CHECK(z->ad == 0x3F + 1 && !z->alpha && memcmp(z->clut, p->zcluts[fog->zclut - 1].clut, 1024) == 0);
+        CHECK(p->verts[blur->first].pos[2] == p->verts[fog->first].pos[2]);
+    }
     CHECK(fog && fog->mode == NW_VERTS_GS && fog->count == 60 && fog->alpha == (0x100 | 0x44));
+    CHECK(fog && fog->exact && p->zcluts[fog->zclut - 1].ad == 0);
     CHECK(fog && fog->material == NuLgtSurf[9] && fog->zclut <= p->nzcluts);
     if (fog && fog->zclut <= p->nzcluts) {
         const NwZClut *z = &p->zcluts[fog->zclut - 1];
@@ -1152,7 +1161,7 @@ static void test_fog(void)
         }
     }
     CHECK(copy && copy->mode == NW_VERTS_GS && copy->count == (10 * 32 + 4) * 6);
-    CHECK(haze && haze->material == NuLgtSurf[12] && haze->alpha == (0x100 | 0x44) && haze->count == 6);
+    CHECK(haze && haze->material == NuLgtSurf[12] && haze->alpha == (0x100 | 0x44) && haze->count == 6 && haze->exact);
     if (haze && fog) {
         CHECK(p->verts[haze->first].col[3] == 0x18 && p->verts[haze->first].pos[2] == p->verts[fog->first].pos[2]);
         CHECK(memcmp(p->zcluts[haze->zclut - 1].clut, p->zcluts[fog->zclut - 1].clut, 1024) == 0);

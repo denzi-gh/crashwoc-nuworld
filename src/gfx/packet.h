@@ -78,10 +78,7 @@ typedef struct NwPtl {
     float mom[3], rate;
 } NwPtl;
 
-/* A CLUT a VERTS command looks up by the GS Z under each pixel, as retail's fog and spot lights read Z back byte by
-   byte: entry (Z >> shift) & 0xFF from Z = base, far below that and near above (or NW_ZCLUT_ZERO, a clear texel, or
-   NW_ZCLUT_WRAP, wrapped like the rest). clear_z bounds Seashell's NuLightFogClear alpha fix-up (clear) or a spot
-   light's texel clear (spot); with alpha only the texture's alpha is replaced, for the haze. */
+
 #define NW_ZCLUT_ZERO 0x100u
 #define NW_ZCLUT_WRAP 0x200u
 
@@ -92,6 +89,7 @@ typedef struct NwZClut {
     bool clear, spot;
     uint32_t clear_z[2];
     bool alpha;
+    uint8_t ad;
 } NwZClut;
 
 typedef enum NwVertsMode {

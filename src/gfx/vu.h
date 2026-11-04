@@ -78,12 +78,13 @@ typedef struct NwVuTexture {
 
 /* A depth CLUT (NwZClut) the programs read in place of the texture, or of its alpha alone: the target's Z as a
    depth texture, the CLUT (256x1 RGBA8UI), and the lookup; clear: 0 none, 1 NuLightFogClear's, 2 a spot light's,
-   then its two Z. */
+   then its two Z; ad: NwZClut's, the blend's Ad from it. */
 typedef struct NwVuZClut {
     unsigned int depth, clut;
     uint32_t shift, base, far, near;
     uint32_t clear[3];
     bool alpha;
+    uint8_t ad;
 } NwVuZClut;
 
 /* diffuse is VU 0x13 (x128); tex NULL or 0 and zclut NULL mean none; dst is a copy of the target to blend over in the

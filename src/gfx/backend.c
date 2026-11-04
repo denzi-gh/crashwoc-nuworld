@@ -511,7 +511,7 @@ static const NwVuZClut *nw_be_zclut(const NwZClut *z)
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, z->clut);
     glActiveTexture(GL_TEXTURE0);
     vz = (NwVuZClut){ nw_be.zcopy.depth, nw_be.zclut, z->shift, z->base, z->far, z->near,
-                      { z->spot ? 2u : z->clear ? 1u : 0u, z->clear_z[0], z->clear_z[1] }, z->alpha };
+                      { z->spot ? 2u : z->clear ? 1u : 0u, z->clear_z[0], z->clear_z[1] }, z->alpha, z->ad };
     return &vz;
 }
 
@@ -722,6 +722,8 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
     if (c->mode == NW_VERTS_GS) {
         memset(&o, 0, sizeof(o));
         nw_be_gs(&p->views[c->view], nw_be.width, nw_be.height, o.lv);
+        o.lv[12] += 1.0f / (float)nw_be.width;
+        o.lv[13] -= 1.0f / (float)nw_be.height;
     } else if (c->mode == NW_VERTS_SPRITE) {
         program = NW_VU_FACEON;
         nw_be_object(p, c, program, &o);
@@ -740,7 +742,8 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
         m.zclut = nw_be_zclut(&p->zcluts[c->zclut - 1]);
     }
     if (c->exact) {
-        m.dst = nw_be_dst();
+        /* a draw that reads the target has its copy already */
+        m.dst = m.tex && nw_be.copy.tex && m.tex->index == nw_be.copy.tex ? m.tex : nw_be_dst();
     }
     NwVuTexture clut;
     if (c->clut && c->clut->gl.clut && m.tex && m.tex->clut) {
