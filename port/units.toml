@@ -141,7 +141,7 @@ schema = 1
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" } }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
-"game/creature" = { treatment = "compile", wrap = ["DrawCreatures"] }
+"game/creature" = { treatment = "compile", wrap = ["DrawCreatures", "MovePlayer"] }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile" }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu"] }
@@ -167,8 +167,8 @@ schema = 1
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
-"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH"] }
-"game/chase" = { treatment = "compile" }
+"game/move" = { treatment = "compile", wrap = ["AnimateCRASH", "MoveCRASH", "MoveMECH"] }
+"game/chase" = { treatment = "compile", wrap = ["UpdateChase"] }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }
 "game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst"] }
