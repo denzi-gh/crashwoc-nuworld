@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include <SDL3/SDL.h>
 
@@ -19,6 +20,8 @@
 
 /* Declared by no header. */
 extern s32 Level, cutmovie, Demo, Paused, new_level, new_mode;
+extern struct cammtx_s *pCam;
+extern f32 PANEL3DMULX, PANEL3DMULY;
 void *NuDatOpen(char *name, char **mem, s32 *used);
 void NuDatSet(void *dat);
 void NuDatClose(void *dat);
@@ -37,6 +40,8 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
 #define NW_CRUNCH_RANGE 2.0f     /* the prompt's */
 #define NW_CRUNCH_RADIUS 0.9f    /* Crash keeps this far */
 #define NW_CRUNCH_CROSS 0x40
+#define NW_CRUNCH_HEAD 2.35f      /* the best's height over his feet; his box is 2.2 high */
+#define NW_CRUNCH_BEST_SCALE 2.0f
 
 /* The top floor, beside its middle (game.c's hubmidpos[1]: 0, 37.25, 10). */
 static const struct nuvec_s nw_crunch_pos = { 2.5f, 37.15f, 11.5f };
@@ -151,12 +156,37 @@ void nw_crunch_draw(void)
     NuHGobjRndrMtxDwa(nw_crunch.obj, &m, 2, layers, tmtx, NULL);
 }
 
+/* Highscore Crunch Minigame */
+static void nw_crunch_best(void)
+{
+    int best = nw_minigame_best();
+    if (best == 0) {
+        return; /* no game played on this save yet */
+    }
+    const struct numtx_s *m = &pCam->m;
+    float dx = nw_crunch_pos.x - m->_30, dy = nw_crunch_pos.y + NW_CRUNCH_HEAD - m->_31, dz = nw_crunch_pos.z - m->_32;
+    float x = dx * m->_00 + dy * m->_01 + dz * m->_02;
+    float y = dx * m->_10 + dy * m->_11 + dz * m->_12;
+    float z = dx * m->_20 + dy * m->_21 + dz * m->_22;
+    if (z < 1.0f) {
+        return;
+    }
+    char text[24];
+    snprintf(text, sizeof(text), "BEST: %d", best);
+    Text3D(text, x / PANEL3DMULX, y / PANEL3DMULY, z, NW_CRUNCH_BEST_SCALE, NW_CRUNCH_BEST_SCALE,
+           NW_CRUNCH_BEST_SCALE, 0, 0);
+}
+
 void nw_crunch_prompt(void)
 {
-    if (!nw_crunch.near || !nw_crunch_here() || Paused || nw_level_pending() >= 0) {
+    if (!nw_crunch.obj || !nw_crunch_here() || Paused) {
         return;
     }
     NW_DEVIATION(hub_minigame);
+    nw_crunch_best();
+    if (!nw_crunch.near || nw_level_pending() >= 0) {
+        return;
+    }
     /* x is the cross button's glyph. */
     Text3D("PRESS x TO START", 0.0f, -0.6f, 1.0f, 0.5f, 0.5f, 0.5f, 0, 0);
     Text3D("LOADING MINIGAME", 0.0f, -0.75f, 1.0f, 0.5f, 0.5f, 0.5f, 0, 0);

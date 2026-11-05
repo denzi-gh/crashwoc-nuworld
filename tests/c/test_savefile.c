@@ -294,8 +294,18 @@ static void test_codec(void)
     CHECK(text && strstr(text, "\n[slot.0.hub.0]\nflags = 0x07\ncrystals = 5\n\n[slot.0.level.\"a/level_00/lev\"]\n"
                                "flags = 0x001f\ntime = [[\"1ST\", 25500], [\"\", 0], [\"\", 0]]\n\n[slot.1]\n"));
     CHECK(text && !strstr(text, "pad") && !strstr(text, "[slot.0.hub.1]") && !strstr(text, "level_01"));
+    CHECK(text && !strstr(text, "minigame_best"));
     SDL_free(text);
     text = NULL;
+
+    /* the minigame best: a key of the slot, not the top floor hub's pad */
+    g[NW_SAVE_MINIGAME_BEST] = 37;
+    CHECK(round_trip(games, NW_SAVE_RECORDS, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
+    CHECK(text && strstr(text, "gembits = 0x00\nminigame_best = 37\n"));
+    CHECK(text && !strstr(text, "pad") && !strstr(text, "[slot.0.hub.5]"));
+    SDL_free(text);
+    text = NULL;
+    g[NW_SAVE_MINIGAME_BEST] = 0;
 
     /* merged into a document that holds more than the records */
     static const char more[] = "format = 1\n"

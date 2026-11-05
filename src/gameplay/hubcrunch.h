@@ -11,7 +11,7 @@ struct nupad_s *nw_crunch_pad(struct creature_s *c, struct nupad_s *pad);
 void nw_crunch_push(struct creature_s *c);
 /* DrawCreatures' main pass for Character[0]. */
 void nw_crunch_draw(void);
-/* DrawPanel's end: the prompt. */
+/* DrawPanel's end: the best score over his head and, next to him, the prompt. */
 void nw_crunch_prompt(void);
 /* CloseCreatures: the level's textures and materials go next. */
 void nw_crunch_close(void);

@@ -25,6 +25,7 @@ struct mg_wumpa_s {
 struct vec2_s;
 
 /* Declared by no header. */
+extern struct game_s Game;
 extern struct ldata_s LData[44];
 extern struct nugscn_s *wumpa_scene;
 extern volatile s32 bgload_complete;
@@ -52,6 +53,7 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
 #define NW_MG_FLY 0.12f /* fruit speed per 50 Hz frame */
 #define NW_MG_SFX_WUMPA 0x19
 #define NW_MG_START 0x800
+#define NW_MG_BEST_HUB 5 /* its padding holds the best: save/savecodec.h NW_SAVE_MINIGAME_BEST */
 
 typedef enum NwMgState {
     NW_MG_OFF,
@@ -104,9 +106,20 @@ static float nw_mg_rand(void)
     return NuFloatRand(&mg_rand) * 2.0f - 1.0f;
 }
 
+int nw_minigame_best(void)
+{
+    const struct hub_s *h = &Game.hub[NW_MG_BEST_HUB];
+    return (u8)h->pad1 | (u8)h->pad2 << 8;
+}
+
 /* Lets BGLoad's phase 2 go on to the level. */
 static void nw_mg_release(void)
 {
+    if (nw_mg.state >= NW_MG_GO && mg_wumpatot > nw_minigame_best()) {
+        int best = SDL_min(mg_wumpatot, 0xFFFF);
+        Game.hub[NW_MG_BEST_HUB].pad1 = (char)(best & 0xFF);
+        Game.hub[NW_MG_BEST_HUB].pad2 = (char)(best >> 8);
+    }
     nw_mg.state = NW_MG_DONE;
     for (int i = 0; i < (int)SDL_arraysize(mg_wumpaobj); i++) {
         mg_wumpaobj[i].type = -1;

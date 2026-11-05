@@ -38,6 +38,7 @@ static const NwSaveField nw_save_slot_fields[] = {
     { "bonus_gems", NW_SAVE_BONUS_GEMS, 1, NW_SAVE_U8, 0, false },
     { "gems", NW_SAVE_GEMS, 1, NW_SAVE_U8, 0, false },
     { "gembits", NW_SAVE_GEMBITS, 1, NW_SAVE_U8, 2, false },
+    { "minigame_best", NW_SAVE_MINIGAME_BEST, 2, NW_SAVE_U16, 0, true },
 };
 
 static const NwSaveField nw_save_option_fields[] = {
@@ -53,8 +54,13 @@ static const NwSaveField nw_save_option_fields[] = {
 static const NwSaveField nw_save_hub_fields[] = {
     { "flags", NW_SAVE_HUB_FLAGS, 1, NW_SAVE_U8, 2, false },
     { "crystals", NW_SAVE_HUB_CRYSTALS, 1, NW_SAVE_U8, 0, false },
-    { "pad", NW_SAVE_HUB_PAD, 2, NW_SAVE_U16, 4, true },
+    { "pad", NW_SAVE_HUB_PAD, 2, NW_SAVE_U16, 4, true }, /* last: the minigame hub has minigame_best instead */
 };
+
+static size_t nw_save_hub_field_count(size_t hub)
+{
+    return NW_SAVE_COUNT(nw_save_hub_fields) - (hub == NW_SAVE_MINIGAME_HUB);
+}
 
 static const NwSaveField nw_save_level_fields[] = {
     { "flags", NW_SAVE_LEVEL_FLAGS, 2, NW_SAVE_U16, 4, false },
@@ -274,8 +280,9 @@ bool nw_save_merge(NwDoc *doc, const NwSaveRegistry *reg, const uint8_t *games, 
         path[2] = "hub";
         for (size_t h = 0; h < reg->hub_count; h++) {
             path[3] = reg->hubs[h];
-            if (!nw_save_put_record(doc, path, game + NW_SAVE_HUB + h * NW_SAVE_HUB_SIZE, NW_SAVE_HUB_SIZE,
-                                    nw_save_hub_fields, NW_SAVE_COUNT(nw_save_hub_fields), false)) {
+            if (!nw_save_put_record(doc, path, game + NW_SAVE_HUB + h * NW_SAVE_HUB_SIZE,
+                                    h == NW_SAVE_MINIGAME_HUB ? NW_SAVE_HUB_PAD : NW_SAVE_HUB_SIZE, nw_save_hub_fields,
+                                    nw_save_hub_field_count(h), false)) {
                 return false;
             }
         }
@@ -382,7 +389,7 @@ bool nw_save_decode(const NwDoc *doc, const NwSaveRegistry *reg, uint8_t *games,
         for (size_t h = 0; h < reg->hub_count; h++) {
             path[3] = reg->hubs[h];
             SDL_snprintf(where, sizeof(where), "slot.%s.hub.%s", index, path[3]);
-            if (!nw_save_get_fields(nw_doc_table(doc, path, 4), nw_save_hub_fields, NW_SAVE_COUNT(nw_save_hub_fields),
+            if (!nw_save_get_fields(nw_doc_table(doc, path, 4), nw_save_hub_fields, nw_save_hub_field_count(h),
                                     game + NW_SAVE_HUB + h * NW_SAVE_HUB_SIZE, where)) {
                 return false;
             }
