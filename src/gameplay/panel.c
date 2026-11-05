@@ -1,11 +1,14 @@
-/* Wraps of game/panel: Crunch Time's boss bar, which DrawPanel ends with its debris, and the boss heads. */
+/* Wraps of game/panel: Crunch Time's boss bar and the hub Crunch's prompt, which DrawPanel ends with its debris, and the
+   boss heads. */
 #include "nu_types.h"
 #include "game/panel.retail.h"
 #include "gameplay/bosshealth.h"
+#include "gameplay/hubcrunch.h"
 
 void DrawPanelDebris(void)
 {
     nw_boss_health_crunch_time();
+    nw_crunch_prompt();
     DrawPanelDebris__retail();
 }
 

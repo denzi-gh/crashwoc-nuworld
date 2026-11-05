@@ -143,7 +143,8 @@ schema = 1
     "MiniGameRender", "MiniGameRenderScore"] }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
-"game/creature" = { treatment = "compile", wrap = ["DrawCreatures", "LoadCharacterModels", "MovePlayer"] }
+"game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
+    "MovePlayer"] }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile", wrap = ["MoveGameCamera"] }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu", "ProcMenu", "SeekRot"] }

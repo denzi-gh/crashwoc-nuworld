@@ -20,6 +20,7 @@ typedef struct NwSettings {
     bool air_indicator;  /* a ring under Crash where he lands while he is in the air */
     bool boss_health;    /* phase lines on the boss bar */
     bool wombat;         /* the WOMBAT name opens everything in a new game */
+    bool hub_minigame;   /* Crunch on the warp room's top floor starts the loading minigame */
     int camera_stability; /* percent of a jump the game camera ignores, 0 the PS2's */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
