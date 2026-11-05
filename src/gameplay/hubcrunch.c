@@ -38,13 +38,14 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
 #define NW_CRUNCH_BYTES 0x200000
 #define NW_CRUNCH_ANIM_STEP 0.5f /* idle frames per 50 Hz frame */
 #define NW_CRUNCH_RANGE 2.0f     /* the prompt's */
-#define NW_CRUNCH_RADIUS 0.9f    /* Crash keeps this far */
+#define NW_CRUNCH_RADIUS 0.75f   /* Crash keeps this far */
 #define NW_CRUNCH_CROSS 0x40
-#define NW_CRUNCH_HEAD 2.35f      /* the best's height over his feet; his box is 2.2 high */
+#define NW_CRUNCH_SCALE 0.8f
+#define NW_CRUNCH_HEAD (NW_CRUNCH_SCALE * 2.2f + 0.15f) /* the best's height over his feet; his box is 2.2 high */
 #define NW_CRUNCH_BEST_SCALE 2.0f
 
-/* The top floor, beside its middle (game.c's hubmidpos[1]: 0, 37.25, 10). */
-static const struct nuvec_s nw_crunch_pos = { 2.5f, 37.15f, 11.5f };
+/* The top floor, beside its middle (game.c's hubmidpos[1]: 0, 37.25, 10) */
+static const struct nuvec_s nw_crunch_pos = { 3.0f, 37.15f, 12.75f };
 
 static struct {
     char *buf;
@@ -150,6 +151,7 @@ void nw_crunch_draw(void)
     }
     struct numtx_s m;
     NuMtxSetRotationY(&m, nw_crunch.yaw);
+    NuMtxScale(&m, &(struct nuvec_s){ NW_CRUNCH_SCALE, NW_CRUNCH_SCALE, NW_CRUNCH_SCALE });
     m._30 = nw_crunch_pos.x;
     m._31 = nw_crunch_pos.y;
     m._32 = nw_crunch_pos.z;
