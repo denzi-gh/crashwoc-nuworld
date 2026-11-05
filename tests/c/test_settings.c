@@ -227,6 +227,9 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(nw_settings_load(&s, root) && !s.boss_health);
     nw_settings_defaults(&s);
+    CHECK(s.wombat);
+    CHECK(read_text("[game]\nwombat = false\n", &s) && !s.wombat);
+    nw_settings_defaults(&s);
     CHECK(s.camera_stability == 100);
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
     CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);

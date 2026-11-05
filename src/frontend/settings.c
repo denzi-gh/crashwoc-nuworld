@@ -272,6 +272,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "true shows a ring on the floor under Crash while he is in the air, where he lands" },
     { .table = "game", .name = "boss_health", .kind = NW_SETTING_BOOL, NW_FIELD(boss_health),
       .help = "true splits the boss bar into the boss's phases" },
+    { .table = "game", .name = "wombat", .kind = NW_SETTING_BOOL, NW_FIELD(wombat),
+      .help = "true makes a new game named WOMBAT start with everything open, as on the GameCube and Xbox" },
     { .table = "game", .name = "camera_stability", .kind = NW_SETTING_INT, NW_FIELD(camera_stability), .lo = 0,
       .hi = 100, .help = "0-100: how much of Crash's jump the camera ignores; 0 follows it as the PS2, 100 holds its "
                          "height until he lands" },
@@ -321,6 +323,7 @@ void nw_settings_defaults(NwSettings *s)
     s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     s->air_indicator = true;
     s->boss_health = true;
+    s->wombat = true;
     s->camera_stability = 100;
     s->master_volume = 100;
     s->voice_volume = 100;

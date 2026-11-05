@@ -821,6 +821,7 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes)
     nw_profile_request(&(NwProfile){ .movement = s->movement,
                                      .air_indicator = s->air_indicator,
                                      .boss_health = s->boss_health,
+                                     .wombat = s->wombat,
                                      .camera_stability = s->camera_stability,
                                      .hitboxes = hitboxes });
 }
@@ -898,11 +899,13 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                                        .movement = settings.movement,
                                        .air_indicator = settings.air_indicator,
                                        .boss_health = settings.boss_health,
+                                       .wombat = settings.wombat,
                                        .camera_stability = settings.camera_stability });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_toggle("Game", "Air indicator", &settings.air_indicator);
     nw_debug_toggle("Game", "Boss health", &settings.boss_health);
+    nw_debug_toggle("Game", "WOMBAT cheat", &settings.wombat);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
@@ -960,6 +963,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             if (!nw_pad_script && (SDL_memcmp(&settings.movement, &applied.movement, sizeof(settings.movement)) != 0 ||
                                    settings.air_indicator != applied.air_indicator ||
                                    settings.boss_health != applied.boss_health ||
+                                   settings.wombat != applied.wombat ||
                                    settings.camera_stability != applied.camera_stability)) {
                 nw_boot_request(&settings, hitboxes);
                 hitboxes_shown = hitboxes;
