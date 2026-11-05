@@ -112,6 +112,11 @@ int nw_minigame_best(void)
     return (u8)h->pad1 | (u8)h->pad2 << 8;
 }
 
+bool nw_minigame_playing(void)
+{
+    return nw_mg.state >= NW_MG_GO && nw_mg.state <= NW_MG_END;
+}
+
 /* Lets BGLoad's phase 2 go on to the level. */
 static void nw_mg_release(void)
 {

@@ -134,6 +134,11 @@ static struct numtl_s *nw_font3d_icon(const char *name)
     return nw_font3d_icons[n].mtl = mtl;
 }
 
+void nw_font3d_release(void)
+{
+    nw_font3d_nicons = 0;
+}
+
 /* A glyph code's width in letters, 0 for another character. */
 static f32 nw_font3d_width(char c)
 {

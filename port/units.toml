@@ -163,7 +163,7 @@ schema = 1
 "game/edai" = { treatment = "editor" }
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
 "game/glass" = { treatment = "compile" }
-"game/panel" = { treatment = "compile", wrap = ["DrawPanelDebris", "DrawPanel3DTempCharacter"] }
+"game/panel" = { treatment = "compile", wrap = ["DrawGameMessage", "DrawPanelDebris", "DrawPanel3DTempCharacter"] }
 "game/text" = { treatment = "compile", override = ["NewLanguage"] }
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }
