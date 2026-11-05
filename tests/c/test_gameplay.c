@@ -7,19 +7,25 @@
 
 #include "game/creature.h"
 #include "game/gametypes.h"
+#include "game/vehicle.h"
+#include "game/vehicle.h"
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/bosshealth.h"
 #include "gameplay/edges.h"
+#include "gameplay/firefly.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
 #include "gameplay/line2d.h"
 #include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/plane.h"
+#include "gameplay/steadycam.h"
 #include "gameplay/submarine.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
+#include "numath/numtx.h"
 #include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/ps2ctl.h"
@@ -237,6 +243,30 @@ static void boss_health(void)
     CHECK(!nw_profile.boss_health);
 }
 
+static void steadycam(void)
+{
+    NwSteadyCam s = { 0 };
+    CHECK(nw_steadycam_follow(&s, 0, 1, 0, true, 100) == 1.0f);
+    /* A jump: 100 holds the take-off height, 50 half of it, 0 the PS2's. */
+    CHECK(nw_steadycam_follow(&s, 0.1f, 2, 0, false, 100) == 1.0f);
+    CHECK(nw_steadycam_follow(&s, 0.2f, 2, 0, false, 50) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.3f, 2, 0, false, 0) == 2.0f);
+    /* Below the take-off it follows him down; landing higher it follows him up. */
+    CHECK(nw_steadycam_follow(&s, 0.4f, 0.5f, 0, false, 100) == 0.5f);
+    CHECK(nw_steadycam_follow(&s, 0.5f, 1.5f, 0, false, 100) == 0.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 1.5f, 0, true, 100) == 1.5f);
+    /* Far over the take-off (a spring) it follows again, and a warp starts over. */
+    CHECK(nw_steadycam_follow(&s, 0.6f, 3.0f, 0, false, 100) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 4.0f, 0, false, 100) == 1.5f);
+    CHECK(nw_steadycam_follow(&s, 0.6f, 5.0f, 0, false, 100) == 2.0f);
+    CHECK(nw_steadycam_follow(&s, 9.0f, 5.0f, 0, false, 100) == 5.0f);
+
+    nw_profile_request(&(NwProfile){ .camera_stability = 70 });
+    nw_gameplay_swap();
+    CHECK(nw_profile.camera_stability == 70);
+    nw_profile_apply(&(NwProfile){ 0 });
+}
+
 static bool near(float a, float b, float within)
 {
     return fabsf(a - b) <= within * fabsf(b);
@@ -251,12 +281,16 @@ static NwProfile only(size_t offset)
 }
 
 #define ONLY(f) only(offsetof(NwMovement, crash.f))
+#define COCO_ONLY(f) only(offsetof(NwMovement, coco.f))
 #define MECH_ONLY(f) only(offsetof(NwMovement, mech.f))
 #define SUB_ONLY(f) only(offsetof(NwMovement, submarine.f))
 #define JEEP_ONLY(f) only(offsetof(NwMovement, jeep.f))
 #define ATLAS_ONLY(f) only(offsetof(NwMovement, atlasphere.f))
+#define FIREFLY_ONLY(f) only(offsetof(NwMovement, firefly.f))
+#define PLANE_ONLY(f) only(offsetof(NwMovement, plane.f))
+#define SPACE_ONLY(f) only(offsetof(NwMovement, spacefighter.f))
 
-/* Retail's Crash data and globals at hz, then p. */
+/* Retail's Crash and Coco data and globals at hz, then p. */
 static void crash_at(int hz, const NwProfile *p)
 {
     nw_hz_set(hz);
@@ -266,11 +300,21 @@ static void crash_at(int hz, const NwProfile *p)
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
     CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
     CrashMoveInfo.SLIDESPEED = NW_HZ(0.096f, 0.080000006f);
+    CocoMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
+    CocoMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CocoMoveInfo.RUNSPEED = NW_HZ(0.06f, 0.050000004f);
+    CocoMoveInfo.SPRINTSPEED = NW_HZ(0.089999996f, 0.075f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
     VEHICLECONTROL = 0;
     nw_profile_apply(p);
     memset(&Character[0], 0, sizeof(Character[0]));
     Character[0].obj.vehicle = -1;
+}
+
+static void coco_at(int hz, const NwProfile *p)
+{
+    crash_at(hz, p);
+    Character[0].obj.character = 1;
 }
 
 /* pull: the largest change of vertical speed in a frame after take-off, units a second squared. */
@@ -279,12 +323,19 @@ typedef struct Arc {
 } Arc;
 
 static struct nupad_s pad;
+static short jump_character; /* who jump() takes off, Crash or Coco */
+static signed char jump_type = 1;
 
-/* MoveCRASH's jump steps. */
+static struct MoveInfo *jump_info(void)
+{
+    return jump_character ? &CocoMoveInfo : &CrashMoveInfo;
+}
+
+/* MoveCRASH's and MoveCOCO's jump steps. */
 static void retail_jump(struct creature_s *c, bool held)
 {
     if (c->jump && c->jump_frame < c->jump_frames) {
-        c->obj.mom.y = CrashMoveInfo.JUMPHEIGHT / CrashMoveInfo.JUMPFRAMES2;
+        c->obj.mom.y = jump_info()->JUMPHEIGHT / jump_info()->JUMPFRAMES2;
     }
     if (!c->obj.ground) {
         c->obj.mom.y += GRAVITY;
@@ -292,7 +343,7 @@ static void retail_jump(struct creature_s *c, bool held)
     if (c->jump && c->jump_frame < c->jump_frames) {
         c->jump_frame++;
     }
-    if (c->jump == 1 && held && c->jump_frames < CrashMoveInfo.JUMPFRAMES2) {
+    if (c->jump == 1 && held && c->jump_frames < jump_info()->JUMPFRAMES2) {
         c->jump_frames++;
     } else if (c->jump == 1 && !held) {
         c->jump = 3;
@@ -304,15 +355,16 @@ static Arc jump(int hz, const NwProfile *p, int hold)
 {
     crash_at(hz, p);
     struct creature_s *c = &Character[0];
-    float run = CrashMoveInfo.RUNSPEED, friction = NW_HZ(0.0072f, 0.005f), dt = 1.0f / hz;
+    c->obj.character = jump_character;
+    float run = jump_info()->RUNSPEED, friction = NW_HZ(0.0072f, 0.005f), dt = 1.0f / hz;
     c->obj.mom.z = run;
     GameTimer.frame++;
     pad.paddata = pad.paddata_db = 0x40;
     c->obj.ground = 1;
     nw_air_before(c, &pad);
     c->jump = 1;
-    c->jump_type = 1;
-    c->jump_frames = CrashMoveInfo.JUMPFRAMES0;
+    c->jump_type = jump_type;
+    c->jump_frames = jump_info()->JUMPFRAMES0;
     c->jump_frame = 0;
     c->obj.ground = 0;
     nw_air_move(c, &pad);
@@ -711,6 +763,129 @@ static void slide(void)
     c->slide = 1;
     c->obj.mom.z = 0.11f;
     CHECK(slide_frame(false) == 0.0f);
+
+    /* Each level's LoadCharacterModels sets the length from his animation: 23 frames at 50 Hz, 28 at 60. */
+    crash_at(50, &on);
+    CrashMoveInfo.SLIDEFRAMES = 23;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 20);
+    nw_profile_request(&retail);
+    nw_gameplay_swap();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 23);
+    nw_hz_set(60);
+    CrashMoveInfo.SLIDEFRAMES = 28;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 28);
+    nw_profile_apply(&on);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24);
+    CrashMoveInfo.SLIDEFRAMES = 28;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24);
+    nw_profile_apply(&retail);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 28);
+    CrashMoveInfo.SLIDEFRAMES = 25;
+    nw_ground_loaded();
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 25);
+}
+
+static void coco_jump(void)
+{
+    NwProfile retail = { 0 }, on = COCO_ONLY(jump_fall), his = ONLY(jump_fall);
+    jump_character = 1;
+    for (jump_type = 1; jump_type <= 2; jump_type++) {
+        Arc pal = jump(50, &retail, 100), arc = jump(50, &on, 100), ntsc = jump(60, &on, 120);
+        CHECK(near(arc.apex, pal.apex, 0.05f) && near(arc.reach, pal.reach, 0.05f));
+        CHECK(fabsf(arc.time - pal.time) <= 0.05f && arc.early > pal.early && arc.pull <= 61.0f);
+        CHECK(near(ntsc.apex, arc.apex, 0.03f) && fabsf(ntsc.time - arc.time) <= 0.03f);
+        Arc crash = jump(50, &his, 100);
+        CHECK(crash.apex == pal.apex && crash.reach == pal.reach && crash.time == pal.time);
+    }
+    jump_type = 1;
+    on.movement.coco.jump_height = 130;
+    CHECK(near(jump(50, &on, 100).apex, jump(50, &retail, 100).apex * 1.3f, 0.03f));
+    on.movement.coco.jump_height = 100;
+    Arc coco = jump(50, &on, 100);
+    jump_character = 0;
+    Arc crash = jump(50, &his, 100), pal = jump(50, &retail, 100), off = jump(50, &on, 100);
+    CHECK(coco.apex == crash.apex && coco.time == crash.time);
+    CHECK(off.apex == pal.apex && off.reach == pal.reach && off.time == pal.time);
+    crash_at(60, &on);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 15);
+    crash_at(60, &retail);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 15);
+
+    /* Her run speed in the air, her dash in a dash jump. */
+    float step = 0.0072f;
+    on = COCO_ONLY(jump_distance);
+    coco_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.024f), 0.06f, 1e-5f));
+    on = COCO_ONLY(air_momentum);
+    coco_at(50, &on);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step * 0.25f, 1e-5f));
+    his = ONLY(air_momentum);
+    coco_at(50, &his);
+    Character[0].jump = 3;
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+    on = COCO_ONLY(dash_jump);
+    coco_at(50, &on);
+    struct creature_s *c = &Character[0];
+    c->obj.ground = 1;
+    nw_air_move(c, &pad);
+    GameTimer.frame++;
+    c->obj.ground = 0;
+    c->jump = 1;
+    c->sprint = 1;
+    CHECK(near(dash_frame(0.08f), 0.08f + step, 1e-5f));
+    c->jump = 3;
+    c->sprint = 0;
+    CHECK(near(dash_frame(0.088f), 0.089999996f, 1e-5f));
+}
+
+static void coco_run(void)
+{
+    NwProfile retail = { 0 }, on = COCO_ONLY(run_speed), nhanced = { .movement = NW_MOVEMENT_NHANCED };
+    float step = 0.0072f;
+    coco_at(60, &on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.060000002f * 1.2f && CocoMoveInfo.SPRINTSPEED == 0.080000006f * 1.2f);
+    CHECK(CrashMoveInfo.RUNSPEED == 0.060000002f);
+    coco_at(50, &on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.072f * 1.2f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_forward(0.0f, CocoMoveInfo.RUNSPEED), step * 1.5f, 1e-5f));
+
+    static struct CharacterModel coco;
+    static struct animlist run_anim = { .speed = 1.2f }, dash_anim = { .speed = 1.2f };
+    coco.animlist[0x3A] = &run_anim;
+    coco.animlist[0x48] = &dash_anim;
+    Character[0].obj.model = &coco;
+    nw_ground_animate(&Character[0]);
+    CHECK(near(run_anim.speed, 1.2f * 1.44f, 1e-5f) && near(dash_anim.speed, 1.2f * 1.28f, 1e-5f));
+    nw_profile_apply(&retail);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.06f && CocoMoveInfo.SPRINTSPEED == 0.089999996f);
+    nw_ground_animate(&Character[0]);
+    CHECK(run_anim.speed == 1.2f && dash_anim.speed == 1.2f);
+    CocoMoveInfo.RUNSPEED = 0.5f;
+    nw_profile_apply(&on);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.5f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
+    CocoMoveInfo.RUNSPEED = 0.06f;
+    coco_at(50, &nhanced);
+    CHECK(CocoMoveInfo.RUNSPEED == CrashMoveInfo.RUNSPEED && CocoMoveInfo.SPRINTSPEED == CrashMoveInfo.SPRINTSPEED);
+
+    on = COCO_ONLY(grip);
+    coco_at(50, &on);
+    Character[0].obj.ground = 1;
+    CHECK(near(loop_side(0.05f), 0.05f - 3.0f * step, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 2.0f * step, 1e-5f));
+    /* Crash's switches leave her retail. */
+    NwProfile his = ONLY(run_speed);
+    his.movement.crash.grip = true;
+    coco_at(50, &his);
+    Character[0].obj.ground = 1;
+    CHECK(CocoMoveInfo.RUNSPEED == 0.06f);
+    CHECK(near(loop_forward(0.0f, 0.06f), step, 1e-5f) && near(loop_side(0.05f), 0.05f - step, 1e-5f));
+    crash_at(50, &retail);
 }
 
 static NwTerI contact;
@@ -1758,6 +1933,778 @@ static void atlasphere(void)
     memset(&EarthBoss, 0, sizeof(EarthBoss));
 }
 
+extern struct GLIDERSTRUCT PlayerGlider;
+extern struct battleship_s BattleShipList[6];
+extern struct gunboat_s GunBoatList[4];
+extern struct zoffa_s EnemyZoffa[4];
+extern struct gliderbomb_s GliderBombs[10];
+extern struct creature_s *player;
+extern f32 Level_TargetTime;
+extern f32 TorpedoTime;
+extern f32 FlyingLevelCompleteTimer;
+extern f32 Level_GliderFloor;
+extern f32 Level_GliderCeiling;
+extern f32 Level_GliderCurrentCeiling;
+extern f32 Level_GliderRadius;
+extern f32 Level_GliderCentreX;
+extern f32 Level_GliderCentreZ;
+extern s32 FlyingLevelExtro;
+extern s32 FireFlyIntroOn;
+extern s32 WBIntroOn;
+void ControlGlider(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void ControlGlider__retail(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void GliderFire(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+
+/* The firefly in level, its arena's values, a battleship 30 ahead of the camera at hz, then p. */
+static void firefly_at(int hz, const NwProfile *p, s32 level)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(p);
+    Level = level;
+    memset(&Character[0], 0, sizeof(Character[0]));
+    Character[0].obj.vehicle = 0x8B;
+    player = &Character[0];
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    PlayerGlider.Cre = &Character[0];
+    PlayerGlider.Position = (struct nuvec_s){ 40.0f, 15.0f, 50.0f };
+    PlayerGlider.AngleY = 30.0f;
+    Level_GliderFloor = 3.0f;
+    Level_GliderCeiling = Level_GliderCurrentCeiling = 25.0f;
+    Level_GliderRadius = 90.0f;
+    Level_GliderCentreX = 40.32f;
+    Level_GliderCentreZ = 52.09f;
+    Level_TargetTime = level == 0x12 ? 1.3f : 0.7f;
+    FlyingLevelCompleteTimer = 1.0f;
+    FlyingLevelExtro = FireFlyIntroOn = WBIntroOn = 0;
+    memset(BattleShipList, 0, sizeof(BattleShipList));
+    memset(GunBoatList, 0, sizeof(GunBoatList));
+    memset(EnemyZoffa, 0, sizeof(EnemyZoffa));
+    memset(GliderBombs, 0, sizeof(GliderBombs));
+    BattleShipList[0].active = 1;
+    BattleShipList[0].hitpoints = 3;
+    BattleShipList[0].pos = (struct nuvec_s){ 0.0f, 0.0f, 30.0f };
+    memset(&GameCam[0], 0, sizeof(GameCam[0]));
+    NuMtxSetIdentity(&GameCam[0].m);
+    pad = (struct nupad_s){ 0 };
+    pad.rdata.l_alg_x = pad.rdata.l_alg_y = 127;
+}
+
+/* One ControlGlider from bank tiltz and pitch tiltx, the stick at (lx, ly); retail's if retail. */
+static struct GLIDERSTRUCT firefly_steer_once(int hz, const NwProfile *p, s32 level, u8 lx, u8 ly, float tiltz,
+                                              float tiltx, bool retail)
+{
+    firefly_at(hz, p, level);
+    PlayerGlider.TiltZ = tiltz;
+    PlayerGlider.TiltX = tiltx;
+    pad.rdata.l_alg_x = lx;
+    pad.rdata.l_alg_y = ly;
+    if (retail) {
+        ControlGlider__retail(&PlayerGlider, &pad);
+    } else {
+        ControlGlider(&PlayerGlider, &pad);
+    }
+    return PlayerGlider;
+}
+
+static bool firefly_steer_retail(int hz, const NwProfile *p, s32 level, u8 lx, u8 ly, float tiltz, float tiltx)
+{
+    struct GLIDERSTRUCT r = firefly_steer_once(hz, p, level, lx, ly, tiltz, tiltx, true);
+    struct GLIDERSTRUCT t = firefly_steer_once(hz, p, level, lx, ly, tiltz, tiltx, false);
+    return memcmp(&r, &t, sizeof(r)) == 0;
+}
+
+static void firefly_steer(void)
+{
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, on = FIREFLY_ONLY(steering);
+    NwProfile plain = on;
+    plain.movement.firefly.steer_response = plain.movement.firefly.steer_turn = 100;
+    plain.movement.firefly.pitch_response = 100;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        /* Retail, and the switch at 100 % everywhere, are retail's. */
+        CHECK(firefly_steer_retail(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &plain, 0x12, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &plain, 0x12, 127, 127, 40.0f, -20.0f));
+        /* Banking in and climbing at twice the speed, turning 25 % more. */
+        struct GLIDERSTRUCT r = firefly_steer_once(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f, true);
+        struct GLIDERSTRUCT b = firefly_steer_once(hz, &on, 0x12, 255, 0, 0.0f, 0.0f, false);
+        CHECK(fabsf(r.DestTiltZ) > 30.0f && fabsf(r.DestTiltX) > 20.0f);
+        CHECK(b.DestTiltZ == r.DestTiltZ && b.DestTiltX == r.DestTiltX);
+        CHECK(near(r.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
+        CHECK(near(b.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.05f)), 1e-4f));
+        CHECK(near(b.TiltX, r.DestTiltX * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
+        CHECK(near(b.AngleY - 30.0f, b.TiltZ * 2.0f * dt * 0.25f, 1e-3f));
+        /* Levelling out at twice the speed too. */
+        r = firefly_steer_once(hz, &retail, 0x12, 127, 127, 40.0f, 0.0f, true);
+        b = firefly_steer_once(hz, &on, 0x12, 127, 127, 40.0f, 0.0f, false);
+        CHECK(r.DestTiltZ == 0.0f && near(40.0f - r.TiltZ, 40.0f * (1.0f - powf(2.0f, -dt / 0.05f)), 1e-4f));
+        CHECK(near(40.0f - b.TiltZ, 40.0f * (1.0f - powf(2.0f, -dt / 0.025f)), 1e-4f));
+        /* The other gliders, and the firefly on autopilot, stay retail's. */
+        CHECK(firefly_steer_retail(hz, &on, 0xD, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &on, 0x1A, 255, 0, 0.0f, 0.0f));
+        CHECK(firefly_steer_retail(hz, &on, 0x24, 255, 0, 0.0f, 0.0f));
+        firefly_at(hz, &nhanced, 0x12);
+        PlayerGlider.AutoPilot = 1;
+        struct GLIDERSTRUCT a = PlayerGlider;
+        ControlGlider__retail(&a, &pad);
+        ControlGlider(&PlayerGlider, &pad);
+        CHECK(memcmp(&a, &PlayerGlider, sizeof(a)) == 0);
+    }
+    nw_profile_apply(&retail);
+}
+
+/* GliderFire with X held or not. */
+static void firefly_fire(bool held)
+{
+    pad.paddata = held ? 0x40 : 0;
+    GliderFire(&PlayerGlider, &pad);
+}
+
+static bool firefly_bomb(void)
+{
+    for (int i = 0; i < 10; i++) {
+        if (GliderBombs[i].life) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void firefly_lock_on(void)
+{
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, on = FIREFLY_ONLY(lock_on);
+    struct nuvec_s at;
+    float progress;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        /* Retail: X locks in 1.3 s, letting go before cancels it. */
+        firefly_at(hz, &retail, 0x12);
+        firefly_fire(true);
+        CHECK(PlayerGlider.TargetOn && PlayerGlider.TargetTimer == 1.3f);
+        firefly_fire(false);
+        CHECK(!PlayerGlider.TargetOn);
+        CHECK(!nw_firefly_marker());
+
+        /* The marker: what X locks. */
+        firefly_at(hz, &on, 0x12);
+        CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_TARGET && at.z == 30.0f);
+        /* In 1 s, and let go early it fires once it is locked. */
+        firefly_fire(true);
+        CHECK(PlayerGlider.TargetOn && PlayerGlider.TargetTimer == 1.0f && Level_TargetTime == 1.0f);
+        firefly_fire(false);
+        CHECK(PlayerGlider.TargetOn && nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOCKING);
+        CHECK(progress > 0.0f && progress < 0.1f);
+        int frames = 1;
+        while (PlayerGlider.TargetOn && frames < 2 * hz) {
+            if (PlayerGlider.TargetTimer == 0.0f) {
+                CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOCKED && progress == 1.0f);
+            }
+            firefly_fire(false);
+            frames++;
+        }
+        CHECK(abs(frames - hz) <= 2);
+        CHECK(firefly_bomb() && PlayerGlider.FireTimer == TorpedoTime);
+        CHECK(nw_firefly_lock(&at, &progress) == NW_FIREFLY_RELOAD && progress < 0.1f);
+        /* Quick tap off: letting go early drops it, and the marker shows it lost. */
+        on.movement.firefly.lock_tap = false;
+        firefly_at(hz, &on, 0x12);
+        firefly_fire(true);
+        firefly_fire(false);
+        CHECK(!PlayerGlider.TargetOn && nw_firefly_lock(&at, &progress) == NW_FIREFLY_LOST && progress == 1.0f);
+        CHECK(at.z == 30.0f);
+        on.movement.firefly.lock_tap = true;
+        /* Turned off, the lock time is retail's again. */
+        nw_profile_apply(&retail);
+        firefly_fire(false);
+        CHECK(Level_TargetTime == 1.3f);
+
+        /* The unused airship level shares the lock-on and stays retail's. */
+        firefly_at(hz, &nhanced, 0x24);
+        PlayerGlider.TargetOn = 1;
+        PlayerGlider.TargetTimer = 0.5f;
+        PlayerGlider.MovingTargetPoint = &BattleShipList[0].pos;
+        firefly_fire(false);
+        CHECK(Level_TargetTime == 0.7f);
+        CHECK(!PlayerGlider.TargetOn && !nw_firefly_marker());
+    }
+    nw_profile_apply(&retail);
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    memset(BattleShipList, 0, sizeof(BattleShipList));
+    memset(GliderBombs, 0, sizeof(GliderBombs));
+}
+
+extern s32 FlyingLevelExtro;
+extern s32 WBIntroOn;
+extern f32 FlyingLevelCompleteTimer;
+extern f32 Level_GliderFloor, Level_GliderCeiling, Level_GliderCurrentCeiling, Level_GliderRadius;
+extern f32 Level_GliderCentreX, Level_GliderCentreZ;
+extern struct nuvec_s GliderTargetPos;
+struct gliderbullet_s {
+    struct numtx_s mtx;
+    struct nuvec_s vel;
+    s16 life;
+    s16 lastlife;
+};
+extern struct gliderbullet_s GliderBullet[64];
+extern struct gliderbullet_s *FreeGliderBulletList[64];
+extern struct gliderbullet_s *UsedGliderBulletList[];
+extern s32 FreeGliderBulletNum, UsedGliderBulletNum;
+extern struct zoffa_s EnemyZoffa[4];
+void ControlGlider(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void GliderFire(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+
+static struct nupad_s glide_pad;
+
+/* The plane after one ControlGlider under p in level, from g, the stick at (x, y), the d-pad bits in buttons. */
+static struct GLIDERSTRUCT glide(const NwProfile *p, int level, const struct GLIDERSTRUCT *g, u8 x, u8 y, u32 buttons)
+{
+    nw_profile_apply(p);
+    Level = level;
+    FlyingLevelExtro = WBIntroOn = 0;
+    Level_GliderFloor = 16.0f;
+    Level_GliderCeiling = Level_GliderCurrentCeiling = 66.0f;
+    Level_GliderRadius = 177.5f;
+    Level_GliderCentreX = Level_GliderCentreZ = 0.0f;
+    PlayerGlider = *g;
+    memset(&glide_pad, 0, sizeof(glide_pad));
+    glide_pad.rdata.l_alg_x = x;
+    glide_pad.rdata.l_alg_y = y;
+    glide_pad.paddata = buttons;
+    ControlGlider(&PlayerGlider, &glide_pad);
+    return PlayerGlider;
+}
+
+static bool glide_retail(const NwProfile *p, int level, const struct GLIDERSTRUCT *g, u8 x, u8 y, u32 buttons)
+{
+    struct GLIDERSTRUCT r = glide(&(NwProfile){ 0 }, level, g, x, y, buttons);
+    struct GLIDERSTRUCT t = glide(p, level, g, x, y, buttons);
+    return memcmp(&r, &t, sizeof(r)) == 0;
+}
+
+/* The share of the way an ease at half-life h goes in a frame. */
+static float glide_ease(float h, float dt)
+{
+    return 1.0f - 1.0f / powf(2.0f, dt / h);
+}
+
+static void plane_steering(void)
+{
+    static const u8 sticks[][2] = { { 0x80, 0x80 }, { 0x80, 0x00 }, { 0xFF, 0x80 }, { 0xA0, 0x60 }, { 0x93, 0x80 },
+                                    { 0xC0, 0x20 }, { 0x7F, 0x9F }, { 0x00, 0xFF }, { 0xFF, 0x10 } };
+    static const int levels[] = { 0xD, 0x18, 0x24 };
+    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, steer = PLANE_ONLY(steering);
+    NwProfile own = { .movement = NW_MOVEMENT_RETAIL };
+    own.movement.plane = nhanced.movement.plane;
+    steer.movement.plane.deadzone = 25;
+    steer.movement.plane.pitch_response = steer.movement.plane.bank_response = 100;
+    struct GLIDERSTRUCT states[5] = { 0 };
+    for (int i = 0; i < 5; i++) {
+        states[i].Position = (struct nuvec_s){ 5.0f, 40.0f, -20.0f };
+    }
+    states[1].TiltX = 20.0f;
+    states[1].TiltZ = -30.0f;
+    states[2].BarrelRoll = 1;
+    states[2].TiltZ = -10.0f;
+    states[3].OverideTiltZ = 0.5f;
+    states[3].DestTiltZ = 45.0f;
+    states[4].AutoPilot = 1;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        nw_hz_set(hz);
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        /* At the PS2's values it is retail's; on the other gliders' levels all its switches on too, on autopilot
+           everything. */
+        for (size_t s = 0; s < sizeof(sticks) / sizeof(sticks[0]); s++) {
+            u8 x = sticks[s][0], y = sticks[s][1];
+            for (int g = 0; g < 5; g++) {
+                for (size_t l = 0; l < sizeof(levels) / sizeof(levels[0]); l++) {
+                    CHECK(glide_retail(&steer, levels[l], &states[g], x, y, 0));
+                }
+                CHECK(glide_retail(&own, 0x12, &states[g], x, y, 0));
+                CHECK(glide_retail(&own, 0x1A, &states[g], x, y, 0));
+            }
+            CHECK(glide_retail(&nhanced, 0xD, &states[4], x, y, 0));
+        }
+        CHECK(glide_retail(&steer, 0xD, &states[0], 0x80, 0x80, 0x1000));
+
+        /* Full forward in Tornado Alley: retail's 0.5 s nose-down at 2.5 times the pace. */
+        struct GLIDERSTRUCT r = glide(&retail, 0xD, &states[0], 0x7F, 0x00, 0);
+        struct GLIDERSTRUCT n = glide(&nhanced, 0xD, &states[0], 0x7F, 0x00, 0);
+        CHECK(near(r.DestTiltX, -40.0f, 1e-4f) && n.DestTiltX == r.DestTiltX);
+        CHECK(near(r.TiltX, r.DestTiltX * glide_ease(0.5f, dt), 1e-4f));
+        CHECK(near(n.TiltX, n.DestTiltX * glide_ease(0.2f, dt), 1e-4f));
+        /* Let go: back to level at 1 s, now 0.4 s, the bank at 0.05 s, now a third sooner. */
+        n = glide(&nhanced, 0xD, &states[1], 0x80, 0x80, 0);
+        CHECK(n.DestTiltX == 0.0f && near(n.TiltX, 20.0f - 20.0f * glide_ease(0.4f, dt), 1e-4f));
+        CHECK(n.DestTiltZ == 0.0f && near(n.TiltZ, -30.0f + 30.0f * glide_ease(0.05f / 1.5f, dt), 1e-4f));
+        /* Atmospheric Pressure's 0.2 s at 0.08 s, its bank's 0.1 s at 1.5 times. */
+        n = glide(&nhanced, 0x18, &states[0], 0xFF, 0x00, 0);
+        CHECK(n.DestTiltX < -20.0f && near(n.TiltX, n.DestTiltX * glide_ease(0.08f, dt), 1e-4f));
+        CHECK(n.DestTiltZ > 40.0f && near(n.TiltZ, n.DestTiltZ * glide_ease(0.1f / 1.5f, dt), 1e-4f));
+        r = glide(&retail, 0x18, &states[0], 0xFF, 0x00, 0);
+        CHECK(near(r.TiltZ, r.DestTiltZ * glide_ease(0.1f, dt), 1e-4f));
+        /* Under an override and mid roll the bank eases as retail's. */
+        n = glide(&nhanced, 0xD, &states[3], 0xFF, 0x80, 0);
+        r = glide(&retail, 0xD, &states[3], 0xFF, 0x80, 0);
+        CHECK(n.TiltZ == r.TiltZ);
+        CHECK(glide_retail(&nhanced, 0xD, &states[2], 0x80, 0x80, 0));
+
+        /* A sixth of the way out: nothing on the PS2, a turn at a 10 % deadzone. */
+        CHECK(glide(&retail, 0xD, &states[0], 0x7F + 20, 0x7F, 0).InputX == 0.0f);
+        n = glide(&nhanced, 0xD, &states[0], 0x7F + 20, 0x7F, 0);
+        CHECK(n.InputX > 0.05f && n.InputX < 0.1f && n.DestTiltZ > 0.0f);
+        CHECK(glide(&nhanced, 0xD, &states[0], 0x7F + 12, 0x7F, 0).InputX == 0.0f);
+        CHECK(near(glide(&nhanced, 0xD, &states[0], 0x7F + 126, 0x7F, 0).InputX, 1.0f, 1e-4f));
+
+        /* push_dive off: forward and the d-pad's up climb. */
+        NwProfile climb = nhanced;
+        climb.movement.plane.push_dive = false;
+        CHECK(near(glide(&climb, 0xD, &states[0], 0x7F, 0x00, 0).DestTiltX, 40.0f, 1e-4f));
+        CHECK(glide(&climb, 0xD, &states[0], 0x7F, 0xFF, 0).DestTiltX < -39.0f);
+        CHECK(near(glide(&climb, 0x18, &states[0], 0x80, 0x80, 0x1000).DestTiltX, 40.0f, 1e-4f));
+        CHECK(near(glide(&nhanced, 0x18, &states[0], 0x80, 0x80, 0x1000).DestTiltX, -40.0f, 1e-4f));
+    }
+    nw_profile_apply(&retail);
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    Level = 0;
+}
+
+/* The shot GliderFire adds in Tornado Alley under p, flying level along -z; NULL for none. */
+static struct gliderbullet_s *plane_shot(const NwProfile *p)
+{
+    nw_profile_apply(p);
+    Level = 0xD;
+    FlyingLevelExtro = WBIntroOn = 0;
+    FlyingLevelCompleteTimer = 1.5f;
+    GameCam[0].pos = (struct nuvec_s){ 0.0f, 0.0f, 0.0f };
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    PlayerGlider.Cre = &Character[0];
+    for (int i = 0; i < 64; i++) {
+        FreeGliderBulletList[i] = &GliderBullet[i];
+    }
+    FreeGliderBulletNum = 64;
+    UsedGliderBulletNum = 0;
+    memset(&glide_pad, 0, sizeof(glide_pad));
+    glide_pad.paddata = 0x40;
+    GliderFire(&PlayerGlider, &glide_pad);
+    return UsedGliderBulletNum == 1 ? UsedGliderBulletList[0] : NULL;
+}
+
+static float DotProduct(const struct nuvec_s *a, const struct nuvec_s *b)
+{
+    return a->x * b->x + a->y * b->y + a->z * b->z;
+}
+
+/* The cosine between the shot's flight and the way to `to`. */
+static float plane_off(const struct gliderbullet_s *b, struct nuvec_s to)
+{
+    struct nuvec_s d = { to.x - b->mtx._30, to.y - b->mtx._31, to.z - b->mtx._32 }, v = b->vel;
+    return DotProduct(&d, &v) / (NuVecMag(&d) * NuVecMag(&v));
+}
+
+/* The cosine between the tracer's z row and its flight. */
+static float plane_tracer(const struct gliderbullet_s *b)
+{
+    struct nuvec_s z = { b->mtx._20, b->mtx._21, b->mtx._22 }, v = b->vel;
+    return DotProduct(&z, &v) / (NuVecMag(&z) * NuVecMag(&v));
+}
+
+/* How near the shot passes a UFO flying from pos at vel. */
+static float plane_miss(const struct gliderbullet_s *b, float dt, struct nuvec_s pos, struct nuvec_s vel)
+{
+    struct nuvec_s rel = { b->mtx._30 - pos.x, b->mtx._31 - pos.y, b->mtx._32 - pos.z };
+    struct nuvec_s dv = { b->vel.x / dt - vel.x, b->vel.y / dt - vel.y, b->vel.z / dt - vel.z };
+    float t = -DotProduct(&rel, &dv) / DotProduct(&dv, &dv);
+    struct nuvec_s at = { rel.x + dv.x * t, rel.y + dv.y * t, rel.z + dv.z * t };
+    return NuVecMag(&at);
+}
+
+static void plane_aim(void)
+{
+    NwProfile retail = { 0 }, aim = PLANE_ONLY(aim);
+    aim.movement.plane.aim_assist = 0;
+    memset(EnemyZoffa, 0, sizeof(EnemyZoffa));
+    for (int hz = 50; hz <= 60; hz += 10) {
+        nw_hz_set(hz);
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        /* Retail's shot drops 6 in 50, the reticle 8.5. */
+        struct gliderbullet_s *b = plane_shot(&retail);
+        CHECK(b && near(b->vel.y, -6.0f * dt, 1e-4f) && near(b->vel.z, -50.0f * dt, 1e-4f));
+        CHECK(b && plane_off(b, GliderTargetPos) < 0.9995f);
+        float speed = b ? NuVecMag(&b->vel) : 0.0f, tracer = b ? plane_tracer(b) : 0.0f;
+        b = plane_shot(&aim);
+        CHECK(b && plane_off(b, GliderTargetPos) > 0.99999f && near(NuVecMag(&b->vel), speed, 1e-5f));
+        CHECK(b && near(plane_tracer(b), tracer, 1e-4f));
+        /* The assist leads a UFO 1.5 degrees off the reticle; at 5.7 degrees or out of reach it is left alone. */
+        aim.movement.plane.aim_assist = 3;
+        EnemyZoffa[0].active = 1;
+        EnemyZoffa[0].pos = (struct nuvec_s){ -4.5f, -10.06f, -59.15f };
+        EnemyZoffa[0].vel = (struct nuvec_s){ 5.0f, 0.0f, 0.0f };
+        b = plane_shot(&aim);
+        CHECK(b && plane_miss(b, dt, EnemyZoffa[0].pos, EnemyZoffa[0].vel) < 0.05f);
+        CHECK(b && plane_off(b, GliderTargetPos) < 0.9999f);
+        EnemyZoffa[0].pos = (struct nuvec_s){ 6.0f, -10.06f, -59.15f };
+        EnemyZoffa[0].vel = (struct nuvec_s){ 0.0f, 0.0f, 0.0f };
+        b = plane_shot(&aim);
+        CHECK(b && plane_off(b, GliderTargetPos) > 0.99999f);
+        EnemyZoffa[0].pos = (struct nuvec_s){ 0.0f, -20.0f, -150.0f };
+        b = plane_shot(&aim);
+        CHECK(b && plane_off(b, GliderTargetPos) > 0.99999f);
+        memset(EnemyZoffa, 0, sizeof(EnemyZoffa));
+        aim.movement.plane.aim_assist = 0;
+        /* Only in Tornado Alley. */
+        nw_profile_apply(&aim);
+        Level = 0x18;
+        CHECK(!nw_plane_fire(&PlayerGlider, &glide_pad));
+    }
+    nw_profile_apply(&retail);
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    UsedGliderBulletNum = 0;
+    Level = 0;
+}
+
+extern struct GLIDERSTRUCT PlayerGlider;
+extern f32 CRASHTEROIDSSeekTiltXTimeZero;
+extern f32 CRASHTEROIDSSeekTiltXTimeNonZero;
+extern f32 SeekTiltZZero;
+extern f32 SeekTiltZNonZero;
+extern f32 Level_GliderSpeed;
+extern f32 Level_GliderFloor;
+extern f32 Level_GliderCeiling;
+extern f32 Level_GliderCurrentCeiling;
+extern f32 Level_GliderRadius;
+extern f32 FlyingLevelCompleteTimer;
+extern s32 FlyingLevelExtro;
+extern struct nuvec_s GliderTargetPos;
+extern struct nuvec_s SpaceFirePosA;
+extern struct nuvec_s SpaceFirePosB;
+extern struct zoffa_s EnemyZoffa[4];
+extern struct satellite_s SatelliteList[9];
+extern unsigned char AsteroidList[];
+void ControlGlider(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+void ProcessGliderMovement(struct GLIDERSTRUCT *glider, f32 dt);
+void GliderFire(struct GLIDERSTRUCT *glider, struct nupad_s *pad);
+s32 CollideGliderBullets(struct nuvec_s *pos, f32 radius, s32 enemy, f32 yscale, s32 debris, s32 reflect);
+
+/* vehicle.c's struct gliderbullet_s; vel is a frame's. */
+typedef struct gliderbullet_s Bolt;
+extern s32 FreeGliderBulletNum;
+extern s32 UsedGliderBulletNum;
+
+#define SPACE_LEVEL 0x1A
+
+/* Crashteroids' glider at hz under p, as SpaceArenaReset leaves it, the stick centred. */
+static void space_at(int hz, const NwProfile *p)
+{
+    nw_hz_set(hz);
+    nw_profile_apply(p);
+    Level = SPACE_LEVEL;
+    CRASHTEROIDSSeekTiltXTimeZero = 1.0f;
+    CRASHTEROIDSSeekTiltXTimeNonZero = 0.5f;
+    SeekTiltZZero = 0.05f;
+    SeekTiltZNonZero = 0.1f;
+    Level_GliderSpeed = 8.0f;
+    Level_GliderFloor = -30.0f;
+    Level_GliderCeiling = Level_GliderCurrentCeiling = 35.0f;
+    Level_GliderRadius = 180.0f;
+    FlyingLevelExtro = 0;
+    FlyingLevelCompleteTimer = 1.5f;
+    SpaceFirePosA = (struct nuvec_s){ 0.75f, -0.1f, 0.0f };
+    SpaceFirePosB = (struct nuvec_s){ -0.75f, -0.1f, 0.0f };
+    memset(&PlayerGlider, 0, sizeof(PlayerGlider));
+    PlayerGlider.Cre = &Character[0];
+    PlayerGlider.HitPoints = 100;
+    player = &Character[0];
+    memset(EnemyZoffa, 0, sizeof(EnemyZoffa));
+    memset(SatelliteList, 0, sizeof(SatelliteList));
+    memset(AsteroidList, 0, 100 * 0x4C);
+    for (int i = 0; i < 64; i++) {
+        FreeGliderBulletList[i] = &GliderBullet[i];
+    }
+    FreeGliderBulletNum = 64;
+    UsedGliderBulletNum = 0;
+    memset(&pad, 0, sizeof(pad));
+    pad.rdata.l_alg_x = pad.rdata.l_alg_y = 127;
+}
+
+/* The glider after frames of ControlGlider with the stick at (x, y). */
+static struct GLIDERSTRUCT space_steer(int hz, const NwProfile *p, u8 x, u8 y, int frames)
+{
+    space_at(hz, p);
+    pad.rdata.l_alg_x = x;
+    pad.rdata.l_alg_y = y;
+    for (int i = 0; i < frames; i++) {
+        ControlGlider(&PlayerGlider, &pad);
+    }
+    return PlayerGlider;
+}
+
+/* Whether a second of steering and flying in level, the autopilot on or off, comes out as retail's. */
+static bool space_as_retail(int hz, const NwProfile *p, int level, s32 autopilot)
+{
+    struct GLIDERSTRUCT r;
+    for (int run = 0; run < 2; run++) {
+        space_at(hz, run ? p : &(NwProfile){ 0 });
+        Level = level;
+        PlayerGlider.AutoPilot = autopilot;
+        PlayerGlider.Speed = -8.0f;
+        pad.rdata.l_alg_x = 200;
+        pad.rdata.l_alg_y = 40;
+        for (int i = 0; i < hz; i++) {
+            ControlGlider(&PlayerGlider, &pad);
+            ProcessGliderMovement(&PlayerGlider, NW_HZ(0.02f, 0.016666668f));
+        }
+        if (!run) {
+            r = PlayerGlider;
+        }
+    }
+    return memcmp(&r, &PlayerGlider, sizeof(r)) == 0;
+}
+
+static void space_steering(void)
+{
+    NwProfile retail = { 0 }, on = SPACE_ONLY(steering), nhanced = { .movement = NW_MOVEMENT_NHANCED };
+    NwProfile own = { .movement = NW_MOVEMENT_RETAIL };
+    own.movement.spacefighter = nhanced.movement.spacefighter;
+    s32 level = Level;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float dt = hz == 50 ? 0.02f : 0.016666668f;
+        /* Climb and dive: half way in the PS2's 0.5 s, in 0.2 s at 250 %. */
+        CHECK(near(space_steer(hz, &retail, 127, 0, hz / 2).TiltX, -20.0f, 1e-3f));
+        CHECK(near(space_steer(hz, &on, 127, 0, hz / 5).TiltX, -20.0f, 1e-3f));
+        /* Banking: the PS2's 0.1 s half-life, 1.5 times as fast. */
+        struct GLIDERSTRUCT r = space_steer(hz, &retail, 255, 127, 3), b = space_steer(hz, &on, 255, 127, 3);
+        CHECK(near(fabsf(r.TiltZ), 60.0f * (1.0f - exp2f(-3.0f * dt / 0.1f)), 1e-2f));
+        CHECK(near(fabsf(b.TiltZ), 60.0f * (1.0f - exp2f(-3.0f * dt * 1.5f / 0.1f)), 1e-2f));
+        CHECK(CRASHTEROIDSSeekTiltXTimeNonZero == 0.5f && SeekTiltZNonZero == 0.1f);
+        /* A light push (20 of 127): the PS2's deadzone drops it, 10 % takes it; a full push stays full. */
+        CHECK(space_steer(hz, &retail, 127, 107, 1).InputZ == 0.0f);
+        r = space_steer(hz, &on, 127, 107, 1);
+        CHECK(r.InputZ > 0.05f && r.InputZ < 0.1f && pad.rdata.l_alg_y == 107);
+        CHECK(space_steer(hz, &on, 127, 0, 1).InputZ == 1.0f);
+        on.movement.spacefighter.deadzone = 25;
+        CHECK(space_steer(hz, &on, 127, 107, 1).InputZ == 0.0f);
+        on.movement.spacefighter.deadzone = 10;
+        /* Turning at a bank of 30: 60 degrees a second, 75 at 125 %. */
+        space_at(hz, &retail);
+        PlayerGlider.TiltZ = 30.0f;
+        ProcessGliderMovement(&PlayerGlider, dt);
+        CHECK(near(PlayerGlider.AngleY, 60.0f * dt, 1e-4f));
+        space_at(hz, &on);
+        PlayerGlider.TiltZ = 30.0f;
+        ProcessGliderMovement(&PlayerGlider, dt);
+        CHECK(near(PlayerGlider.AngleY, 75.0f * dt, 1e-4f));
+        /* Every switch on: the autopilot stays retail's, and with its own on the other gliders' levels. */
+        CHECK(!space_as_retail(hz, &nhanced, SPACE_LEVEL, 0));
+        CHECK(space_as_retail(hz, &nhanced, SPACE_LEVEL, 1));
+        CHECK(space_as_retail(hz, &own, 0xD, 0));
+        CHECK(space_as_retail(hz, &own, 0x12, 0));
+    }
+    nw_profile_apply(&retail);
+    Level = level;
+}
+
+static void space_roll(void)
+{
+    NwProfile retail = { 0 }, on = SPACE_ONLY(roll);
+    s32 level = Level;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float r = 0.0f;
+        for (int run = 0; run < 3; run++) {
+            on.movement.spacefighter.roll_kept = run == 2 ? 0 : 100;
+            space_at(hz, run ? &on : &retail);
+            PlayerGlider.Speed = -8.0f;
+            PlayerGlider.BarrelRoll = 3;
+            for (int i = 0; i < hz; i++) {
+                ProcessGliderMovement(&PlayerGlider, NW_HZ(0.02f, 0.016666668f));
+            }
+            CHECK(Level_GliderSpeed == 8.0f);
+            if (run == 0) {
+                /* A second of a roll: half way to an eighth of the speed. */
+                r = PlayerGlider.Speed;
+                CHECK(near(r, -4.5f, 1e-3f));
+            }
+            CHECK(run == 1 ? PlayerGlider.Speed == -8.0f : PlayerGlider.Speed == r);
+        }
+    }
+    nw_profile_apply(&retail);
+    Level = level;
+}
+
+/* GliderFire from a fixed pose under p, firing or not; a still UFO at ufo, when given. */
+static void space_fire(int hz, const NwProfile *p, bool fire, const struct nuvec_s *ufo)
+{
+    space_at(hz, p);
+    if (ufo) {
+        EnemyZoffa[0].active = 1;
+        EnemyZoffa[0].pos = *ufo;
+    }
+    PlayerGlider.Position = (struct nuvec_s){ 1.0f, 2.0f, 3.0f };
+    PlayerGlider.TiltX = 10.0f;
+    PlayerGlider.TiltZ = 5.0f;
+    PlayerGlider.AngleY = 30.0f;
+    pad.paddata = fire ? 0x40 : 0;
+    GliderFire(&PlayerGlider, &pad);
+}
+
+static struct nuvec_s bolt_pos(const Bolt *b)
+{
+    return (struct nuvec_s){ b->mtx._30, b->mtx._31, b->mtx._32 };
+}
+
+/* How far p is off the line through o along the unit d, and how far along it. */
+static float off_line(struct nuvec_s p, struct nuvec_s o, struct nuvec_s d, float *along)
+{
+    struct nuvec_s r = { p.x - o.x, p.y - o.y, p.z - o.z };
+    *along = r.x * d.x + r.y * d.y + r.z * d.z;
+    r = (struct nuvec_s){ r.x - d.x * *along, r.y - d.y * *along, r.z - d.z * *along };
+    return sqrtf(r.x * r.x + r.y * r.y + r.z * r.z);
+}
+
+static float degrees(struct nuvec_s a, struct nuvec_s b)
+{
+    float c = (a.x * b.x + a.y * b.y + a.z * b.z) / (NuVecMag(&a) * NuVecMag(&b));
+    return acosf(fminf(c, 1.0f)) * 180.0f / 3.14159265f;
+}
+
+static void space_aim(void)
+{
+    NwProfile retail = { 0 }, on = SPACE_ONLY(aim);
+    s32 level = Level;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        space_fire(hz, &retail, true, NULL);
+        CHECK(UsedGliderBulletNum == 2);
+        Bolt a = *UsedGliderBulletList[0], b = *UsedGliderBulletList[1];
+        struct nuvec_s old = GliderTargetPos;
+        struct nuvec_s mid = { (a.mtx._30 + b.mtx._30) * 0.5f, (a.mtx._31 + b.mtx._31) * 0.5f,
+                               (a.mtx._32 + b.mtx._32) * 0.5f };
+        struct nuvec_s dir = { a.vel.x + b.vel.x, a.vel.y + b.vel.y, a.vel.z + b.vel.z };
+        NuVecNorm(&dir, &dir);
+        float along;
+        /* The PS2's reticle is off the shots' middle line... */
+        CHECK(off_line(old, mid, dir, &along) > 2.0f);
+        /* ...this one on it, 60 ahead; the shots stay the PS2's. */
+        space_fire(hz, &on, true, NULL);
+        CHECK(UsedGliderBulletNum == 2 && memcmp(&a, UsedGliderBulletList[0], sizeof(a)) == 0 &&
+              memcmp(&b, UsedGliderBulletList[1], sizeof(b)) == 0);
+        CHECK(off_line(GliderTargetPos, mid, dir, &along) < 0.05f && near(along, 61.0f, 0.01f));
+        struct nuvec_s aimed = GliderTargetPos;
+        space_fire(hz, &on, false, NULL);
+        CHECK(UsedGliderBulletNum == 0 && memcmp(&aimed, &GliderTargetPos, sizeof(aimed)) == 0);
+        /* The other gliders' reticles stay retail's. */
+        space_at(hz, &retail);
+        Level = 0xD;
+        PlayerGlider.FireTimer = 1.0f;
+        GliderFire(&PlayerGlider, &pad);
+        old = GliderTargetPos;
+        space_at(hz, &on);
+        Level = 0xD;
+        PlayerGlider.FireTimer = 1.0f;
+        GliderFire(&PlayerGlider, &pad);
+        CHECK(memcmp(&old, &GliderTargetPos, sizeof(old)) == 0);
+    }
+    nw_profile_apply(&retail);
+    Level = level;
+}
+
+/* One of Coco's shots at (x, 0, z), its last step of 2.4 from +z. */
+static Bolt *space_bolt(float x, float z, s16 life)
+{
+    Bolt *b = &GliderBullet[0];
+    memset(b, 0, sizeof(*b));
+    b->mtx._00 = b->mtx._11 = b->mtx._22 = b->mtx._33 = 1.0f;
+    b->mtx._30 = x;
+    b->mtx._32 = z;
+    b->vel.z = -2.4f;
+    b->life = life;
+    b->lastlife = 38;
+    UsedGliderBulletList[0] = b;
+    UsedGliderBulletNum = 1;
+    FreeGliderBulletNum = 0;
+    return b;
+}
+
+static void space_sweep(void)
+{
+    NwProfile retail = { 0 }, on = SPACE_ONLY(aim);
+    struct nuvec_s centre = { 0.0f, 0.0f, 0.0f };
+    s32 level = Level;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        /* Through the middle of a UFO between two frames: the PS2's misses it. */
+        space_at(hz, &retail);
+        space_bolt(0.0f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 0 && UsedGliderBulletNum == 1);
+        space_at(hz, &on);
+        space_bolt(0.0f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 1 && UsedGliderBulletNum == 0);
+        /* The step passes 0.9 under it: 1.35 with y scaled by 1.5. */
+        space_at(hz, &on);
+        Bolt *b = space_bolt(0.0f, -1.3f, 30);
+        b->mtx._31 = -0.9f;
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.5f, 0, 0) == 0);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 1);
+        /* Past it, or before its first step: missed, and left where it is. */
+        space_at(hz, &on);
+        b = space_bolt(1.5f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 0 && UsedGliderBulletNum == 1);
+        CHECK(b->mtx._30 == 1.5f && b->mtx._31 == 0.0f && b->mtx._32 == -1.3f);
+        space_at(hz, &on);
+        space_bolt(0.0f, -1.3f, NW_HZ(37, 45));
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 0);
+        /* A shield's reflection, the flag off and the other levels test as the PS2. */
+        space_at(hz, &on);
+        space_bolt(0.0f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 1) == 0);
+        on.movement.spacefighter.aim_sweep = false;
+        space_at(hz, &on);
+        space_bolt(0.0f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 0);
+        on.movement.spacefighter.aim_sweep = true;
+        space_at(hz, &on);
+        Level = 0xD;
+        space_bolt(0.0f, -1.3f, 30);
+        CHECK(CollideGliderBullets(&centre, 1.0f, 0, 1.0f, 0, 0) == 0);
+    }
+    nw_profile_apply(&retail);
+    Level = level;
+}
+
+static void space_assist(void)
+{
+    NwProfile retail = { 0 }, on = SPACE_ONLY(aim_assist);
+    s32 level = Level;
+    for (int hz = 50; hz <= 60; hz += 10) {
+        space_fire(hz, &retail, true, NULL);
+        Bolt a = *UsedGliderBulletList[0];
+        struct nuvec_s from = bolt_pos(&a), dir = a.vel, up = { 0.0f, 1.0f, 0.0f }, side;
+        NuVecNorm(&dir, &dir);
+        NuVecCross(&side, &dir, &up);
+        NuVecNorm(&side, &side);
+        for (int off = 3; off <= 10; off += 7) {
+            float r = off * 3.14159265f / 180.0f;
+            struct nuvec_s ufo = { from.x + 40.0f * (dir.x * cosf(r) + side.x * sinf(r)),
+                                   from.y + 40.0f * (dir.y * cosf(r) + side.y * sinf(r)),
+                                   from.z + 40.0f * (dir.z * cosf(r) + side.z * sinf(r)) };
+            space_fire(hz, &on, true, &ufo);
+            Bolt c = *UsedGliderBulletList[0];
+            struct nuvec_s to = { ufo.x - from.x, ufo.y - from.y, ufo.z - from.z };
+            if (off == 3) {
+                /* 3 degrees off: three quarters of the way to it, the bolt turned with it. */
+                CHECK(near(degrees(c.vel, to), 0.75f, 0.1f) && near(NuVecMag(&c.vel), NuVecMag(&a.vel), 1e-4f));
+                struct nuvec_s fa = { a.mtx._20, a.mtx._21, a.mtx._22 }, fc = { c.mtx._20, c.mtx._21, c.mtx._22 };
+                CHECK(near(degrees(fa, fc), degrees(a.vel, c.vel), 0.05f));
+                on.movement.spacefighter.assist_pull = 0;
+                space_fire(hz, &on, true, &ufo);
+                CHECK(memcmp(&a, UsedGliderBulletList[0], sizeof(a)) == 0);
+                on.movement.spacefighter.assist_pull = 75;
+            } else {
+                /* Outside the cone: the PS2's. */
+                CHECK(memcmp(&a, &c, sizeof(a)) == 0);
+            }
+        }
+    }
+    nw_profile_apply(&retail);
+    Level = level;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -1766,6 +2713,7 @@ int main(void)
     monkey_bar_anim();
     air_indicator();
     boss_health();
+    steadycam();
     jump_fall();
     jump_distance();
     air_momentum();
@@ -1778,6 +2726,8 @@ int main(void)
     line_2d();
     hazard_hitboxes();
     air_jump();
+    coco_jump();
+    coco_run();
     mech_stand_jump();
     mech_shot();
     mech_aim_walk();
@@ -1792,6 +2742,15 @@ int main(void)
     jeep_speed();
     jeep_grip();
     atlasphere();
+    firefly_steer();
+    firefly_lock_on();
+    plane_steering();
+    plane_aim();
+    space_steering();
+    space_roll();
+    space_aim();
+    space_sweep();
+    space_assist();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -1805,6 +2764,14 @@ int main(void)
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 200 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .monkey_bar_speed = 350 }) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .crash = { .jump_fall = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.coco.run_top = 150;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.coco.grip = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.coco.run_top = 130;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
     m = (NwMovement)NW_MOVEMENT_RETAIL;
     m.mech.aim_speed = 400;
     CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
@@ -1842,6 +2809,35 @@ int main(void)
     m.atlasphere.guard_push = false;
     CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
     CHECK(nw_movement_profile(&(NwMovement){ .atlasphere = { .brake = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.firefly.lock_ms = 1300;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.firefly.steering = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.firefly.lock_tap = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .firefly = { .lock_on = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.plane.pitch_response = 400;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.plane.aim = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.plane.push_dive = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_RETAIL;
+    m.spacefighter.aim_range = 88;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_RETAIL);
+    m.spacefighter.roll = true;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m = (NwMovement)NW_MOVEMENT_NHANCED;
+    m.spacefighter.assist_pull = 50;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    m.spacefighter.assist_pull = 75;
+    m.spacefighter.aim_sweep = false;
+    CHECK(nw_movement_profile(&m) == NW_MOVEMENT_PROFILE_CUSTOM);
+    CHECK(nw_movement_profile(&(NwMovement){ .spacefighter = { .aim = true } }) == NW_MOVEMENT_PROFILE_CUSTOM);
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

@@ -3,6 +3,7 @@
 #include "nu3d/numtl.retail.h"
 #include "gameplay/airindicator.h"
 #include "gameplay/bosshealth.h"
+#include "gameplay/firefly.h"
 #include "gameplay/hitboxes.h"
 
 void NuMtlRelease(void)
@@ -10,5 +11,6 @@ void NuMtlRelease(void)
     NuMtlRelease__retail();
     nw_air_indicator_release();
     nw_boss_health_release();
+    nw_firefly_release();
     nw_hitboxes_release();
 }

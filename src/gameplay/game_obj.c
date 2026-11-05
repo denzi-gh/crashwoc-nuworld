@@ -26,7 +26,8 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
         in_s_friction = side;
         return;
     }
-    if (obj != &Character[0].obj || !nw_crash_on_foot(&Character[0])) {
+    bool crash = nw_crash_on_foot(&Character[0]);
+    if (obj != &Character[0].obj || !(crash || nw_coco_on_foot(&Character[0]))) {
         MoveLoopXZ__retail(obj, hdg);
         return;
     }
@@ -38,7 +39,9 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
     in_speed = speed;
     in_f_friction = forward;
     in_s_friction = side;
-    nw_line2d_hold(&Character[0]);
+    if (crash) {
+        nw_line2d_hold(&Character[0]);
+    }
 }
 
 void PlayerCreatureCollisions(struct obj_s *obj)

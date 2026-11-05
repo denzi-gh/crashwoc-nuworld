@@ -192,6 +192,11 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
 #define NW_CRASH_FLAG_KEY(f, label, def, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_CRASH_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_CRASH_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_COCO_KEY(f) .table = "game", .sub = "movement", .sub2 = "coco", .name = #f, NW_FIELD(movement.coco.f)
+#define NW_COCO_SWITCH_KEY(f, label, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_COCO_FLAG_KEY(f, label, def, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_COCO_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_COCO_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_MECH_KEY(f) .table = "game", .sub = "movement", .sub2 = "mech", .name = #f, NW_FIELD(movement.mech.f)
 #define NW_MECH_SWITCH_KEY(f, label, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_MECH_FLAG_KEY(f, label, def, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
@@ -214,6 +219,23 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
 #define NW_ATLAS_FLAG_KEY(f, label, def, text) { NW_ATLAS_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_ATLAS_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_ATLAS_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_FIREFLY_KEY(f) \
+    .table = "game", .sub = "movement", .sub2 = "firefly", .name = #f, NW_FIELD(movement.firefly.f)
+#define NW_FIREFLY_SWITCH_KEY(f, label, text) { NW_FIREFLY_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_FIREFLY_FLAG_KEY(f, label, def, text) { NW_FIREFLY_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_FIREFLY_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_FIREFLY_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_PLANE_KEY(f) .table = "game", .sub = "movement", .sub2 = "plane", .name = #f, NW_FIELD(movement.plane.f)
+#define NW_PLANE_SWITCH_KEY(f, label, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_PLANE_FLAG_KEY(f, label, def, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_PLANE_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_PLANE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
+#define NW_SPACE_KEY(f) \
+    .table = "game", .sub = "movement", .sub2 = "spacefighter", .name = #f, NW_FIELD(movement.spacefighter.f)
+#define NW_SPACE_SWITCH_KEY(f, label, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SPACE_FLAG_KEY(f, label, def, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SPACE_VALUE_KEY(f, label, def, lo_, hi_, text) \
+    { NW_SPACE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 
 static const NwSettingKey nw_settings_keys[] = {
     { .table = "video", .name = "window", .kind = NW_SETTING_ENUM, NW_FIELD(window), .hi = NW_WINDOW_MODES,
@@ -250,14 +272,21 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "true shows a ring on the floor under Crash while he is in the air, where he lands" },
     { .table = "game", .name = "boss_health", .kind = NW_SETTING_BOOL, NW_FIELD(boss_health),
       .help = "true splits the boss bar into the boss's phases" },
+    { .table = "game", .name = "camera_stability", .kind = NW_SETTING_INT, NW_FIELD(camera_stability), .lo = 0,
+      .hi = 100, .help = "0-100: how much of Crash's jump the camera ignores; 0 follows it as the PS2, 100 holds its "
+                         "height until he lands" },
     { .table = "game", .sub = "movement", .name = "monkey_bar_speed", .kind = NW_SETTING_INT,
       NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
       .help = "N. Hanced Movement: Crash's speed on the monkey bars, 100-500 percent of the PS2's; 350 is N. Hanced's" },
     NW_CRASH_MOVEMENT(NW_CRASH_SWITCH_KEY, NW_CRASH_FLAG_KEY, NW_CRASH_VALUE_KEY)
+    NW_COCO_MOVEMENT(NW_COCO_SWITCH_KEY, NW_COCO_FLAG_KEY, NW_COCO_VALUE_KEY)
     NW_MECH_MOVEMENT(NW_MECH_SWITCH_KEY, NW_MECH_FLAG_KEY, NW_MECH_VALUE_KEY)
     NW_SUB_MOVEMENT(NW_SUB_SWITCH_KEY, NW_SUB_FLAG_KEY, NW_SUB_VALUE_KEY)
     NW_JEEP_MOVEMENT(NW_JEEP_SWITCH_KEY, NW_JEEP_FLAG_KEY, NW_JEEP_VALUE_KEY)
     NW_ATLAS_MOVEMENT(NW_ATLAS_SWITCH_KEY, NW_ATLAS_FLAG_KEY, NW_ATLAS_VALUE_KEY)
+    NW_FIREFLY_MOVEMENT(NW_FIREFLY_SWITCH_KEY, NW_FIREFLY_FLAG_KEY, NW_FIREFLY_VALUE_KEY)
+    NW_PLANE_MOVEMENT(NW_PLANE_SWITCH_KEY, NW_PLANE_FLAG_KEY, NW_PLANE_VALUE_KEY)
+    NW_SPACE_MOVEMENT(NW_SPACE_SWITCH_KEY, NW_SPACE_FLAG_KEY, NW_SPACE_VALUE_KEY)
     { .table = "audio", .name = "master_volume", .kind = NW_SETTING_INT, NW_FIELD(master_volume), .lo = 0, .hi = 100,
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
@@ -292,6 +321,7 @@ void nw_settings_defaults(NwSettings *s)
     s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     s->air_indicator = true;
     s->boss_health = true;
+    s->camera_stability = 100;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->aspect = 0.0f;
@@ -439,8 +469,10 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     /* A file from before the vehicles' options that chose the PS2's movement keeps it. */
     const char *crash[] = { "game", "movement", "crash" }, *mech[] = { "game", "movement", "mech" };
+    const char *coco[] = { "game", "movement", "coco" };
     const char *submarine[] = { "game", "movement", "submarine" }, *jeep[] = { "game", "movement", "jeep" };
-    const char *atlasphere[] = { "game", "movement", "atlasphere" };
+    const char *atlasphere[] = { "game", "movement", "atlasphere" }, *firefly[] = { "game", "movement", "firefly" };
+    const char *plane[] = { "game", "movement", "plane" }, *spacefighter[] = { "game", "movement", "spacefighter" };
     if (s->movement.monkey_bar_speed <= 100 && !nw_doc_table(&doc, crash, 3)) {
         s->movement.crash = ((NwMovement)NW_MOVEMENT_RETAIL).crash;
     }
@@ -448,6 +480,9 @@ bool nw_settings_load(NwSettings *s, const char *root)
     bool retail =
         s->movement.monkey_bar_speed <= 100 && !(false NW_CRASH_MOVEMENT(NW_CRASH_SET, NW_CRASH_NONE, NW_CRASH_NONE));
 #undef NW_CRASH_SET
+    if (retail && !nw_doc_table(&doc, coco, 3)) {
+        s->movement.coco = ((NwMovement)NW_MOVEMENT_RETAIL).coco;
+    }
     if (retail && !nw_doc_table(&doc, mech, 3)) {
         s->movement.mech = ((NwMovement)NW_MOVEMENT_RETAIL).mech;
     }
@@ -459,6 +494,15 @@ bool nw_settings_load(NwSettings *s, const char *root)
     }
     if (retail && !nw_doc_table(&doc, atlasphere, 3)) {
         s->movement.atlasphere = ((NwMovement)NW_MOVEMENT_RETAIL).atlasphere;
+    }
+    if (retail && !nw_doc_table(&doc, firefly, 3)) {
+        s->movement.firefly = ((NwMovement)NW_MOVEMENT_RETAIL).firefly;
+    }
+    if (retail && !nw_doc_table(&doc, plane, 3)) {
+        s->movement.plane = ((NwMovement)NW_MOVEMENT_RETAIL).plane;
+    }
+    if (retail && !nw_doc_table(&doc, spacefighter, 3)) {
+        s->movement.spacefighter = ((NwMovement)NW_MOVEMENT_RETAIL).spacefighter;
     }
     nw_doc_free(&doc);
     return got > 0;

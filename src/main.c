@@ -718,6 +718,15 @@ static void nw_boot_movement(void *user)
     }
 }
 
+static void nw_boot_coco(void *user)
+{
+    NwSettings *s = user;
+    NwCocoMovement *c = &s->movement.coco;
+
+    nw_boot_profile(s);
+    NW_COCO_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+}
+
 static void nw_boot_mech(void *user)
 {
     NwSettings *s = user;
@@ -766,6 +775,42 @@ static void nw_boot_atlas(void *user)
     }
 }
 
+static void nw_boot_firefly(void *user)
+{
+    NwSettings *s = user;
+    NwFireflyMovement *c = &s->movement.firefly;
+
+    nw_boot_profile(s);
+    NW_FIREFLY_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
+static void nw_boot_plane(void *user)
+{
+    NwSettings *s = user;
+    NwPlaneMovement *c = &s->movement.plane;
+
+    nw_boot_profile(s);
+    NW_PLANE_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
+static void nw_boot_spacefighter(void *user)
+{
+    NwSettings *s = user;
+    NwSpaceMovement *c = &s->movement.spacefighter;
+
+    nw_boot_profile(s);
+    NW_SPACE_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
+}
+
 #undef NW_BOOT_SWITCH_ITEM
 #undef NW_BOOT_FLAG_ITEM
 #undef NW_BOOT_VALUE_ITEM
@@ -776,7 +821,19 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes)
     nw_profile_request(&(NwProfile){ .movement = s->movement,
                                      .air_indicator = s->air_indicator,
                                      .boss_health = s->boss_health,
+                                     .camera_stability = s->camera_stability,
                                      .hitboxes = hitboxes });
+}
+
+static void nw_boot_camera(void *user)
+{
+    NwSettings *s = user;
+
+    nw_debug_slider_int("Jump stability %", &s->camera_stability, 0, 100);
+    nw_debug_text("0 follows the jump as the PS2, 100 holds the height until he lands");
+    if (nw_pad_script) {
+        nw_debug_text("--pad-script plays retail: changes take effect at the next start");
+    }
 }
 
 static void nw_boot_levels(void *user)
@@ -821,11 +878,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     }
     char aspect_name[32];
     SDL_Log("settings: %d Hz, hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s, "
-            "boss health %s",
+            "boss health %s, camera stability %d%%",
             nw_run_hz, settings.hardware_speed ? "on" : "off",
             nw_settings_aspect_name(settings.aspect, aspect_name, sizeof(aspect_name)),
             settings.interpolation ? "on" : "off", nw_movement_profiles[nw_movement_profile(&settings.movement)],
-            settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off");
+            settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off", settings.camera_stability);
     int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
         return code;
@@ -840,7 +897,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title,
                                        .movement = settings.movement,
                                        .air_indicator = settings.air_indicator,
-                                       .boss_health = settings.boss_health });
+                                       .boss_health = settings.boss_health,
+                                       .camera_stability = settings.camera_stability });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_toggle("Game", "Air indicator", &settings.air_indicator);
@@ -848,11 +906,16 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Coco", SDL_SCANCODE_F10, nw_boot_coco, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Jeep", SDL_SCANCODE_F5, nw_boot_jeep, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Atlasphere", SDL_SCANCODE_F6, nw_boot_atlas, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Firefly", SDL_SCANCODE_F9, nw_boot_firefly, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Plane", SDL_SCANCODE_F8, nw_boot_plane, &settings);
+    nw_debug_panel_key("Game/N. Hanced Movement", "Space Fighter", SDL_SCANCODE_F7, nw_boot_spacefighter, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
+    nw_debug_panel("Settings", "Camera", nw_boot_camera, &settings, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
         nw_debug_toggle("Render", "Hitboxes", &hitboxes);
@@ -896,7 +959,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             nw_input_set_controls(&settings.controls);
             if (!nw_pad_script && (SDL_memcmp(&settings.movement, &applied.movement, sizeof(settings.movement)) != 0 ||
                                    settings.air_indicator != applied.air_indicator ||
-                                   settings.boss_health != applied.boss_health)) {
+                                   settings.boss_health != applied.boss_health ||
+                                   settings.camera_stability != applied.camera_stability)) {
                 nw_boot_request(&settings, hitboxes);
                 hitboxes_shown = hitboxes;
             }
