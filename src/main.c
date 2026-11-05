@@ -22,6 +22,7 @@
 #include "frontend/settings.h"
 #include "frontend/video.h"
 #include "gameplay/gameplay.h"
+#include "gameplay/minigame.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -856,6 +857,12 @@ static void nw_boot_levels(void *user)
     }
 }
 
+static void nw_boot_minigame(void *user)
+{
+    (void)user;
+    nw_minigame_start();
+}
+
 /* Runs the game in the window; hardware_speed and aspect -1 take settings.toml's, which the debug menu changes and
    saves. */
 static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
@@ -918,6 +925,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel_key("Game/N. Hanced Movement", "Plane", SDL_SCANCODE_F8, nw_boot_plane, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Space Fighter", SDL_SCANCODE_F7, nw_boot_spacefighter, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
+    if (!nw_pad_script) {
+        nw_debug_action("Game", "Start Minigame", SDL_SCANCODE_UNKNOWN, nw_boot_minigame, NULL);
+    }
     nw_debug_panel("Settings", "Camera", nw_boot_camera, &settings, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
