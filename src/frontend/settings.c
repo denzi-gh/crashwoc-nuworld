@@ -296,6 +296,8 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "0-100, over the game's own music and SFX volumes" },
     { .table = "audio", .name = "voice_volume", .kind = NW_SETTING_INT, NW_FIELD(voice_volume), .lo = 0, .hi = 100,
       .help = "0-100, the cutscene and hint voices" },
+    { .table = "discord", .name = "enabled", .kind = NW_SETTING_BOOL, NW_FIELD(discord),
+      .help = "true shows the level, warp room or menu on your Discord profile while Discord runs" },
     { .table = "input", .name = "left_deadzone", .kind = NW_SETTING_INT, NW_FIELD(controls.left_deadzone), .lo = 0,
       .hi = 90, .help = "0-90: how far (percent) the left stick counts as centred; the game has its own after it" },
     { .table = "input", .name = "right_deadzone", .kind = NW_SETTING_INT, NW_FIELD(controls.right_deadzone), .lo = 0,
@@ -331,6 +333,7 @@ void nw_settings_defaults(NwSettings *s)
     s->camera_stability = 100;
     s->master_volume = 100;
     s->voice_volume = 100;
+    s->discord = true;
     s->aspect = 0.0f;
     s->hud = 16.0f / 9.0f;
     s->window = NW_WINDOW_WINDOWED;

@@ -12,6 +12,7 @@
 #include "port/game.h"
 #include "port/hz.h"
 #include "port/level.h"
+#include "port/presence.h"
 #include "port/ps2video.h"
 #include "port/trace.h"
 #include "shim/shim.h"
@@ -560,6 +561,7 @@ int NuPs2ScreenSwap(int vsync)
         nw_game_swap();
         nw_gameplay_swap();
         nw_level_poll();
+        nw_presence_swap();
     } else {
         half_offset = 1;
     }

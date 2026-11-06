@@ -30,6 +30,7 @@
 #include "numath/nuvec.h"
 #include "nups2/ps2ctl.h"
 #include "port/hz.h"
+#include "port/presence.h"
 
 extern struct MoveInfo CrashMoveInfo;
 extern struct MoveInfo CocoMoveInfo;
@@ -64,6 +65,10 @@ extern f32 SMOKEYBOOSTSPEED;
 extern f32 OFFROADERSEEK;
 extern f32 OFFROADERSPEEDTIME;
 extern struct MoveInfo OffRoaderMoveInfo;
+extern struct ldata_s LData[44];
+extern struct cursor_s Cursor;
+extern char *LevelName[44][6], *HubName[6][6], *tWARPROOM[6];
+extern s32 Hub;
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 u16 SeekRot(u16 a, u16 b, s32 shift);
 u16 SeekRot__retail(u16 a, u16 b, s32 shift);
@@ -2705,6 +2710,50 @@ static void space_assist(void)
     Level = level;
 }
 
+/* port/presence.c: the swap's copy of the game's state for Rich Presence. */
+static void presence_snapshot(void)
+{
+    s32 level = Level;
+    char *name = LevelName[4][0], *room = HubName[2][0], *warp = tWARPROOM[0];
+    struct ldata_s ldata = LData[4];
+    u16 flags = Game.level[4].flags;
+    NwPresenceSnap s;
+    nw_presence_poll(&s);
+    CHECK(!s.valid);
+
+    Level = 4;
+    Hub = 2;
+    Cursor.menu = 19;
+    LevelName[4][0] = "COMPACTOR\nREACTOR";
+    HubName[2][0] = "FIRE";
+    tWARPROOM[0] = NULL;
+    LData[4].flags = 2;
+    Game.level[4].flags = 0x48;
+    Game.percent = 42;
+    nw_presence_swap();
+    nw_presence_poll(&s);
+    CHECK(s.valid && s.level == 4 && s.hub == 2 && s.menu == 19);
+    CHECK(s.level_flags == 2 && s.collected == 0x48 && s.percent == 42);
+    CHECK(strcmp(s.level_name, "COMPACTORREACTOR") == 0 && strcmp(s.room_name, "FIRE") == 0 && !s.warp_room[0]);
+
+    /* Outside LData and Game.level */
+    Level = 44;
+    Hub = 6;
+    nw_presence_swap();
+    nw_presence_poll(&s);
+    CHECK(s.level == 44 && !s.level_name[0] && !s.room_name[0] && s.level_flags == 0 && s.collected == 0);
+
+    Level = level;
+    Hub = -1;
+    Cursor.menu = -1;
+    LevelName[4][0] = name;
+    HubName[2][0] = room;
+    tWARPROOM[0] = warp;
+    LData[4] = ldata;
+    Game.level[4].flags = flags;
+    Game.percent = 0;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -2751,6 +2800,7 @@ int main(void)
     space_aim();
     space_sweep();
     space_assist();
+    presence_snapshot();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);
