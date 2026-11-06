@@ -7,5 +7,6 @@ extern const char nw_build_tag[];
 extern const char nw_build_commit[];
 extern const char nw_build_decomp[];
 extern const char nw_build_id[]; /* "0.7.0 BETA a1b2c3d" */
+extern const char nw_build_name[]; 
 
 #endif

@@ -1050,7 +1050,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         if (SDL_GetTicks() - titled >= 500) {
             char title[160];
             NwGameState state = nw_game_state();
-            SDL_snprintf(title, sizeof(title), NW_APP_NAME " %s - game %s, frame %llu, vblank %llu", nw_build_id,
+            SDL_snprintf(title, sizeof(title), NW_APP_NAME " %s - game %s, frame %llu, vblank %llu", nw_build_name,
                          nw_game_state_name(state), (unsigned long long)nw_game_swaps(),
                          (unsigned long long)nw_game_edges());
             SDL_SetWindowTitle(platform.window, title);
@@ -1060,7 +1060,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             NwPresenceSnap snap;
             NwActivity activity;
             nw_presence_poll(&snap);
-            nw_presence_activity(&snap, nw_build_id, started / SDL_NS_PER_MS, &activity);
+            nw_presence_activity(&snap, nw_build_name, started / SDL_NS_PER_MS, &activity);
             nw_discord_set(&activity);
             presented = SDL_GetTicks();
         }

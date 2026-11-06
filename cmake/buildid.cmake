@@ -23,6 +23,13 @@ set(id "${VERSION}")
 if(NOT TAG STREQUAL "")
   string(APPEND id " ${TAG}")
 endif()
+
+execute_process(COMMAND git -C "${SRC}" describe --tags --exact-match --match "v${VERSION}" HEAD
+  RESULT_VARIABLE untagged OUTPUT_QUIET ERROR_QUIET)
+set(name "${id}")
+if(untagged OR commit MATCHES "-dirty$" OR decomp MATCHES "-dirty$")
+  string(APPEND name " ${commit}")
+endif()
 string(APPEND id " ${commit}")
 
 string(CONCAT text
@@ -31,7 +38,8 @@ string(CONCAT text
   "const char nw_build_tag[] = \"${TAG}\";\n"
   "const char nw_build_commit[] = \"${commit}\";\n"
   "const char nw_build_decomp[] = \"${decomp}\";\n"
-  "const char nw_build_id[] = \"${id}\";\n")
+  "const char nw_build_id[] = \"${id}\";\n"
+  "const char nw_build_name[] = \"${name}\";\n")
 if(EXISTS "${OUT}")
   file(READ "${OUT}" old)
   if(old STREQUAL text)
