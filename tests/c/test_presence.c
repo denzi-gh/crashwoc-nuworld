@@ -27,7 +27,6 @@ static NwPresenceSnap snap(int level, const char *name)
     s.hub = -1;
     s.cutmovie = -1;
     s.menu = -1;
-    s.vehicle = -1;
     SDL_strlcpy(s.level_name, name, sizeof(s.level_name));
     SDL_strlcpy(s.warp_room, "WARP ROOM", sizeof(s.warp_room));
     return s;
@@ -86,9 +85,10 @@ static void test_screens(void)
     NwPresenceSnap s;
     SDL_zero(s);
     NwActivity a = act(&s);
-    CHECK(is(a.details, "Starting Up") && is(a.state, "") && is(a.large_image, "nuworld"));
+    CHECK(is(a.name, "CrashWOC: NuWorld") && is(a.details, "Starting Up") && is(a.state, "") &&
+          is(a.large_image, "nuworld"));
     CHECK(is(a.large_text, "NuWorld 0.7.0 BETA abc1234") && a.start_ms == 1762400000000LL);
-    CHECK(a.nbuttons == 2 && is(a.buttons[0].label, "Get NuWorld") &&
+    CHECK(a.nbuttons == 2 && is(a.buttons[0].label, "Get CrashWOC: NuWorld") &&
           is(a.buttons[0].url, "https://github.com/denzi-gh/crashwoc-nuworld") &&
           is(a.buttons[1].label, "Join the Discord") && is(a.buttons[1].url, "https://discord.gg/kmCPpW4KvJ"));
 
@@ -111,9 +111,9 @@ static void test_screens(void)
     s.gems = 8;
     s.relics = 5;
     a = act(&s);
-    CHECK(is(a.details, "Warp Room") && is(a.large_image, "warproom"));
+    CHECK(is(a.details, "Warp Room") && is(a.large_image, "nuworld"));
     CHECK(is(a.state, "42%" DOT "12 Crystals" DOT "8 Gems" DOT "5 Relics"));
-    CHECK(is(a.small_image, "crash") && is(a.small_text, "Crash"));
+    CHECK(is(a.small_image, "") && is(a.small_text, ""));
     s.hub = 0;
     SDL_strlcpy(s.room_name, "EARTH", sizeof(s.room_name));
     s.percent = 2;
@@ -121,7 +121,7 @@ static void test_screens(void)
     s.gems = 0;
     s.relics = 1;
     a = act(&s);
-    CHECK(is(a.details, "Warp Room: Earth") && is(a.large_image, "room_0"));
+    CHECK(is(a.details, "Warp Room: Earth") && is(a.large_image, "nuworld") && is(a.small_image, ""));
     CHECK(is(a.state, "2%" DOT "1 Crystal" DOT "1 Relic"));
     s.paused = true;
     CHECK(is(act(&s).state, "2%" DOT "1 Crystal" DOT "1 Relic"));
@@ -139,7 +139,7 @@ static void test_screens(void)
     s = snap(0x11, "WIZARDS AND LIZARDS");
     a = act(&s);
     CHECK(is(a.details, "Wizards and Lizards") && is(a.large_image, "level_17") && is(a.state, ""));
-    CHECK(is(a.small_image, "crash") && is(a.small_text, "Crash"));
+    CHECK(is(a.small_image, "nuworld") && is(a.small_text, "CrashWOC: NuWorld"));
     s.collected = 0x8 | 0x10 | 0x40 | 0x3;
     CHECK(is(act(&s).state, "Crystal" DOT "2 Gems" DOT "Gold Relic"));
     s.collected = 0x20 | 0x7;
@@ -154,16 +154,14 @@ static void test_screens(void)
     CHECK(is(act(&s).state, "New Record"));
 
     s = snap(5, "AVALANCHE");
-    s.character = 1;
-    s.vehicle = 0xA0;
     a = act(&s);
-    CHECK(is(a.details, "Avalanche") && is(a.large_image, "level_05"));
-    CHECK(is(a.small_image, "coco") && is(a.small_text, "Coco" DOT "Snowboard"));
+    CHECK(is(a.details, "Avalanche") && is(a.large_image, "level_05") && is(a.small_image, "nuworld"));
 
     s = snap(21, "RUMBLE IN THE ROKS");
     s.level_flags = 2;
     a = act(&s);
-    CHECK(is(a.details, "Rumble in the Roks") && is(a.large_image, "level_21") && is(a.state, "Boss Fight"));
+    CHECK(is(a.details, "Rumble in the Roks") && is(a.large_image, "nuworld") && is(a.small_image, ""));
+    CHECK(is(a.state, "Boss Fight"));
     s.bonus = 2;
     CHECK(is(act(&s).state, "Bonus Round"));
     s.bonus = 4;
@@ -185,7 +183,7 @@ static void test_screens(void)
     s.loading = true;
     a = act(&s);
     CHECK(is(a.details, "Main Menu") && is(a.state, "Demo: Wizards and Lizards") && is(a.large_image, "level_17"));
-    CHECK(is(a.small_image, ""));
+    CHECK(is(a.small_image, "nuworld"));
 
     s = snap(0x25, "FRONT END");
     s.cutmovie = 1;
@@ -210,7 +208,7 @@ static void test_screens(void)
     s = snap(0x24, "AIRSHIP");
     a = act(&s);
     CHECK(is(a.details, "Airship") && is(a.state, "Unused Level") && is(a.large_image, "nuworld"));
-    CHECK(is(a.small_image, "crash"));
+    CHECK(is(a.small_image, ""));
     s = snap(0x2A, "");
     CHECK(is(act(&s).details, "Level 42"));
 }

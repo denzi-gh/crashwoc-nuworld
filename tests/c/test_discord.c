@@ -212,8 +212,9 @@ static void test_wire(void)
 
     NwActivity a = activity("Say \"hi\"\\\n");
     CHECK(nw_discord_activity(json, sizeof(json), &a, 7, 3));
-    CHECK(strcmp(json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":7,\"activity\":{\"details\":\"Say \\\"hi\\\"\\\\\\u000a\"}}"
-                       ",\"nonce\":\"3\"}") == 0);
+    CHECK(strcmp(json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":7,\"activity\":{\"type\":0,\"details\":\"Say "
+                       "\\\"hi\\\"\\\\\\u000a\"}},\"nonce\":\"3\"}") == 0);
+    SDL_strlcpy(a.name, "CrashWOC: NuWorld", sizeof(a.name));
     SDL_strlcpy(a.details, "Arctic Antics", sizeof(a.details));
     SDL_strlcpy(a.state, "Crystal \xC2\xB7 2 Gems", sizeof(a.state));
     a.start_ms = 1762400000123LL;
@@ -226,7 +227,8 @@ static void test_wire(void)
     SDL_strlcpy(a.buttons[1].url, "https://example.org/b", sizeof(a.buttons[1].url));
     a.nbuttons = 2;
     CHECK(nw_discord_activity(json, sizeof(json), &a, 99, 12));
-    CHECK(strcmp(json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":99,\"activity\":{\"details\":\"Arctic Antics\","
+    CHECK(strcmp(json, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":99,\"activity\":{\"type\":0,"
+                       "\"name\":\"CrashWOC: NuWorld\",\"details\":\"Arctic Antics\","
                        "\"state\":\"Crystal \xC2\xB7 2 Gems\",\"timestamps\":{\"start\":1762400000123},"
                        "\"assets\":{\"large_image\":\"level_07\",\"large_text\":\"NuWorld 0.7.0\","
                        "\"small_image\":\"crash\"},\"buttons\":[{\"label\":\"Get NuWorld\",\"url\":"

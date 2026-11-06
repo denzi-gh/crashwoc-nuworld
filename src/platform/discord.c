@@ -130,11 +130,12 @@ bool nw_discord_activity(char *out, size_t cap, const NwActivity *a, uint64_t pi
 {
     NwJson j = nw_json(out, cap);
     char num[32];
-    bool first = true;
+    bool first = false; /* "type" leads */
     SDL_snprintf(num, sizeof(num), "%llu", (unsigned long long)pid);
     nw_json_raw(&j, "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":");
     nw_json_raw(&j, num);
-    nw_json_raw(&j, ",\"activity\":{");
+    nw_json_raw(&j, ",\"activity\":{\"type\":0");
+    nw_json_field(&j, &first, "name", a->name);
     nw_json_field(&j, &first, "details", a->details);
     nw_json_field(&j, &first, "state", a->state);
     if (a->start_ms > 0) {
@@ -405,7 +406,7 @@ static void nw_discord_free(NwDiscordWorker *w)
 
 static bool nw_activity_equal(const NwActivity *a, const NwActivity *b)
 {
-    if (SDL_strcmp(a->details, b->details) || SDL_strcmp(a->state, b->state) ||
+    if (SDL_strcmp(a->name, b->name) || SDL_strcmp(a->details, b->details) || SDL_strcmp(a->state, b->state) ||
         SDL_strcmp(a->large_image, b->large_image) || SDL_strcmp(a->large_text, b->large_text) ||
         SDL_strcmp(a->small_image, b->small_image) || SDL_strcmp(a->small_text, b->small_text) ||
         a->start_ms != b->start_ms || a->nbuttons != b->nbuttons) {

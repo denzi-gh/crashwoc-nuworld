@@ -2,7 +2,9 @@
 
 #include <SDL3/SDL.h>
 
-#define NW_LEVEL_SAVED 35 /* levels with a Game.level record and a hub preview */
+#include "app.h"
+
+#define NW_LEVEL_SAVED 35 /* levels with a Game.level record */
 #define NW_LEVEL_TITLES 0x23
 #define NW_LEVEL_AIRSHIP 0x24
 #define NW_LEVEL_HUB 0x25
@@ -14,17 +16,6 @@
 #define NW_DOT " \xC2\xB7 "
 
 typedef enum NwScreen { NW_SCREEN_MENU, NW_SCREEN_MOVIE, NW_SCREEN_HUB, NW_SCREEN_LEVEL } NwScreen;
-
-/* LData.vehicle: CData indices. */
-static const struct {
-    int id;
-    const char *name;
-} nw_presence_vehicles[] = {
-    { 0x20, "Submarine" }, { 0x36, "Plane" },    { 0x3B, "Gyrocopter" },    { 0x44, "Mech" },
-    { 0x53, "Atlasphere" }, { 0x6B, "Scooter" }, { 0x81, "Space Fighter" }, { 0x89, "Minecart" },
-    { 0x8B, "Firefly" },   { 0x99, "Jeep" },     { 0xA0, "Snowboard" },     { 0xA1, "Mine Tub" },
-    { 0xB2, "Fire Engine" },
-};
 
 void nw_presence_title(const char *upper, char *out, size_t size)
 {
@@ -156,13 +147,24 @@ static void nw_presence_state(const NwPresenceSnap *s, NwScreen screen, char *ou
     }
 }
 
+/* The level's hub preview with the logo in the small circle; the logo alone where there is none (bosses). */
+static void nw_presence_picture(const NwPresenceSnap *s, NwActivity *a)
+{
+    if (s->level >= 0 && s->level < NW_LEVEL_SAVED && !(s->level_flags & 2)) {
+        SDL_snprintf(a->large_image, sizeof(a->large_image), "level_%02d", s->level);
+        SDL_strlcpy(a->small_image, "nuworld", sizeof(a->small_image));
+        SDL_strlcpy(a->small_text, NW_APP_NAME, sizeof(a->small_text));
+    }
+}
+
 void nw_presence_activity(const NwPresenceSnap *s, const char *version, int64_t start_ms, NwActivity *a)
 {
     SDL_zerop(a);
     a->start_ms = start_ms;
+    SDL_strlcpy(a->name, NW_APP_NAME, sizeof(a->name));
     SDL_strlcpy(a->large_image, "nuworld", sizeof(a->large_image));
     SDL_snprintf(a->large_text, sizeof(a->large_text), "NuWorld %s", version);
-    SDL_strlcpy(a->buttons[0].label, "Get NuWorld", sizeof(a->buttons[0].label));
+    SDL_strlcpy(a->buttons[0].label, "Get " NW_APP_NAME, sizeof(a->buttons[0].label));
     SDL_strlcpy(a->buttons[0].url, "https://github.com/denzi-gh/crashwoc-nuworld", sizeof(a->buttons[0].url));
     SDL_strlcpy(a->buttons[1].label, "Join the Discord", sizeof(a->buttons[1].label));
     SDL_strlcpy(a->buttons[1].url, "https://discord.gg/kmCPpW4KvJ", sizeof(a->buttons[1].url));
@@ -178,13 +180,10 @@ void nw_presence_activity(const NwPresenceSnap *s, const char *version, int64_t 
     if (!name[0]) {
         SDL_snprintf(name, sizeof(name), "Level %d", s->level);
     }
-    bool saved = s->level >= 0 && s->level < NW_LEVEL_SAVED;
     if (s->demo) {
         SDL_strlcpy(a->details, "Main Menu", sizeof(a->details));
         SDL_snprintf(a->state, sizeof(a->state), "Demo: %s", name);
-        if (saved) {
-            SDL_snprintf(a->large_image, sizeof(a->large_image), "level_%02d", s->level);
-        }
+        nw_presence_picture(s, a);
         return;
     }
     NwScreen screen = s->cutmovie == 0 || s->level == NW_LEVEL_TITLES ? NW_SCREEN_MENU
@@ -193,33 +192,17 @@ void nw_presence_activity(const NwPresenceSnap *s, const char *version, int64_t 
                           ? NW_SCREEN_MOVIE
                       : s->level == NW_LEVEL_HUB ? NW_SCREEN_HUB
                                                  : NW_SCREEN_LEVEL;
-    bool playable = screen == NW_SCREEN_HUB;
     if (screen == NW_SCREEN_MENU) {
         SDL_strlcpy(a->details, "Main Menu", sizeof(a->details));
     } else if (screen == NW_SCREEN_MOVIE) {
         SDL_strlcpy(a->details, "Cutscene", sizeof(a->details));
     } else if (screen == NW_SCREEN_HUB && s->hub >= 0 && s->hub < 6 && room[0]) {
         SDL_snprintf(a->details, sizeof(a->details), "%s: %s", warp, room);
-        SDL_snprintf(a->large_image, sizeof(a->large_image), "room_%d", s->hub);
     } else if (screen == NW_SCREEN_HUB) {
         SDL_strlcpy(a->details, warp, sizeof(a->details));
-        SDL_strlcpy(a->large_image, "warproom", sizeof(a->large_image));
     } else {
         SDL_strlcpy(a->details, name, sizeof(a->details));
-        if (saved) {
-            SDL_snprintf(a->large_image, sizeof(a->large_image), "level_%02d", s->level);
-        }
-        playable = saved || s->level == NW_LEVEL_AIRSHIP || s->level == NW_LEVEL_TEST;
-    }
-    if (playable) {
-        bool coco = s->character == 1;
-        SDL_strlcpy(a->small_image, coco ? "coco" : "crash", sizeof(a->small_image));
-        SDL_strlcpy(a->small_text, coco ? "Coco" : "Crash", sizeof(a->small_text));
-        for (size_t i = 0; i < SDL_arraysize(nw_presence_vehicles); i++) {
-            if (nw_presence_vehicles[i].id == s->vehicle) {
-                nw_presence_add(a->small_text, sizeof(a->small_text), nw_presence_vehicles[i].name);
-            }
-        }
+        nw_presence_picture(s, a);
     }
     nw_presence_state(s, screen, a->state, sizeof(a->state));
 }

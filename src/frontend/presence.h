@@ -1,5 +1,5 @@
 /* Rich Presence: the game's state as plain values (filled by port/presence.c on the game thread) and the Discord
-   activity for it. Art asset keys: level_00..level_34, room_0..room_5, warproom, crash, coco, nuworld. */
+   activity for it. Art asset keys: level_00..level_34 (no bosses), nuworld. */
 #ifndef NUWORLD_FRONTEND_PRESENCE_H
 #define NUWORLD_FRONTEND_PRESENCE_H
 
@@ -23,8 +23,6 @@ typedef struct NwPresenceSnap {
     int minigame_score, minigame_best;
     unsigned level_flags; /* LData[level].flags, 2 a boss */
     unsigned collected;   /* Game.level[level].flags */
-    int character;        /* LData[level].character: 0 Crash, 1 Coco */
-    int vehicle;          /* LData[level].vehicle, -1 none */
     int percent, crystals, gems, relics;
     char level_name[NW_PRESENCE_NAME]; /* LevelName[level][0], upper case as the game's */
     char room_name[NW_PRESENCE_NAME];  /* HubName[hub][0] */

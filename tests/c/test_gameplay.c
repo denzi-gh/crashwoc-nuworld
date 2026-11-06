@@ -2727,14 +2727,12 @@ static void presence_snapshot(void)
     LevelName[4][0] = "COMPACTOR\nREACTOR";
     HubName[2][0] = "FIRE";
     tWARPROOM[0] = NULL;
-    LData[4].character = 1;
-    LData[4].vehicle = 0x44;
     LData[4].flags = 2;
     Game.level[4].flags = 0x48;
     Game.percent = 42;
     nw_presence_swap();
     nw_presence_poll(&s);
-    CHECK(s.valid && s.level == 4 && s.hub == 2 && s.menu == 19 && s.character == 1 && s.vehicle == 0x44);
+    CHECK(s.valid && s.level == 4 && s.hub == 2 && s.menu == 19);
     CHECK(s.level_flags == 2 && s.collected == 0x48 && s.percent == 42);
     CHECK(strcmp(s.level_name, "COMPACTORREACTOR") == 0 && strcmp(s.room_name, "FIRE") == 0 && !s.warp_room[0]);
 
@@ -2743,7 +2741,7 @@ static void presence_snapshot(void)
     Hub = 6;
     nw_presence_swap();
     nw_presence_poll(&s);
-    CHECK(s.level == 44 && !s.level_name[0] && !s.room_name[0] && s.vehicle == -1 && s.collected == 0);
+    CHECK(s.level == 44 && !s.level_name[0] && !s.room_name[0] && s.level_flags == 0 && s.collected == 0);
 
     Level = level;
     Hub = -1;

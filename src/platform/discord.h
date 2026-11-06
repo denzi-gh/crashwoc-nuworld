@@ -11,6 +11,7 @@
 
 /* "" leaves a field out. */
 typedef struct NwActivity {
+    char name[NW_DISCORD_TEXT]; /* "Playing <name>"; "" the application's own, which allows no ':' */
     char details[NW_DISCORD_TEXT], state[NW_DISCORD_TEXT];
     char large_image[32], large_text[NW_DISCORD_TEXT];
     char small_image[32], small_text[NW_DISCORD_TEXT];

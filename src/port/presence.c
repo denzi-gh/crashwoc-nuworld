@@ -46,11 +46,8 @@ void nw_presence_swap(void)
     s.minigame = nw_minigame_playing();
     s.minigame_score = mg_wumpatot;
     s.minigame_best = nw_minigame_best();
-    s.vehicle = -1;
     if (Level >= 0 && Level < (s32)SDL_arraysize(LData)) {
         s.level_flags = LData[Level].flags;
-        s.character = LData[Level].character;
-        s.vehicle = LData[Level].vehicle;
         nw_presence_copy(s.level_name, sizeof(s.level_name), LevelName[Level][0]);
     }
     if (Level >= 0 && Level < (s32)SDL_arraysize(Game.level)) {
