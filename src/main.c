@@ -676,17 +676,26 @@ static void nw_boot_speed(void *user)
 
 static const char *const nw_movement_profiles[] = { "Retail", "N. Hanced", "Custom" };
 
-static void nw_boot_flag(const char *label, bool *value)
+static bool nw_boot_switch(const char *label, const char *help, bool *value)
+{
+    nw_debug_checkbox(label, value);
+    nw_debug_tooltip(help);
+    return *value;
+}
+
+static void nw_boot_flag(const char *label, const char *help, bool *value)
 {
     nw_debug_indent(true);
     nw_debug_checkbox(label, value);
+    nw_debug_tooltip(help);
     nw_debug_indent(false);
 }
 
-static void nw_boot_value(const char *label, int *value, int lo, int hi)
+static void nw_boot_value(const char *label, const char *help, int *value, int lo, int hi)
 {
     nw_debug_indent(true);
     nw_debug_slider_int(label, value, lo, hi);
+    nw_debug_tooltip(help);
     nw_debug_indent(false);
 }
 
@@ -704,14 +713,16 @@ static void nw_boot_profile(NwSettings *s)
     }
 }
 
-#define NW_BOOT_SWITCH_ITEM(f, label, ...) nw_debug_checkbox(label, &c->f);
-#define NW_BOOT_FLAG_ITEM(f, label, ...) nw_boot_flag(label, &c->f);
-#define NW_BOOT_VALUE_ITEM(f, label, def, lo, hi, ...) nw_boot_value(label, &c->f, lo, hi);
+/* A switch's values show only while it is on. */
+#define NW_BOOT_SWITCH_ITEM(f, label, help) on = nw_boot_switch(label, help, &c->f);
+#define NW_BOOT_FLAG_ITEM(f, label, def, help)     if (on) {         nw_boot_flag(label, help, &c->f);     }
+#define NW_BOOT_VALUE_ITEM(f, label, def, lo, hi, help)     if (on) {         nw_boot_value(label, help, &c->f, lo, hi);     }
 
 static void nw_boot_movement(void *user)
 {
     NwSettings *s = user;
     NwCrashMovement *c = &s->movement.crash;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_CRASH_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -725,6 +736,7 @@ static void nw_boot_coco(void *user)
 {
     NwSettings *s = user;
     NwCocoMovement *c = &s->movement.coco;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_COCO_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -734,6 +746,7 @@ static void nw_boot_mech(void *user)
 {
     NwSettings *s = user;
     NwMechMovement *c = &s->movement.mech;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_MECH_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -746,6 +759,7 @@ static void nw_boot_submarine(void *user)
 {
     NwSettings *s = user;
     NwSubMovement *c = &s->movement.submarine;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_SUB_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -758,6 +772,7 @@ static void nw_boot_jeep(void *user)
 {
     NwSettings *s = user;
     NwJeepMovement *c = &s->movement.jeep;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_JEEP_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -770,6 +785,7 @@ static void nw_boot_atlas(void *user)
 {
     NwSettings *s = user;
     NwAtlasMovement *c = &s->movement.atlasphere;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_ATLAS_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -782,6 +798,7 @@ static void nw_boot_firefly(void *user)
 {
     NwSettings *s = user;
     NwFireflyMovement *c = &s->movement.firefly;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_FIREFLY_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -794,6 +811,7 @@ static void nw_boot_plane(void *user)
 {
     NwSettings *s = user;
     NwPlaneMovement *c = &s->movement.plane;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_PLANE_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -806,6 +824,7 @@ static void nw_boot_spacefighter(void *user)
 {
     NwSettings *s = user;
     NwSpaceMovement *c = &s->movement.spacefighter;
+    bool on = true;
 
     nw_boot_profile(s);
     NW_SPACE_MOVEMENT(NW_BOOT_SWITCH_ITEM, NW_BOOT_FLAG_ITEM, NW_BOOT_VALUE_ITEM)
@@ -835,7 +854,7 @@ static void nw_boot_camera(void *user)
     NwSettings *s = user;
 
     nw_debug_slider_int("Jump stability %", &s->camera_stability, 0, 100);
-    nw_debug_text("0 follows the jump as the PS2, 100 holds the height until he lands");
+    nw_debug_tooltip("0 follows the jump as the PS2, 100 holds the height until he lands");
     if (nw_pad_script) {
         nw_debug_text("--pad-script plays retail: changes take effect at the next start");
     }
@@ -1506,7 +1525,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     char *root = nw_data_root(data_dir);
-    if (!root || !nw_ui_init(&platform)) {
+    if (!root || !nw_ui_init(&platform, false)) {
         char msg[512];
         SDL_snprintf(msg, sizeof(msg), "%s:\n%s", root ? "The interface could not start" : "No data folder",
                      SDL_GetError());

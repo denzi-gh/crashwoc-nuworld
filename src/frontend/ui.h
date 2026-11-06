@@ -18,7 +18,8 @@ typedef enum NwUiFont {
     NW_UI_BOLD,
 } NwUiFont;
 
-bool nw_ui_init(NwPlatform *p);
+/* compact: the debug overlay's smaller font and spacing. */
+bool nw_ui_init(NwPlatform *p, bool compact);
 void nw_ui_shutdown(void);
 
 /* Feeds an event to ImGui; also follows display scale changes. */

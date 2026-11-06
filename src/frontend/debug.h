@@ -36,7 +36,10 @@ void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDe
 /* <data root><folder>/<date-time>.<ext>; SDL_free it. */
 char *nw_debug_file(const char *folder, const char *ext);
 
+/* Wraps at a panel's width. */
 void nw_debug_text(SDL_PRINTF_FORMAT_STRING const char *fmt, ...) SDL_PRINTF_VARARG_FUNC(1);
+/* Shown on hovering the item before it. */
+void nw_debug_tooltip(const char *text);
 /* Text level with the buttons on its line. */
 void nw_debug_label(const char *text);
 bool nw_debug_button(const char *label);
