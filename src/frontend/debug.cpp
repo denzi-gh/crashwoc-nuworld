@@ -25,6 +25,7 @@ typedef struct NwDebugItem {
     NwDebugFn fn;
     void *user;
     bool open;
+    bool placed; /* its window has a position */
     bool *value;
     SDL_Scancode key;
 } NwDebugItem;
@@ -35,6 +36,7 @@ static struct {
     char *root;
     NwDebugItem items[NW_DEBUG_ITEMS];
     uint32_t nitems;
+    uint32_t placed; /* panels opened so far, the next one's cascade slot */
 } nw_debug;
 
 static NwDebugItem *nw_debug_add(NwDebugKind kind, const char *menu, const char *label)
@@ -44,7 +46,7 @@ static NwDebugItem *nw_debug_add(NwDebugKind kind, const char *menu, const char 
         return NULL;
     }
     NwDebugItem *item = &nw_debug.items[nw_debug.nitems++];
-    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, NULL, SDL_SCANCODE_UNKNOWN };
+    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, false, NULL, SDL_SCANCODE_UNKNOWN };
     return item;
 }
 
@@ -104,8 +106,15 @@ void nw_debug_text(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 24.0f);
     ImGui::TextV(fmt, ap);
+    ImGui::PopTextWrapPos();
     va_end(ap);
+}
+
+void nw_debug_tooltip(const char *text)
+{
+    ImGui::SetItemTooltip("%s", text);
 }
 
 void nw_debug_label(const char *text)
@@ -225,9 +234,15 @@ static void nw_debug_menu(const char *path, size_t len)
     }
 }
 
+/* A panel first opens on a cascade from the top left, in the order panels open; every frame it is kept inside the
+   work area (the screen below the menu bar), no larger than it, scrolling what does not fit. */
 static void nw_debug_panels(void)
 {
-    float step = ImGui::GetFrameHeight();
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    float margin = ImGui::GetStyle().WindowPadding.x, step = ImGui::GetFrameHeight() * 1.5f;
+    ImVec2 lo = vp->WorkPos, hi(vp->WorkPos.x + vp->WorkSize.x, vp->WorkPos.y + vp->WorkSize.y);
+    ImVec2 room(SDL_max(vp->WorkSize.x - 2 * margin, step), SDL_max(vp->WorkSize.y - 2 * margin, step));
+    uint32_t rows = SDL_max((uint32_t)(room.y / 3 / step), 1u);
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
         NwDebugItem *item = &nw_debug.items[i];
         if (item->kind != NW_DEBUG_PANEL || !item->open) {
@@ -235,9 +250,23 @@ static void nw_debug_panels(void)
         }
         char name[128];
         SDL_snprintf(name, sizeof(name), "%s###%s/%s", item->label, item->menu, item->label);
-        ImGui::SetNextWindowPos(ImVec2(step * (1 + 2 * i), step * (2 + 2 * i)), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin(name, &item->open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (!item->placed) {
+            uint32_t k = nw_debug.placed++;
+            float x = step * (float)(k % rows + k / rows * 4), y = step * (float)(k % rows);
+            ImGui::SetNextWindowPos(ImVec2(lo.x + margin + x, lo.y + margin + y));
+            item->placed = true;
+        }
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), room);
+        bool shown = ImGui::Begin(name, &item->open, ImGuiWindowFlags_AlwaysAutoResize);
+        ImVec2 pos = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+        ImVec2 fit(SDL_max(SDL_min(pos.x, hi.x - size.x), lo.x), SDL_max(SDL_min(pos.y, hi.y - size.y), lo.y));
+        if (fit.x != pos.x || fit.y != pos.y) {
+            ImGui::SetWindowPos(fit);
+        }
+        if (shown) {
+            ImGui::PushItemWidth(ImGui::GetFontSize() * 12.0f);
             item->fn(item->user);
+            ImGui::PopItemWidth();
         }
         ImGui::End();
     }
@@ -265,7 +294,7 @@ static void nw_debug_key_panel(NwDebugItem *panel)
 
 bool nw_debug_init(NwPlatform *p, const char *data_root)
 {
-    if (!nw_ui_init(p)) {
+    if (!nw_ui_init(p, true)) {
         return false;
     }
     nw_debug.root = SDL_strdup(data_root);
@@ -285,6 +314,7 @@ void nw_debug_shutdown(void)
     nw_debug.init = false;
     nw_debug.shown = false;
     nw_debug.nitems = 0;
+    nw_debug.placed = 0;
 }
 
 bool nw_debug_event(const SDL_Event *e)
@@ -353,7 +383,6 @@ void nw_debug_frame(void)
         return;
     }
     nw_ui_begin();
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImGui::GetStyle().FramePadding);
     if (ImGui::BeginMainMenuBar()) {
         char rate[32];
         SDL_snprintf(rate, sizeof(rate), "%.0f fps", ImGui::GetIO().Framerate);
@@ -364,6 +393,5 @@ void nw_debug_frame(void)
         ImGui::EndMainMenuBar();
     }
     nw_debug_panels();
-    ImGui::PopStyleVar();
     nw_ui_end();
 }
