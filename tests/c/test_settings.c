@@ -233,6 +233,13 @@ int main(int argc, char *argv[])
     CHECK(s.hub_minigame);
     CHECK(read_text("[game]\nhub_minigame = false\n", &s) && !s.hub_minigame);
     nw_settings_defaults(&s);
+    CHECK(s.discord);
+    CHECK(read_text("[discord]\nenabled = false\n", &s) && !s.discord);
+    CHECK(nw_settings_save(&s, root));
+    char *discord = file_text();
+    CHECK(discord && SDL_strstr(discord, "\n[discord]\nenabled = false\n") && SDL_strstr(discord, "# discord.enabled: "));
+    SDL_free(discord);
+    nw_settings_defaults(&s);
     CHECK(s.camera_stability == 100);
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
     CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);

@@ -11,6 +11,7 @@
 #include "frontend/wizard.h"
 #include "gfx/gl.h"
 #include "platform/buildid.h"
+#include "platform/discord.h"
 #include "platform/log.h"
 #include "platform/paths.h"
 #include "platform/platform.h"
@@ -35,6 +36,7 @@
 #include "port/level.h"
 #include "port/padscript.h"
 #include "port/options.h"
+#include "port/presence.h"
 #include "port/saveload.h"
 #include "port/scene.h"
 #include "port/trace.h"
@@ -885,6 +887,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         SDL_Log(NW_APP_NAME ": %s%s: %s", root, NW_PATHS_LOG, SDL_GetError());
     }
     SDL_free(root);
+    SDL_Time started = 0;
+    SDL_GetCurrentTime(&started);
+    /* Not for routes and recordings, which test runs use. */
+    bool presence = !nw_pad_script && !nw_run_level;
     NwSettings settings;
     nw_settings_defaults(&settings);
     nw_boot_settings(data_dir, &settings, false);
@@ -944,6 +950,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_debug_action("Game", "Start Minigame", SDL_SCANCODE_UNKNOWN, nw_boot_minigame, NULL);
     }
     nw_debug_panel("Settings", "Camera", nw_boot_camera, &settings, false);
+    if (presence) {
+        nw_debug_toggle("Settings", "Discord Rich Presence", &settings.discord);
+    }
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
         nw_debug_toggle("Render", "Hitboxes", &hitboxes);
@@ -965,7 +974,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         nw_window_close(&platform);
         return 1;
     }
-    uint64_t titled = 0;
+    if (presence && !nw_discord_start(&(NwDiscordConfig){ .app_id = NW_DISCORD_APP_ID })) {
+        SDL_Log("discord: %s", SDL_GetError());
+    }
+    nw_discord_enable(settings.discord);
+    uint64_t titled = 0, presented = 0;
     NwPacer pacer = { 0 };
     bool running = true;
     while (running) {
@@ -980,12 +993,16 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
         }
         nw_input_poll(!nw_debug_wants_keyboard());
         if (nw_game_state() == NW_GAME_FATAL) {
+            nw_discord_stop();
             nw_boot_fatal(platform.window, data_dir);
             running = false;
         }
         if (!nw_settings_equal(&settings, &applied)) {
             if (settings.hardware_speed != applied.hardware_speed) {
                 nw_nusound_set_hardware_speed(settings.hardware_speed);
+            }
+            if (settings.discord != applied.discord) {
+                nw_discord_enable(settings.discord);
             }
             nw_audio_set_buses(settings.master_volume, settings.voice_volume);
             nw_input_set_controls(&settings.controls);
@@ -1020,12 +1037,21 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             SDL_SetWindowTitle(platform.window, title);
             titled = SDL_GetTicks();
         }
+        if (presence && SDL_GetTicks() - presented >= 1000) {
+            NwPresenceSnap snap;
+            NwActivity activity;
+            nw_presence_poll(&snap);
+            nw_presence_activity(&snap, nw_build_id, started / SDL_NS_PER_MS, &activity);
+            nw_discord_set(&activity);
+            presented = SDL_GetTicks();
+        }
         int width, height;
         nw_display_size(platform.window, &width, &height);
         nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
         nw_debug_frame();
         SDL_GL_SwapWindow(platform.window);
     }
+    nw_discord_stop();
     if (unsaved) {
         nw_boot_settings(data_dir, &settings, true);
     }

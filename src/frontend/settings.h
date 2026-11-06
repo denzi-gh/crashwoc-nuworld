@@ -24,6 +24,7 @@ typedef struct NwSettings {
     int camera_stability; /* percent of a jump the game camera ignores, 0 the PS2's */
     int master_volume;   /* [audio], 0-100 over the game's own volumes: everything */
     int voice_volume;    /* the voice stream (cutscenes, hints) */
+    bool discord;        /* [discord]: Rich Presence on the player's profile */
     float aspect;        /* [video]: the picture's width over its height, 0 = the screen's or window's */
     float hud;           /* the widest width over height the HUD spreads to, 0 = the picture's edges */
     NwWindowMode window;

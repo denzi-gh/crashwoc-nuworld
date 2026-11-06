@@ -168,11 +168,14 @@ target_include_directories(nuworld_audio PUBLIC src)
 target_compile_options(nuworld_audio PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_audio PUBLIC nuworld_vfs)
 
-# Frontend logic without the UI: import folder listing, background import job, settings.toml and its controls.
+# Frontend logic without the UI: import folder listing, background import job, settings.toml and its controls,
+# Discord Rich Presence.
 add_library(nuworld_frontend STATIC
   src/frontend/import.c
+  src/frontend/presence.c
   src/frontend/settings.c
   src/platform/controls.c
+  src/platform/discord.c
   src/platform/prompts.c)
 target_include_directories(nuworld_frontend PUBLIC src)
 target_compile_options(nuworld_frontend PRIVATE -Wall -Wextra)
@@ -213,6 +216,14 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_settings PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_settings PRIVATE nuworld_frontend)
   add_test(NAME settings COMMAND nuworld_test_settings ${CMAKE_CURRENT_BINARY_DIR}/test-settings)
+  add_executable(nuworld_test_discord tests/c/test_discord.c)
+  target_compile_options(nuworld_test_discord PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_discord PRIVATE nuworld_frontend)
+  add_test(NAME discord COMMAND nuworld_test_discord)
+  add_executable(nuworld_test_presence tests/c/test_presence.c)
+  target_compile_options(nuworld_test_presence PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_presence PRIVATE nuworld_frontend)
+  add_test(NAME presence COMMAND nuworld_test_presence)
   add_executable(nuworld_test_prompts tests/c/test_prompts.c)
   target_compile_options(nuworld_test_prompts PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_prompts PRIVATE nuworld_frontend)
