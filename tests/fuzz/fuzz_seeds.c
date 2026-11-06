@@ -19,7 +19,7 @@
 #include "vag_builder.h"
 #include "vif_builder.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD, FUZZ_RNC };
 /* fuzz_loaders.c's */
 enum { LOAD_GSC, LOAD_GHG, LOAD_CUT, LOAD_ANI, LOAD_SHD, LOAD_TER, LOAD_VIEWER, LOAD_VAG = 11, LOAD_SETTINGS };
 
@@ -188,6 +188,18 @@ int main(int argc, char *argv[])
     for (size_t i = 0; i < sizeof(games); i++) {
         games[i] = (uint8_t)(i * 7 + (i >> 5));
     }
+    for (uint8_t *g = games; g < games + sizeof(games); g += NW_SAVE_GAME_SIZE) { /* what the game writes */
+        g[NW_SAVE_NAME + NW_SAVE_NAME_SIZE - 1] = 0;
+        for (int t = 0; t < NW_SAVE_LEVELS * NW_SAVE_TIMES; t++) {
+            g[NW_SAVE_LEVEL + t / NW_SAVE_TIMES * NW_SAVE_LEVEL_SIZE + NW_SAVE_LEVEL_TIME +
+              t % NW_SAVE_TIMES * NW_SAVE_TIME_SIZE + NW_SAVE_TIME_NAME_SIZE - 1] = 0;
+        }
+        g[NW_SAVE_VIBRATION] &= 1;
+        g[NW_SAVE_SURROUND] &= 1;
+        g[NW_SAVE_SFX_VOLUME] %= NW_SAVE_VOLUME_MAX + 1;
+        g[NW_SAVE_MUSIC_VOLUME] %= NW_SAVE_VOLUME_MAX + 1;
+        g[NW_SAVE_LANGUAGE] %= NW_SAVE_LANGUAGES;
+    }
     NwSaveRegistry reg;
     NwDoc doc;
     size_t size = 0;
@@ -215,5 +227,6 @@ int main(int argc, char *argv[])
     uint8_t *image = mcb_image(&card, false, &size);
     seed("card", FUZZ_CARD, NULL, 0, image, size);
     free(image);
+    seed("rnc", FUZZ_RNC, NULL, 0, nw_rnc2_fixture, sizeof(nw_rnc2_fixture));
     return argc == 3 ? loader_seeds(argv[2]) : 0;
 }

@@ -16,6 +16,7 @@
 #include "nucore/nucoretypes.h"
 #include "numath/numtx.h"
 #include "nups2/ps2ctl.h"
+#include "port/heap.h"
 #include "port/level.h"
 
 /* Declared by no header. */
@@ -64,9 +65,12 @@ static bool nw_crunch_here(void)
 
 static void nw_crunch_load(void)
 {
-    if (!nw_crunch.buf && !(nw_crunch.buf = SDL_malloc(NW_CRUNCH_BYTES))) {
-        nw_crunch.failed = true;
-        return;
+    if (!nw_crunch.buf) {
+        if (!(nw_crunch.buf = SDL_malloc(NW_CRUNCH_BYTES))) {
+            nw_crunch.failed = true;
+            return;
+        }
+        nw_load_buffer(nw_crunch.buf, NW_CRUNCH_BYTES); /* NuGHGRead loads without a size */
     }
     union variptr_u buf = { .charptr = nw_crunch.buf }, end = { .charptr = nw_crunch.buf + NW_CRUNCH_BYTES };
     void *dat = NuDatOpen("chars.dat", NULL, NULL);

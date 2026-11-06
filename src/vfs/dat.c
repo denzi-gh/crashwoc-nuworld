@@ -6,7 +6,6 @@
 
 #define NW_DAT_MAGIC 0xffffffffu
 #define NW_DAT_HEADER 8
-#define NW_DAT_DIR_MAX (64u << 20) /* sanity limit for the directory */
 #define NW_DAT_DEPTH_MAX 64
 #define NW_DAT_PATH_MAX 256
 

@@ -146,7 +146,8 @@ static char *nw_speedshoes_text[6][7] = {
 
 void NewLanguage(s32 lang)
 {
-    Game.language = lang;
+    /* every table below has 6 languages; retail trusts the save's byte */
+    Game.language = lang >= 0 && lang < 6 ? lang : 0;
     PData[0].name = tSNEAKSHOES[Game.language];
     PData[0].text = nw_sneakshoes_text[Game.language];
     PData[1].name = tDOUBLEJUMP[Game.language];

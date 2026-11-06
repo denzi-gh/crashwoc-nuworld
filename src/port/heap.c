@@ -12,6 +12,7 @@
 
 #define NW_HEAP_FIRST 0x400  /* a side's first chunk; each next one doubles */
 #define NW_HEAP_CHUNK 0x10000 /* up to this */
+#define NW_HEAP_RECORD_MAX ((size_t)1 << 30) /* more is a count from a damaged file (a negative one, mostly) */
 #define NW_SUPERBUFFER_PS2 0x7069C0u /* retail's superbuffer (PCSX2, over PINE) */
 #define NW_SUPERBUFFER_ALIGN 0x1000u
 
@@ -76,6 +77,12 @@ NwHeapSide *nw_heap_side(void)
 
 void *nw_heap_side_new(NwHeapSide *side, size_t size, size_t align)
 {
+    if (size > NW_HEAP_RECORD_MAX) {
+        NuErrorProlog("heap.c", __LINE__)("a load asks for %llu bytes of records: its file is damaged",
+                                          (unsigned long long)size);
+        for (;;) {
+        }
+    }
     NwHeapChunk *c = side->chunks;
     uintptr_t at = 0;
     if (c) {
@@ -215,6 +222,34 @@ void nw_heap_each_hole(void (*fn)(const void *at, size_t size, const char *why, 
 
 void *NuMemAllocFn(int size, char *file, int line);
 
+static struct {
+    const char *lo, *hi;
+} nw_load_buffers[4];
+
+void nw_load_buffer(const void *lo, size_t size)
+{
+    for (size_t i = 0; i < SDL_arraysize(nw_load_buffers); i++) {
+        if (!nw_load_buffers[i].lo || nw_load_buffers[i].lo == lo) {
+            nw_load_buffers[i].lo = lo;
+            nw_load_buffers[i].hi = (const char *)lo + size;
+            return;
+        }
+    }
+    NuErrorProlog("heap.c", __LINE__)("more than %d load buffers", (int)SDL_arraysize(nw_load_buffers));
+}
+
+bool nw_load_buffer_room(const void *p, size_t *room)
+{
+    const char *at = p;
+    for (size_t i = 0; i < SDL_arraysize(nw_load_buffers); i++) {
+        if (nw_load_buffers[i].lo && at >= nw_load_buffers[i].lo && at < nw_load_buffers[i].hi) {
+            *room = (size_t)(nw_load_buffers[i].hi - at);
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Never freed, as retail's. */
 void *nw_superbuffer_alloc(int size, char *file, int line)
 {
@@ -223,7 +258,9 @@ void *nw_superbuffer_alloc(int size, char *file, int line)
         return NULL;
     }
     uintptr_t want = NW_SUPERBUFFER_PS2 % NW_SUPERBUFFER_ALIGN, have = (uintptr_t)p % NW_SUPERBUFFER_ALIGN;
-    return p + (want - have + NW_SUPERBUFFER_ALIGN) % NW_SUPERBUFFER_ALIGN;
+    p += (want - have + NW_SUPERBUFFER_ALIGN) % NW_SUPERBUFFER_ALIGN;
+    nw_load_buffer(p, (size_t)size);
+    return p;
 }
 
 void *nw_heap_twin(void *at, size_t charge, size_t size, size_t align)

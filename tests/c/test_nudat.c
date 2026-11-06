@@ -1,5 +1,6 @@
 /* The NuDat* override (src/port/nudat.c) and the sce file shim on a synthetic archive with a real RNC2 entry;
    `retail` loads every entry of ATS.DAT and CHARS.DAT and checks packed ones against their RNC header's CRC. */
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,8 @@
 #include <SDL3/SDL.h>
 
 #include "nucore/nufile.h"
+#include "port/game.h"
+#include "port/heap.h"
 #include "shim/shim.h"
 #include "vfs/extract.h"
 #include "vfs/vfs.h"
@@ -23,6 +26,7 @@ int NuFileOpenSize(int fh);
 int NuFileSize(char *fname);
 int NuFileLoadBuffer(char *filename, void *mem, int buffsize);
 void NuFileClose(int fh);
+int nw_load_room(const char *file, const void *mem, int size);
 
 static int failures;
 
@@ -104,7 +108,7 @@ static void test_synthetic(const char *scratch)
     CHECK(NuFileLoadBuffer("arc\\a\\x.bin", buf, sizeof(buf)) == (int)NW_RNC2_UNPACKED);
     CHECK(memcmp(buf, payload, NW_RNC2_UNPACKED) == 0);
     CHECK(NuFileLoadBuffer("arc\\b\\deep.bin", buf, sizeof(buf)) == 9 && memcmp(buf, "deep data", 9) == 0);
-    /* No room for NuDatFileLoadBuffer's 0x100 margin: retail falls back to NuPPLoadBuffer on the entry. */
+    /* No room for retail's 0x100 margin: the packed bytes are read beside the buffer. */
     memset(buf, 0, sizeof(buf));
     CHECK(NuFileLoadBuffer("arc\\a\\x.bin", buf, NW_RNC2_UNPACKED) == (int)NW_RNC2_UNPACKED);
     CHECK(memcmp(buf, payload, NW_RNC2_UNPACKED) == 0);
@@ -264,6 +268,105 @@ static int test_retail(void)
     return failures ? 1 : 0;
 }
 
+static jmp_buf fatal_jump;
+static char fatal_text[512];
+
+static void on_fatal(const char *message)
+{
+    SDL_strlcpy(fatal_text, message, sizeof(fatal_text));
+    longjmp(fatal_jump, 1);
+}
+
+/* Whether loading name into size bytes at buf stops with a fatal error that says what. */
+static bool load_fails(char *name, void *buf, int size, const char *what)
+{
+    fatal_text[0] = '\0';
+    if (setjmp(fatal_jump) == 0) {
+        NuFileLoadBuffer(name, buf, size);
+        return false;
+    }
+    if (!strstr(fatal_text, what)) {
+        fprintf(stderr, "%s: %s\n", name, fatal_text);
+    }
+    return strstr(fatal_text, what) != NULL;
+}
+
+static bool untouched(const unsigned char *p, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (p[i] != 0xAA) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Files an overlay could bring: too big for their buffer, or RNC headers that lie. Each is a fatal error naming the
+   file, with nothing written past the buffer; a load without a size gets the superbuffer's room. */
+static void test_bounds(const char *scratch)
+{
+    char *root = NULL, *disc = NULL, *path = NULL;
+    unsigned char buf[256 + 64], big[300], lie[18 + 64] = { 'R', 'N', 'C', 2, 0x7F, 0xFF, 0xFF, 0xF0, 0, 0, 0, 64 };
+    unsigned char past[18 + 10] = { 'R', 'N', 'C', 2, 0, 0, 0, 100, 0, 0, 0x03, 0xE8 };
+    unsigned char damaged[sizeof(nw_rnc2_fixture)];
+    NwVfs vfs;
+    const struct {
+        const char *name;
+        const void *data;
+        size_t size;
+    } files[] = {
+        { "BIG.BIN", big, sizeof(big) },
+        { "LIE.BIN", lie, sizeof(lie) },
+        { "PAST.BIN", past, sizeof(past) },
+        { "DAMAGED.BIN", damaged, sizeof(damaged) },
+    };
+
+    memset(big, 0x55, sizeof(big));
+    memcpy(damaged, nw_rnc2_fixture, sizeof(damaged));
+    damaged[11] -= 0x40; /* the header's packed size: the stream stops short */
+    SDL_asprintf(&root, "%sbounds/", scratch);
+    SDL_asprintf(&disc, "%s" NW_DISC_DIR "/", root);
+    SDL_RemovePath(root);
+    CHECK(SDL_CreateDirectory(disc));
+    SDL_asprintf(&path, "%s" NW_DISC_STAMP, disc);
+    CHECK(SDL_SaveFile(path, "", 0));
+    SDL_free(path);
+    for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+        SDL_asprintf(&path, "%s%s", disc, files[i].name);
+        CHECK(SDL_SaveFile(path, files[i].data, files[i].size));
+        SDL_free(path);
+    }
+    CHECK(nw_vfs_init(&vfs, root));
+    nw_shim_file_init(&vfs);
+    NuFileInitEx(1, 1);
+    nw_game_on_fatal(on_fatal);
+
+    memset(buf, 0xAA, sizeof(buf));
+    CHECK(load_fails("big.bin", buf, 256, "big.bin: larger than its buffer") && untouched(buf, sizeof(buf)));
+    CHECK(load_fails("lie.bin", buf, 256, "unpacked size larger than its buffer") && untouched(buf, sizeof(buf)));
+    CHECK(load_fails("past.bin", buf, 256, "packed bytes past the file's end") && untouched(buf, sizeof(buf)));
+    unsigned char out[NW_RNC2_UNPACKED + 64];
+    memset(out, 0xAA, sizeof(out));
+    CHECK(load_fails("damaged.bin", out, NW_RNC2_UNPACKED, "damaged RNC stream"));
+    CHECK(untouched(out + NW_RNC2_UNPACKED, 64));
+
+    char *sb = nw_superbuffer_alloc(0x1000, "test_nudat.c", __LINE__);
+    CHECK(sb && nw_load_room("x", sb + 0xF00, 0x7FFFFFFF) == 0x100 && nw_load_room("x", sb, 0x80) == 0x80);
+    CHECK(nw_load_room("x", buf, 0x7FFFFFFF) == 0x7FFFFFFF); /* a buffer the host does not know */
+    CHECK(sb && load_fails("big.bin", sb + 0xF00, 0x7FFFFFFF, "larger than its buffer (300, 256)"));
+    static char own[0x200]; /* a buffer of NuWorld's own, as the hub minigame's Crunch */
+    nw_load_buffer(own, sizeof(own));
+    CHECK(nw_load_room("x", own + 0x100, 0x7FFFFFFF) == 0x100);
+    CHECK(load_fails("big.bin", own + 0x100, 0x7FFFFFFF, "larger than its buffer (300, 256)"));
+
+    nw_game_on_fatal(NULL);
+    nw_shim_file_init(NULL);
+    nw_vfs_shutdown(&vfs);
+    SDL_RemovePath(root);
+    SDL_free(disc);
+    SDL_free(root);
+}
+
 int main(int argc, char *argv[])
 {
     if (argc > 1 && strcmp(argv[1], "retail") == 0) {
@@ -278,6 +381,7 @@ int main(int argc, char *argv[])
     SDL_CreateDirectory(scratch);
     test_synthetic(scratch);
     test_overlay(scratch);
+    test_bounds(scratch);
     SDL_free(scratch);
     printf("%s\n", failures ? "FAILED" : "ok");
     return failures ? 1 : 0;

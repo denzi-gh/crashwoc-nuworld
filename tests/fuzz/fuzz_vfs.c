@@ -18,10 +18,11 @@
 #include "vfs/extract.h"
 #include "vfs/iso9660.h"
 #include "vfs/manifest.h"
+#include "vfs/rnc.h"
 #include "vfs/verify.h"
 #include "vfs/vfs.h"
 
-enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD, FUZZ_READERS };
+enum { FUZZ_DISC, FUZZ_CUE, FUZZ_DAT, FUZZ_VIF, FUZZ_SAVE, FUZZ_CARD, FUZZ_RNC, FUZZ_READERS };
 
 static char *scratch;  /* <tmp>/nuworld-fuzz-<pid>/ */
 static char *bin_path; /* the image, of FUZZ_DISC and FUZZ_CUE alike */
@@ -206,6 +207,26 @@ static void fuzz_card(const uint8_t *data, size_t size)
     SDL_free(nw_ps2card_file(data, size, NW_SAVE_CARD_NAME, NW_SAVE_CARD_NAME "slot00", &len, &missing));
 }
 
+/* An RNC file unpacked into exactly its header's size: whatever the bytes, nothing outside the two ranges. */
+static void fuzz_rnc(const uint8_t *data, size_t size)
+{
+    uint32_t unpacked, packed;
+    if (!nw_rnc_header(data, size, &unpacked, &packed) || unpacked > (1u << 24)) {
+        return;
+    }
+    size_t avail = size - NW_RNC_HEADER;
+    uint8_t *out = malloc(unpacked ? unpacked : 1);
+    if (!out) {
+        fuzz_die("malloc");
+    }
+    const uint8_t *in = data + NW_RNC_HEADER;
+    if (nw_rnc_unpack(in, in + (packed < avail ? packed : avail), out, out + unpacked) > (int64_t)unpacked) {
+        SDL_Log("fuzz_vfs: an RNC stream wrote past its room");
+        abort();
+    }
+    free(out);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     if (size < 1) {
@@ -230,6 +251,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         break;
     case FUZZ_CARD:
         fuzz_card(data + 1, size - 1);
+        break;
+    case FUZZ_RNC:
+        fuzz_rnc(data + 1, size - 1);
         break;
     }
     return 0;

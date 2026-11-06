@@ -3,6 +3,7 @@
 #ifndef NUWORLD_PORT_HEAP_H
 #define NUWORLD_PORT_HEAP_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "gfx/packet.h"
@@ -34,6 +35,10 @@ void nw_heap_release(const void *host);
 
 /* The decomp's NW_SUPERBUFFER_ALLOC (nu_port.h): the superbuffer at retail's address modulo 0x1000. */
 void *nw_superbuffer_alloc(int size, char *file, int line);
+/* A buffer file loads go into (the superbuffer, NuWorld's own): NuFileLoadBuffer caps them at its end (NW_LOAD_ROOM).
+   nw_load_buffer_room: the bytes from p to the end of the one holding it; false outside them. */
+void nw_load_buffer(const void *lo, size_t size);
+bool nw_load_buffer_room(const void *p, size_t *room);
 
 /* The decomp's NW_HEAP_TWIN (nu_port.h): a zeroed host record of size bytes, owned by the heap's charge bytes at at. */
 void *nw_heap_twin(void *at, size_t charge, size_t size, size_t align);

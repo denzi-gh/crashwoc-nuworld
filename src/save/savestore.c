@@ -138,7 +138,7 @@ NwSaveResult nw_save_import(const char *dir, int slot, const char *file, const N
     }
     if (raw && len != NW_SAVE_SIZE) {
         SDL_SetError("/%s/%s is %u bytes, a save %u", NW_SAVE_CARD_NAME, f.raw, (unsigned)len, (unsigned)NW_SAVE_SIZE);
-    } else if (raw) {
+    } else if (raw && nw_save_check(reg, raw, NW_SAVE_RECORDS)) {
         int got = nw_save_open(f.main, reg, &doc);
         if (got == 1) {
             nw_doc_free(&doc);

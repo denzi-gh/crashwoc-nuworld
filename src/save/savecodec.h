@@ -64,6 +64,8 @@
 #define NW_SAVE_TIME_NAME 0x0
 #define NW_SAVE_TIME_NAME_SIZE 4
 #define NW_SAVE_TIME_ITIME 0x4
+#define NW_SAVE_LANGUAGES 6
+#define NW_SAVE_VOLUME_MAX 100
 
 /* The key of each level and hub record, by its index in the record. */
 typedef struct NwSaveRegistry {
@@ -84,5 +86,8 @@ int64_t nw_save_format(const NwDoc *doc);
 bool nw_save_merge(NwDoc *doc, const NwSaveRegistry *reg, const uint8_t *games, size_t count);
 /* doc's first count slots as records: a missing slot is empty, a missing field zero. false with an SDL error. */
 bool nw_save_decode(const NwDoc *doc, const NwSaveRegistry *reg, uint8_t *games, size_t count);
+/* Every record holds only what the game writes (texts end in a NUL, options in the menus' ranges); false with an SDL
+   error naming the field. nw_save_decode runs it; a card's records need it before they are merged. */
+bool nw_save_check(const NwSaveRegistry *reg, const uint8_t *games, size_t count);
 
 #endif

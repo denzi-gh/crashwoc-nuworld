@@ -562,7 +562,7 @@ static int OpenADPCMFile(int Stream, int idx)
     s->Source = f->Source;
     s->datfile = f->datfile;
     s->fileoffset = 0; /* host0: only */
-    if (f->size == 0) {
+    if (f->size <= NW_IRX_VAG_HEADER || f->size > INT32_MAX) {
         return 1;
     }
     s->FileRemainder = f->size - NW_IRX_VAG_HEADER;
@@ -682,7 +682,7 @@ static void _CdHandleEvent(void)
         if (irx.cd_dataleft == 0) {
             irx.cd_stage = 0;
         } else {
-            if (irx.cd_readptr == irx.cd_filelen) {
+            if (irx.cd_readptr >= irx.cd_filelen) {
                 irx.cd_readptr = NW_IRX_VAG_HEADER;
             }
             int start = irx.cd_readptr, end = irx.cd_readptr + irx.cd_dataleft;
@@ -751,7 +751,8 @@ static void cdend10(int moo)
         s->IOPCurrentAddress[irx.ldd_remain - 0xf] = 0;
         s->IOPCurrentAddress[irx.ldd_remain - 0x1f] = 0;
     }
-    s->FileSeek = (uint32_t)(irx.ldd_size - irx.ldd_remain + NW_IRX_VAG_HEADER);
+    /* modulo the data: a stream shorter than the read wrapped more than once (retail runs past the file's end) */
+    s->FileSeek = (uint32_t)((irx.ldd_size - irx.ldd_remain) % (s->FileSize - NW_IRX_VAG_HEADER) + NW_IRX_VAG_HEADER);
     s->FileRemainder = s->FileSize - s->FileSeek;
     irx.endfunc_load(1);
 }

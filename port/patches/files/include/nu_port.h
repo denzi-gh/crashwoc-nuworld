@@ -65,6 +65,21 @@ void *nw_superbuffer_alloc(int size, char *file, int line);
 #define NW_SUPERBUFFER_ALLOC(size, file, line) NuMemAllocFn(size, file, line)
 #endif
 
+/* NuFileLoadBuffer's buffer size */
+#ifdef NW_HOST
+int nw_load_room(const char *file, const void *mem, int size);
+#define NW_LOAD_ROOM(file, mem, size) nw_load_room((file), (mem), (size))
+#else
+#define NW_LOAD_ROOM(file, mem, size) (size)
+#endif
+
+/* A load's buffer size where retail passes none (0x7FFFFFFF) */
+#ifdef NW_HOST
+#define NW_LOAD_SIZE(ps2, host) (host)
+#else
+#define NW_LOAD_SIZE(ps2, host) (ps2)
+#endif
+
 /* A faithful out-of-object read: ps2 reads retail's layout, host reads the same bytes from the host layout. */
 #ifdef NW_HOST
 #define NW_RETAIL(ps2, host) (host)

@@ -104,6 +104,7 @@ schema = 1
 "nucore/nufile:NuDatFileRead" = "cad9c786c328dcf5"
 "nucore/nufile:NuDatFileSeek" = "0aac8205a1e1edb7"
 "nucore/nufile:NuDatOpenEx" = "6ff6b14ff3b4ad25"
+"nucore/rnc:NuPPLoadBuffer" = "d01e71ae03a10b96"
 "numath/nutrig:NuTrigInit" = "96a56a0bb4a57834"
 "numath/nuvec:NuVecNorm" = "ec570d7d2c595538"
 

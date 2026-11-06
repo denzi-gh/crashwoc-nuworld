@@ -406,5 +406,52 @@ bool nw_save_decode(const NwDoc *doc, const NwSaveRegistry *reg, uint8_t *games,
             }
         }
     }
+    return nw_save_check(reg, games, count);
+}
+
+/* The options' ranges in the game's menus (game.c); the other fields are counts and flags of their full width. */
+static const struct {
+    const char *name;
+    uint16_t at;
+    uint8_t max;
+} nw_save_ranges[] = {
+    { "vibration", NW_SAVE_VIBRATION, 1 },
+    { "surround", NW_SAVE_SURROUND, 1 },
+    { "sfx_volume", NW_SAVE_SFX_VOLUME, NW_SAVE_VOLUME_MAX },
+    { "music_volume", NW_SAVE_MUSIC_VOLUME, NW_SAVE_VOLUME_MAX },
+    { "language", NW_SAVE_LANGUAGE, NW_SAVE_LANGUAGES - 1 },
+};
+
+bool nw_save_check(const NwSaveRegistry *reg, const uint8_t *games, size_t count)
+{
+    if (!nw_save_registry_ok(reg)) {
+        return false;
+    }
+    for (size_t s = 0; s < count; s++) {
+        const uint8_t *game = games + s * NW_SAVE_GAME_SIZE;
+        char where[256];
+        SDL_snprintf(where, sizeof(where), "slot.%u", (unsigned)s);
+        if (SDL_strnlen((const char *)game + NW_SAVE_NAME, NW_SAVE_NAME_SIZE) == NW_SAVE_NAME_SIZE) {
+            return nw_save_bad(where, "name", "a string of at most 8 bytes");
+        }
+        SDL_snprintf(where, sizeof(where), "slot.%u.options", (unsigned)s);
+        for (size_t i = 0; i < NW_SAVE_COUNT(nw_save_ranges); i++) {
+            if (game[nw_save_ranges[i].at] > nw_save_ranges[i].max) {
+                char want[32];
+                SDL_snprintf(want, sizeof(want), "0 to %u", (unsigned)nw_save_ranges[i].max);
+                return nw_save_bad(where, nw_save_ranges[i].name, want);
+            }
+        }
+        for (size_t l = 0; l < reg->level_count; l++) {
+            const uint8_t *time = game + NW_SAVE_LEVEL + l * NW_SAVE_LEVEL_SIZE + NW_SAVE_LEVEL_TIME;
+            for (size_t i = 0; i < NW_SAVE_TIMES; i++, time += NW_SAVE_TIME_SIZE) {
+                if (SDL_strnlen((const char *)time + NW_SAVE_TIME_NAME, NW_SAVE_TIME_NAME_SIZE) ==
+                    NW_SAVE_TIME_NAME_SIZE) {
+                    SDL_snprintf(where, sizeof(where), "slot.%u.level.%s", (unsigned)s, reg->levels[l]);
+                    return nw_save_bad(where, "time", "names of at most 3 bytes");
+                }
+            }
+        }
+    }
     return true;
 }
