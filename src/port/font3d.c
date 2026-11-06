@@ -62,6 +62,7 @@ static struct {
     struct numtl_s *mtl; /* NULL when it does not load */
 } nw_font3d_icons[NW_FONT3D_ICONS];
 static int nw_font3d_nicons;
+static struct numtl_s *nw_font3d_grey[2]; /* forced table: the letters' special_id 1 */
 
 void nw_font3d_prompts(const NwPrompts *p)
 {
@@ -137,6 +138,30 @@ static struct numtl_s *nw_font3d_icon(const char *name)
 void nw_font3d_release(void)
 {
     nw_font3d_nicons = 0;
+    nw_font3d_grey[1] = NULL;
+}
+
+/* NW_FONT3D_GREY's table on its first use: the menu entries' colour 2, grey at half its brightness. */
+static struct numtl_s **nw_font3d_grey_table(void)
+{
+    struct numtl_s *src = Font3DMtlTab[2][1];
+    if (!nw_font3d_grey[1] && src) {
+        struct numtl_s *mtl = NuMtlCreate(1);
+        f32 l = (src->diffuse.r * 0.3f + src->diffuse.g * 0.59f + src->diffuse.b * 0.11f) * 0.5f;
+        mtl->attrib = src->attrib;
+        mtl->ambient = src->ambient;
+        mtl->diffuse.r = l;
+        mtl->diffuse.g = l;
+        mtl->diffuse.b = l;
+        mtl->power = src->power;
+        mtl->alpha = src->alpha;
+        mtl->tid = src->tid;
+        mtl->K = src->K;
+        mtl->L = src->L;
+        NuMtlUpdate(mtl);
+        nw_font3d_grey[1] = mtl;
+    }
+    return nw_font3d_grey[1] ? nw_font3d_grey : NULL;
 }
 
 /* A glyph code's width in letters, 0 for another character. */
@@ -323,8 +348,9 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
     } else {
         x = x - (dx * w * 0.5f - dx * 0.5f);
     }
+    struct numtl_s **grey = colour == NW_FONT3D_GREY ? nw_font3d_grey_table() : NULL;
     i = ((u32)colour < 5) ? colour : 0;
-    nurndr_forced_mtl_table = &Font3DMtlTab[i][0];
+    nurndr_forced_mtl_table = grey ? grey : &Font3DMtlTab[i][0];
     font3d_xleft = x - dx * 0.5f;
 
     for (i = 0; i < l; i++) {
