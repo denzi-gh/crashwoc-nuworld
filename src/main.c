@@ -864,6 +864,18 @@ static void nw_boot_minigame(void *user)
     nw_minigame_start();
 }
 
+/* A stopped game thread leaves the window on its last frame: tell the player why, and where the log is. */
+static void nw_boot_fatal(SDL_Window *window, const char *data_dir)
+{
+    char *root = nw_data_root(data_dir);
+    char msg[1024];
+    SDL_snprintf(msg, sizeof(msg), "The game stopped because of an error:\n\n%s\n\nDetails are in %s%s",
+                 nw_game_error(), root ? root : "", NW_PATHS_LOG);
+    SDL_free(root);
+    SDL_SetWindowFullscreen(window, false);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, NW_APP_NAME, msg, window);
+}
+
 /* Runs the game in the window; hardware_speed and aspect -1 take settings.toml's, which the debug menu changes and
    saves. */
 static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
@@ -967,6 +979,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             nw_video_event(&event);
         }
         nw_input_poll(!nw_debug_wants_keyboard());
+        if (nw_game_state() == NW_GAME_FATAL) {
+            nw_boot_fatal(platform.window, data_dir);
+            running = false;
+        }
         if (!nw_settings_equal(&settings, &applied)) {
             if (settings.hardware_speed != applied.hardware_speed) {
                 nw_nusound_set_hardware_speed(settings.hardware_speed);

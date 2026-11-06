@@ -64,6 +64,27 @@ static void *GScnBufferAlloc(size_t size, size_t align)
     return 0;
 }
 
+static const char *nw_gscn_lo, *nw_gscn_hi; /* the scene file being fixed up */
+
+/* n records of each bytes at p inside the scene file, else fatal: a damaged (or modded) file's count or offset. */
+static void *nw_gscn_in(const void *p, long long n, size_t each)
+{
+    const char *at = p;
+    if (n < 0 || at < nw_gscn_lo || at > nw_gscn_hi || (unsigned long long)n > (size_t)(nw_gscn_hi - at) / each) {
+        NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": %lld records past the file's end", gsc_load_context.filename, n);
+    }
+    return (void *)p;
+}
+
+/* An index from the file into a table of count, else fatal. */
+static int nw_gscn_ix(long long ix, int count)
+{
+    if (ix < 0 || ix >= count) {
+        NuErrorProlog(nugscn_srcfile, 0xB95)("\"%s\": index %lld of %d", gsc_load_context.filename, ix, count);
+    }
+    return (int)ix;
+}
+
 /* Advances the buffer by ps2size and returns size bytes of host records beside it. */
 static void *nw_gscn_new(size_t ps2size, size_t size, size_t align)
 {
@@ -218,7 +239,7 @@ void ReadMaterialSet(int fh)
         if (mtl->tid == -1) {
             mtl->tid = 0;
         } else {
-            mtl->tid = gscene->tids[mtl->tid];
+            mtl->tid = gscene->tids[nw_gscn_ix(mtl->tid, gscene->numtid)];
         }
         if (NW_FILE_IX(mtl->next) == -1) {
             mtl->next = 0;
@@ -242,7 +263,7 @@ void ReadMaterialSet(int fh)
         if (ix == 0xFFFFFFFF) {
             mtl->next = 0;
         } else if (ix >= 1 && ix <= 0xFFFF) {
-            mtl->next = gscene->mtls[ix - 1];
+            mtl->next = gscene->mtls[nw_gscn_ix((long long)ix - 1, nmtls)];
         }
     }
 }
@@ -263,7 +284,10 @@ void ReadObjSet(int fh)
         NuFileReadInt(fh);
         NuFileReadInt(fh);
         NuFileReadInt(fh);
-        struct nugobj_s *gobj = NW_GSCN_NEW(nugobj_s, nsub);
+        /* one host record even for none: the fields below are written either way */
+        struct nugobj_s *gobj = nw_gscn_new((size_t)nsub * sizeof(nw_ps2_nugobj_s),
+                                            (size_t)(nsub > 0 ? nsub : 1) * sizeof(struct nugobj_s),
+                                            _Alignof(struct nugobj_s));
         gscene->gobjs[i] = gobj;
         gobj->ngobjs = nsub;
         for (int j = 0; j < nsub; j++) {
@@ -283,12 +307,13 @@ void ReadObjSet(int fh)
                     }
                     NuFileReadInt(fh);
                     int skip = NuFileReadInt(fh);
-                    geom->mtl = gscene->mtls[NuFileReadInt(fh)];
+                    geom->mtl = gscene->mtls[nw_gscn_ix(NuFileReadInt(fh), gscene->nummtl)];
                     NuMemFileSeek(fh, skip, 1);
                     size = NuFileReadInt(fh);
                     if (size & 0xF) {
                         NuErrorProlog(nugscn_srcfile, 0xB95)("invalid qwc");
                     }
+                    nw_gscn_in(NuMemFileAddr(fh), size, 1);
                     /* No in-place block->data = block->qw (a host pointer does not fit the 32-bit field); an OT geom
                        keeps its batch for XFormVuTriZ and its triangles as a mesh in dmastream for NuRndrGScnObj. */
                     if (geom->mtl->attrib.ot == 1) {
@@ -312,10 +337,11 @@ void ReadObjSet(int fh)
                     if (k != count - 1) {
                         fgeom->next = fgeom + 1;
                     }
-                    fgeom->mtl = gscene->mtls[NuFileReadInt(fh)];
+                    fgeom->mtl = gscene->mtls[nw_gscn_ix(NuFileReadInt(fh), gscene->nummtl)];
                     fgeom->faceon_type = NuFileReadInt(fh);
                     fgeom->faceon_radius = NuFileReadFloat(fh);
                     size = NuFileReadInt(fh);
+                    nw_gscn_in(NuMemFileAddr(fh), size, 1);
                     nw_heap_side_hole(gscene_side, NuMemFileAddr(fh), (size_t)size, "face-on DMA chain");
                     fgeom->dmastream = nw_gscn_sprites(NuMemFileAddr(fh), size);
                     NuMemFileSeek(fh, size, 1);
@@ -376,7 +402,7 @@ void ReadTexAnimSet(int fh)
 {
     gscene->numtexanims = NuFileReadInt(fh);
     NuFileReadInt(fh);
-    char *src = NuMemFileAddr(fh);
+    char *src = nw_gscn_in(NuMemFileAddr(fh), gscene->numtexanims, sizeof(nw_ps2_nutexanim_s));
     NuMemFileSeek(fh, gscene->numtexanims * sizeof(nw_ps2_nutexanim_s), 1);
     NuFileReadInt(fh);
     short *tidtab = NuMemFileAddr(fh);
@@ -387,13 +413,13 @@ void ReadTexAnimSet(int fh)
         NW_FILE_X(nutexanim_s, tex, src + i * sizeof(nw_ps2_nutexanim_s));
         tex->succ = 0;
         tex->prev = 0;
-        tex->tids = tidtab + NW_FILE_IX(tex->tids);
+        tex->tids = nw_gscn_in(tidtab + NW_FILE_IX(tex->tids), tex->numtids, sizeof(short));
         for (int j = 0; j < tex->numtids; j++) {
-            tex->tids[j] = gscene->tids[tex->tids[j]];
+            tex->tids[j] = gscene->tids[nw_gscn_ix(tex->tids[j], gscene->numtid)];
         }
         tex->ntaname = gscene->nametable + NW_FILE_IX(tex->ntaname);
-        char *scriptname = gscene->nametable + NW_FILE_IX(tex->scriptname);
-        tex->mtl = gscene->mtls[NW_FILE_IX(tex->mtl)];
+        char *scriptname = nw_gscn_in(gscene->nametable + NW_FILE_IX(tex->scriptname), 1, 1);
+        tex->mtl = gscene->mtls[nw_gscn_ix(NW_FILE_IX(tex->mtl), gscene->nummtl)];
         tex->dynalloc = 0;
         struct nutexanimprog_s *prog = NuTexAnimProgFind(scriptname);
         union variptr_u buff;
@@ -452,6 +478,8 @@ struct nugscn_s *NuGScnLoadFix(void)
         }
         gscene_side = nw_heap_side();
         nw_heap_side_own(gscene_side, data, data + size);
+        nw_gscn_lo = data;
+        nw_gscn_hi = data + size;
         gscene = NW_GSCN_NEW(nugscn_s, 1);
         if (gscene != 0) {
             int fh = NuMemFileOpen(data, size, 0);
@@ -483,7 +511,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                     case 0x54534E49: {
                         gscene->numinstance = NuFileReadInt(fh);
                         NuFileReadInt(fh);
-                        char *src = NuMemFileAddr(fh);
+                        char *src = nw_gscn_in(NuMemFileAddr(fh), gscene->numinstance, sizeof(nw_ps2_nuinstance_s));
                         NuMemFileSeek(fh, gscene->numinstance * sizeof(nw_ps2_nuinstance_s), 1);
                         gscene->instances = NW_GSCN_COPY(struct nuinstance_s, gscene->numinstance, src);
                         for (int i = 0; i < gscene->numinstance; i++) {
@@ -494,7 +522,7 @@ struct nugscn_s *NuGScnLoadFix(void)
                     }
                     case 0x4C42544E: {
                         int count = NuFileReadInt(fh);
-                        gscene->nametable = NuMemFileAddr(fh);
+                        gscene->nametable = nw_gscn_in(NuMemFileAddr(fh), count, 1);
                         NuMemFileSeek(fh, count, 1);
                         for (int j = 0; j < count; j++) {
                             char c = gscene->nametable[j];
@@ -505,13 +533,13 @@ struct nugscn_s *NuGScnLoadFix(void)
                     case 0x43455053: {
                         gscene->numspecial = NuFileReadInt(fh);
                         NuFileReadInt(fh);
-                        char *src = NuMemFileAddr(fh);
+                        char *src = nw_gscn_in(NuMemFileAddr(fh), gscene->numspecial, sizeof(nw_ps2_nuspecial_s));
                         NuMemFileSeek(fh, gscene->numspecial * sizeof(nw_ps2_nuspecial_s), 1);
                         gscene->specials = NW_GSCN_COPY(struct nuspecial_s, gscene->numspecial, src);
                         struct nuspecial_s *special = gscene->specials;
                         for (int k = 0; k < gscene->numspecial; k++, special++) {
                             NW_FILE_X(nuspecial_s, special, src + k * sizeof(nw_ps2_nuspecial_s));
-                            int ix = NW_FILE_IX(special->instance);
+                            int ix = nw_gscn_ix(NW_FILE_IX(special->instance), gscene->numinstance);
                             special->mtx = gscene->instances[ix].mtx;
                             special->instance = &gscene->instances[ix];
                             special->name = gscene->nametable + NW_FILE_IX(special->name);
@@ -528,6 +556,11 @@ struct nugscn_s *NuGScnLoadFix(void)
                         gscene->instanimblock = NuMemFileAddr(fh);
                         struct nuinstanim_s *anim = gscene->instanimblock;
                         if (gscene->instanimblock != 0) {
+                            int animated = 0;
+                            for (int m = 0; m < gscene->numinstance; m++) {
+                                animated += gscene->instances[m].anim != 0;
+                            }
+                            nw_gscn_in(anim, animated, sizeof(*anim));
                             for (int m = 0; m < gscene->numinstance; m++) {
                                 if (gscene->instances[m].anim != 0) {
                                     gscene->instances[m].anim = anim++;

@@ -95,8 +95,14 @@ int NuTexCreateNative(void *data)
         chunk += nw_rd32(chunk);
     }
     int head = version ? 20 : 16;
+    if (ps2tex->mipcount > (int)(sizeof(ps2tex->mipdata) / sizeof(ps2tex->mipdata[0]))) {
+        NuErrorProlog(nutex_srcfile, 0)("texture %d: %d mip levels", slot + 1, ps2tex->mipcount);
+    }
     for (int level = 0; level < ps2tex->mipcount; level++) {
         int size = nw_rd32(chunk), pad = nw_rd32(chunk + head - 4);
+        if (size < head || pad < 0 || size > INT32_MAX - pad) {
+            NuErrorProlog(nutex_srcfile, 0)("texture %d: mip level %d of %d bytes", slot + 1, level, size);
+        }
         ps2tex->mipdata[level] = chunk + pad + head;
         ps2tex->upsize[level] = nw_rd32(chunk + 4);
         ps2tex->tbw[level] = nw_rd32(chunk + 8);

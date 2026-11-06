@@ -192,12 +192,24 @@ static void test_doc(void)
     CHECK(rejects("a = \"\\x41\"\n", 1));
 }
 
-/* A record of random bytes; every byte of game_s is a field, so any value has to come back. */
+/* A record of random bytes in what the game writes (texts end in a NUL, options in their ranges); every byte of game_s
+   is a field, so any such value has to come back. */
 static void random_record(uint8_t *g)
 {
     for (int i = 0; i < NW_SAVE_GAME_SIZE; i++) {
         g[i] = (uint8_t)rnd();
     }
+    g[NW_SAVE_NAME + NW_SAVE_NAME_SIZE - 1] = 0;
+    for (int l = 0; l < NW_SAVE_LEVELS; l++) {
+        for (int i = 0; i < NW_SAVE_TIMES; i++) {
+            g[NW_SAVE_LEVEL + l * NW_SAVE_LEVEL_SIZE + NW_SAVE_LEVEL_TIME + i * NW_SAVE_TIME_SIZE + 3] = 0;
+        }
+    }
+    g[NW_SAVE_VIBRATION] &= 1;
+    g[NW_SAVE_SURROUND] &= 1;
+    g[NW_SAVE_SFX_VOLUME] %= NW_SAVE_VOLUME_MAX + 1;
+    g[NW_SAVE_MUSIC_VOLUME] %= NW_SAVE_VOLUME_MAX + 1;
+    g[NW_SAVE_LANGUAGE] %= NW_SAVE_LANGUAGES;
     if (rnd() & 1) { /* a name with a NUL inside and trailing NULs */
         memcpy(g + NW_SAVE_NAME, "AB\0\xE9z\0\0\0\0", 9);
     }
@@ -378,6 +390,13 @@ static void test_codec(void)
         "format = 1\n[slot.0.level.\"a/level_00/lev\"]\ntime = [[\"1ST\", -1]]\n",
         "format = 1\n[slot.0.hub.0]\npad = 0x10000\n",
         "format = 1\n[slot.0]\nempty = 300\n",
+        /* in the field's width, not in what the game writes (retail indexes and prints with these) */
+        "format = 1\n[slot.0]\nname = \"012345678\"\n",
+        "format = 1\n[slot.0.level.\"a/level_00/lev\"]\ntime = [[\"ABCD\", 1]]\n",
+        "format = 1\n[slot.0.options]\nlanguage = 6\n",
+        "format = 1\n[slot.0.options]\nmusic_volume = 101\n",
+        "format = 1\n[slot.0.options]\nvibration = 2\n",
+        "format = 1\n[slot.3.options]\nsurround = 255\n",
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         CHECK(parse(&doc, bad[i]));
@@ -389,6 +408,11 @@ static void test_codec(void)
             CHECK(!decoded);
             nw_doc_free(&doc);
         }
+    }
+    CHECK(parse(&doc, "format = 1\n[slot.0]\nname = \"12345678\"\n[slot.0.options]\nlanguage = 5\nsfx_volume = 100\n"));
+    if (!failures) {
+        CHECK(nw_save_decode(&doc, &reg, back, NW_SAVE_RECORDS) && back[NW_SAVE_LANGUAGE] == 5);
+        nw_doc_free(&doc);
     }
     CHECK(parse(&doc, "format = 2\n"));
     if (!failures) {
@@ -601,6 +625,23 @@ static void test_import(const uint8_t *games, const uint8_t *other)
     free(with);
     CHECK(nw_save_import(dir, 0, path_of("odd.ps2"), &reg) == NW_SAVE_FAILED);
 
+    /* crafted saves (a time name without its NUL, a language past the tables) are refused before anything is written */
+    fresh();
+    uint8_t *crafted = malloc(SAVE_SIZE);
+    memcpy(crafted, games, SAVE_SIZE);
+    memcpy(crafted + 2 * NW_SAVE_GAME_SIZE + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME, "ABCD", 4);
+    put("crafted", crafted, SAVE_SIZE);
+    CHECK(nw_save_import(dir, 0, path_of("crafted"), &reg) == NW_SAVE_FAILED && strstr(SDL_GetError(), "slot.2"));
+    CHECK(!there(MAIN));
+    crafted[2 * NW_SAVE_GAME_SIZE + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME + 3] = 0;
+    crafted[NW_SAVE_LANGUAGE] = 200;
+    with = card_with(crafted, SAVE_SIZE, true, 0, &size);
+    put("crafted.ps2", with, size);
+    free(with);
+    CHECK(nw_save_import(dir, 0, path_of("crafted.ps2"), &reg) == NW_SAVE_FAILED && strstr(SDL_GetError(), "language"));
+    CHECK(!there(MAIN));
+    free(crafted);
+
     /* what tests/save_toml.py reads with Python's tomllib */
     CHECK(nw_save_store(dir, 0, &reg, games, NW_SAVE_RECORDS));
 }
@@ -617,9 +658,9 @@ int main(int argc, char *argv[])
     test_codec();
 
     uint8_t *games = malloc(SAVE_SIZE), *other = malloc(SAVE_SIZE);
-    for (int i = 0; i < SAVE_SIZE; i++) {
-        games[i] = (uint8_t)rnd();
-        other[i] = (uint8_t)rnd();
+    for (int s = 0; s < NW_SAVE_RECORDS; s++) {
+        random_record(games + s * NW_SAVE_GAME_SIZE);
+        random_record(other + s * NW_SAVE_GAME_SIZE);
     }
     test_store(games, other);
     test_card(games);

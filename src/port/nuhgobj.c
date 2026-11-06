@@ -99,8 +99,17 @@ static void *nw_ghg_new(NwGhgLoad *ld, size_t size, size_t align)
     return (char *)b + NW_GHG_HEAD + at;
 }
 
-/* n zeroed host records. */
-#define NW_GHG_NEW(ld, type, n) ((type *)nw_ghg_new((ld), (size_t)(n) * sizeof(type), _Alignof(type)))
+/* n zeroed host records. Every count comes from the file and each record has at least a byte there: a negative or
+   larger count is a damaged file, which would wrap the size. */
+static size_t nw_ghg_count_ok(NwGhgLoad *ld, long long n, size_t each)
+{
+    if (n < 0 || (unsigned long long)n > ld->size) {
+        NuErrorProlog(nuhgobj_srcfile, 0x622)("\"%s\": a count of %lld in a %llu byte file", ld->file, n,
+                                              (unsigned long long)ld->size);
+    }
+    return (size_t)n * each;
+}
+#define NW_GHG_NEW(ld, type, n) ((type *)nw_ghg_new((ld), nw_ghg_count_ok((ld), (n), sizeof(type)), _Alignof(type)))
 
 /* size bytes of the image at off. */
 static char *nw_ghg_at(const NwGhgLoad *ld, int32_t off, size_t size)

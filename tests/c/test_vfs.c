@@ -13,12 +13,14 @@
 #include "vfs/extract.h"
 #include "vfs/iso9660.h"
 #include "vfs/manifest.h"
+#include "vfs/rnc.h"
 #include "vfs/sha256.h"
 #include "vfs/verify.h"
 #include "vfs/vfs.h"
 
 #include "dat_builder.h"
 #include "disc_builder.h"
+#include "rnc2_fixture.inc"
 
 static int failures;
 static const char *scratch;
@@ -1007,6 +1009,32 @@ static void test_real_dats(const char *dir)
     nw_vfs_shutdown(&vfs);
 }
 
+/* The bounded unpacker: the fixture whole, and never a byte outside its ranges when the stream or the room is short. */
+static void test_rnc(void)
+{
+    uint32_t unpacked = 0, packed = 0;
+    CHECK(nw_rnc_header(nw_rnc2_fixture, sizeof(nw_rnc2_fixture), &unpacked, &packed));
+    CHECK(unpacked == NW_RNC2_UNPACKED && packed + NW_RNC_HEADER == sizeof(nw_rnc2_fixture));
+    CHECK(!nw_rnc_header(nw_rnc2_fixture, NW_RNC_HEADER - 1, &unpacked, &packed));
+    uint8_t expect[NW_RNC2_UNPACKED], out[NW_RNC2_UNPACKED], bad[sizeof(nw_rnc2_fixture)];
+    static const char text[] = "CrashWOC NuWorld RNC2 fixture. ";
+    for (unsigned i = 0; i < 1200; i++) {
+        expect[i] = (uint8_t)text[i % (sizeof(text) - 1)];
+    }
+    for (unsigned i = 0; i < NW_RNC2_UNPACKED - 1200; i++) {
+        expect[1200 + i] = (uint8_t)(i * 7 + (i >> 3));
+    }
+    const uint8_t *in = nw_rnc2_fixture + NW_RNC_HEADER, *end = nw_rnc2_fixture + sizeof(nw_rnc2_fixture);
+    CHECK(nw_rnc_unpack(in, end, out, out + sizeof(out)) == NW_RNC2_UNPACKED && memcmp(out, expect, sizeof(out)) == 0);
+    CHECK(nw_rnc_unpack(in, end, out, out + sizeof(out) - 1) == -1);
+    CHECK(nw_rnc_unpack(in, in + packed / 2, out, out + sizeof(out)) == -1);
+    for (size_t i = NW_RNC_HEADER; i < sizeof(bad); i++) {
+        memcpy(bad, nw_rnc2_fixture, sizeof(bad));
+        bad[i] ^= 0xA5;
+        CHECK(nw_rnc_unpack(bad + NW_RNC_HEADER, bad + sizeof(bad), out, out + sizeof(out)) <= (int64_t)sizeof(out));
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (argc != 2) {
@@ -1030,6 +1058,7 @@ int main(int argc, char *argv[])
     test_vfs();
     test_overlay();
     test_dat();
+    test_rnc();
     test_import_folder();
     test_import_job();
 

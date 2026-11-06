@@ -101,6 +101,19 @@ static void fill(uint32_t seed)
         seed = seed * 1103515245u + 12345u;
         p[i] = (uint8_t)(seed >> 16);
     }
+    for (struct game_s *g = &SaveSlot[0][0]; g < &SaveSlot[0][0] + 4; g++) { /* what the game writes */
+        g->name[8] = 0;
+        for (int l = 0; l < 35; l++) {
+            for (int i = 0; i < 3; i++) {
+                g->level[l].time[i].name[3] = 0;
+            }
+        }
+        g->vibration &= 1;
+        g->surround &= 1;
+        g->sfx_volume %= 101;
+        g->music_volume %= 101;
+        g->language %= 6;
+    }
     SaveSlot[0][0].empty = 0;
     SaveSlot[0][1].empty = 1;
     SaveSlot[1][0].empty = 0;

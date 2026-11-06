@@ -13,6 +13,7 @@
 
 #define NW_DAT_PACKED 1u      /* RNC ProPack: unpacked_size is the real size (NuPPUnpack) */
 #define NW_DAT_NODES_MAX 32768 /* node links are s16 */
+#define NW_DAT_DIR_MAX (64u << 20) /* sanity limit for the directory */
 
 typedef struct NwDatEntry {
     uint32_t offset; /* from the start of the archive */

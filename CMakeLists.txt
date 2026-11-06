@@ -135,6 +135,7 @@ set(NW_VFS_SOURCES
   src/vfs/extract.c
   src/vfs/iso9660.c
   src/vfs/manifest.c
+  src/vfs/rnc.c
   src/vfs/sha256.c
   src/vfs/verify.c
   src/vfs/vfs.c)

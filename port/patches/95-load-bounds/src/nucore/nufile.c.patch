@@ -1,0 +1,10 @@
+--- a/src/nucore/nufile.c
++++ b/src/nucore/nufile.c
+@@ -1134,6 +1134,7 @@ int NuFileLoadBuffer(char *filename, void *mem, int buffsize)
+     int size;
+     int fh;
+ 
++    buffsize = NW_LOAD_ROOM(filename, mem, buffsize);
+     size = 0;
+     if (curr_dat != 0) {
+         size = NuDatFileLoadBuffer(curr_dat, filename, mem, buffsize);

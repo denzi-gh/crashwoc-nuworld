@@ -34,6 +34,7 @@ void nw_image_free(void);
 void *nw_image_host(uint32_t ps2);
 /* The way back: the PS2 address of a host address in the image (one past an object's end included). */
 bool nw_image_ps2(const void *host, uint32_t *ps2);
+bool nw_image_room(const void *host, size_t *room);
 
 /* One object of the image with storage of its own. */
 typedef struct NwImageObj {

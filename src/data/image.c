@@ -522,6 +522,46 @@ bool nw_image_ps2(const void *host, uint32_t *ps2)
     return true;
 }
 
+bool nw_image_room(const void *host, size_t *room)
+{
+    const NwImageTables *t = nw_image.t;
+    uintptr_t p = (uintptr_t)host;
+    if (!t) {
+        return false;
+    }
+    if (p >= (uintptr_t)t->mirror && p - (uintptr_t)t->mirror < t->mirror_size) {
+        uint32_t ps2 = t->mirror_base + (uint32_t)(p - (uintptr_t)t->mirror);
+        size_t lo = 0, hi = t->nregistry;
+        while (lo < hi) {
+            size_t mid = lo + (hi - lo) / 2;
+            if (t->registry[mid][0] <= ps2) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if (lo == 0 || ps2 - t->registry[lo - 1][0] >= t->registry[lo - 1][1]) {
+            return false;
+        }
+        *room = t->registry[lo - 1][0] + t->registry[lo - 1][1] - ps2;
+        return true;
+    }
+    size_t lo = 0, hi = nw_image.nby_host;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if ((uintptr_t)nw_image.by_host[mid]->host <= p) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo == 0 || p - (uintptr_t)nw_image.by_host[lo - 1]->host >= nw_image.by_host[lo - 1]->host_size) {
+        return false;
+    }
+    *room = (uintptr_t)nw_image.by_host[lo - 1]->host + nw_image.by_host[lo - 1]->host_size - p;
+    return true;
+}
+
 void nw_image_each(void (*fn)(const NwImageObj *o, void *user), void *user)
 {
     for (size_t i = 0; i < nw_image.nobjs; i++) {

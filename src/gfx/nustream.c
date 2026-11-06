@@ -61,8 +61,14 @@ typedef struct NwBlock {
     _Alignas(16) unsigned char data[NW_ARENA_BLOCK];
 } NwBlock;
 
+typedef struct NwBig {
+    struct NwBig *next;
+    _Alignas(16) unsigned char data[];
+} NwBig;
+
 typedef struct NwArena {
     NwBlock *first, *cur;
+    NwBig *big;
 } NwArena;
 
 static NwArena nw_arena[2];
@@ -107,6 +113,15 @@ void *nw_rndr_alloc(size_t size)
 {
     NwArena *a = &nw_arena[rndrstream_buffer_index];
     size = (size + 15) & ~(size_t)15;
+    if (size > NW_ARENA_BLOCK) {
+        NwBig *b = size <= SIZE_MAX - sizeof(*b) ? SDL_calloc(1, sizeof(*b) + size) : NULL;
+        if (!b) {
+            NuErrorProlog(nustream_file, 0x324)("out of memory for the stream records");
+        }
+        b->next = a->big;
+        a->big = b;
+        return b->data;
+    }
     if (!a->cur || a->cur->used + size > NW_ARENA_BLOCK) {
         NwBlock **next = a->cur ? &a->cur->next : &a->first;
         if (!*next && !(*next = SDL_calloc(1, sizeof(NwBlock)))) {
@@ -388,7 +403,13 @@ void NuRndrStreamResetStreams(int flag)
 void NuRndrInitStreams(void)
 {
     rndrstream_free = stream_outbuf[rndrstream_buffer_index];
-    nw_arena[rndrstream_buffer_index].cur = NULL;
+    NwArena *a = &nw_arena[rndrstream_buffer_index];
+    a->cur = NULL;
+    while (a->big) {
+        NwBig *next = a->big->next;
+        SDL_free(a->big);
+        a->big = next;
+    }
     nw_view_snap = NULL;
     nw_light_snap = NULL;
     nw_spec_snap = NULL;

@@ -22,7 +22,7 @@ schema = 1
 "nucore/nulist" = { treatment = "compile" }
 "nucore/nustring" = { treatment = "compile" }
 "nucore/asmmem" = { treatment = "hle" }
-"nucore/rnc" = { treatment = "compile" }
+"nucore/rnc" = { treatment = "compile", override = ["NuPPLoadBuffer"] }
 
 # numath
 "numath/nuvec" = { treatment = "compile", override = ["NuVecNorm"] }

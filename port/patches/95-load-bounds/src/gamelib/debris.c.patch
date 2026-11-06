@@ -1,0 +1,11 @@
+--- a/src/gamelib/debris.c
++++ b/src/gamelib/debris.c
+@@ -843,7 +843,7 @@ struct numtl_s *CreateAlphaBlendTexture256(char *file, s32 blend, s32 alphamode)
+     s32 texel;
+     u16 colour;
+ 
+-    NuFileLoadBuffer(file, pixels, 0x7FFFFFFF);
++    NuFileLoadBuffer(file, pixels, NW_LOAD_SIZE(0x7FFFFFFF, (int)sizeof(pixels)));
+     tex.type = 3;
+     tex.width = 256;
+     tex.height = 256;
