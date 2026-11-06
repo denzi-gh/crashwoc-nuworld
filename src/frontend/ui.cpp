@@ -5,6 +5,7 @@
 #include "imgui_impl_sdl3.h"
 
 #define NW_UI_FONT_SIZE 20.0f
+#define NW_UI_COMPACT_FONT_SIZE 15.0f
 
 /* build/gen/fonts.c, from assets/fonts/ (cmake/embed.cmake). */
 extern "C" const unsigned char nw_font_regular[], nw_font_bold[];
@@ -13,6 +14,7 @@ extern "C" const size_t nw_font_regular_size, nw_font_bold_size;
 static SDL_Window *nw_ui_window;
 static ImFont *nw_ui_fonts[2];
 static float nw_ui_scale;
+static bool nw_ui_compact;
 
 static ImFont *nw_ui_add_font(const unsigned char *data, size_t size, const char *name)
 {
@@ -65,7 +67,34 @@ static void nw_ui_style(float scale)
     c[ImGuiCol_NavCursor] = nw_ui_rgb(0xffd23f);
     c[ImGuiCol_TextLink] = nw_ui_rgb(0xffb35c);
 
-    style.FontSizeBase = NW_UI_FONT_SIZE;
+    /* Over the running game: tight, translucent, orange only on what is set. */
+    if (nw_ui_compact) {
+        style.WindowPadding = ImVec2(8.0f, 6.0f);
+        style.FramePadding = ImVec2(6.0f, 3.0f);
+        style.ItemSpacing = ImVec2(6.0f, 4.0f);
+        style.ItemInnerSpacing = ImVec2(5.0f, 4.0f);
+        style.IndentSpacing = 14.0f;
+        style.ScrollbarSize = 12.0f;
+        style.GrabMinSize = 8.0f;
+        style.WindowRounding = 6.0f;
+        style.ChildRounding = 4.0f;
+        style.FrameRounding = 3.0f;
+        style.GrabRounding = 3.0f;
+        style.PopupRounding = 4.0f;
+        style.SeparatorTextBorderSize = 1.0f;
+        c[ImGuiCol_WindowBg] = nw_ui_rgb(0x141c30, 0.94f);
+        c[ImGuiCol_TitleBg] = nw_ui_rgb(0x0d1324, 0.94f);
+        c[ImGuiCol_TitleBgActive] = nw_ui_rgb(0x1d2742);
+        c[ImGuiCol_TitleBgCollapsed] = nw_ui_rgb(0x0d1324, 0.75f);
+        c[ImGuiCol_Button] = nw_ui_rgb(0x243052);
+        c[ImGuiCol_ButtonHovered] = nw_ui_rgb(0x2e3c66);
+        c[ImGuiCol_ButtonActive] = nw_ui_rgb(0x36477a);
+        c[ImGuiCol_CheckMark] = nw_ui_rgb(0xe8751a);
+        c[ImGuiCol_SliderGrab] = nw_ui_rgb(0xe8751a);
+        c[ImGuiCol_SliderGrabActive] = nw_ui_rgb(0xf58d38);
+    }
+
+    style.FontSizeBase = nw_ui_compact ? NW_UI_COMPACT_FONT_SIZE : NW_UI_FONT_SIZE;
     style.ScaleAllSizes(scale);
     style.FontScaleDpi = scale;
     ImGui::GetStyle() = style;
@@ -78,8 +107,9 @@ static float nw_ui_content_scale(void)
     return scale > 0.0f ? scale : 1.0f;
 }
 
-bool nw_ui_init(NwPlatform *p)
+bool nw_ui_init(NwPlatform *p, bool compact)
 {
+    nw_ui_compact = compact;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
