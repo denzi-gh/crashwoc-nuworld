@@ -230,6 +230,9 @@ int main(int argc, char *argv[])
     CHECK(s.wombat);
     CHECK(read_text("[game]\nwombat = false\n", &s) && !s.wombat);
     nw_settings_defaults(&s);
+    CHECK(s.hub_minigame);
+    CHECK(read_text("[game]\nhub_minigame = false\n", &s) && !s.hub_minigame);
+    nw_settings_defaults(&s);
     CHECK(s.camera_stability == 100);
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
     CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);

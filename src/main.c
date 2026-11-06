@@ -22,6 +22,7 @@
 #include "frontend/settings.h"
 #include "frontend/video.h"
 #include "gameplay/gameplay.h"
+#include "gameplay/minigame.h"
 #include "gfx/backend.h"
 #include "gfx/gsc.h"
 #include "gfx/view.h"
@@ -822,6 +823,7 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes)
                                      .air_indicator = s->air_indicator,
                                      .boss_health = s->boss_health,
                                      .wombat = s->wombat,
+                                     .hub_minigame = s->hub_minigame,
                                      .camera_stability = s->camera_stability,
                                      .hitboxes = hitboxes });
 }
@@ -854,6 +856,12 @@ static void nw_boot_levels(void *user)
     if (pending >= 0) {
         nw_debug_text("entering %s", nw_level_name(pending));
     }
+}
+
+static void nw_boot_minigame(void *user)
+{
+    (void)user;
+    nw_minigame_start();
 }
 
 /* Runs the game in the window; hardware_speed and aspect -1 take settings.toml's, which the debug menu changes and
@@ -900,12 +908,14 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                                        .air_indicator = settings.air_indicator,
                                        .boss_health = settings.boss_health,
                                        .wombat = settings.wombat,
+                                       .hub_minigame = settings.hub_minigame,
                                        .camera_stability = settings.camera_stability });
     }
     nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
     nw_debug_toggle("Game", "Air indicator", &settings.air_indicator);
     nw_debug_toggle("Game", "Boss health", &settings.boss_health);
     nw_debug_toggle("Game", "WOMBAT cheat", &settings.wombat);
+    nw_debug_toggle("Game", "Loading minigame in the hub", &settings.hub_minigame);
     nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
     nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
     nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
@@ -918,6 +928,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
     nw_debug_panel_key("Game/N. Hanced Movement", "Plane", SDL_SCANCODE_F8, nw_boot_plane, &settings);
     nw_debug_panel_key("Game/N. Hanced Movement", "Space Fighter", SDL_SCANCODE_F7, nw_boot_spacefighter, &settings);
     nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
+    if (!nw_pad_script) {
+        nw_debug_action("Game", "Start Minigame", SDL_SCANCODE_UNKNOWN, nw_boot_minigame, NULL);
+    }
     nw_debug_panel("Settings", "Camera", nw_boot_camera, &settings, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
@@ -964,6 +977,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                                    settings.air_indicator != applied.air_indicator ||
                                    settings.boss_health != applied.boss_health ||
                                    settings.wombat != applied.wombat ||
+                                   settings.hub_minigame != applied.hub_minigame ||
                                    settings.camera_stability != applied.camera_stability)) {
                 nw_boot_request(&settings, hitboxes);
                 hitboxes_shown = hitboxes;

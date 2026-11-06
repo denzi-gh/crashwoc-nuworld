@@ -1,6 +1,6 @@
 /* The game's save records (struct game_s in its PS2 layout, little-endian) in a save document (save/savedoc.h):
      format = 1
-     [slot.N]                the record's own fields, N = its index in the game's array
+     [slot.N]                the record's own fields, N = its index in the game's array, and minigame_best
      [slot.N.options]        the options a record carries (loading a game applies them)
      [slot.N.hub.<key>]      one per hub
      [slot.N.level.<key>]    one per level: flags, pad, time = [[name, itime] x3]
@@ -50,6 +50,10 @@
 #define NW_SAVE_HUB_FLAGS 0x0
 #define NW_SAVE_HUB_CRYSTALS 0x1
 #define NW_SAVE_HUB_PAD 0x2
+/* NuWorld's loading minigame best (src/gameplay/minigame.c): the top floor hub record's padding, which retail never
+   touches, written as [slot.N] minigame_best instead of that hub's pad. */
+#define NW_SAVE_MINIGAME_HUB 5
+#define NW_SAVE_MINIGAME_BEST (NW_SAVE_HUB + NW_SAVE_MINIGAME_HUB * NW_SAVE_HUB_SIZE + NW_SAVE_HUB_PAD)
 /* struct level_s and struct time_s */
 #define NW_SAVE_LEVEL_SIZE 0x1C
 #define NW_SAVE_LEVEL_FLAGS 0x00

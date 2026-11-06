@@ -139,10 +139,12 @@ schema = 1
 "nusound/nusound" = { treatment = "compile" }
 
 # game
-"game/main" = { treatment = "compile", rename = { main = "nw_game_main" } }
+"game/main" = { treatment = "compile", rename = { main = "nw_game_main" }, wrap = ["MiniGameReset", "MiniGame",
+    "MiniGameRender", "MiniGameRenderScore"] }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
-"game/creature" = { treatment = "compile", wrap = ["DrawCreatures", "LoadCharacterModels", "MovePlayer"] }
+"game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
+    "MovePlayer"] }
 "game/inst" = { treatment = "compile" }
 "game/camera" = { treatment = "compile", wrap = ["MoveGameCamera"] }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu", "ProcMenu", "SeekRot"] }
@@ -161,7 +163,7 @@ schema = 1
 "game/edai" = { treatment = "editor" }
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
 "game/glass" = { treatment = "compile" }
-"game/panel" = { treatment = "compile", wrap = ["DrawPanelDebris", "DrawPanel3DTempCharacter"] }
+"game/panel" = { treatment = "compile", wrap = ["DrawGameMessage", "DrawPanelDebris", "DrawPanel3DTempCharacter"] }
 "game/text" = { treatment = "compile", override = ["NewLanguage"] }
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }

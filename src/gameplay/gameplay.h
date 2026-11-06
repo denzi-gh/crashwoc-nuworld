@@ -247,6 +247,7 @@ typedef struct NwProfile {
     bool air_indicator; /* a ring on the floor under Crash while he is in the air */
     bool boss_health;   /* phase lines on the boss bar */
     bool wombat;        /* a new game named WOMBAT starts with everything open, as on the GameCube and Xbox */
+    bool hub_minigame;  /* Crunch on the warp room's top floor starts the loading minigame */
     int camera_stability; /* percent of a jump the game camera ignores, 0 retail */
     bool hitboxes;      /* the debug menu's view of every collision shape, not saved */
 } NwProfile;
@@ -255,7 +256,8 @@ extern NwProfile nw_profile;
 
 /* The windowed boot, before the game thread starts. */
 void nw_profile_apply(const NwProfile *p);
-/* Asks the game thread for p's movement, air indicator, boss health, camera and WOMBAT at its next swap */
+/* Asks the game thread for p's movement, air indicator, boss health, camera, WOMBAT and hub minigame at its next
+   swap */
 void nw_profile_request(const NwProfile *p);
 
 /* Marks where a feature changes the game; reached with its NwProfile switch off (every retail run), the game stops. */

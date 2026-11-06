@@ -6,5 +6,7 @@
 
 /* Any thread: the glyphs Text3D draws from its next call; retail's until the first. */
 void nw_font3d_prompts(const NwPrompts *p);
+/* NuMtlRelease: the icons' materials and textures went with the level's. */
+void nw_font3d_release(void);
 
 #endif

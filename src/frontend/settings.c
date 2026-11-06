@@ -274,6 +274,9 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "true splits the boss bar into the boss's phases" },
     { .table = "game", .name = "wombat", .kind = NW_SETTING_BOOL, NW_FIELD(wombat),
       .help = "true makes a new game named WOMBAT start with everything open, as on the GameCube and Xbox" },
+    { .table = "game", .name = "hub_minigame", .kind = NW_SETTING_BOOL, NW_FIELD(hub_minigame),
+      .help = "true puts Crunch on the warp room's top floor; X next to him plays the cut loading screen "
+              "minigame" },
     { .table = "game", .name = "camera_stability", .kind = NW_SETTING_INT, NW_FIELD(camera_stability), .lo = 0,
       .hi = 100, .help = "0-100: how much of Crash's jump the camera ignores; 0 follows it as the PS2, 100 holds its "
                          "height until he lands" },
@@ -324,6 +327,7 @@ void nw_settings_defaults(NwSettings *s)
     s->air_indicator = true;
     s->boss_health = true;
     s->wombat = true;
+    s->hub_minigame = true;
     s->camera_stability = 100;
     s->master_volume = 100;
     s->voice_volume = 100;
