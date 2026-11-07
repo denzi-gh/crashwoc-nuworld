@@ -302,13 +302,13 @@ int main(int argc, char *argv[])
     /* The same for the atlasphere's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.atlasphere.brake &&
           !s.movement.atlasphere.edge_guard && s.movement.atlasphere.guard_push &&
-          s.movement.atlasphere.brake_force == 200);
+          s.movement.atlasphere.brake_force == 250);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          !s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nbrake = true\n", &s) &&
-          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.run_speed);
+          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = true\n", &s) &&
+          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && !s.movement.atlasphere.edge_guard &&
-          s.movement.atlasphere.guard_push);
+          s.movement.atlasphere.brake && s.movement.atlasphere.steer_turn == 250);
     NW_FIREFLY_MOVEMENT(FIREFLY_SWITCH, FIREFLY_FLAG, FIREFLY_VALUE)
     /* The same for the firefly's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.firefly.lock_on &&

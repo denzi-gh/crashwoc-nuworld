@@ -133,11 +133,10 @@ typedef struct NwJeepMovement {
 
 /* The atlasphere's options ([game.movement.atlasphere]), the same scheme. None touches acceleration or coasting. */
 #define NW_ATLAS_MOVEMENT(SW, FLAG, VAL) \
-    SW(steer, "Sharper steering", false, \
-       "the ball turns tighter toward the stick and keeps its speed through the turn") \
-    VAL(steer_turn, "Turn sharpness %", 200, 100, 400, "percent of the PS2's push across the roll") \
-    SW(brake, "Faster braking", false, "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
-    VAL(brake_force, "Braking %", 200, 100, 400, "percent of the PS2's push against the roll") \
+    SW(steer, "Sharper steering", true, "the ball turns tighter toward the stick and keeps its speed through the turn") \
+    VAL(steer_turn, "Turn sharpness %", 250, 100, 400, "percent of the PS2's push across the roll") \
+    SW(brake, "Faster braking", true, "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
+    VAL(brake_force, "Braking %", 250, 100, 400, "percent of the PS2's push against the roll") \
     VAL(coast_brake, "Let-go braking %", 0, 0, 100, "with the stick let go it slows too, percent of the PS2's push") \
     SW(edge_guard, "Edge guard", false, "rolling slowly at a pit, the ball stops at its edge") \
     VAL(guard_reach, "Look-ahead ms", 300, 100, 600, "how far ahead it looks for a pit, as time at its speed") \

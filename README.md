@@ -51,7 +51,7 @@ On the first start NuWorld asks for your disc image (`.iso`, or `.bin`/`.cue`), 
 > For now the game starts with `--boot`:
 >
 > ```sh
-> ./build/release/crashwoc-nuworld --boot
+> ./build/release/NuWorld --boot
 > ```
 
 ## Building
