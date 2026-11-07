@@ -96,5 +96,5 @@ static void nw_control_panel_draw(void *user)
 
 void nw_control_panel_start(NwControls *c)
 {
-    nw_debug_panel("Input", "Controls", nw_control_panel_draw, c, false);
+    nw_debug_panel("Settings", "Controls", nw_control_panel_draw, c, false);
 }

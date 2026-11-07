@@ -22,8 +22,8 @@ void nw_debug_show(bool shown);
 
 void nw_debug_frame(void);
 
-/* Registered by the module that owns the item, dropped by nw_debug_shutdown. A menu may be a path,
-   "Game/N. Hanced Movement", for a submenu. */
+/* Registered by the module that owns the item, dropped by nw_debug_shutdown. Menus appear in the order their first
+   items were registered; a menu may be a path, "Debug/Render", for a submenu. */
 typedef void (*NwDebugFn)(void *user);
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open);

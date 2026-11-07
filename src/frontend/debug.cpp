@@ -26,6 +26,7 @@ typedef struct NwDebugItem {
     void *user;
     bool open;
     bool placed; /* its window has a position */
+    bool focus;  /* chosen in the menu: brought to the front */
     bool *value;
     SDL_Scancode key;
 } NwDebugItem;
@@ -46,7 +47,7 @@ static NwDebugItem *nw_debug_add(NwDebugKind kind, const char *menu, const char 
         return NULL;
     }
     NwDebugItem *item = &nw_debug.items[nw_debug.nitems++];
-    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, false, NULL, SDL_SCANCODE_UNKNOWN };
+    *item = NwDebugItem{ kind, menu, label, NULL, NULL, false, false, false, NULL, SDL_SCANCODE_UNKNOWN };
     return item;
 }
 
@@ -193,20 +194,28 @@ static bool nw_debug_under(const char *menu, const char *path, size_t len)
     return len == 0 || (SDL_strncmp(menu, path, len) == 0 && (menu[len] == '\0' || menu[len] == '/'));
 }
 
+/* A toggle is an outlined checkbox, a panel ends in "..." and comes to the front when chosen. */
 static void nw_debug_menu_item(NwDebugItem *item)
 {
     if (item->kind == NW_DEBUG_TOGGLE) {
-        ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
-        ImGui::MenuItem(item->label, NULL, item->value);
-        ImGui::PopItemFlag();
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::Checkbox(item->label, item->value);
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
     } else if (item->kind == NW_DEBUG_PANEL) {
-        ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL, &item->open);
+        char label[80];
+        SDL_snprintf(label, sizeof(label), "%s...", item->label);
+        if (ImGui::MenuItem(label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
+            item->open = item->focus = true;
+        }
     } else if (ImGui::MenuItem(item->label, item->key ? SDL_GetScancodeName(item->key) : NULL)) {
         item->fn(item->user);
     }
 }
 
-/* The items and submenus under path's first len characters, each where its first item was registered. */
+/* The items and submenus under path's first len characters, each where its first item was registered; menu names are
+   bold. */
 static void nw_debug_menu(const char *path, size_t len)
 {
     for (uint32_t i = 0; i < nw_debug.nitems; i++) {
@@ -227,7 +236,13 @@ static void nw_debug_menu(const char *path, size_t len)
         }
         char label[64];
         SDL_strlcpy(label, name, SDL_min(n + 1, sizeof(label)));
-        if (first && ImGui::BeginMenu(label)) {
+        if (!first) {
+            continue;
+        }
+        nw_ui_push_font(NW_UI_BOLD, 1.0f);
+        bool open = ImGui::BeginMenu(label);
+        nw_ui_pop_font();
+        if (open) {
             nw_debug_menu(item->menu, sub);
             ImGui::EndMenu();
         }
@@ -255,6 +270,10 @@ static void nw_debug_panels(void)
             float x = step * (float)(k % rows + k / rows * 4), y = step * (float)(k % rows);
             ImGui::SetNextWindowPos(ImVec2(lo.x + margin + x, lo.y + margin + y));
             item->placed = true;
+        }
+        if (item->focus) {
+            ImGui::SetNextWindowFocus();
+            item->focus = false;
         }
         ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), room);
         bool shown = ImGui::Begin(name, &item->open, ImGuiWindowFlags_AlwaysAutoResize);

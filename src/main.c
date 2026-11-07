@@ -948,36 +948,36 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
                                        .hub_minigame = settings.hub_minigame,
                                        .camera_stability = settings.camera_stability });
     }
-    nw_debug_toggle("Game", "Simulate original hardware speed", &settings.hardware_speed);
-    nw_debug_toggle("Game", "Air indicator", &settings.air_indicator);
-    nw_debug_toggle("Game", "Boss health", &settings.boss_health);
-    nw_debug_toggle("Game", "WOMBAT cheat", &settings.wombat);
-    nw_debug_toggle("Game", "Loading minigame in the hub", &settings.hub_minigame);
-    nw_debug_panel("Game", "Audio", nw_boot_audio, &settings, false);
-    nw_debug_panel("Game", "Game Speed", nw_boot_speed, &settings, false);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Coco", SDL_SCANCODE_F10, nw_boot_coco, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Jeep", SDL_SCANCODE_F5, nw_boot_jeep, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Atlasphere", SDL_SCANCODE_F6, nw_boot_atlas, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Firefly", SDL_SCANCODE_F9, nw_boot_firefly, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Plane", SDL_SCANCODE_F8, nw_boot_plane, &settings);
-    nw_debug_panel_key("Game/N. Hanced Movement", "Space Fighter", SDL_SCANCODE_F7, nw_boot_spacefighter, &settings);
-    nw_debug_panel("Game", "Load Level", nw_boot_levels, NULL, false);
-    if (!nw_pad_script) {
-        nw_debug_action("Game", "Start Minigame", SDL_SCANCODE_UNKNOWN, nw_boot_minigame, NULL);
-    }
-    nw_debug_panel("Settings", "Camera", nw_boot_camera, &settings, false);
+    nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
+    nw_debug_panel("Settings", "Audio", nw_boot_audio, &settings, false);
+    nw_control_panel_start(&settings.controls);
+    nw_debug_panel("Settings", "Game Speed", nw_boot_speed, &settings, false);
     if (presence) {
         nw_debug_toggle("Settings", "Discord Rich Presence", &settings.discord);
     }
+    nw_debug_panel("Gameplay", "Camera", nw_boot_camera, &settings, false);
+    nw_debug_toggle("Gameplay", "Air indicator", &settings.air_indicator);
+    nw_debug_toggle("Gameplay", "Boss health", &settings.boss_health);
+    nw_debug_toggle("Gameplay", "Loading minigame in the hub", &settings.hub_minigame);
+    nw_debug_panel_key("N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Coco", SDL_SCANCODE_F10, nw_boot_coco, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Submarine", SDL_SCANCODE_F4, nw_boot_submarine, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Jeep", SDL_SCANCODE_F5, nw_boot_jeep, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Atlasphere", SDL_SCANCODE_F6, nw_boot_atlas, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Firefly", SDL_SCANCODE_F9, nw_boot_firefly, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Plane", SDL_SCANCODE_F8, nw_boot_plane, &settings);
+    nw_debug_panel_key("N. Hanced Movement", "Space Fighter", SDL_SCANCODE_F7, nw_boot_spacefighter, &settings);
+    nw_debug_panel("Debug", "Load Level", nw_boot_levels, NULL, false);
     bool hitboxes = false, hitboxes_shown = false;
     if (!nw_pad_script) {
-        nw_debug_toggle("Render", "Hitboxes", &hitboxes);
+        nw_debug_action("Debug", "Start Minigame", SDL_SCANCODE_UNKNOWN, nw_boot_minigame, NULL);
     }
-    nw_control_panel_start(&settings.controls);
-    nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
+    nw_debug_toggle("Debug", "WOMBAT cheat", &settings.wombat);
+    if (!nw_pad_script) {
+        nw_debug_toggle("Debug", "Hitboxes", &hitboxes);
+    }
+    nw_backend_debug_menu();
     NwSettings applied = settings;
     bool unsaved = false;
     uint64_t changed = 0; /* when the settings last changed */
@@ -1017,9 +1017,6 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             running = false;
         }
         if (!nw_settings_equal(&settings, &applied)) {
-            if (settings.hardware_speed != applied.hardware_speed) {
-                nw_nusound_set_hardware_speed(settings.hardware_speed);
-            }
             if (settings.discord != applied.discord) {
                 nw_discord_enable(settings.discord);
             }

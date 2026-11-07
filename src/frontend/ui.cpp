@@ -5,7 +5,7 @@
 #include "imgui_impl_sdl3.h"
 
 #define NW_UI_FONT_SIZE 20.0f
-#define NW_UI_COMPACT_FONT_SIZE 15.0f
+#define NW_UI_COMPACT_FONT_SIZE 22.0f
 
 /* build/gen/fonts.c, from assets/fonts/ (cmake/embed.cmake). */
 extern "C" const unsigned char nw_font_regular[], nw_font_bold[];
@@ -69,12 +69,12 @@ static void nw_ui_style(float scale)
 
     /* Over the running game: tight, translucent, orange only on what is set. */
     if (nw_ui_compact) {
-        style.WindowPadding = ImVec2(8.0f, 6.0f);
-        style.FramePadding = ImVec2(6.0f, 3.0f);
-        style.ItemSpacing = ImVec2(6.0f, 4.0f);
+        style.WindowPadding = ImVec2(12.0f, 10.0f);
+        style.FramePadding = ImVec2(10.0f, 6.0f);
+        style.ItemSpacing = ImVec2(10.0f, 7.0f);
         style.ItemInnerSpacing = ImVec2(5.0f, 4.0f);
-        style.IndentSpacing = 14.0f;
-        style.ScrollbarSize = 12.0f;
+        style.IndentSpacing = 20.0f;
+        style.ScrollbarSize = 16.0f;
         style.GrabMinSize = 8.0f;
         style.WindowRounding = 6.0f;
         style.ChildRounding = 4.0f;

@@ -236,8 +236,8 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     nw_video.platform = p;
     nw_video.settings = s;
     nw_video.fullscreen = s->window == NW_WINDOW_WINDOWED ? NW_WINDOW_BORDERLESS : s->window;
-    nw_debug_panel("Video", "Settings", nw_video_panel, s, false);
-    nw_debug_action("Video", "Fullscreen", SDL_SCANCODE_F11, nw_video_toggle, s);
+    nw_debug_panel("Settings", "Video", nw_video_panel, s, false);
+    nw_debug_action("Settings", "Fullscreen", SDL_SCANCODE_F11, nw_video_toggle, s);
     float aspect = nw_video_aspect(s);
     nw_video.aspect = aspect;
     nw_video.hud = s->hud;
