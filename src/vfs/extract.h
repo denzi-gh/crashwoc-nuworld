@@ -14,11 +14,14 @@
 
 /* Copies every non-skipped manifest file to <root>disc.partial/, hashing as it goes, then swaps that in as
    <root>disc/ with a stamp. An existing disc/ is only replaced on success; a failure leaves no disc.partial/. */
-bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const char *root, NwProgressFn progress,
-                     void *user);
+const NwManifest *nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *const *known, const char *root,
+                                  NwProgressFn progress, void *user);
 
 /* <root>disc/ holds a finished import (its stamp exists); nothing is hashed. */
 bool nw_extract_has_disc(const char *root);
+
+/* The disc the stamp names; an old stamp without a name is known[0], PAL. */
+const NwManifest *nw_extract_manifest(const char *root, const NwManifest *const *known);
 
 /* Re-hashes an imported <root>disc/ against the manifest. */
 bool nw_extract_verify(const char *root, const NwManifest *m, NwProgressFn progress, void *user);

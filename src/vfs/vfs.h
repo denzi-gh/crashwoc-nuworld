@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "vfs/manifest.h"
+
 #define NW_VFS_PATH_MAX 256 /* normalised path with the NUL */
 #define NW_VFS_OVERLAYS 4   /* --overlay folders at most */
 
@@ -42,6 +44,7 @@ typedef struct NwVfsMount {
 typedef struct NwVfs {
     NwVfsMount mounts[NW_VFS_SLOTS];
     char *host0;
+    const NwManifest *manifest;
 } NwVfs;
 
 typedef struct NwVfsFile NwVfsFile;

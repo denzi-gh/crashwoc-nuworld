@@ -85,12 +85,11 @@ static int nw_import(const char *image, const char *data_dir)
     }
 
     printf("Importing %s\n", image);
-    bool ok = nw_disc_open(&disc, image);
-    if (ok) {
-        ok = nw_iso_index(&iso, &disc);
-        if (ok) {
+    const NwManifest *m = NULL;
+    if (nw_disc_open(&disc, image)) {
+        if (nw_iso_index(&iso, &disc)) {
             printf("  %s, %u sectors, %u files\n", nw_disc_format_name(disc.format), disc.sectors, iso.count);
-            ok = nw_extract_disc(&disc, &iso, &nw_disc_manifest, root, nw_print_progress, &percent);
+            m = nw_extract_disc(&disc, &iso, nw_disc_manifests, root, nw_print_progress, &percent);
             if (percent >= 0) {
                 printf("\n");
             }
@@ -98,8 +97,9 @@ static int nw_import(const char *image, const char *data_dir)
         }
         nw_disc_close(&disc);
     }
+    bool ok = m != NULL;
     if (ok) {
-        printf("Imported into %s" NW_DISC_DIR "/\n", root);
+        printf("Imported %s into %s" NW_DISC_DIR "/\n", m->name, root);
     } else {
         fflush(stdout);
         fprintf(stderr, NW_APP_NAME ": import failed: %s\n", SDL_GetError());
@@ -118,12 +118,13 @@ static int nw_verify(const char *data_dir)
     }
 
     printf("Verifying %s" NW_DISC_DIR "/\n", root);
-    bool ok = nw_extract_verify(root, &nw_disc_manifest, nw_print_progress, &percent);
+    const NwManifest *m = nw_extract_manifest(root, nw_disc_manifests);
+    bool ok = m && nw_extract_verify(root, m, nw_print_progress, &percent);
     if (percent >= 0) {
         printf("\n");
     }
     if (ok) {
-        printf("All files match PAL v" NW_DISC_VER "\n");
+        printf("All files match %s\n", m->name);
     } else {
         fflush(stdout);
         fprintf(stderr, NW_APP_NAME ": verify failed: %s\n", SDL_GetError());
@@ -152,8 +153,10 @@ static int nw_import_save(const char *file, const char *data_dir)
 /* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
 static void *nw_read_elf(const NwVfs *vfs, size_t *size)
 {
-    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, NW_DISC_BOOT);
-    NwVfsFile *f = nw_vfs_open(vfs, "cdrom0:\\" NW_DISC_BOOT ";1", NW_VFS_READ);
+    char path[NW_VFS_PATH_MAX];
+    SDL_snprintf(path, sizeof(path), "cdrom0:\\%s;1", vfs->manifest->boot);
+    const NwManifestEntry *e = nw_manifest_find(vfs->manifest, vfs->manifest->boot);
+    NwVfsFile *f = nw_vfs_open(vfs, path, NW_VFS_READ);
     if (!e || !f) {
         nw_vfs_close(f);
         return NULL;
@@ -171,11 +174,20 @@ static void *nw_read_elf(const NwVfs *vfs, size_t *size)
     }
     if (!ok) {
         SDL_free(data);
-        SDL_SetError(NW_DISC_BOOT " is not the PAL v" NW_DISC_VER " ELF (run --verify)");
+        SDL_SetError("%s is not the %s ELF (run --verify)", vfs->manifest->boot, vfs->manifest->name);
         return NULL;
     }
     *size = (size_t)n;
     return data;
+}
+
+static bool nw_image_build(const NwManifest *m, const void *elf, size_t size, NwImageStats *stats, char *err,
+                           size_t err_size)
+{
+    if (m->flags & NW_DISC_DATA_ELF) {
+        return nw_image_load(&nw_image_tables, elf, size, stats, err, err_size);
+    }
+    return nw_image_load_disc(&nw_image_tables, m->name, elf, size, stats, err, err_size);
 }
 
 /* Builds the data image from the imported disc and reports it; returns the exit code (2: no usable data). */
@@ -193,25 +205,36 @@ static int nw_check_data(const char *data_dir)
         SDL_free(root);
         return 2;
     }
+    bool pal = vfs.manifest->flags & NW_DISC_DATA_ELF;
+    if (!pal) {
+        printf("%s: the data image without the PAL v1.03 ELF\n", vfs.manifest->name);
+    }
     NwImageStats stats;
     char err[512];
-    bool ok = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    bool ok = nw_image_build(vfs.manifest, elf, size, &stats, err, sizeof(err));
     nw_image_report(&stats, stdout);
     if (!ok) {
         fflush(stdout);
         fprintf(stderr, NW_APP_NAME ": data image: %s\n", err);
     } else {
-        NwImageTrip trip;
-        ok = nw_image_roundtrip(&trip, stdout, err, sizeof(err));
-        if (ok) {
-            nw_image_trip_report(&trip, stdout);
-        }
-        fflush(stdout);
-        if (!ok) {
-            fprintf(stderr, NW_APP_NAME ": data image round trip: %s\n", err);
-        } else if (trip.differ[0] || trip.differ[1]) {
-            fprintf(stderr, NW_APP_NAME ": the data image does not convert back to the ELF\n");
-            ok = false;
+        if (pal) {
+            NwImageTrip trip;
+            ok = nw_image_roundtrip(&trip, stdout, err, sizeof(err));
+            if (ok) {
+                nw_image_trip_report(&trip, stdout);
+            }
+            fflush(stdout);
+            if (!ok) {
+                fprintf(stderr, NW_APP_NAME ": data image round trip: %s\n", err);
+            } else if (trip.differ[0] || trip.differ[1]) {
+                fprintf(stderr, NW_APP_NAME ": the data image does not convert back to the ELF\n");
+                ok = false;
+            }
+            if (ok && nw_image_seed_check(stdout)) {
+                fflush(stdout);
+                fprintf(stderr, NW_APP_NAME ": port/data.toml [seeds] does not make the ELF's mirror roots\n");
+                ok = false;
+            }
         }
         if (ok) {
             int kept = nw_hz_patch();
@@ -335,8 +358,8 @@ static int nw_check_disc(const char *data_dir)
         return 2;
     }
     unsigned files = 0, entries = 0, failed = 0;
-    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
-        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+    for (size_t i = 0; i < vfs.manifest->count; i++) {
+        const NwManifestEntry *e = &vfs.manifest->entries[i];
         if (e->flags & NW_MANIFEST_SKIP) {
             continue;
         }
@@ -375,8 +398,8 @@ static int nw_check_scenes(const char *data_dir)
         return 2;
     }
     NwGscTotal total = { 0 };
-    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
-        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+    for (size_t i = 0; i < vfs.manifest->count; i++) {
+        const NwManifestEntry *e = &vfs.manifest->entries[i];
         size_t len = strlen(e->path), size = 0;
         if (len < 4 || SDL_strcasecmp(e->path + len - 4, ".GSC") != 0 || (e->flags & NW_MANIFEST_SKIP)) {
             continue;
@@ -405,8 +428,10 @@ static int nw_check_scenes(const char *data_dir)
 
 /* The decomp's main (port/units.toml renames it), started as retail's boot starts it. */
 int nw_game_main(int argc, char **argv);
+extern int LANGUAGEOPTION;
 
-static char nw_game_arg0[] = "cdrom0:\\" NW_DISC_BOOT ";1";
+/* PAL's on every disc: the decomp is its code. */
+static char nw_game_arg0[] = "cdrom0:\\SLES_503.86;1";
 static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
 #define NW_BOOT_CHECK_MS 30000         /* --boot-check's watchdog; at the hardware speed BGLoadSfx alone takes 13 s */
@@ -462,11 +487,15 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     nw_newlib_init();
     NwImageStats stats;
     char err[512];
-    bool ok = nw_image_load(&nw_image_tables, elf, size, &stats, err, sizeof(err));
+    bool ok = nw_image_build(vfs.manifest, elf, size, &stats, err, sizeof(err));
     SDL_free(elf);
     if (!ok) {
         SDL_Log(NW_APP_NAME ": data image: %s", err);
         return 1;
+    }
+    SDL_Log("disc: %s", vfs.manifest->name);
+    if (vfs.manifest->flags & NW_DISC_ENGLISH) {
+        LANGUAGEOPTION = 0;
     }
     if (nw_run_hz == 60 && nw_pad_script && nw_pad_script_is_recording(nw_pad_script)) {
         SDL_Log(NW_APP_NAME ": --pad-script %s replays 50 Hz ticks: 50 Hz", nw_pad_script);
@@ -1223,7 +1252,7 @@ static const NwManifestEntry *nw_scene_entry(const char *path)
     for (char *c = name; *c; c++) {
         *c = *c == '\\' ? '/' : *c;
     }
-    const NwManifestEntry *e = nw_manifest_find(&nw_disc_manifest, name);
+    const NwManifestEntry *e = nw_manifest_find(nw_shim_file_vfs()->manifest, name);
     if (!e) {
         fprintf(stderr, NW_APP_NAME ": %s is not on the disc\n", path);
         return NULL;
@@ -1235,10 +1264,13 @@ static const NwManifestEntry *nw_scene_entry(const char *path)
    scene list. Exit code 2 without the disc or the scene. */
 static int nw_scene(const char *data_dir, const char *path, int max_frames)
 {
-    const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
-    int code = e || !*path ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false) : 2;
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false);
     if (code) {
         return code;
+    }
+    const NwManifestEntry *e = *path ? nw_scene_entry(path) : NULL;
+    if (*path && !e) {
+        return 2;
     }
     if (e) {
         nw_scene_load(e->path);
@@ -1277,8 +1309,8 @@ static int nw_scene_check_all(const char *exe, const char *data_dir)
         return 2;
     }
     unsigned scenes = 0, skipped = 0, failed = 0;
-    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
-        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+    for (size_t i = 0; i < vfs.manifest->count; i++) {
+        const NwManifestEntry *e = &vfs.manifest->entries[i];
         size_t len = strlen(e->path), size = 0;
         bool ghg = len >= 4 && SDL_strcasecmp(e->path + len - 4, ".GHG") == 0;
         if (len < 4 || (!ghg && SDL_strcasecmp(e->path + len - 4, ".GSC") != 0) || (e->flags & NW_MANIFEST_SKIP)) {
@@ -1323,10 +1355,13 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
     if (strcmp(path, "all") == 0) {
         return nw_scene_check_all(exe, data_dir);
     }
-    const NwManifestEntry *e = nw_scene_entry(path);
-    int code = e ? nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false) : 2;
+    int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, false);
     if (code) {
         return code;
+    }
+    const NwManifestEntry *e = nw_scene_entry(path);
+    if (!e) {
+        return 2;
     }
     nw_scene_load(e->path);
     nw_stub_set_continue(true);

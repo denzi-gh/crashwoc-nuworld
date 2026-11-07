@@ -7,7 +7,8 @@
 #include "gfx/backend.h"
 #include "port/game.h"
 #include "port/scene.h"
-#include "vfs/manifest.h"
+#include "shim/shim.h"
+#include "vfs/vfs.h"
 
 /* The fly camera: W/S along the view, A/D sideways, Q/E down and up, Shift four times as fast. */
 static void nw_view_move(NwSceneCam *c, float speed, float dt)
@@ -58,8 +59,9 @@ static void nw_view_scenes(void *user)
     (void)user;
     nw_debug_filter("filter", nw_view.filter, sizeof(nw_view.filter));
     nw_debug_list_begin("scenes", 16);
-    for (size_t i = 0; i < nw_disc_manifest.count; i++) {
-        const NwManifestEntry *e = &nw_disc_manifest.entries[i];
+    const NwManifest *m = nw_shim_file_vfs()->manifest;
+    for (size_t i = 0; i < m->count; i++) {
+        const NwManifestEntry *e = &m->entries[i];
         size_t len = SDL_strlen(e->path);
         bool scene = len >= 4 && (SDL_strcasecmp(e->path + len - 4, ".GSC") == 0 ||
                                   SDL_strcasecmp(e->path + len - 4, ".GHG") == 0);

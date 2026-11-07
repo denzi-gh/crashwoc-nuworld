@@ -1,5 +1,7 @@
 #include "vfs/extract.h"
 
+#include <string.h>
+
 #include <SDL3/SDL.h>
 
 #include "platform/paths.h"
@@ -81,10 +83,10 @@ static bool nw_extract_file(NwDisc *disc, const NwIsoFile *f, const NwManifestEn
 
 static bool nw_extract_stamp(const char *dir, const NwManifest *m, size_t files)
 {
-    const NwManifestEntry *elf = nw_manifest_find(m, NW_DISC_BOOT);
+    const NwManifestEntry *elf = nw_manifest_find(m, m->boot);
     char *path = nw_extract_path(dir, NW_DISC_STAMP), *text = NULL;
-    bool ok = path && SDL_asprintf(&text, "nuworld-disc 1\nboot %s\nver %s\nelf-sha256 %s\nfiles %zu\n", NW_DISC_BOOT,
-                                   NW_DISC_VER, elf ? elf->sha256 : "-", files) >= 0;
+    bool ok = path && SDL_asprintf(&text, "nuworld-disc 1\nboot %s\nver %s\nelf-sha256 %s\nfiles %zu\n", m->boot,
+                                   m->ver, elf ? elf->sha256 : "-", files) >= 0;
     ok = ok && (SDL_SaveFile(path, text, SDL_strlen(text)) || nw_extract_fail("cannot write", path));
     SDL_free(text);
     SDL_free(path);
@@ -114,14 +116,15 @@ static bool nw_extract_swap(const char *partial, const char *final, const char *
     return true;
 }
 
-bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const char *root, NwProgressFn fn,
-                     void *user)
+const NwManifest *nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *const *known, const char *root,
+                                  NwProgressFn fn, void *user)
 {
     NwCopy c = { fn, user, 0, 0, NULL };
     size_t files = 0;
 
-    if (!nw_verify_identity(disc, iso, m) || !nw_verify_listing(iso, m)) {
-        return false;
+    const NwManifest *m = nw_verify_identity(disc, iso, known);
+    if (!m || !nw_verify_listing(iso, m)) {
+        return NULL;
     }
     for (size_t i = 0; i < m->count; i++) {
         if (!(m->entries[i].flags & NW_MANIFEST_SKIP)) {
@@ -156,7 +159,7 @@ bool nw_extract_disc(NwDisc *disc, const NwIso *iso, const NwManifest *m, const 
     SDL_free(old);
     SDL_free(final);
     SDL_free(partial);
-    return ok;
+    return ok ? m : NULL;
 }
 
 bool nw_extract_has_disc(const char *root)
@@ -165,6 +168,48 @@ bool nw_extract_has_disc(const char *root)
     bool found = stamp && SDL_GetPathInfo(stamp, NULL);
     SDL_free(stamp);
     return found;
+}
+
+static void nw_extract_field(const char *text, const char *key, char *out, size_t size)
+{
+    size_t n = SDL_strlen(key);
+    out[0] = '\0';
+    for (const char *line = text; *line; line += strcspn(line, "\n"), line += *line == '\n') {
+        if (SDL_strncmp(line, key, n) == 0 && line[n] == ' ') {
+            size_t len = strcspn(line + n + 1, "\r\n");
+            SDL_strlcpy(out, line + n + 1, len + 1 < size ? len + 1 : size);
+            return;
+        }
+    }
+}
+
+const NwManifest *nw_extract_manifest(const char *root, const NwManifest *const *known)
+{
+    char *dir = nw_extract_path(root, NW_DISC_DIR "/");
+    char *stamp = dir ? nw_extract_path(dir, NW_DISC_STAMP) : NULL;
+    char *text = NULL, boot[64], ver[32];
+    const NwManifest *m = NULL;
+
+    if (!stamp || !SDL_GetPathInfo(stamp, NULL)) {
+        if (dir) {
+            SDL_SetError("no imported disc in %s", dir);
+        }
+    } else {
+        text = SDL_LoadFile(stamp, NULL);
+        nw_extract_field(text ? text : "", "boot", boot, sizeof(boot));
+        nw_extract_field(text ? text : "", "ver", ver, sizeof(ver));
+        m = boot[0] ? NULL : known[0];
+        for (const NwManifest *const *k = known; *k && !m; k++) {
+            m = SDL_strcmp(boot, (*k)->boot) == 0 && SDL_strcmp(ver, (*k)->ver) == 0 ? *k : NULL;
+        }
+        if (!m) {
+            SDL_SetError("the imported disc is %s v%s, which this NuWorld does not know: import it again", boot, ver);
+        }
+    }
+    SDL_free(text);
+    SDL_free(stamp);
+    SDL_free(dir);
+    return m;
 }
 
 bool nw_extract_verify(const char *root, const NwManifest *m, NwProgressFn fn, void *user)

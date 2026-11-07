@@ -4,7 +4,8 @@
 
 #include "game/gametypes.h"
 #include "port/heap.h"
-#include "vfs/manifest.h"
+#include "shim/shim.h"
+#include "vfs/vfs.h"
 
 #define NW_LEVEL_TITLES 0x23
 #define NW_LEVEL_HUB 0x25
@@ -70,7 +71,7 @@ const char *nw_level_name(int level)
                 *c = '/';
             }
         }
-        nw_level.present[level] = nw_manifest_find(&nw_disc_manifest, path) ? 1 : -1;
+        nw_level.present[level] = nw_manifest_find(nw_shim_file_vfs()->manifest, path) ? 1 : -1;
     }
     return nw_level.present[level] > 0 ? LevelName[level][0] : NULL;
 }

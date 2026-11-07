@@ -189,17 +189,13 @@ bool nw_vfs_mount(NwVfs *vfs, NwVfsSlot slot, const char *dir)
 
 bool nw_vfs_init(NwVfs *vfs, const char *root)
 {
-    char *disc = nw_paths_dir(root, NW_DISC_DIR, false), *stamp = NULL;
-    bool ok = disc && SDL_asprintf(&stamp, "%s" NW_DISC_STAMP, disc) >= 0;
+    char *disc = nw_paths_dir(root, NW_DISC_DIR, false);
 
     SDL_zerop(vfs);
-    if (ok && !SDL_GetPathInfo(stamp, NULL)) {
-        ok = SDL_SetError("no imported disc in %s", disc);
-    }
-    ok = ok && nw_vfs_mount(vfs, NW_VFS_DISC, disc);
+    vfs->manifest = disc ? nw_extract_manifest(root, nw_disc_manifests) : NULL;
+    bool ok = vfs->manifest && nw_vfs_mount(vfs, NW_VFS_DISC, disc);
     vfs->host0 = ok ? nw_paths_dir(root, "host0", false) : NULL;
     ok = ok && vfs->host0;
-    SDL_free(stamp);
     SDL_free(disc);
     if (!ok) {
         nw_vfs_shutdown(vfs);
@@ -264,9 +260,13 @@ char *nw_vfs_resolve(const NwVfs *vfs, const char *game_path)
 static bool nw_vfs_fixed(const char *key)
 {
     size_t len = SDL_strlen(key);
-    return SDL_strcmp(key, "SYSTEM.CNF") == 0 || SDL_strcmp(key, "SLES_503.86") == 0 ||
-           (len > 4 && SDL_strcmp(key + len - 4, ".IRX") == 0) || SDL_strcmp(key, "DUMMY.DAT") == 0 ||
-           SDL_strncmp(key, "DUMMY.DAT/", 10) == 0;
+    for (const NwManifest *const *m = nw_disc_manifests; *m; m++) {
+        if (SDL_strcmp(key, (*m)->boot) == 0) {
+            return true;
+        }
+    }
+    return SDL_strcmp(key, "SYSTEM.CNF") == 0 || (len > 4 && SDL_strcmp(key + len - 4, ".IRX") == 0) ||
+           SDL_strcmp(key, "DUMMY.DAT") == 0 || SDL_strncmp(key, "DUMMY.DAT/", 10) == 0;
 }
 
 /* The newest overlay (slot 0) only replaces: disc files, or entries of the disc's archives. */

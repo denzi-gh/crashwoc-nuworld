@@ -2,6 +2,8 @@
 # owned: roots NuWorld defines itself (src/shim, src/port), left out of the image
 # conflicts: roots plain in one unit and with pointer slots in another, accepted with a reason (better: fix upstream)
 # reads: overridden functions whose data stays in the image for NuWorld's copy
+# seeds: mirror roots that are not zero in retail, for the other discs (--check-data proves them)
+# discs: where another disc's boot ELF holds each C definition with retail's bytes
 # Every entry must match a root.
 
 schema = 1
@@ -16,3 +18,16 @@ schema = 1
 
 [reads]
 "Text3D" = "src/port/font3d.c is retail's Text3D with the button prompts; it reads the same font tables"
+
+[seeds]
+"__infinity" = "000000000000f07f"
+"__fdlib_version" = "01000000"
+"saveload_cardtype" = "ffffffff"
+"saveload_freespace" = "ffffffff"
+"saveload_cardformatted" = "ffffffff"
+"glb_amb_error_flag" = "ffffffff"
+"glb_dir_error_flag" = "ffffffff"
+
+[discs."USA v1.00"]
+"ariel16_fnt" = 0x002e4558
+"ariel16_bmp" = 0x002e4df8

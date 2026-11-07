@@ -109,7 +109,7 @@ static void fuzz_disc(const char *path)
             nw_iso_read(&disc, f, 0, buf, n);
             nw_iso_read(&disc, f, f->size - n, buf, n);
         }
-        nw_verify_identity(&disc, &iso, &nw_disc_manifest);
+        nw_verify_identity(&disc, &iso, nw_disc_manifests);
         nw_iso_free(&iso);
     }
     nw_disc_close(&disc);

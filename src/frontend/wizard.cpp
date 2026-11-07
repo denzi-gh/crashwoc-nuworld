@@ -37,6 +37,7 @@ struct NwWizard {
     Uint32 dialog_event; /* file dialog results, pushed from the dialog's thread */
     NwWizardPage page;
     NwImport *job;
+    const NwManifest *imported;
     char *image;     /* the image being or last imported */
     bool had_disc;   /* a disc was imported before the wizard opened */
     NwImageList list; /* import folder */
@@ -74,7 +75,7 @@ static void nw_wizard_start(NwWizard *w, const char *image)
     SDL_free(w->image);
     w->image = copy;
     w->notice[0] = '\0';
-    w->job = copy ? nw_import_start(copy, w->root, &nw_disc_manifest) : NULL;
+    w->job = copy ? nw_import_start(copy, w->root, nw_disc_manifests) : NULL;
     if (w->job) {
         w->page = NW_PAGE_RUN;
     } else {
@@ -229,7 +230,7 @@ static NwWizardResult nw_wizard_pick(NwWizard *w)
 
     nw_wizard_title("Welcome");
     ImGui::TextWrapped("NuWorld needs a disc image of your own copy of the game:");
-    ImGui::BulletText("Crash Bandicoot: The Wrath of Cortex (PS2, PAL v1.03, SLES-50386)");
+    ImGui::BulletText("Crash Bandicoot: The Wrath of Cortex for PS2: PAL v1.03 (SLES-50386) or USA v1.00 (SLUS-20238)");
     ImGui::BulletText(".iso, or .bin with its .cue");
 
     if (w->had_disc) {
@@ -315,6 +316,7 @@ static void nw_wizard_run(NwWizard *w)
         if (state == NW_IMPORT_FAILED) {
             SDL_strlcpy(w->error, nw_import_error(w->job), sizeof(w->error));
         }
+        w->imported = state == NW_IMPORT_DONE ? nw_import_manifest(w->job) : NULL;
         nw_import_free(w->job);
         w->job = NULL;
         w->page = state == NW_IMPORT_DONE ? NW_PAGE_DONE : state == NW_IMPORT_FAILED ? NW_PAGE_FAILED : NW_PAGE_PICK;
@@ -348,8 +350,10 @@ static void nw_wizard_run(NwWizard *w)
 
 static void nw_wizard_done(NwWizard *w)
 {
+    char matches[64];
+    SDL_snprintf(matches, sizeof(matches), "Every file matches %s", w->imported ? w->imported->name : "the disc");
     nw_wizard_title("Disc imported");
-    nw_wizard_wrapped(nw_wizard_ok, "Every file matches PAL v" NW_DISC_VER);
+    nw_wizard_wrapped(nw_wizard_ok, matches);
     ImGui::TextWrapped("The game files are in %s" NW_DISC_DIR ". You will not need the disc image again, you can delete it if you want!",
                        w->root);
     ImGui::Spacing();
