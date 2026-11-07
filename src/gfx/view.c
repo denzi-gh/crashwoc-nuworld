@@ -104,6 +104,7 @@ int nw_view_scene(NwPlatform *p, const char *name, int max_frames)
     nw_debug_panel("Scene", "Scenes", nw_view_scenes, NULL, !name);
     nw_debug_panel("Scene", "Stats", nw_view_stats, NULL, false);
     nw_debug_panel("Scene", "Camera", nw_view_camera, NULL, false);
+    nw_backend_debug_menu();
     if (!name) {
         nw_debug_show(true);
         SDL_SetWindowTitle(p->window, NW_APP_NAME " - scenes (F1)");

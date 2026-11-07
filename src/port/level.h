@@ -9,6 +9,9 @@
 int nw_level_count(void);
 /* The English name, NULL for a level the disc lacks. */
 const char *nw_level_name(int level);
+/* The i-th level (i < nw_level_count()) in the game's order: the warp rooms' levels, each room's boss last (slot 5),
+   then the rest in index order with room 0. */
+int nw_level_at(int i, int *room, int *slot);
 int nw_level_current(void);
 /* The level asked for and not yet entered, or -1. */
 int nw_level_pending(void);

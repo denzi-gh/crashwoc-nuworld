@@ -93,40 +93,41 @@ static void movement_value(const char *table, const char *key, size_t offset, in
     CHECK(*field == lo);
 }
 
-#define CRASH_SWITCH(f, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), true);
+#define CRASH_SWITCH(f, label, on, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), on);
 #define CRASH_FLAG(f, label, def, ...) movement_switch("crash", #f, offsetof(NwSettings, movement.crash.f), def);
 #define CRASH_VALUE(f, label, def, lo, hi, ...) \
     movement_value("crash", #f, offsetof(NwSettings, movement.crash.f), def, lo, hi);
-#define COCO_SWITCH(f, ...) movement_switch("coco", #f, offsetof(NwSettings, movement.coco.f), true);
+#define COCO_SWITCH(f, label, on, ...) movement_switch("coco", #f, offsetof(NwSettings, movement.coco.f), on);
 #define COCO_FLAG(f, label, def, ...) movement_switch("coco", #f, offsetof(NwSettings, movement.coco.f), def);
 #define COCO_VALUE(f, label, def, lo, hi, ...) \
     movement_value("coco", #f, offsetof(NwSettings, movement.coco.f), def, lo, hi);
-#define MECH_SWITCH(f, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), true);
+#define MECH_SWITCH(f, label, on, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), on);
 #define MECH_FLAG(f, label, def, ...) movement_switch("mech", #f, offsetof(NwSettings, movement.mech.f), def);
 #define MECH_VALUE(f, label, def, lo, hi, ...) \
     movement_value("mech", #f, offsetof(NwSettings, movement.mech.f), def, lo, hi);
-#define SUB_SWITCH(f, ...) movement_switch("submarine", #f, offsetof(NwSettings, movement.submarine.f), true);
+#define SUB_SWITCH(f, label, on, ...) movement_switch("submarine", #f, offsetof(NwSettings, movement.submarine.f), on);
 #define SUB_VALUE(f, label, def, lo, hi, ...) \
     movement_value("submarine", #f, offsetof(NwSettings, movement.submarine.f), def, lo, hi);
-#define JEEP_SWITCH(f, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), true);
+#define JEEP_SWITCH(f, label, on, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), on);
 #define JEEP_FLAG(f, label, def, ...) movement_switch("jeep", #f, offsetof(NwSettings, movement.jeep.f), def);
 #define JEEP_VALUE(f, label, def, lo, hi, ...) \
     movement_value("jeep", #f, offsetof(NwSettings, movement.jeep.f), def, lo, hi);
-#define ATLAS_SWITCH(f, ...) movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), true);
+#define ATLAS_SWITCH(f, label, on, ...) \
+    movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), on);
 #define ATLAS_FLAG(f, label, def, ...) \
     movement_switch("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def);
 #define ATLAS_VALUE(f, label, def, lo, hi, ...) \
     movement_value("atlasphere", #f, offsetof(NwSettings, movement.atlasphere.f), def, lo, hi);
-#define FIREFLY_SWITCH(f, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), true);
+#define FIREFLY_SWITCH(f, label, on, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), on);
 #define FIREFLY_FLAG(f, label, def, ...) movement_switch("firefly", #f, offsetof(NwSettings, movement.firefly.f), def);
 #define FIREFLY_VALUE(f, label, def, lo, hi, ...) \
     movement_value("firefly", #f, offsetof(NwSettings, movement.firefly.f), def, lo, hi);
-#define PLANE_SWITCH(f, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), true);
+#define PLANE_SWITCH(f, label, on, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), on);
 #define PLANE_FLAG(f, label, def, ...) movement_switch("plane", #f, offsetof(NwSettings, movement.plane.f), def);
 #define PLANE_VALUE(f, label, def, lo, hi, ...) \
     movement_value("plane", #f, offsetof(NwSettings, movement.plane.f), def, lo, hi);
-#define SPACE_SWITCH(f, ...) \
-    movement_switch("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), true);
+#define SPACE_SWITCH(f, label, on, ...) \
+    movement_switch("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), on);
 #define SPACE_FLAG(f, label, def, ...) \
     movement_switch("spacefighter", #f, offsetof(NwSettings, movement.spacefighter.f), def);
 #define SPACE_VALUE(f, label, def, lo, hi, ...) \
@@ -260,41 +261,42 @@ int main(int argc, char *argv[])
     NW_MECH_MOVEMENT(MECH_SWITCH, MECH_FLAG, MECH_VALUE)
     /* A file from before Crash's or the mech's options that chose the PS2's movement keeps it; one with them keeps
        theirs. */
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.crash.jump_fall &&
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.crash.run_speed &&
           !s.movement.crash.air_jump && s.movement.crash.air_jump_ledge && s.movement.crash.run_top == 120);
     CHECK(!s.movement.mech.stand_jump && !s.movement.mech.hitbox && s.movement.mech.shot_tap &&
-          s.movement.mech.shot_stop_ms == 150);
+          s.movement.mech.shot_stop_ms == 25);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.crash.grip && s.movement.crash.jump_fall && s.movement.mech.stand_jump);
+          s.movement.crash.grip && s.movement.crash.run_speed && s.movement.mech.stand_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.mech]\naim_fast = true\n", &s) &&
-          !s.movement.crash.jump_fall && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
+          !s.movement.crash.run_speed && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
     NW_COCO_MOVEMENT(COCO_SWITCH, COCO_FLAG, COCO_VALUE)
     /* The same for Coco's. */
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.jump_fall &&
-          !s.movement.coco.grip && s.movement.coco.run_top == 120);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.run_speed &&
+          !s.movement.coco.grip && s.movement.coco.run_top == 110);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.coco.grip && s.movement.coco.jump_fall);
+          s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.coco.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.coco]\ngrip = false\n", &s) &&
-          !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.jump_fall);
+          !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.coco.grip);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.run_speed &&
+          !s.movement.crash.jump_fall);
     NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
     /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.submarine.turning &&
-          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 125);
+          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 110);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.submarine.speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
-          s.movement.submarine.hitbox && !s.movement.crash.jump_fall);
+          s.movement.submarine.hitbox && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.submarine.turning);
     NW_JEEP_MOVEMENT(JEEP_SWITCH, JEEP_FLAG, JEEP_VALUE)
     /* The same for the jeep's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.jeep.steering &&
-          !s.movement.jeep.speed && s.movement.jeep.steer_response == 200);
+          !s.movement.jeep.speed && s.movement.jeep.steer_response == 120);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.jeep.steering);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
-          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.jump_fall);
+          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.jeep.steering);
     NW_ATLAS_MOVEMENT(ATLAS_SWITCH, ATLAS_FLAG, ATLAS_VALUE)
     /* The same for the atlasphere's: a retail file from before them stays retail, any other takes the defaults. */
@@ -302,10 +304,11 @@ int main(int argc, char *argv[])
           !s.movement.atlasphere.edge_guard && s.movement.atlasphere.guard_push &&
           s.movement.atlasphere.brake_force == 200);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = false\n", &s) &&
-          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.jump_fall);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.atlasphere.edge_guard);
+          !s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nbrake = true\n", &s) &&
+          s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.run_speed);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && !s.movement.atlasphere.edge_guard &&
+          s.movement.atlasphere.guard_push);
     NW_FIREFLY_MOVEMENT(FIREFLY_SWITCH, FIREFLY_FLAG, FIREFLY_VALUE)
     /* The same for the firefly's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.firefly.lock_on &&
@@ -313,16 +316,16 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.firefly.lock_on && s.movement.firefly.steering);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.firefly]\nsteering = false\n", &s) &&
-          s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.jump_fall);
+          s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.firefly.steering);
     NW_PLANE_MOVEMENT(PLANE_SWITCH, PLANE_FLAG, PLANE_VALUE)
     /* The same for the plane's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.plane.steering &&
-          !s.movement.plane.aim && s.movement.plane.push_dive && s.movement.plane.pitch_response == 250);
+          !s.movement.plane.aim && s.movement.plane.push_dive && s.movement.plane.pitch_response == 200);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.plane.steering && s.movement.plane.aim);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.plane]\naim = false\n", &s) &&
-          s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.jump_fall);
+          s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.plane.steering);
     NW_SPACE_MOVEMENT(SPACE_SWITCH, SPACE_FLAG, SPACE_VALUE)
     /* The same for the space fighter's. */
@@ -332,7 +335,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.spacefighter.steering && s.movement.spacefighter.aim);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.spacefighter]\nroll = false\n", &s) &&
-          !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.jump_fall);
+          !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.spacefighter.aim_assist);
 
     nw_settings_defaults(&s);

@@ -15,6 +15,8 @@ typedef struct NwRenderOptions {
 } NwRenderOptions;
 
 bool nw_backend_init(void);
+/* Wireframe and Screenshot, registered after the caller's own debug menus. */
+void nw_backend_debug_menu(void);
 void nw_backend_shutdown(void);
 /* Taken at the next frame. */
 void nw_backend_set_options(const NwRenderOptions *o);

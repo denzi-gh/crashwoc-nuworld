@@ -22,8 +22,8 @@ void nw_debug_show(bool shown);
 
 void nw_debug_frame(void);
 
-/* Registered by the module that owns the item, dropped by nw_debug_shutdown. A menu may be a path,
-   "Game/N. Hanced Movement", for a submenu. */
+/* Registered by the module that owns the item, dropped by nw_debug_shutdown. Menus appear in the order their first
+   items were registered; a menu may be a path, "Debug/Render", for a submenu. */
 typedef void (*NwDebugFn)(void *user);
 
 void nw_debug_panel(const char *menu, const char *title, NwDebugFn draw, void *user, bool open);
@@ -54,6 +54,8 @@ bool nw_debug_filter(const char *hint, char *buf, size_t size);
 /* A scrolling list rows lines high; always closed with nw_debug_list_end. */
 void nw_debug_list_begin(const char *id, int rows);
 void nw_debug_list_end(void);
+/* A labelled separator heading the items after it. */
+void nw_debug_heading(const char *text);
 bool nw_debug_selectable(const char *label, bool selected);
 
 #ifdef __cplusplus

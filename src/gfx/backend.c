@@ -105,9 +105,13 @@ bool nw_backend_init(void)
     nw_be.opts.scale = 1;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &nw_be.max_tex);
     glGetIntegerv(GL_MAX_SAMPLES, &nw_be.max_samples);
-    nw_debug_toggle("Render", "Wireframe", &nw_be.wireframe);
-    nw_debug_action("Render", "Screenshot", SDL_SCANCODE_F12, nw_be_screenshot, NULL);
     return nw_vu_init();
+}
+
+void nw_backend_debug_menu(void)
+{
+    nw_debug_toggle("Debug", "Wireframe", &nw_be.wireframe);
+    nw_debug_action("Debug", "Screenshot", SDL_SCANCODE_F12, nw_be_screenshot, NULL);
 }
 
 static void nw_be_ms_free(NwBeSurf *s)
