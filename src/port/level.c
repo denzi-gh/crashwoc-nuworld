@@ -8,10 +8,21 @@
 
 #define NW_LEVEL_TITLES 0x23
 #define NW_LEVEL_HUB 0x25
+#define NW_LEVEL_GAMEOVER 0x26
 #define NW_LEVEL_SPACE 0x28
 #define NW_LEVEL_ROUTE 8
 
+/* game.c's warp rooms: each room's levels in the game's order, the boss last. */
+struct hdata_s {
+    s8 level[6];
+    s8 i_spl[2];
+    u8 barrier;
+    u8 i_gdeb;
+    short sfx;
+};
+
 extern struct ldata_s LData[44];
+extern struct hdata_s HData[6];
 extern char *LevelName[44][6];
 extern s32 Level, Hub, GameMode, Demo, editor_active, cutmovie, gamecut_newlevel;
 extern s32 new_level, new_mode, next_cut_movie;
@@ -62,6 +73,44 @@ const char *nw_level_name(int level)
         nw_level.present[level] = nw_manifest_find(&nw_disc_manifest, path) ? 1 : -1;
     }
     return nw_level.present[level] > 0 ? LevelName[level][0] : NULL;
+}
+
+int nw_level_at(int i, int *room, int *slot)
+{
+    static struct {
+        signed char level, room, slot;
+    } order[NW_LEVEL_OLD_TITLE + 1];
+    static bool built;
+    if (!built) {
+        bool listed[NW_LEVEL_OLD_TITLE + 1] = { false };
+        int n = 0;
+        for (int r = 0; r < (int)SDL_arraysize(HData); r++) {
+            for (int s = 0; s < (int)SDL_arraysize(HData[r].level); s++) {
+                int level = HData[r].level[s];
+                /* The sixth room's last slot is the game over chamber, not a boss. */
+                if (level >= 0 && level < nw_level_count() && level != NW_LEVEL_GAMEOVER && !listed[level]) {
+                    order[n].level = (signed char)level;
+                    order[n].room = (signed char)(r + 1);
+                    order[n++].slot = (signed char)s;
+                    listed[level] = true;
+                }
+            }
+        }
+        for (int level = 0; level < nw_level_count(); level++) {
+            if (!listed[level]) {
+                order[n].level = (signed char)level;
+                order[n].room = 0;
+                order[n++].slot = 0;
+            }
+        }
+        built = true;
+    }
+    if (i < 0 || i >= nw_level_count()) {
+        return -1;
+    }
+    *room = order[i].room;
+    *slot = order[i].slot;
+    return order[i].level;
 }
 
 int nw_level_current(void)

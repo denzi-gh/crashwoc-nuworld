@@ -866,10 +866,27 @@ static void nw_boot_levels(void *user)
     (void)user;
     nw_debug_filter("filter", filter, sizeof(filter));
     nw_debug_list_begin("levels", 16);
-    for (int i = 0; i < nw_level_count(); i++) {
-        const char *name = nw_level_name(i);
-        if (name && SDL_strcasestr(name, filter) && nw_debug_selectable(name, i == nw_level_current())) {
-            nw_level_load(i);
+    for (int i = 0, shown = -1; i < nw_level_count(); i++) {
+        int room, slot, level = nw_level_at(i, &room, &slot);
+        const char *name = nw_level_name(level);
+        if (!name || !SDL_strcasestr(name, filter)) {
+            continue;
+        }
+        char label[80];
+        if (room != shown) {
+            SDL_snprintf(label, sizeof(label), "Warp Room %d", room);
+            nw_debug_heading(room ? label : "Other");
+            shown = room;
+        }
+        if (!room) {
+            SDL_strlcpy(label, name, sizeof(label));
+        } else if (slot == 5) {
+            SDL_snprintf(label, sizeof(label), "Boss: %s", name);
+        } else {
+            SDL_snprintf(label, sizeof(label), "%d. %s", slot + 1, name);
+        }
+        if (nw_debug_selectable(label, level == nw_level_current())) {
+            nw_level_load(level);
         }
     }
     nw_debug_list_end();

@@ -54,6 +54,8 @@ bool nw_debug_filter(const char *hint, char *buf, size_t size);
 /* A scrolling list rows lines high; always closed with nw_debug_list_end. */
 void nw_debug_list_begin(const char *id, int rows);
 void nw_debug_list_end(void);
+/* A labelled separator heading the items after it. */
+void nw_debug_heading(const char *text);
 bool nw_debug_selectable(const char *label, bool selected);
 
 #ifdef __cplusplus

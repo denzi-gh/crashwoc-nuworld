@@ -183,6 +183,11 @@ void nw_debug_list_end(void)
     ImGui::EndChild();
 }
 
+void nw_debug_heading(const char *text)
+{
+    ImGui::SeparatorText(text);
+}
+
 bool nw_debug_selectable(const char *label, bool selected)
 {
     return ImGui::Selectable(label, selected);
