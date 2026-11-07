@@ -1866,7 +1866,8 @@ static void atlasphere(void)
 {
     NwProfile retail = { 0 }, all = { .movement = NW_MOVEMENT_NHANCED };
     NwProfile steer = ATLAS_ONLY(steer), brake = ATLAS_ONLY(brake), guard = ATLAS_ONLY(edge_guard);
-    all.movement.atlasphere.steer = all.movement.atlasphere.brake = all.movement.atlasphere.edge_guard = true;
+    all.movement.atlasphere.edge_guard = true;
+    steer.movement.atlasphere.steer_turn = brake.movement.atlasphere.brake_force = 200;
     for (int hz = 50; hz <= 60; hz += 10) {
         float dt = hz == 50 ? 0.02f : 0.016666668f;
         struct NEWBUGGY r, b;

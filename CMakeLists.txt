@@ -97,8 +97,15 @@ add_executable(crashwoc-nuworld
   src/frontend/debug.cpp
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
+set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
 nw_embed(crashwoc-nuworld nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
 nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
+# Window icon: the exe's icon resource on Windows (SDL takes the first one), a PNG set at runtime elsewhere.
+if(WIN32)
+  target_sources(crashwoc-nuworld PRIVATE assets/branding/nuworld.rc)
+else()
+  nw_embed(crashwoc-nuworld nw_icon_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon-256.png)
+endif()
 
 target_include_directories(crashwoc-nuworld PRIVATE src)
 target_compile_options(crashwoc-nuworld PRIVATE -Wall -Wextra $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)

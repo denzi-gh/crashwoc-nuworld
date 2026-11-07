@@ -122,12 +122,12 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          [[ "$(./build/release/crashwoc-nuworld --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
+          [[ "$(./build/release/NuWorld --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
       - name: Check default data folder
         run: |
           data_home="$(mktemp -d)"
           status=0
-          XDG_DATA_HOME="$data_home" ./build/release/crashwoc-nuworld --verify > "$data_home/verify.log" 2>&1 || status=$?
+          XDG_DATA_HOME="$data_home" ./build/release/NuWorld --verify > "$data_home/verify.log" 2>&1 || status=$?
           test "$status" = 1
           test -d "$data_home/crashwoc-nuworld"
           test ! -e "$data_home/NuWorld"
@@ -136,13 +136,13 @@ jobs:
         run: |
           for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
             status=0
-            ./build/release/crashwoc-nuworld --data-dir "$(mktemp -d)" $mode || status=$?
+            ./build/release/NuWorld --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
           done
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-linux-x86_64
-          path: build/release/crashwoc-nuworld
+          path: build/release/NuWorld
 
   sanitize:
     runs-on: ubuntu-22.04
@@ -216,18 +216,18 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          [[ "$(./build/release/crashwoc-nuworld.exe --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
+          [[ "$(./build/release/NuWorld.exe --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
       - name: Check the data image, the scenes and the boot without data
         run: |
           for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
             status=0
-            ./build/release/crashwoc-nuworld.exe --data-dir "$(mktemp -d)" $mode || status=$?
+            ./build/release/NuWorld.exe --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
           done
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-windows-x64
-          path: build/release/crashwoc-nuworld.exe
+          path: build/release/NuWorld.exe
 
 
   archive:
@@ -246,9 +246,9 @@ jobs:
         run: |
           tag="build-$(jq -r '.head_commit.timestamp[0:10]' "$GITHUB_EVENT_PATH" | tr -d -)-${GITHUB_SHA::7}"
           echo "TAG=$tag" >> "$GITHUB_ENV"
-          chmod +x dist/crashwoc-nuworld-linux-x86_64/crashwoc-nuworld
-          tar -C dist/crashwoc-nuworld-linux-x86_64 -czf "$tag-linux-x86_64.tar.gz" crashwoc-nuworld
-          (cd dist/crashwoc-nuworld-windows-x64 && zip -q "../../$tag-windows-x64.zip" crashwoc-nuworld.exe)
+          chmod +x dist/crashwoc-nuworld-linux-x86_64/NuWorld
+          tar -C dist/crashwoc-nuworld-linux-x86_64 -czf "$tag-linux-x86_64.tar.gz" NuWorld
+          (cd dist/crashwoc-nuworld-windows-x64 && zip -q "../../$tag-windows-x64.zip" NuWorld.exe)
           {
             echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
             echo

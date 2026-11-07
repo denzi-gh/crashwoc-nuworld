@@ -11,6 +11,22 @@ static void nw_platform_fail(const char *what)
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, NW_APP_NAME, msg, NULL);
 }
 
+#ifndef SDL_PLATFORM_WINDOWS
+extern const unsigned char nw_icon_png[];
+extern const size_t nw_icon_png_size;
+
+/* Windows takes the icon from the exe resource. */
+static void nw_platform_icon(SDL_Window *window)
+{
+    SDL_IOStream *io = SDL_IOFromConstMem(nw_icon_png, nw_icon_png_size);
+    SDL_Surface *icon = io ? SDL_LoadPNG_IO(io, true) : NULL;
+    if (icon) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_DestroySurface(icon);
+    }
+}
+#endif
+
 bool nw_platform_init(NwPlatform *p, const char *title, int width, int height)
 {
     SDL_zerop(p);
@@ -34,6 +50,9 @@ bool nw_platform_init(NwPlatform *p, const char *title, int width, int height)
         nw_platform_shutdown(p);
         return false;
     }
+#ifndef SDL_PLATFORM_WINDOWS
+    nw_platform_icon(p->window);
+#endif
 
     p->gl = SDL_GL_CreateContext(p->window);
     if (!p->gl) {
