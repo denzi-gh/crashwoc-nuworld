@@ -831,11 +831,11 @@ static void coco_jump(void)
     on = COCO_ONLY(jump_distance);
     coco_at(50, &on);
     Character[0].jump = 3;
-    CHECK(near(loop_forward(0.05f, 0.024f), 0.06f, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.024f), 0.05f + step * 1.15f, 1e-5f));
     on = COCO_ONLY(air_momentum);
     coco_at(50, &on);
     Character[0].jump = 3;
-    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step * 0.25f, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f, 1e-5f));
     his = ONLY(air_momentum);
     coco_at(50, &his);
     Character[0].jump = 3;
@@ -859,6 +859,7 @@ static void coco_run(void)
 {
     NwProfile retail = { 0 }, on = COCO_ONLY(run_speed), nhanced = { .movement = NW_MOVEMENT_NHANCED };
     float step = 0.0072f;
+    on.movement.coco.run_top = 120;
     coco_at(60, &on);
     CHECK(CocoMoveInfo.RUNSPEED == 0.060000002f * 1.2f && CocoMoveInfo.SPRINTSPEED == 0.080000006f * 1.2f);
     CHECK(CrashMoveInfo.RUNSPEED == 0.060000002f);
@@ -883,7 +884,7 @@ static void coco_run(void)
     CHECK(CocoMoveInfo.RUNSPEED == 0.5f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.2f);
     CocoMoveInfo.RUNSPEED = 0.06f;
     coco_at(50, &nhanced);
-    CHECK(CocoMoveInfo.RUNSPEED == CrashMoveInfo.RUNSPEED && CocoMoveInfo.SPRINTSPEED == CrashMoveInfo.SPRINTSPEED);
+    CHECK(CocoMoveInfo.RUNSPEED == 0.072f * 1.1f && CocoMoveInfo.SPRINTSPEED == 0.096f * 1.1f);
 
     on = COCO_ONLY(grip);
     coco_at(50, &on);
@@ -1510,6 +1511,8 @@ static void sub_speed(void)
 {
     NwProfile on = SUB_ONLY(speed), retail = { .movement = NW_MOVEMENT_RETAIL };
     struct obj_s *sub = &Character[0].obj;
+    on.movement.submarine.speed_top = 125;
+    on.movement.submarine.speed_accel = 200;
 
     /* Retail: 0.06 a frame, 0.00144 a frame more each frame. */
     sub_at(50, &retail);
@@ -1558,6 +1561,7 @@ static void sub_hitbox(void)
 {
     NwProfile on = SUB_ONLY(hitbox), retail = { .movement = NW_MOVEMENT_RETAIL };
     struct obj_s *sub = &Character[0].obj;
+    on.movement.submarine.hitbox_size = 75;
 
     /* 75 % round its middle, once however deep the calls nest, back exactly. */
     struct CharacterData *d = &CData[0x20];
@@ -1728,6 +1732,8 @@ static void jeep_steer(void)
     }
     /* 200% */
     on = JEEP_ONLY(steering);
+    on.movement.jeep.steer_response = 200;
+    on.movement.jeep.steer_angle = 100;
     jeep_at(50, &on, 8);
     CHECK(abs((s16)(jeep_turn(0x4000, 0x1000, 3) - (0x4000 + 960))) <= 1); /* 0x1000 * (1 - (7/8)^2) */
     jeep_at(50, &on, 3);
@@ -1780,6 +1786,8 @@ static void jeep_steer(void)
 static void jeep_speed(void)
 {
     NwProfile retail = { 0 }, on = JEEP_ONLY(speed);
+    on.movement.jeep.speed_top = 110;
+    on.movement.jeep.speed_accel = 150;
     jeep_at(50, &on, 3);
     CHECK(SMOKEYSPEED == 8.0f * 1.5f && SMOKEYBOOSTSPEED == 12.0f * 1.5f);
     CHECK(OFFROADERSPEEDTIME == 2.0f * (1.1f / 1.5f));
@@ -1809,6 +1817,7 @@ static void jeep_speed(void)
 static void jeep_grip(void)
 {
     NwProfile retail = { 0 }, on = JEEP_ONLY(grip);
+    on.movement.jeep.grip_speed = 300;
     jeep_at(50, &on, 3);
     CHECK(OFFROADERSEEK == 0.02f * 3.0f && SMOKEYSPEED == 8.0f && OffRoaderMoveInfo.RUNSPEED == 0.12f);
     on.movement.jeep.grip_speed = 1000;
@@ -1855,8 +1864,9 @@ static bool as_retail(struct NEWBUGGY *b, const NwProfile *p, float vx, float an
 /* The tests have no terrain: NewShadowMask finds no floor anywhere, a pit wherever the guard looks. */
 static void atlasphere(void)
 {
-    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED };
+    NwProfile retail = { 0 }, all = { .movement = NW_MOVEMENT_NHANCED };
     NwProfile steer = ATLAS_ONLY(steer), brake = ATLAS_ONLY(brake), guard = ATLAS_ONLY(edge_guard);
+    all.movement.atlasphere.steer = all.movement.atlasphere.brake = all.movement.atlasphere.edge_guard = true;
     for (int hz = 50; hz <= 60; hz += 10) {
         float dt = hz == 50 ? 0.02f : 0.016666668f;
         struct NEWBUGGY r, b;
@@ -1933,13 +1943,13 @@ static void atlasphere(void)
         CHECK(as_retail(&PlayerAtlas, &guard, 8.0f, 0.0f, 0.0f, dt));
 
         /* Every switch on: the earth boss's ball, and the player's in the air, stay retail's. */
-        CHECK(as_retail(&EarthBoss, &nhanced, 3.0f, 270.0f, 1.0f, dt));
-        CHECK(!as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(as_retail(&EarthBoss, &all, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(!as_retail(&PlayerAtlas, &all, 3.0f, 270.0f, 1.0f, dt));
         roll_ground = 0;
-        CHECK(as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
-        CHECK(as_retail(&PlayerAtlas, &nhanced, 3.0f, 0.0f, 0.0f, dt));
+        CHECK(as_retail(&PlayerAtlas, &all, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(as_retail(&PlayerAtlas, &all, 3.0f, 0.0f, 0.0f, dt));
         roll_ground = 4; /* touched the step before last */
-        CHECK(!as_retail(&PlayerAtlas, &nhanced, 3.0f, 270.0f, 1.0f, dt));
+        CHECK(!as_retail(&PlayerAtlas, &all, 3.0f, 270.0f, 1.0f, dt));
         roll_ground = 2;
     }
     nw_profile_apply(&retail);
@@ -2039,14 +2049,14 @@ static void firefly_steer(void)
         CHECK(firefly_steer_retail(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f));
         CHECK(firefly_steer_retail(hz, &plain, 0x12, 255, 0, 0.0f, 0.0f));
         CHECK(firefly_steer_retail(hz, &plain, 0x12, 127, 127, 40.0f, -20.0f));
-        /* Banking in and climbing at twice the speed, turning 25 % more. */
+        /* Banking in at twice the speed, climbing at 2.5 times, turning 25 % more. */
         struct GLIDERSTRUCT r = firefly_steer_once(hz, &retail, 0x12, 255, 0, 0.0f, 0.0f, true);
         struct GLIDERSTRUCT b = firefly_steer_once(hz, &on, 0x12, 255, 0, 0.0f, 0.0f, false);
         CHECK(fabsf(r.DestTiltZ) > 30.0f && fabsf(r.DestTiltX) > 20.0f);
         CHECK(b.DestTiltZ == r.DestTiltZ && b.DestTiltX == r.DestTiltX);
         CHECK(near(r.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
         CHECK(near(b.TiltZ, r.DestTiltZ * (1.0f - powf(2.0f, -dt / 0.05f)), 1e-4f));
-        CHECK(near(b.TiltX, r.DestTiltX * (1.0f - powf(2.0f, -dt / 0.1f)), 1e-4f));
+        CHECK(near(b.TiltX, r.DestTiltX * (1.0f - powf(2.0f, -dt / 0.08f)), 1e-4f));
         CHECK(near(b.AngleY - 30.0f, b.TiltZ * 2.0f * dt * 0.25f, 1e-3f));
         /* Levelling out at twice the speed too. */
         r = firefly_steer_once(hz, &retail, 0x12, 127, 127, 40.0f, 0.0f, true);
@@ -2205,9 +2215,12 @@ static void plane_steering(void)
     static const u8 sticks[][2] = { { 0x80, 0x80 }, { 0x80, 0x00 }, { 0xFF, 0x80 }, { 0xA0, 0x60 }, { 0x93, 0x80 },
                                     { 0xC0, 0x20 }, { 0x7F, 0x9F }, { 0x00, 0xFF }, { 0xFF, 0x10 } };
     static const int levels[] = { 0xD, 0x18, 0x24 };
-    NwProfile retail = { 0 }, nhanced = { .movement = NW_MOVEMENT_NHANCED }, steer = PLANE_ONLY(steering);
+    NwProfile retail = { 0 }, tuned = { .movement = NW_MOVEMENT_NHANCED }, steer = PLANE_ONLY(steering);
     NwProfile own = { .movement = NW_MOVEMENT_RETAIL };
-    own.movement.plane = nhanced.movement.plane;
+    tuned.movement.plane.deadzone = 10;
+    tuned.movement.plane.pitch_response = 250;
+    tuned.movement.plane.bank_response = 150;
+    own.movement.plane = tuned.movement.plane;
     steer.movement.plane.deadzone = 25;
     steer.movement.plane.pitch_response = steer.movement.plane.bank_response = 100;
     struct GLIDERSTRUCT states[5] = { 0 };
@@ -2235,46 +2248,46 @@ static void plane_steering(void)
                 CHECK(glide_retail(&own, 0x12, &states[g], x, y, 0));
                 CHECK(glide_retail(&own, 0x1A, &states[g], x, y, 0));
             }
-            CHECK(glide_retail(&nhanced, 0xD, &states[4], x, y, 0));
+            CHECK(glide_retail(&tuned, 0xD, &states[4], x, y, 0));
         }
         CHECK(glide_retail(&steer, 0xD, &states[0], 0x80, 0x80, 0x1000));
 
         /* Full forward in Tornado Alley: retail's 0.5 s nose-down at 2.5 times the pace. */
         struct GLIDERSTRUCT r = glide(&retail, 0xD, &states[0], 0x7F, 0x00, 0);
-        struct GLIDERSTRUCT n = glide(&nhanced, 0xD, &states[0], 0x7F, 0x00, 0);
+        struct GLIDERSTRUCT n = glide(&tuned, 0xD, &states[0], 0x7F, 0x00, 0);
         CHECK(near(r.DestTiltX, -40.0f, 1e-4f) && n.DestTiltX == r.DestTiltX);
         CHECK(near(r.TiltX, r.DestTiltX * glide_ease(0.5f, dt), 1e-4f));
         CHECK(near(n.TiltX, n.DestTiltX * glide_ease(0.2f, dt), 1e-4f));
         /* Let go: back to level at 1 s, now 0.4 s, the bank at 0.05 s, now a third sooner. */
-        n = glide(&nhanced, 0xD, &states[1], 0x80, 0x80, 0);
+        n = glide(&tuned, 0xD, &states[1], 0x80, 0x80, 0);
         CHECK(n.DestTiltX == 0.0f && near(n.TiltX, 20.0f - 20.0f * glide_ease(0.4f, dt), 1e-4f));
         CHECK(n.DestTiltZ == 0.0f && near(n.TiltZ, -30.0f + 30.0f * glide_ease(0.05f / 1.5f, dt), 1e-4f));
         /* Atmospheric Pressure's 0.2 s at 0.08 s, its bank's 0.1 s at 1.5 times. */
-        n = glide(&nhanced, 0x18, &states[0], 0xFF, 0x00, 0);
+        n = glide(&tuned, 0x18, &states[0], 0xFF, 0x00, 0);
         CHECK(n.DestTiltX < -20.0f && near(n.TiltX, n.DestTiltX * glide_ease(0.08f, dt), 1e-4f));
         CHECK(n.DestTiltZ > 40.0f && near(n.TiltZ, n.DestTiltZ * glide_ease(0.1f / 1.5f, dt), 1e-4f));
         r = glide(&retail, 0x18, &states[0], 0xFF, 0x00, 0);
         CHECK(near(r.TiltZ, r.DestTiltZ * glide_ease(0.1f, dt), 1e-4f));
         /* Under an override and mid roll the bank eases as retail's. */
-        n = glide(&nhanced, 0xD, &states[3], 0xFF, 0x80, 0);
+        n = glide(&tuned, 0xD, &states[3], 0xFF, 0x80, 0);
         r = glide(&retail, 0xD, &states[3], 0xFF, 0x80, 0);
         CHECK(n.TiltZ == r.TiltZ);
-        CHECK(glide_retail(&nhanced, 0xD, &states[2], 0x80, 0x80, 0));
+        CHECK(glide_retail(&tuned, 0xD, &states[2], 0x80, 0x80, 0));
 
         /* A sixth of the way out: nothing on the PS2, a turn at a 10 % deadzone. */
         CHECK(glide(&retail, 0xD, &states[0], 0x7F + 20, 0x7F, 0).InputX == 0.0f);
-        n = glide(&nhanced, 0xD, &states[0], 0x7F + 20, 0x7F, 0);
+        n = glide(&tuned, 0xD, &states[0], 0x7F + 20, 0x7F, 0);
         CHECK(n.InputX > 0.05f && n.InputX < 0.1f && n.DestTiltZ > 0.0f);
-        CHECK(glide(&nhanced, 0xD, &states[0], 0x7F + 12, 0x7F, 0).InputX == 0.0f);
-        CHECK(near(glide(&nhanced, 0xD, &states[0], 0x7F + 126, 0x7F, 0).InputX, 1.0f, 1e-4f));
+        CHECK(glide(&tuned, 0xD, &states[0], 0x7F + 12, 0x7F, 0).InputX == 0.0f);
+        CHECK(near(glide(&tuned, 0xD, &states[0], 0x7F + 126, 0x7F, 0).InputX, 1.0f, 1e-4f));
 
         /* push_dive off: forward and the d-pad's up climb. */
-        NwProfile climb = nhanced;
+        NwProfile climb = tuned;
         climb.movement.plane.push_dive = false;
         CHECK(near(glide(&climb, 0xD, &states[0], 0x7F, 0x00, 0).DestTiltX, 40.0f, 1e-4f));
         CHECK(glide(&climb, 0xD, &states[0], 0x7F, 0xFF, 0).DestTiltX < -39.0f);
         CHECK(near(glide(&climb, 0x18, &states[0], 0x80, 0x80, 0x1000).DestTiltX, 40.0f, 1e-4f));
-        CHECK(near(glide(&nhanced, 0x18, &states[0], 0x80, 0x80, 0x1000).DestTiltX, -40.0f, 1e-4f));
+        CHECK(near(glide(&tuned, 0x18, &states[0], 0x80, 0x80, 0x1000).DestTiltX, -40.0f, 1e-4f));
     }
     nw_profile_apply(&retail);
     memset(&PlayerGlider, 0, sizeof(PlayerGlider));

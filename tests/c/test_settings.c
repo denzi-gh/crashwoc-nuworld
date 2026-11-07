@@ -271,10 +271,10 @@ int main(int argc, char *argv[])
           !s.movement.crash.run_speed && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
     NW_COCO_MOVEMENT(COCO_SWITCH, COCO_FLAG, COCO_VALUE)
     /* The same for Coco's. */
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.jump_fall &&
-          !s.movement.coco.grip && s.movement.coco.run_top == 120);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.run_speed &&
+          !s.movement.coco.grip && s.movement.coco.run_top == 110);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.coco.grip && s.movement.coco.jump_fall);
+          s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.coco.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.coco]\ngrip = false\n", &s) &&
           !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.coco.grip);
@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
     NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
     /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.submarine.turning &&
-          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 125);
+          !s.movement.submarine.hitbox && s.movement.submarine.speed_top == 110);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.submarine.speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
@@ -292,7 +292,7 @@ int main(int argc, char *argv[])
     NW_JEEP_MOVEMENT(JEEP_SWITCH, JEEP_FLAG, JEEP_VALUE)
     /* The same for the jeep's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.jeep.steering &&
-          !s.movement.jeep.speed && s.movement.jeep.steer_response == 200);
+          !s.movement.jeep.speed && s.movement.jeep.steer_response == 120);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.jeep.steering);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
@@ -304,10 +304,11 @@ int main(int argc, char *argv[])
           !s.movement.atlasphere.edge_guard && s.movement.atlasphere.guard_push &&
           s.movement.atlasphere.brake_force == 200);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = false\n", &s) &&
+          !s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nbrake = true\n", &s) &&
           s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard && !s.movement.crash.run_speed);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.atlasphere.edge_guard);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && !s.movement.atlasphere.edge_guard &&
+          s.movement.atlasphere.guard_push);
     NW_FIREFLY_MOVEMENT(FIREFLY_SWITCH, FIREFLY_FLAG, FIREFLY_VALUE)
     /* The same for the firefly's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.firefly.lock_on &&
@@ -320,7 +321,7 @@ int main(int argc, char *argv[])
     NW_PLANE_MOVEMENT(PLANE_SWITCH, PLANE_FLAG, PLANE_VALUE)
     /* The same for the plane's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.plane.steering &&
-          !s.movement.plane.aim && s.movement.plane.push_dive && s.movement.plane.pitch_response == 250);
+          !s.movement.plane.aim && s.movement.plane.push_dive && s.movement.plane.pitch_response == 200);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.plane.steering && s.movement.plane.aim);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.plane]\naim = false\n", &s) &&

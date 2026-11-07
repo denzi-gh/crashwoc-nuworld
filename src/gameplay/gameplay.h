@@ -53,18 +53,18 @@ typedef struct NwCrashMovement {
 
 /* Coco's options ([game.movement.coco]), the same scheme, under Crash's names. */
 #define NW_COCO_MOVEMENT(SW, FLAG, VAL) \
-    SW(jump_fall, "Crash 4 jump arc", true, "a Crash 4 style jump: quick launch, soft top, a fall that builds up") \
+    SW(jump_fall, "Crash 4 jump arc", false,"a Crash 4 style jump: quick launch, soft top, a fall that builds up") \
     VAL(jump_float, "Apex float %", 100, 0, 200, "how long the jump floats at the top") \
     VAL(jump_weight, "Fall weight %", 100, 100, 200, "how hard the fall builds up") \
     VAL(jump_height, "Jump height %", 100, 100, 130, "percent of the PS2's jump height") \
     SW(jump_distance, "Predictable jump distance", true, "in a jump any stick tilt is a full run") \
-    VAL(air_accel, "Air acceleration %", 200, 100, 400, "percent of the PS2's") \
-    SW(air_momentum, "Air momentum", true, "mid-air with the stick let go she keeps some momentum") \
-    VAL(air_drift, "Momentum kept %", 75, 0, 100, "how much of the PS2's slow-down she skips") \
+    VAL(air_accel, "Air acceleration %", 115, 100, 400, "percent of the PS2's") \
+    SW(air_momentum, "Air momentum", false, "mid-air with the stick let go she keeps some momentum") \
+    VAL(air_drift, "Momentum kept %", 100, 0, 100, "how much of the PS2's slow-down she skips") \
     SW(dash_jump, "Dash jump momentum", true, "a jump out of a dash keeps its speed") \
     VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of the dash's extra speed kept to the ground") \
     SW(run_speed, "Faster run", true, "a faster run and dash, quicker to speed") \
-    VAL(run_top, "Top speed % of Crash's", 120, 100, 150, "percent of Crash's PS2 run and dash; hers are 83 and 94") \
+    VAL(run_top, "Top speed % of Crash's", 110, 100, 150, "percent of Crash's PS2 run and dash; hers are 83 and 94") \
     VAL(run_accel, "Acceleration %", 150, 100, 300, "percent of the PS2's") \
     SW(grip, "Grip", true, "less slippery stops and turns; ice stays slippery") \
     VAL(grip_turn, "Turn grip %", 300, 100, 500, "percent of the PS2's") \
@@ -99,17 +99,17 @@ typedef struct NwMechMovement {
     SW(turning, "Free turning", true, \
        "any push to the side turns it that way, also mid-turn; no stop facing the screen") \
     VAL(turn_speed, "Turn speed %", 200, 100, 400, "percent of the PS2's") \
-    VAL(pitch_speed, "Climb and dive turn %", 200, 100, 400, "how fast it noses up and down, percent of the PS2's") \
+    VAL(pitch_speed, "Climb and dive turn %", 250, 100, 400, "how fast it noses up and down, percent of the PS2's") \
     SW(speed, "Faster sub", true, "a faster sub, quicker to speed and to stop") \
-    VAL(speed_top, "Top speed %", 125, 100, 200, "percent of the PS2's") \
-    VAL(speed_accel, "Acceleration %", 200, 100, 400, "percent of the PS2's") \
+    VAL(speed_top, "Top speed %", 110, 100, 200, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 250, 100, 400, "percent of the PS2's") \
     VAL(speed_brake, "Braking %", 200, 100, 400, "percent of the PS2's") \
     SW(hitbox, "Fitting hitbox", true, "fish, mines and shots reach about as far as it is drawn") \
-    VAL(hitbox_size, "Hitbox %", 75, 50, 100, "percent of the PS2's; walls, crates and fruit keep the PS2's") \
+    VAL(hitbox_size, "Hitbox %", 90, 50, 100, "percent of the PS2's; walls, crates and fruit keep the PS2's") \
     SW(weapons, "Weapon tuning", true, "the torpedo's and the bomb's reload and speed as set below") \
-    VAL(torpedo_rate, "Torpedo rate % (2/s)", 100, 100, 400, "how often it fires, percent of the PS2's 2 a second") \
-    VAL(torpedo_speed, "Torpedo speed %", 100, 100, 300, "percent of the PS2's; it flies as long, so farther") \
-    VAL(bomb_rate, "Bomb rate % (1/s)", 100, 100, 400, "how often it drops one, percent of the PS2's 1 a second") \
+    VAL(torpedo_rate, "Torpedo rate % (2/s)", 135, 100, 400, "how often it fires, percent of the PS2's 2 a second") \
+    VAL(torpedo_speed, "Torpedo speed %", 120, 100, 300, "percent of the PS2's; it flies as long, so farther") \
+    VAL(bomb_rate, "Bomb rate % (1/s)", 250, 100, 400, "how often it drops one, percent of the PS2's 1 a second") \
     VAL(bomb_speed, "Bomb speed %", 100, 100, 300, "how fast it sinks, percent of the PS2's")
 
 typedef struct NwSubMovement {
@@ -119,13 +119,13 @@ typedef struct NwSubMovement {
 /* The jeep's options ([game.movement.jeep]), the same scheme. */
 #define NW_JEEP_MOVEMENT(SW, FLAG, VAL) \
     SW(steering, "Sharper steering", true, "it turns in quicker, the same at 60 Hz as at 50") \
-    VAL(steer_response, "Steering response %", 200, 100, 400, "how fast it turns where the stick points") \
-    VAL(steer_angle, "Steering angle %", 100, 50, 150, "how far it turns off the track, percent of the PS2's") \
+    VAL(steer_response, "Steering response %", 120, 100, 400, "how fast it turns where the stick points") \
+    VAL(steer_angle, "Steering angle %", 115, 50, 150, "how far it turns off the track, percent of the PS2's") \
     SW(grip, "Grip", true, "less drift at speed in Smokey and the Bandicoot") \
-    VAL(grip_speed, "Grip at speed %", 300, 100, 1000, "percent of the PS2's") \
+    VAL(grip_speed, "Grip at speed %", 200, 100, 1000, "percent of the PS2's") \
     SW(speed, "Faster jeep", true, "a higher top speed, reached sooner") \
-    VAL(speed_top, "Top speed %", 110, 100, 150, "percent of the PS2's") \
-    VAL(speed_accel, "Acceleration %", 150, 100, 300, "Smokey and the Bandicoot's run-up, percent of the PS2's")
+    VAL(speed_top, "Top speed %", 100, 100, 150, "percent of the PS2's") \
+    VAL(speed_accel, "Acceleration %", 100, 100, 300, "Smokey and the Bandicoot's run-up, percent of the PS2's")
 
 typedef struct NwJeepMovement {
     NW_JEEP_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
@@ -133,12 +133,13 @@ typedef struct NwJeepMovement {
 
 /* The atlasphere's options ([game.movement.atlasphere]), the same scheme. None touches acceleration or coasting. */
 #define NW_ATLAS_MOVEMENT(SW, FLAG, VAL) \
-    SW(steer, "Sharper steering", true, "the ball turns tighter toward the stick and keeps its speed through the turn") \
+    SW(steer, "Sharper steering", false, \
+       "the ball turns tighter toward the stick and keeps its speed through the turn") \
     VAL(steer_turn, "Turn sharpness %", 200, 100, 400, "percent of the PS2's push across the roll") \
-    SW(brake, "Faster braking", true, "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
+    SW(brake, "Faster braking", false, "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
     VAL(brake_force, "Braking %", 200, 100, 400, "percent of the PS2's push against the roll") \
     VAL(coast_brake, "Let-go braking %", 0, 0, 100, "with the stick let go it slows too, percent of the PS2's push") \
-    SW(edge_guard, "Edge guard", true, "rolling slowly at a pit, the ball stops at its edge") \
+    SW(edge_guard, "Edge guard", false, "rolling slowly at a pit, the ball stops at its edge") \
     VAL(guard_reach, "Look-ahead ms", 300, 100, 600, "how far ahead it looks for a pit, as time at its speed") \
     VAL(guard_speed, "Up to speed", 6, 2, 13, "units a second it still stops from; its top is 11, a boost 13") \
     VAL(guard_brake, "Edge braking %", 300, 100, 500, "percent of the PS2's push") \
@@ -158,7 +159,7 @@ typedef struct NwAtlasMovement {
        "it banks, levels out, climbs and dives quicker, the same at 60 Hz as at 50") \
     VAL(steer_response, "Steering response %", 200, 100, 400, "how fast it banks into and out of a turn") \
     VAL(steer_turn, "Turn rate %", 125, 100, 200, "how fast a bank turns it, percent of the PS2's") \
-    VAL(pitch_response, "Climb and dive response %", 200, 100, 400, "how fast it noses up and down")
+    VAL(pitch_response, "Climb and dive response %", 250, 100, 400, "how fast it noses up and down")
 
 typedef struct NwFireflyMovement {
     NW_FIREFLY_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
@@ -167,9 +168,9 @@ typedef struct NwFireflyMovement {
 /* The plane's options ([game.movement.plane]), the same scheme: Tornado Alley and Atmospheric Pressure. */
 #define NW_PLANE_MOVEMENT(SW, FLAG, VAL) \
     SW(steering, "Sharper steering", true, "it noses up and down and banks sooner, the same at 60 Hz as at 50") \
-    VAL(deadzone, "Stick deadzone %", 10, 5, 30, "how far the stick counts as centred; the PS2's 25") \
-    VAL(pitch_response, "Pitch response %", 250, 100, 500, "how fast it noses up and down, percent of the PS2's") \
-    VAL(bank_response, "Bank response %", 150, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
+    VAL(deadzone, "Stick deadzone %", 5, 5, 30, "how far the stick counts as centred; the PS2's 25") \
+    VAL(pitch_response, "Pitch response %", 200, 100, 500, "how fast it noses up and down, percent of the PS2's") \
+    VAL(bank_response, "Bank response %", 230, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
     FLAG(push_dive, "Push to dive", true, "the stick forward noses down as on the PS2; off, forward climbs") \
     SW(aim, "Shots on the reticle", true, "in Tornado Alley the shots fly where the reticle points") \
     VAL(aim_assist, "Assist cone deg", 3, 0, 10, "an enemy this close to the reticle draws the shots; 0 none")
