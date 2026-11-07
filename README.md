@@ -45,14 +45,9 @@ need your own copy of the game (PAL, SLES-50386, v1.03).
 
 ## NuWorld first startup
 
-On the first start NuWorld asks for your disc image (`.iso`, or `.bin`/`.cue`), checks it and imports it.
-
-> [!IMPORTANT]
-> For now the game starts with `--boot`:
->
-> ```sh
-> ./build/release/NuWorld --boot
-> ```
+On the first start NuWorld asks for your disc image (`.iso`, or `.bin`/`.cue`), checks it and imports it. After that
+the game starts right away; `--setup` opens the import again. On Windows, `--console` shows the log in a console
+window.
 
 ## Building
 

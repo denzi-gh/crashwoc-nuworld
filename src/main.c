@@ -606,14 +606,11 @@ static int nw_boot_check(const char *data_dir, int vblanks, int loads, NwClockMo
     return nw_boot_exit(reached && state == NW_GAME_PARKED ? 0 : 1, parked);
 }
 
-static bool nw_window_open(NwPlatform *p, const char *data_dir)
+/* The renderer and the debug overlay on p's open window; the window is shut down if they fail. */
+static bool nw_window_ready(NwPlatform *p, const char *data_dir)
 {
     char *root = nw_data_root(data_dir);
-    if (!root || !nw_platform_init(p, NW_APP_NAME, 1280, 720)) {
-        SDL_free(root);
-        return false;
-    }
-    bool ok = nw_backend_init();
+    bool ok = root && nw_backend_init();
     if (ok) {
         ok = nw_debug_init(p, root);
         if (!ok) {
@@ -626,6 +623,11 @@ static bool nw_window_open(NwPlatform *p, const char *data_dir)
         nw_platform_shutdown(p);
     }
     return ok;
+}
+
+static bool nw_window_open(NwPlatform *p, const char *data_dir)
+{
+    return nw_platform_init(p, NW_APP_NAME, 1280, 720) && nw_window_ready(p, data_dir);
 }
 
 static void nw_window_close(NwPlatform *p)
@@ -915,8 +917,8 @@ static void nw_boot_fatal(SDL_Window *window, const char *data_dir)
 }
 
 /* Runs the game in the window; hardware_speed and aspect -1 take settings.toml's, which the debug menu changes and
-   saves. */
-static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
+   saves. window: the setup's open window to take over (it keeps the keyboard focus), NULL to open one. */
+static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPlatform *window)
 {
     char *root = nw_data_root(data_dir);
     if (root && !nw_log_open(root)) {
@@ -948,11 +950,17 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect)
             settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off", settings.camera_stability);
     int code = nw_boot_prepare(data_dir, NW_CLOCK_REALTIME, settings.hardware_speed);
     if (code) {
+        if (window) {
+            nw_platform_shutdown(window);
+        }
         return code;
     }
     NwPlatform platform;
-    if (!nw_window_open(&platform, data_dir)) {
+    if (window ? !nw_window_ready(window, data_dir) : !nw_window_open(&platform, data_dir)) {
         return 1;
+    }
+    if (window) {
+        platform = *window;
     }
     if (nw_pad_script) {
         SDL_Log(NW_APP_NAME ": --pad-script plays the retail game: no [game] switches");
@@ -1349,6 +1357,70 @@ static int nw_scene_check(const char *exe, const char *data_dir, const char *pat
 }
 #endif
 
+/* The first-run wizard: -1 when the game should start in the still open window, else the exit code with the
+   window closed. */
+static int nw_setup(const char *data_dir, int max_frames, NwPlatform *window)
+{
+    NwPlatform platform;
+    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
+        return 1;
+    }
+    char *root = nw_data_root(data_dir);
+    if (!root || !nw_ui_init(&platform, false)) {
+        char msg[512];
+        SDL_snprintf(msg, sizeof(msg), "%s:\n%s", root ? "The interface could not start" : "No data folder",
+                     SDL_GetError());
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, NW_APP_NAME, msg, platform.window);
+        SDL_free(root);
+        nw_platform_shutdown(&platform);
+        return 1;
+    }
+
+    NwWizard *wizard = nw_wizard_create(platform.window, root);
+    NwWizardResult result = wizard ? NW_WIZARD_OPEN : NW_WIZARD_QUIT;
+    int frames = 0;
+    while (result == NW_WIZARD_OPEN) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            nw_ui_event(&event);
+            nw_wizard_event(wizard, &event);
+            if (event.type == SDL_EVENT_QUIT) {
+                result = NW_WIZARD_QUIT;
+            }
+        }
+        if (SDL_GetWindowFlags(platform.window) & SDL_WINDOW_MINIMIZED) {
+            SDL_Delay(10);
+            continue;
+        }
+
+        int width, height;
+        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
+        glViewport(0, 0, width, height);
+        glClearColor(0.05f, 0.08f, 0.16f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        nw_ui_begin();
+        if (result == NW_WIZARD_OPEN) {
+            result = nw_wizard_draw(wizard);
+        }
+        nw_ui_end();
+        SDL_GL_SwapWindow(platform.window);
+
+        if (max_frames > 0 && ++frames >= max_frames) {
+            result = NW_WIZARD_QUIT;
+        }
+    }
+
+    nw_wizard_destroy(wizard);
+    nw_ui_shutdown();
+    SDL_free(root);
+    if (result == NW_WIZARD_CLOSED) {
+        *window = platform;
+        return -1;
+    }
+    nw_platform_shutdown(&platform);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
@@ -1358,7 +1430,7 @@ int main(int argc, char *argv[])
     const char *poke = NULL;                         /* --poke <vblank:symbol=value,...> */
     const char *dump_after = NULL;                   /* --dump-after <symbol=value> */
     bool dump_heap = true;
-    bool verify = false, setup = false, check_data = false, check_scenes = false, check_disc = false, boot = false;
+    bool verify = false, setup = false, check_data = false, check_scenes = false, check_disc = false;
     bool stepped = false, trace_sound = false; /* --boot-check on a stepped clock, with the sound trace */
     int boot_check = 0; /* vblanks after the first swap; 0 = no --boot-check */
     int boot_loads = 0; /* --loads: background loads instead of vblanks */
@@ -1407,7 +1479,7 @@ int main(int argc, char *argv[])
         } else if (strcmp(argv[i], "--scene-check") == 0) {
             scene_check = argv[++i];
         } else if (strcmp(argv[i], "--boot") == 0) {
-            boot = true;
+            /* the default now; kept for older shortcuts and scripts */
         } else if (strcmp(argv[i], "--boot-check") == 0) {
             boot_check = i + 1 < argc && argv[i + 1][0] != '-' ? atoi(argv[++i]) : 50;
             if (boot_check <= 0) {
@@ -1467,9 +1539,9 @@ int main(int argc, char *argv[])
         }
     }
     /* The checks, tests and comparisons read the retail disc. */
-    if (nw_overlay_count && (!boot || boot_check || capture || dump || check_data || check_scenes || check_disc ||
-                             scene || scene_check || verify || import || import_save)) {
-        fprintf(stderr, NW_APP_NAME ": --overlay is for the game window (--boot) only\n");
+    if (nw_overlay_count && (boot_check || capture || dump || check_data || check_scenes || check_disc || scene ||
+                             scene_check || verify || import || import_save)) {
+        fprintf(stderr, NW_APP_NAME ": --overlay is for the game window only\n");
         return 2;
     }
     if (import) {
@@ -1486,114 +1558,60 @@ int main(int argc, char *argv[])
     if (verify) {
         return nw_verify(data_dir);
     }
-    if (check_data || check_scenes || check_disc || scene || scene_check || boot || boot_check || capture || dump) {
-#ifdef NW_WITH_GAME
-        if (check_scenes) {
-            return nw_check_scenes(data_dir);
-        }
-        if (check_disc) {
-            return nw_check_disc(data_dir);
-        }
-        if (scene_check) {
-            return nw_scene_check(argv[0], data_dir, scene_check);
-        }
-        if (scene) {
-            return nw_scene(data_dir, scene, max_frames);
-        }
-        if (trace_sound) {
-            nw_trace_sound_start();
-        }
-        if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
-            return 2;
-        }
-        /* PCSX2 comparison runs keep its load times, the window takes settings.toml's and the checks load at once;
-           --hardware-speed overrides all of them. */
-        int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
-        /* The checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless --aspect or --hz names another. */
-        float aspect = -1.0f;
-        if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
-            fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");
-            return 2;
-        }
-        if (aspect > 0.0f) {
-            nw_wide_set(aspect, 16.0f / 9.0f);
-        }
-        if (capture) {
-            return nw_capture(data_dir, capture, capture_dir, speed > 0);
-        }
-        if (dump) {
-            return nw_dump_run(data_dir, dump, dump_dir, dump_heap, speed > 0);
-        }
-        return check_data   ? nw_check_data(data_dir)
-               : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
-                                            stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, speed > 0)
-                            : nw_boot(data_dir, speed, aspect);
-#else
-        fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
-        return 2;
-#endif
-    }
-
-    NwPlatform platform;
-    if (!nw_platform_init(&platform, NW_APP_NAME, 1280, 720)) {
-        return 1;
-    }
-    char *root = nw_data_root(data_dir);
-    if (!root || !nw_ui_init(&platform, false)) {
-        char msg[512];
-        SDL_snprintf(msg, sizeof(msg), "%s:\n%s", root ? "The interface could not start" : "No data folder",
-                     SDL_GetError());
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, NW_APP_NAME, msg, platform.window);
+    /* Without a mode the game starts; the first start (no imported disc) and --setup ask for the disc first. */
+    NwPlatform window = { 0 }; /* the setup's window, which the game takes over */
+    if (!(check_data || check_scenes || check_disc || scene || scene_check || boot_check || capture || dump)) {
+        char *root = nw_data_root(data_dir);
+        bool ask = setup || !root || !nw_extract_has_disc(root);
         SDL_free(root);
-        nw_platform_shutdown(&platform);
-        return 1;
-    }
-
-    /* First run (no imported disc) or --setup: the wizard. */
-    NwWizard *wizard = setup || !nw_extract_has_disc(root) ? nw_wizard_create(platform.window, root) : NULL;
-    bool running = true;
-    int frames = 0;
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            nw_ui_event(&event);
-            if (wizard) {
-                nw_wizard_event(wizard, &event);
-            }
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            }
-        }
-        if (SDL_GetWindowFlags(platform.window) & SDL_WINDOW_MINIMIZED) {
-            SDL_Delay(10);
-            continue;
-        }
-
-        int width, height;
-        SDL_GetWindowSizeInPixels(platform.window, &width, &height);
-        glViewport(0, 0, width, height);
-        glClearColor(0.05f, 0.08f, 0.16f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (wizard) {
-            nw_ui_begin();
-            NwWizardResult result = nw_wizard_draw(wizard);
-            nw_ui_end();
-            if (result != NW_WIZARD_OPEN) {
-                nw_wizard_destroy(wizard);
-                wizard = NULL;
-                running = result != NW_WIZARD_QUIT;
-            }
-        }
-        SDL_GL_SwapWindow(platform.window);
-
-        if (max_frames > 0 && ++frames >= max_frames) {
-            running = false;
+        int code = ask ? nw_setup(data_dir, max_frames, &window) : -1;
+        if (code >= 0) {
+            return code;
         }
     }
-
-    nw_wizard_destroy(wizard);
-    nw_ui_shutdown();
-    SDL_free(root);
-    nw_platform_shutdown(&platform);
-    return 0;
+#ifdef NW_WITH_GAME
+    if (check_scenes) {
+        return nw_check_scenes(data_dir);
+    }
+    if (check_disc) {
+        return nw_check_disc(data_dir);
+    }
+    if (scene_check) {
+        return nw_scene_check(argv[0], data_dir, scene_check);
+    }
+    if (scene) {
+        return nw_scene(data_dir, scene, max_frames);
+    }
+    if (trace_sound) {
+        nw_trace_sound_start();
+    }
+    if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
+        return 2;
+    }
+    /* PCSX2 comparison runs keep its load times, the window takes settings.toml's and the checks load at once;
+       --hardware-speed overrides all of them. */
+    int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
+    /* The checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless --aspect or --hz names another. */
+    float aspect = -1.0f;
+    if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
+        fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");
+        return 2;
+    }
+    if (aspect > 0.0f) {
+        nw_wide_set(aspect, 16.0f / 9.0f);
+    }
+    if (capture) {
+        return nw_capture(data_dir, capture, capture_dir, speed > 0);
+    }
+    if (dump) {
+        return nw_dump_run(data_dir, dump, dump_dir, dump_heap, speed > 0);
+    }
+    return check_data   ? nw_check_data(data_dir)
+           : boot_check ? nw_boot_check(data_dir, boot_check, boot_loads,
+                                        stepped ? NW_CLOCK_STEPPED : NW_CLOCK_REALTIME, speed > 0)
+                        : nw_boot(data_dir, speed, aspect, window.window ? &window : NULL);
+#else
+    fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
+    return 2;
+#endif
 }

@@ -9,17 +9,25 @@
 
 extern "C" {
 #include "frontend/import.h"
+#include "gfx/gl.h"
 #include "platform/paths.h"
 #include "vfs/extract.h"
+
+extern const unsigned char nw_beta_menu_png[];
+extern const size_t nw_beta_menu_png_size;
 }
 
 #define NW_WIZARD_RESCAN_MS 1000
+#define NW_WIZARD_MARGIN 16.0f /* around the window, unscaled */
+#define NW_WIZARD_FEEDBACK_URL "https://github.com/denzi-gh/crashwoc-nuworld/issues/new?template=0-beta_feedback.yml"
+#define NW_WIZARD_DISCORD_URL "https://discord.gg/kmCPpW4KvJ"
 
 typedef enum NwWizardPage {
     NW_PAGE_PICK,
     NW_PAGE_RUN,
     NW_PAGE_DONE,
     NW_PAGE_FAILED,
+    NW_PAGE_WELCOME,
 } NwWizardPage;
 
 struct NwWizard {
@@ -35,6 +43,9 @@ struct NwWizard {
     Uint64 scanned;  /* SDL_GetTicks of the last scan, 0 = never */
     char notice[512];
     char error[512];
+    GLuint shot; /* the welcome page's debug menu screenshot, 0 = not loaded */
+    int shot_w, shot_h;
+    bool zoom; /* the screenshot fills the window */
 };
 
 static const SDL_DialogFileFilter nw_wizard_filters[] = {
@@ -140,6 +151,9 @@ void nw_wizard_destroy(NwWizard *w)
     }
     nw_import_free(w->job);
     nw_import_list_free(&w->list);
+    if (w->shot) {
+        glDeleteTextures(1, &w->shot);
+    }
     SDL_free(w->image);
     SDL_free(w->import_dir);
     SDL_free(w->root);
@@ -279,10 +293,10 @@ static NwWizardResult nw_wizard_pick(NwWizard *w)
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
     ImGui::TextWrapped("Data folder: %s", w->root);
     ImGui::PopStyleColor();
-    static const char *const both[] = { "Close", "Quit" }, *const quit[] = { "Quit" };
+    static const char *const both[] = { "Start game", "Quit" }, *const quit[] = { "Quit" };
     nw_wizard_align_right(w->had_disc ? both : quit, w->had_disc ? 2 : 1);
     if (w->had_disc) {
-        if (ImGui::Button("Close")) {
+        if (ImGui::Button("Start game")) {
             result = NW_WIZARD_CLOSED;
         }
         ImGui::SameLine();
@@ -332,7 +346,7 @@ static void nw_wizard_run(NwWizard *w)
     }
 }
 
-static NwWizardResult nw_wizard_done(NwWizard *w)
+static void nw_wizard_done(NwWizard *w)
 {
     nw_wizard_title("Disc imported");
     nw_wizard_wrapped(nw_wizard_ok, "Every file matches PAL v" NW_DISC_VER);
@@ -341,7 +355,128 @@ static NwWizardResult nw_wizard_done(NwWizard *w)
     ImGui::Spacing();
     static const char *const next[] = { "Continue" };
     nw_wizard_align_right(next, 1);
-    return ImGui::Button("Continue") ? NW_WIZARD_CLOSED : NW_WIZARD_OPEN;
+    if (ImGui::Button("Continue")) {
+        w->page = NW_PAGE_WELCOME;
+    }
+}
+
+/* Uploads the embedded screenshot once; the page goes on without it if that fails. */
+static void nw_wizard_load_shot(NwWizard *w)
+{
+    SDL_IOStream *io = SDL_IOFromConstMem(nw_beta_menu_png, nw_beta_menu_png_size);
+    SDL_Surface *png = io ? SDL_LoadPNG_IO(io, true) : NULL;
+    SDL_Surface *rgba = png ? SDL_ConvertSurface(png, SDL_PIXELFORMAT_RGBA32) : NULL;
+    SDL_DestroySurface(png);
+    if (!rgba || rgba->pitch != rgba->w * 4) {
+        SDL_Log("wizard: screenshot: %s", SDL_GetError());
+        SDL_DestroySurface(rgba);
+        return;
+    }
+    glGenTextures(1, &w->shot);
+    glBindTexture(GL_TEXTURE_2D, w->shot);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rgba->w, rgba->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba->pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    w->shot_w = rgba->w;
+    w->shot_h = rgba->h;
+    SDL_DestroySurface(rgba);
+}
+
+static NwWizardResult nw_wizard_welcome(NwWizard *w)
+{
+    nw_wizard_title("Welcome to the NuWorld BETA");
+    ImGui::TextWrapped("Thanks for testing! This beta has one goal: fine-tuning N. Hanced Movement, NuWorld's reworked "
+                       "movement for Crash, Coco and the vehicles.");
+
+    nw_wizard_heading("Debug menu");
+    ImGui::Bullet();
+    ImGui::TextWrapped("Press F1 at any time to open the debug menu. Under Settings and Gameplay you also find video, "
+                       "audio, controls, game speed and camera, so you can set NuWorld up the way you like.");
+    ImGui::Bullet();
+    ImGui::TextWrapped("The debug menu is only for the beta. The first release will have native menus.");
+    ImGui::Bullet();
+    ImGui::TextWrapped("Under N. Hanced Movement you can change the parameters of Crash, Coco and every vehicle. Each "
+                       "one also has its own key, shown next to it in the menu.");
+    ImGui::Bullet();
+    ImGui::TextWrapped("Retail and N. Hanced at the top of a panel switch between the original movement and the "
+                       "beta's defaults. Changes are saved automatically.");
+
+    if (!w->shot && w->shot_w >= 0) {
+        nw_wizard_load_shot(w);
+        if (!w->shot) {
+            w->shot_w = -1; /* failed, do not retry every frame */
+        }
+    }
+    ImGui::Spacing();
+    if (w->shot) {
+        /* Left of the feedback: 60 % of the width at most, and the room left above the button row. */
+        const ImGuiStyle &style = ImGui::GetStyle();
+        float limit = ImGui::GetMainViewport()->WorkSize.y - 2.0f * NW_WIZARD_MARGIN * style.FontScaleDpi;
+        float footer = ImGui::GetFrameHeight() + style.ItemSpacing.y * 3.0f + style.WindowPadding.y;
+        float most = SDL_max(limit - ImGui::GetCursorPosY() - footer, 1.0f);
+        float width = ImGui::GetContentRegionAvail().x * 0.6f;
+        float height = width * (float)w->shot_h / (float)w->shot_w;
+        if (height > most) {
+            width = most * (float)w->shot_w / (float)w->shot_h;
+            height = most;
+        }
+        ImGui::Image((ImTextureID)w->shot, ImVec2(width, height));
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("Click to enlarge");
+        }
+        if (ImGui::IsItemClicked()) {
+            w->zoom = true;
+        }
+        ImGui::SameLine(0.0f, style.ItemSpacing.x * 3.0f);
+    }
+
+    ImGui::BeginGroup();
+    nw_wizard_heading("Feedback");
+    ImGui::TextWrapped("Something not working, or a parameter you would like to have? Create an issue on GitHub with "
+                       "the Beta Feedback template, or start a thread on the Discord server.");
+    if (ImGui::Button("Beta Feedback on GitHub")) {
+        SDL_OpenURL(NW_WIZARD_FEEDBACK_URL);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Discord")) {
+        SDL_OpenURL(NW_WIZARD_DISCORD_URL);
+    }
+    ImGui::EndGroup();
+
+    ImGui::Spacing();
+    static const char *const start[] = { "Start game" };
+    nw_wizard_align_right(start, 1);
+    return ImGui::Button("Start game") ? NW_WIZARD_CLOSED : NW_WIZARD_OPEN;
+}
+
+/* The screenshot over the whole window; a click or Escape closes it. */
+static void nw_wizard_zoom(NwWizard *w)
+{
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    float scale = SDL_min(vp->WorkSize.x / (float)w->shot_w, vp->WorkSize.y / (float)w->shot_h);
+    ImVec2 size((float)w->shot_w * scale, (float)w->shot_h * scale);
+    ImGui::SetNextWindowPos(vp->WorkPos);
+    ImGui::SetNextWindowSize(vp->WorkSize);
+    ImGui::SetNextWindowFocus();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.85f));
+    ImGui::Begin("##zoom", NULL,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::SetCursorPos(ImVec2((vp->WorkSize.x - size.x) * 0.5f, (vp->WorkSize.y - size.y) * 0.5f));
+    ImGui::Image((ImTextureID)w->shot, size);
+    if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        w->zoom = false;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        w->zoom = false;
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 static void nw_wizard_failed(NwWizard *w)
@@ -368,8 +503,9 @@ NwWizardResult nw_wizard_draw(NwWizard *w)
     NwWizardResult result = NW_WIZARD_OPEN;
     const ImGuiViewport *vp = ImGui::GetMainViewport();
     float scale = ImGui::GetStyle().FontScaleDpi;
-    float margin = 16.0f * scale;
-    float width = SDL_max(SDL_min(vp->WorkSize.x - 2.0f * margin, 760.0f * scale), 240.0f);
+    float margin = NW_WIZARD_MARGIN * scale;
+    float wide = w->page == NW_PAGE_WELCOME ? 960.0f : 760.0f; /* room for the screenshot */
+    float width = SDL_max(SDL_min(vp->WorkSize.x - 2.0f * margin, wide * scale), 240.0f);
     float height = SDL_max(vp->WorkSize.y - 2.0f * margin, 120.0f);
 
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -387,12 +523,18 @@ NwWizardResult nw_wizard_draw(NwWizard *w)
         nw_wizard_run(w);
         break;
     case NW_PAGE_DONE:
-        result = nw_wizard_done(w);
+        nw_wizard_done(w);
         break;
     case NW_PAGE_FAILED:
         nw_wizard_failed(w);
         break;
+    case NW_PAGE_WELCOME:
+        result = nw_wizard_welcome(w);
+        break;
     }
     ImGui::End();
+    if (w->zoom && w->shot) {
+        nw_wizard_zoom(w);
+    }
     return result;
 }
