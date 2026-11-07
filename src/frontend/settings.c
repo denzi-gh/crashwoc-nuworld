@@ -188,51 +188,51 @@ _Static_assert(sizeof(NwWindowMode) == sizeof(int) && sizeof(NwVsync) == sizeof(
                "NW_SETTING_ENUM fields are int-sized");
 
 #define NW_CRASH_KEY(f) .table = "game", .sub = "movement", .sub2 = "crash", .name = #f, NW_FIELD(movement.crash.f)
-#define NW_CRASH_SWITCH_KEY(f, label, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_CRASH_SWITCH_KEY(f, label, on, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_CRASH_FLAG_KEY(f, label, def, text) { NW_CRASH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_CRASH_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_CRASH_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_COCO_KEY(f) .table = "game", .sub = "movement", .sub2 = "coco", .name = #f, NW_FIELD(movement.coco.f)
-#define NW_COCO_SWITCH_KEY(f, label, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_COCO_SWITCH_KEY(f, label, on, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_COCO_FLAG_KEY(f, label, def, text) { NW_COCO_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_COCO_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_COCO_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_MECH_KEY(f) .table = "game", .sub = "movement", .sub2 = "mech", .name = #f, NW_FIELD(movement.mech.f)
-#define NW_MECH_SWITCH_KEY(f, label, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_MECH_SWITCH_KEY(f, label, on, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_MECH_FLAG_KEY(f, label, def, text) { NW_MECH_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_MECH_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_MECH_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_SUB_KEY(f) \
     .table = "game", .sub = "movement", .sub2 = "submarine", .name = #f, NW_FIELD(movement.submarine.f)
-#define NW_SUB_SWITCH_KEY(f, label, text) { NW_SUB_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SUB_SWITCH_KEY(f, label, on, text) { NW_SUB_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_SUB_FLAG_KEY(f, label, def, text) { NW_SUB_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_SUB_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_SUB_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_JEEP_KEY(f) .table = "game", .sub = "movement", .sub2 = "jeep", .name = #f, NW_FIELD(movement.jeep.f)
-#define NW_JEEP_SWITCH_KEY(f, label, text) { NW_JEEP_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_JEEP_SWITCH_KEY(f, label, on, text) { NW_JEEP_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_JEEP_FLAG_KEY(f, label, def, text) { NW_JEEP_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_JEEP_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_JEEP_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_ATLAS_KEY(f) \
     .table = "game", .sub = "movement", .sub2 = "atlasphere", .name = #f, NW_FIELD(movement.atlasphere.f)
-#define NW_ATLAS_SWITCH_KEY(f, label, text) { NW_ATLAS_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_ATLAS_SWITCH_KEY(f, label, on, text) { NW_ATLAS_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_ATLAS_FLAG_KEY(f, label, def, text) { NW_ATLAS_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_ATLAS_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_ATLAS_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_FIREFLY_KEY(f) \
     .table = "game", .sub = "movement", .sub2 = "firefly", .name = #f, NW_FIELD(movement.firefly.f)
-#define NW_FIREFLY_SWITCH_KEY(f, label, text) { NW_FIREFLY_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_FIREFLY_SWITCH_KEY(f, label, on, text) { NW_FIREFLY_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_FIREFLY_FLAG_KEY(f, label, def, text) { NW_FIREFLY_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_FIREFLY_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_FIREFLY_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_PLANE_KEY(f) .table = "game", .sub = "movement", .sub2 = "plane", .name = #f, NW_FIELD(movement.plane.f)
-#define NW_PLANE_SWITCH_KEY(f, label, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_PLANE_SWITCH_KEY(f, label, on, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_PLANE_FLAG_KEY(f, label, def, text) { NW_PLANE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_PLANE_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_PLANE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },
 #define NW_SPACE_KEY(f) \
     .table = "game", .sub = "movement", .sub2 = "spacefighter", .name = #f, NW_FIELD(movement.spacefighter.f)
-#define NW_SPACE_SWITCH_KEY(f, label, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
+#define NW_SPACE_SWITCH_KEY(f, label, on, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_SPACE_FLAG_KEY(f, label, def, text) { NW_SPACE_KEY(f), .kind = NW_SETTING_BOOL, .help = "true: " text },
 #define NW_SPACE_VALUE_KEY(f, label, def, lo_, hi_, text) \
     { NW_SPACE_KEY(f), .kind = NW_SETTING_INT, .lo = lo_, .hi = hi_, .help = #lo_ "-" #hi_ ", " text },

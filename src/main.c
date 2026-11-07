@@ -714,7 +714,7 @@ static void nw_boot_profile(NwSettings *s)
 }
 
 /* A switch's values show only while it is on. */
-#define NW_BOOT_SWITCH_ITEM(f, label, help) on = nw_boot_switch(label, help, &c->f);
+#define NW_BOOT_SWITCH_ITEM(f, label, on_, help) on = nw_boot_switch(label, help, &c->f);
 #define NW_BOOT_FLAG_ITEM(f, label, def, help)     if (on) {         nw_boot_flag(label, help, &c->f);     }
 #define NW_BOOT_VALUE_ITEM(f, label, def, lo, hi, help)     if (on) {         nw_boot_value(label, help, &c->f, lo, hi);     }
 

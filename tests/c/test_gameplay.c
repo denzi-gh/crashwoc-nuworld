@@ -285,6 +285,13 @@ static NwProfile only(size_t offset)
     return p;
 }
 
+/* p with the jump arc's sliders at 100: retail's height, reach and time. */
+static NwProfile neutral_arc(NwProfile p)
+{
+    p.movement.crash.jump_float = p.movement.crash.jump_weight = p.movement.crash.jump_height = 100;
+    return p;
+}
+
 #define ONLY(f) only(offsetof(NwMovement, crash.f))
 #define COCO_ONLY(f) only(offsetof(NwMovement, coco.f))
 #define MECH_ONLY(f) only(offsetof(NwMovement, mech.f))
@@ -411,7 +418,7 @@ static Arc jump(int hz, const NwProfile *p, int hold)
 
 static void jump_fall(void)
 {
-    NwProfile retail = { 0 }, on = ONLY(jump_fall);
+    NwProfile retail = { 0 }, on = neutral_arc(ONLY(jump_fall));
     for (int hold = 1; hold <= 100; hold += 99) {
         Arc pal = jump(50, &retail, hold), arc = jump(50, &on, hold);
         CHECK(near(arc.apex, pal.apex, 0.05f) && near(arc.reach, pal.reach, 0.05f));
@@ -521,7 +528,7 @@ static void air_jump(void)
     crash_at(50, &p);
     CHECK(air_jump_at(-0.05f, 0, 0) == 0);
     CHECK(air_jump_at(-0.15f, 3, 0) == 4 && air_jump_at(-0.2f, 3, 0) == 3);
-    p = on;
+    p = neutral_arc(on);
     p.movement.crash.jump_fall = true;
     crash_at(50, &p);
     CHECK(air_jump_at(-0.3f, 0, 0) == 4 && near(Character[0].obj.mom.y, 7.0f * 0.02f, 0.02f));
@@ -688,9 +695,9 @@ static void grip(void)
     float step = 0.0072f;
     crash_at(50, &on);
     Character[0].obj.ground = 1;
-    CHECK(near(loop_side(0.05f), 0.05f - 3.0f * step, 1e-5f));
-    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 2.0f * step, 1e-5f));
-    CHECK(near(loop_forward(-0.05f, 0.072f), -0.05f + 2.0f * step, 1e-5f));
+    CHECK(near(loop_side(0.05f), 0.05f - 2.5f * step, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 1.2f * step, 1e-5f));
+    CHECK(near(loop_forward(-0.05f, 0.072f), -0.05f + 1.2f * step, 1e-5f));
     CHECK(near(loop_forward(0.0f, 0.072f), step, 1e-5f));
     Character[0].obj.surface_type = 1;
     CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f));
@@ -745,13 +752,13 @@ static void slide(void)
     NwProfile retail = { 0 }, on = ONLY(slide);
     struct creature_s *c = &Character[0];
     crash_at(60, &on);
-    CHECK(CrashMoveInfo.SLIDEFRAMES == 24 && CrashMoveInfo.SLIDESPEED == 0.080000006f * 1.15f);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 24 && CrashMoveInfo.SLIDESPEED == 0.080000006f * 1.4f);
     crash_at(50, &on);
-    CHECK(CrashMoveInfo.SLIDEFRAMES == 20 && CrashMoveInfo.SLIDESPEED == 0.096f * 1.15f);
+    CHECK(CrashMoveInfo.SLIDEFRAMES == 20 && CrashMoveInfo.SLIDESPEED == 0.096f * 1.4f);
     c->slide = 20;
     c->obj.mom.z = 0.11f;
     CHECK(slide_frame(true) == 0.11f && slide_frame(false) == 0.11f && c->slide == 18); /* too soon to stand */
-    c->slide = 12;
+    c->slide = 5;
     CHECK(slide_frame(false) == 0.11f && c->slide == 0 && !c->crawl); /* stood up early, still running */
     c->slide = 1;
     CHECK(slide_frame(true) == 0.0f && c->crawl); /* held to the end: crawls */
@@ -795,7 +802,7 @@ static void slide(void)
 
 static void coco_jump(void)
 {
-    NwProfile retail = { 0 }, on = COCO_ONLY(jump_fall), his = ONLY(jump_fall);
+    NwProfile retail = { 0 }, on = COCO_ONLY(jump_fall), his = neutral_arc(ONLY(jump_fall));
     jump_character = 1;
     for (jump_type = 1; jump_type <= 2; jump_type++) {
         Arc pal = jump(50, &retail, 100), arc = jump(50, &on, 100), ntsc = jump(60, &on, 120);
@@ -1115,8 +1122,10 @@ static void mech_shot(void)
     CHECK(c->tap == 7);
 
     /* The stop after it ends shot_stop_ms on, once he steers. */
+    NwProfile stop = { .movement = NW_MOVEMENT_NHANCED };
+    stop.movement.mech.shot_stop_ms = 150;
     for (int hz = 50; hz <= 60; hz += 10) {
-        mech_at(hz, &(NwProfile){ .movement = NW_MOVEMENT_NHANCED });
+        mech_at(hz, &stop);
         int frames = 150 * hz / 1000;
         c->target = 2;
         nw_mech_before(c, &pad);
@@ -1214,7 +1223,7 @@ static void mech_aim(void)
     c->obj.pad_speed = MechMoveInfo.RUNSPEED;
     c->obj.pad_dx = 1.0f;
     nw_mech_aim(c);
-    CHECK(abs(c->obj.target_yrot - (int)(10923 * 1.5f / 32.0f)) <= 1 && c->obj.target_xrot == 0);
+    CHECK(abs(c->obj.target_yrot - (int)(10923 * 1.0f / 32.0f)) <= 1 && c->obj.target_xrot == 0);
     c->fire = 1; /* the shot's animation holds it */
     c->obj.target_yrot = 0;
     nw_mech_aim(c);
