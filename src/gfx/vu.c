@@ -40,8 +40,11 @@ static const char nw_vu_vs[] =
     "uniform vec4 u_sprite;\n"
     "uniform vec4 u_uv[4];\n" /* the xuv programs' VF24-27 */
     "uniform vec4 u_vu[2];\n" /* VU 0x14-0x15 */
-    "#if PROGRAM == PTL\n"
+    "#if PARTICLE\n"
     "uniform uvec4 u_ptl[132];\n" /* VU 0x3C-0xBF */
+    "uniform ivec4 u_atest;\n"
+    "uniform ivec2 u_texalpha;\n" /* conservative GS alpha range of the particle texture */
+    "uniform int u_zero;\n" /* this pass leaves all writable buffers unchanged when As is zero */
     "#elif PROGRAM == WATER || PROGRAM == WATERUV\n"
     "uniform vec4 u_wave[32];\n" /* VU 0x1B2-0x1D1 */
     "#endif\n"
@@ -57,7 +60,7 @@ static const char nw_vu_vs[] =
     "{\n"
     /* ptl.vsm: entry k = rate * t (t = time - birth) gives the corner offsets in GS units before the divide, lerped to
        the next but the colour not; dead before birth or past entry 62.9. */
-    "#if PROGRAM == PTL\n"
+    "#if PARTICLE\n"
     "    const int strip[6] = int[6](0, 1, 2, 1, 2, 3);\n"
     "    int corner = strip[gl_VertexID];\n"
     "    vec4 head = uintBitsToFloat(u_ptl[0]);\n"
@@ -83,6 +86,23 @@ static const char nw_vu_vs[] =
     "    uvec2 st = uv[corner].y == 0 ? corners.xy : corners.zw;\n"
     "    v_uv = vec2(st & 0x3FFFu) * u_sprite.zw;\n"
     "    v_col = vec4(u_ptl[4 + 2 * i] & 0xFFu);\n"
+    /* A fading particle often cannot pass AREF at all. Reject its primitive before rasterizing that pass, rather
+       than sampling the texture over a large near-camera quad just to discard every fragment. */
+    "    int lo = min(int(v_col.a) * u_texalpha.x / 128, 255);\n"
+    "    int hi = min(int(v_col.a) * u_texalpha.y / 128, 255);\n"
+    "    bool anypass, allpass;\n"
+    "    switch (u_atest.x) {\n"
+    "    case 0: anypass = false; allpass = false; break;\n"
+    "    case 1: anypass = true; allpass = true; break;\n"
+    "    case 2: anypass = lo < u_atest.y; allpass = hi < u_atest.y; break;\n"
+    "    case 3: anypass = lo <= u_atest.y; allpass = hi <= u_atest.y; break;\n"
+    "    case 4: anypass = lo <= u_atest.y && hi >= u_atest.y; allpass = lo == u_atest.y && hi == lo; break;\n"
+    "    case 5: anypass = hi >= u_atest.y; allpass = lo >= u_atest.y; break;\n"
+    "    case 6: anypass = hi > u_atest.y; allpass = lo > u_atest.y; break;\n"
+    "    default: anypass = lo != u_atest.y || hi != u_atest.y; allpass = hi < u_atest.y || lo > u_atest.y; break;\n"
+    "    }\n"
+    "    if ((u_atest.z != 0 ? allpass : !anypass) || (u_zero != 0 && hi == 0))\n"
+    "        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);\n"
     /* faceon adds its corners in GS units before the divide; facey spans its quad along VF15 and the object's y. */
     "#elif PROGRAM == FACEON || PROGRAM == FACEY\n"
     "    vec2 corner = 1.0 - 2.0 * a_tex.xy;\n"
@@ -193,24 +213,36 @@ static const char nw_vu_fs[] =
     "out vec4 o_col;\n"
     "ivec2 tex_size(int lod)\n"
     "{\n"
+    "#if PARTICLE\n"
+    "    return textureSize(u_tex, lod);\n"
+    "#else\n"
     "    return u_texmode.x == 3 ? textureSize(u_surf, 0) : textureSize(u_tex, lod);\n"
+    "#endif\n"
     "}\n"
     /* % of a negative is undefined; a surface at an internal scale of 3 is no power of two. */
     "int wrap(int p, int n)\n"
     "{\n"
+    "#if PROGRAM == PTL\n"
+    "    return p & (n - 1);\n"
+    "#else\n"
     "    return p >= 0 ? p % n : n - 1 - (-1 - p) % n;\n"
+    "#endif\n"
     "}\n"
     "vec4 texel(ivec2 p, int lod)\n"
     "{\n"
     "    ivec2 size = tex_size(lod);\n"
     "    p = ivec2(u_texmode.z != 0 ? clamp(p.x, 0, size.x - 1) : wrap(p.x, size.x),\n"
     "              u_texmode.w != 0 ? clamp(p.y, 0, size.y - 1) : wrap(p.y, size.y));\n"
+    "#if PARTICLE\n"
+    "    return vec4(texelFetch(u_tex, p, lod));\n"
+    "#else\n"
     "    if (u_texmode.x == 3) {\n"
     "        vec4 s = texelFetch(u_surf, ivec2(p.x, size.y - 1 - p.y), 0);\n"
     "        return floor(vec4(s.rgb * 255.0, s.a * 128.0) + 0.5);\n"
     "    }\n"
     "    uvec4 c = texelFetch(u_tex, p, lod);\n"
     "    return vec4(u_texmode.x == 2 ? c : texelFetch(u_clut, ivec2(int(c.r), 0), 0));\n"
+    "#endif\n"
     "}\n"
     "vec4 sample_level(vec2 uv, int lod, bool bilinear)\n"
     "{\n"
@@ -231,6 +263,9 @@ static const char nw_vu_fs[] =
     /* TEX1 with LCM 0: LOD = log2(1/Q) << L + K; MMAG up to LOD 0, MMIN past it. */
     "vec4 sample_gs(vec2 uv)\n"
     "{\n"
+    "#if PROGRAM == PTL\n"
+    "    return sample_level(uv, 0, true);\n"
+    "#else\n"
     "    float lod = log2(1.0 / gl_FragCoord.w) * float(1 << u_texlod.z) + float(u_texlod.w) / 16.0;\n"
     "    if (lod <= 0.0 || u_texlod.x < 2) {\n"
     "        return sample_level(uv, 0, bilerp((lod <= 0.0 ? u_texmode.y : u_texlod.x) == 1));\n"
@@ -243,6 +278,7 @@ static const char nw_vu_fs[] =
     "                   fract(lod));\n"
     "    }\n"
     "    return sample_level(uv, min(int(lod + 0.5), u_texlod.y), bilinear);\n"
+    "#endif\n"
     "}\n"
     /* The GS Z under the pixel, back from the depth the GS matrix (src/gfx/backend.c) gave it. */
     "vec4 zclut()\n"
@@ -299,10 +335,14 @@ static const char nw_vu_fs[] =
     "    vec2 st = v_uv;\n"
     "#endif\n"
     "    if (u_texmode.x != 0) {\n"
+    "#if PARTICLE\n"
+    "        vec4 t = floor(sample_gs(st));\n"
+    "#else\n"
     "        vec4 t = u_texmode.x == 4 ? zclut() : floor(sample_gs(st));\n"
     "        if (u_zalpha != 0) {\n"
     "            t.a = zclut().a;\n"
     "        }\n"
+    "#endif\n"
     "        c.rgb = min(floor(c.rgb * t.rgb / 128.0), 255.0);\n"
     "        c.a = u_tcc != 0 ? min(floor(c.a * t.a / 128.0), 255.0) : c.a;\n"
     "    }\n"
@@ -310,6 +350,7 @@ static const char nw_vu_fs[] =
     "        discard;\n"
     "    }\n"
     /* ((A - B) * C >> 7) + D clamped, A, B and D Cs, Cd or 0, C As, Ad or FIX (0 here); the frame keeps As. */
+    "#if !PARTICLE\n"
     "    if (u_gsblend.x >= 0) {\n"
     "        vec4 d = texelFetch(u_dst, ivec2(gl_FragCoord.xy), 0);\n"
     "        vec3 cd = floor(d.rgb * 255.0 + 0.5);\n"
@@ -320,13 +361,14 @@ static const char nw_vu_fs[] =
     "        o_col = vec4(clamp(r, 0.0, 255.0) / 255.0, c.a / 128.0);\n"
     "        return;\n"
     "    }\n"
+    "#endif\n"
     "    o_col = vec4(u_ascolour != 0 ? vec3(c.a / 128.0) : c.rgb / 255.0, c.a / 128.0);\n"
     "}\n";
 
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter;
+        uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter, texalpha, zero;
 } nw_vu[NW_VU_PROGRAMS];
 static NwTexFilter nw_vu_filter_mode;
 
@@ -334,13 +376,14 @@ static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
     static const char *const names[NW_VU_PROGRAMS] = { "TRIC",    "TRICU", "TRICA", "TRICDV",  "FACEON",
                                                        "FACEY",   "SKIN",  "TRIXUV", "SKINXUV", "PTL",
-                                                       "WATER", "WATERUV", "TRIGLASS", "SKNGLASS" };
+                                                       "WATER", "WATERUV", "TRIGLASS", "SKNGLASS", "PTL_GENERAL" };
     char head[512];
     int n = SDL_snprintf(head, sizeof(head), "#version 330 core\n");
     for (int i = 0; i < NW_VU_PROGRAMS; i++) {
         n += SDL_snprintf(head + n, sizeof(head) - (size_t)n, "#define %s %d\n", names[i], i);
     }
-    SDL_snprintf(head + n, sizeof(head) - (size_t)n, "#define PROGRAM %d\n", (int)program);
+    SDL_snprintf(head + n, sizeof(head) - (size_t)n,
+                  "#define PROGRAM %d\n#define PARTICLE (PROGRAM == PTL || PROGRAM == PTL_GENERAL)\n", (int)program);
     const GLchar *parts[2] = { head, src };
     GLuint s = glCreateShader(type);
     GLint ok = 0;
@@ -403,6 +446,8 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].frag = glGetUniformLocation(p, "u_frag");
     nw_vu[program].wave = glGetUniformLocation(p, "u_wave");
     nw_vu[program].filter = glGetUniformLocation(p, "u_filter");
+    nw_vu[program].texalpha = glGetUniformLocation(p, "u_texalpha");
+    nw_vu[program].zero = glGetUniformLocation(p, "u_zero");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -483,9 +528,16 @@ void nw_vu_waves(const float waves[32][4])
     }
 }
 
-void nw_vu_ptl(const uint32_t image[132][4])
+void nw_vu_ptl(NwVuProgram program, const uint32_t image[132][4])
 {
-    glUniform4uiv(nw_vu[NW_VU_PTL].ptl, 132, image[0]);
+    glUniform4uiv(nw_vu[program].ptl, 132, image[0]);
+}
+
+NwVuProgram nw_vu_particle_program(const NwVuTexture *texture, const NwMtlState *state)
+{
+    bool bilinear = nw_vu_filter_mode == NW_FILTER_BILINEAR ||
+                    (nw_vu_filter_mode == NW_FILTER_RETAIL && state->mmag == 1 && state->mmin == 1);
+    return texture && texture->power_of_two && state->mmin < 2 && bilinear ? NW_VU_PTL : NW_VU_PTL_GENERAL;
 }
 
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
@@ -509,6 +561,11 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     glUniform4i(nw_vu[program].texlod, m->state.mmin, m->state.mxl, m->state.l, m->state.k);
     glUniform1i(nw_vu[program].filter, (GLint)nw_vu_filter_mode);
     glUniform1i(nw_vu[program].tcc, (z && !z->ad) || (textured && m->tex->tcc));
+    bool particle = program == NW_VU_PTL || program == NW_VU_PTL_GENERAL;
+    if (particle) {
+        bool alpha = textured && m->tex->tcc;
+        glUniform2i(nw_vu[program].texalpha, alpha ? m->tex->alpha_min : 128, alpha ? m->tex->alpha_max : 128);
+    }
     glUniform1i(nw_vu[program].zalpha, z && z->alpha);
     glUniform1i(nw_vu[program].zad, z && z->ad ? z->ad - 1 : -1);
     if (z) {
@@ -546,7 +603,9 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
     /* The GS keeps the larger z; the screen matrices give GL the smaller one for the nearer point. */
     static const GLenum ztst[4] = { GL_NEVER, GL_ALWAYS, GL_LEQUAL, GL_LESS };
     glDepthFunc(ztst[m->state.ztst & 3]);
-    if (textured && m->tex->surface) {
+    if (textured && particle && m->tex->rgba) {
+        glBindTexture(GL_TEXTURE_2D, m->tex->rgba);
+    } else if (textured && m->tex->surface) {
         glActiveTexture(GL_TEXTURE0 + 2);
         glBindTexture(GL_TEXTURE_2D, m->tex->index);
         glActiveTexture(GL_TEXTURE0);
@@ -574,6 +633,12 @@ void nw_vu_filter(NwTexFilter filter)
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass)
 {
     glUniform4i(nw_vu[program].atest, m->state.ate ? m->state.atst : 1, m->state.aref, pass->failed, 0);
+    if (program == NW_VU_PTL || program == NW_VU_PTL_GENERAL) {
+        NwMtlBlend blend;
+        uint8_t a = m->state.alpha;
+        bool keep = m->state.abe && ((a >> 4) & 3) == 0 && (a >> 6) == 1 && nw_mtl_blend(a, &blend);
+        glUniform1i(nw_vu[program].zero, keep && !pass->z && !(pass->alpha && nw_vu_alpha));
+    }
     glColorMask(pass->rgb, pass->rgb, pass->rgb, pass->alpha && nw_vu_alpha);
     glDepthMask(pass->z);
 }
@@ -607,17 +672,62 @@ void nw_vu_texture(NwVuTexture *tex, const NwTex *t)
         glGenTextures(1, &names[1]);
         nw_vu_upload(names[1], GL_RGBA8UI, GL_RGBA_INTEGER, &clut, 1);
     }
-    tex->index = names[0];
-    tex->clut = names[1];
-    tex->tcc = t->tcc;
-    tex->surface = false;
+    *tex = (NwVuTexture){ .index = names[0], .clut = names[1], .tcc = t->tcc };
 }
 
 void nw_vu_texture_free(NwVuTexture *tex)
 {
-    const GLuint names[2] = { tex->index, tex->clut };
-    glDeleteTextures(2, names);
-    tex->index = tex->clut = 0;
+    const GLuint names[3] = { tex->index, tex->clut, tex->rgba == tex->index ? 0 : tex->rgba };
+    glDeleteTextures(3, names);
+    tex->index = tex->clut = tex->rgba = 0;
+}
+
+bool nw_vu_texture_rgba(NwVuTexture *tex, const NwTex *t)
+{
+    if (tex->rgba || !t->nlevels) {
+        return true;
+    }
+    GLuint name = tex->index;
+    if (t->ncolours) {
+        glGenTextures(1, &name);
+        glActiveTexture(GL_TEXTURE0 + 2);
+        glBindTexture(GL_TEXTURE_2D, name);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)t->nlevels - 1);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    unsigned alpha_min = 255, alpha_max = 0;
+    tex->power_of_two = true;
+    for (uint32_t l = 0; l < t->nlevels; l++) {
+        const NwTexLevel *level = &t->levels[l];
+        size_t pixels = (size_t)level->width * level->height;
+        tex->power_of_two &= !(level->width & (level->width - 1)) && !(level->height & (level->height - 1));
+        uint8_t *rgba = t->ncolours ? SDL_malloc(pixels * 4) : level->texels;
+        if (!rgba) {
+            glDeleteTextures(1, &name);
+            glActiveTexture(GL_TEXTURE0);
+            return false;
+        }
+        if (t->ncolours) {
+            for (size_t i = 0; i < pixels; i++) {
+                memcpy(rgba + i * 4, t->clut[level->texels[i]], 4);
+            }
+        }
+        for (size_t i = 0; i < pixels; i++) {
+            alpha_min = SDL_min(alpha_min, rgba[i * 4 + 3]);
+            alpha_max = SDL_max(alpha_max, rgba[i * 4 + 3]);
+        }
+        if (t->ncolours) {
+            glTexImage2D(GL_TEXTURE_2D, (GLint)l, GL_RGBA8UI, (GLsizei)level->width, (GLsizei)level->height, 0,
+                         GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, rgba);
+            SDL_free(rgba);
+        }
+    }
+    tex->rgba = name;
+    tex->alpha_min = alpha_min;
+    tex->alpha_max = alpha_max;
+    glActiveTexture(GL_TEXTURE0);
+    return true;
 }
 
 void nw_vu_attribs(void)
