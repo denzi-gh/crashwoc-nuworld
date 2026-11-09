@@ -1,6 +1,6 @@
 /* `data_harness <elf>` loads the fixture's data image from a synthetic ELF (tests/test_gen_dataimage.py) and
-   converts it back; `data_harness <elf> bad` expects the load to fail and prints why; `data_harness <elf> trip`
-   expects the way back to list one difference in the image and one in the C data. */
+   converts it back; `data_harness <elf> bad` (or `disc`, as another disc) expects the load to fail and prints why;
+   `data_harness <elf> trip` expects the way back to list one difference in the image and one in the C data. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,9 +50,11 @@ int main(int argc, char *argv[])
 
     NwImageStats st;
     char err[512];
-    bool ok = nw_image_load(&nw_image_tables, elf, size, &st, err, sizeof(err));
+    bool disc = argc > 2 && strcmp(argv[2], "disc") == 0;
+    bool ok = disc ? nw_image_load_disc(&nw_image_tables, "TEST v1.00", elf, size, &st, err, sizeof(err))
+                   : nw_image_load(&nw_image_tables, elf, size, &st, err, sizeof(err));
     free(elf);
-    if (argc > 2 && strcmp(argv[2], "bad") == 0) {
+    if (argc > 2 && (strcmp(argv[2], "bad") == 0 || disc)) {
         CHECK(!ok);
         printf("%s\n", err);
         return 0;

@@ -8,7 +8,7 @@
 #include "platform/buildid.h"
 #include "port/font3d.h"
 
-extern s32 editor_active, GameMode, pause_dir;
+extern s32 editor_active, GameMode, pause_dir, LANGUAGEOPTION;
 extern struct game_s Game;
 extern char tbuf[128];
 extern char *tNEWGAME[6], *tLOADGAME[6], *tLANGUAGE[6], *LanguageName[6];
@@ -36,8 +36,10 @@ static void nw_menu_title(struct cursor_s *cursor, s32 paused)
     DrawMenuEntry(cursor, tLOADGAME[Game.language], &x, &y, &i);
     Text3D(nw_menu_mods[Game.language], x, y, 1.0f, 0.6f, 0.6f, 0.6f, 0, NW_FONT3D_GREY);
     y += NW_MENUDY;
-    SDL_snprintf(tbuf, sizeof(tbuf), "%s: %s", tLANGUAGE[Game.language], LanguageName[Game.language]);
-    DrawMenuEntry(cursor, tbuf, &x, &y, &i);
+    if (LANGUAGEOPTION) {
+        SDL_snprintf(tbuf, sizeof(tbuf), "%s: %s", tLANGUAGE[Game.language], LanguageName[Game.language]);
+        DrawMenuEntry(cursor, tbuf, &x, &y, &i);
+    }
 }
 
 void DrawMenu(struct cursor_s *cursor, s32 paused)

@@ -392,8 +392,33 @@ void nw_image_free(void)
     memset(&nw_image, 0, sizeof(nw_image));
 }
 
-bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImageStats *stats, char *err,
-                   size_t err_size)
+/* Zeros and the seeds; NULL, else a root that needs the PAL ELF. */
+static const char *nw_image_seed(const NwImageTables *t)
+{
+    for (unsigned i = 0; i < t->nroots; i++) {
+        if (t->roots[i].kind == NW_ROOT_COPY || t->roots[i].kind == NW_ROOT_CONVERT) {
+            return t->roots[i].name;
+        }
+    }
+    memset(t->mirror, 0, t->mirror_size);
+    for (unsigned i = 0; i < t->nseeds; i++) {
+        memcpy(t->mirror + (t->seeds[i].addr - t->mirror_base), t->seeds[i].bytes, t->seeds[i].size);
+    }
+    return NULL;
+}
+
+static const char *nw_image_move(const NwImageDisc *disc, const NwDataObj *d, const void *elf, size_t size)
+{
+    for (unsigned i = 0; i < disc->nmoves; i++) {
+        if (disc->moves[i].addr == d->addr) {
+            return nw_elf_flatten(elf, size, disc->moves[i].at, disc->moves[i].at + d->ps2_size, d->host);
+        }
+    }
+    return "port/data.toml [discs] has no address for it";
+}
+
+static bool nw_image_fill(const NwImageTables *t, const NwImageDisc *disc, const void *elf, size_t size,
+                          NwImageStats *stats, char *err, size_t err_size)
 {
     nw_image_free();
     memset(stats, 0, sizeof(*stats));
@@ -404,10 +429,18 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
     nw_image.ctx = (NwXCtx){ .ptr_in = nw_image_ptr_in, .ptr_out = nw_image_ptr_out,
                              .addr_in = nw_image_addr_in, .addr_out = nw_image_addr_out,
                              .vutext_in = nw_image_vutext_in, .fatal = nw_image_fatal };
-    const char *why = nw_elf_flatten(elf, size, t->mirror_base, t->mirror_base + t->mirror_size, t->mirror);
-    if (why) {
-        snprintf(err, err_size, "%s", why);
-        return false;
+    if (disc) {
+        const char *needs = nw_image_seed(t);
+        if (needs) {
+            snprintf(err, err_size, "%s needs the PAL v1.03 ELF's bytes, which %s does not have", needs, disc->name);
+            return false;
+        }
+    } else {
+        const char *why = nw_elf_flatten(elf, size, t->mirror_base, t->mirror_base + t->mirror_size, t->mirror);
+        if (why) {
+            snprintf(err, err_size, "%s", why);
+            return false;
+        }
     }
     if (setjmp(nw_image.fail)) {
         return false;
@@ -430,8 +463,15 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
         const NwDataUnit *unit = t->units[u];
         for (unsigned i = 0; i < unit->count; i++) {
             const NwDataObj *d = &unit->objs[i];
-            if (d->flags & NW_DATA_RETAIL) {
+            const char *why = NULL;
+            if ((d->flags & NW_DATA_RETAIL) && disc) {
+                why = nw_image_move(disc, d, elf, size);
+            } else if (d->flags & NW_DATA_RETAIL) {
                 memcpy(d->host, t->mirror + (d->addr - t->mirror_base), d->ps2_size);
+            }
+            if (why) {
+                snprintf(err, err_size, "%s (retail's bytes from %s): %s", d->name, disc->name, why);
+                return false;
             }
             NwObj o = { d->addr, d->ps2_size, d->host, d->host_size, d->type, d->count,
                         d->flags & NW_DATA_PLAIN ? NW_OBJ_PLAIN : 0u, d->name };
@@ -464,6 +504,25 @@ bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImage
     stats->stub_pointers = nw_image.ctx.stub_pointers;
     nw_image_index_host();
     return true;
+}
+
+bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImageStats *stats, char *err,
+                   size_t err_size)
+{
+    return nw_image_fill(t, NULL, elf, size, stats, err, err_size);
+}
+
+bool nw_image_load_disc(const NwImageTables *t, const char *disc, const void *elf, size_t size, NwImageStats *stats,
+                        char *err, size_t err_size)
+{
+    for (unsigned i = 0; i < t->ndiscs; i++) {
+        if (strcmp(t->discs[i].name, disc) == 0) {
+            return nw_image_fill(t, &t->discs[i], elf, size, stats, err, err_size);
+        }
+    }
+    memset(stats, 0, sizeof(*stats));
+    snprintf(err, err_size, "port/data.toml [discs] has no %s", disc);
+    return false;
 }
 
 void *nw_image_host(uint32_t ps2)
@@ -854,4 +913,40 @@ void nw_image_trip_report(const NwImageTrip *s, FILE *out)
     fprintf(out, "C definitions against the ELF: %u (%llu bytes), %u differ, %u without a type; %u string "
                  "pointers matched by text\n",
             s->objects[1], (unsigned long long)s->bytes[1], s->differ[1], s->untyped, s->strings);
+}
+
+unsigned nw_image_seed_check(FILE *out)
+{
+    const NwImageTables *t = nw_image.t;
+    unsigned roots = 0, differ = 0;
+    for (unsigned i = 0; i < t->nroots; i++) {
+        const NwImageRoot *r = &t->roots[i];
+        if (r->kind != NW_ROOT_MIRROR) {
+            continue;
+        }
+        roots++;
+        const NwImageSeed *s = NULL;
+        for (unsigned k = 0; k < t->nseeds && !s; k++) {
+            s = t->seeds[k].addr == r->addr ? &t->seeds[k] : NULL;
+        }
+        const unsigned char *elf = t->mirror + (r->addr - t->mirror_base);
+        uint32_t off = 0;
+        while (off < r->ps2_size && elf[off] == (s && off < s->size ? s->bytes[off] : 0)) {
+            off++;
+        }
+        if (r->ps2_size && off == r->ps2_size) {
+            continue;
+        }
+        differ++;
+        if (!r->ps2_size) {
+            fprintf(out, "  %s (0x%08x): no size, so its bytes cannot be checked\n", r->name, r->addr);
+            continue;
+        }
+        char hex[16];
+        nw_trip_hex(hex, elf + off, r->ps2_size - off < 4 ? r->ps2_size - off : 4);
+        fprintf(out, "  %s +0x%x (0x%08x): ELF %s, %s\n", r->name, (unsigned)off, r->addr + off, hex,
+                s ? "not its seed" : "no seed");
+    }
+    fprintf(out, "other discs' mirror: %u roots, %u seeded, %u differ from the ELF\n", roots, t->nseeds, differ);
+    return differ;
 }

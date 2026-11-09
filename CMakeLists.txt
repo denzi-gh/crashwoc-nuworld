@@ -100,9 +100,12 @@ add_executable(crashwoc-nuworld
 set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
 nw_embed(crashwoc-nuworld nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
 nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
+nw_embed(crashwoc-nuworld nw_beta_menu_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/wizard/beta-menu.png)
 # Window icon: the exe's icon resource on Windows (SDL takes the first one), a PNG set at runtime elsewhere.
 if(WIN32)
   target_sources(crashwoc-nuworld PRIVATE assets/branding/nuworld.rc)
+  # No console window; --console opens one (src/platform/log.c).
+  set_target_properties(crashwoc-nuworld PROPERTIES WIN32_EXECUTABLE ON)
 else()
   nw_embed(crashwoc-nuworld nw_icon_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon-256.png)
 endif()

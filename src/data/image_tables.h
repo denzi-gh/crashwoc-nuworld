@@ -54,6 +54,25 @@ typedef struct NwVuProg {
     unsigned int addr, size; /* the retail package */
 } NwVuProg;
 
+/* port/data.toml [seeds] */
+typedef struct NwImageSeed {
+    const char *name;
+    unsigned int addr, size;
+    const unsigned char *bytes;
+} NwImageSeed;
+
+typedef struct NwImageMove {
+    const char *name;
+    unsigned int addr, at; /* in the PAL ELF, in the disc's */
+} NwImageMove;
+
+/* port/data.toml [discs] */
+typedef struct NwImageDisc {
+    const char *name;
+    const NwImageMove *moves;
+    unsigned int nmoves;
+} NwImageDisc;
+
 typedef struct NwImageTables {
     unsigned int mirror_base, mirror_size; /* PS2 range of the mirror */
     unsigned char *mirror;
@@ -69,6 +88,10 @@ typedef struct NwImageTables {
     unsigned int nregistry;
     const unsigned int *bounds; /* every known object start, range and section boundary */
     unsigned int nbounds;
+    const NwImageSeed *seeds;
+    unsigned int nseeds;
+    const NwImageDisc *discs;
+    unsigned int ndiscs;
 } NwImageTables;
 
 extern const NwImageTables nw_image_tables;

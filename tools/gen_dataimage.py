@@ -200,7 +200,7 @@ def load_data_toml(path: Path) -> tuple[dict, list[str]]:
     errors = []
     if data.get("schema") != 1:
         errors.append(f"{path.name}: schema must be 1")
-    unknown = set(data) - {"schema", "owned", "conflicts", "reads"}
+    unknown = set(data) - {"schema", "owned", "conflicts", "reads", "seeds", "discs"}
     if unknown:
         errors.append(f"{path.name}: unknown tables {sorted(unknown)}")
     out = {table: data.get(table, {}) for table in ("owned", "conflicts", "reads")}
@@ -208,6 +208,14 @@ def load_data_toml(path: Path) -> tuple[dict, list[str]]:
         for key, value in entries.items():
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"{path.name}: {table}.{key}: the value is the reason, a string")
+    out["seeds"] = data.get("seeds", {})
+    for key, value in out["seeds"].items():
+        if not isinstance(value, str) or not re.fullmatch(r"(?:[0-9a-f]{2})+", value):
+            errors.append(f"{path.name}: seeds.{key}: the value is the root's retail bytes, lowercase hex")
+    out["discs"] = data.get("discs", {})
+    for disc, moves in out["discs"].items():
+        if not isinstance(moves, dict) or not all(type(v) is int and v >= 0 for v in moves.values()):
+            errors.append(f"{path.name}: discs.{disc}: each value is the address in that disc's boot ELF")
     return out, errors
 
 
@@ -741,6 +749,18 @@ class Image:
             self.classify(root)
         self.host_objects()
         self.place()
+        for name, value in sorted(self.data.get("seeds", {}).items()):
+            r = self.roots.get(name)
+            if r is None or r.kind != "mirror":
+                self.error(f"data.toml: seeds.{name} is no mirror root")
+            elif len(value) != 2 * r.ps2_size:
+                self.error(f"data.toml: seeds.{name} has {len(value) // 2} bytes, the root {r.ps2_size}")
+        retail = {o.name for o in self.objs if o.retail}
+        for disc, moves in sorted(self.data.get("discs", {}).items()):
+            for name in sorted(retail - set(moves)):
+                self.error(f"data.toml: discs.{disc} has no address for {name}, which holds retail's bytes")
+            for name in sorted(set(moves) - retail):
+                self.error(f"data.toml: discs.{disc}.{name} is no C definition with retail's bytes")
 
     # classification
 
@@ -1026,6 +1046,27 @@ def render(image: Image) -> dict[str, str]:
     for i in range(0, len(bounds), 8):
         src.append("    " + " ".join(f"0x{b:08x}u," for b in bounds[i:i + 8]))
     src += ["};", ""]
+    seeds = sorted((image.roots[n].addr, n, bytes.fromhex(v)) for n, v in image.data.get("seeds", {}).items())
+    if seeds:
+        src.append("/* port/data.toml [seeds] */")
+        for i, (_a, _n, data) in enumerate(seeds):
+            src.append(f"static const unsigned char nw_image_seed{i}[] = {{ "
+                       + ", ".join(f"0x{b:02x}" for b in data) + " };")
+        src += ["", "static const NwImageSeed nw_image_seeds[] = {",
+                *(f'    {{ "{n}", 0x{a:08x}u, {len(data)}u, nw_image_seed{i} }},'
+                  for i, (a, n, data) in enumerate(seeds)), "};", ""]
+    retail = {o.name: o for o in image.objs if o.retail}
+    discs = sorted(image.data.get("discs", {}).items())
+    if discs:
+        src.append("/* port/data.toml [discs] */")
+        for i, (_disc, moves) in enumerate(discs):
+            if moves:
+                src += [f"static const NwImageMove nw_image_moves{i}[] = {{",
+                        *(f'    {{ "{n}", 0x{retail[n].addr:08x}u, 0x{at:08x}u }},'
+                          for n, at in sorted(moves.items(), key=lambda m: retail[m[0]].addr)), "};"]
+        src += ["", "static const NwImageDisc nw_image_discs[] = {",
+                *(f'    {{ "{disc}", {f"nw_image_moves{i}" if moves else "0"}, {len(moves)}u }},'
+                  for i, (disc, moves) in enumerate(discs)), "};", ""]
     units = list(image.units.values())
     src += [f"extern const NwDataUnit {unit_symbol(u)};" for u in units]
     src += ["", "static const NwDataUnit *const nw_data_units[] = {",
@@ -1039,6 +1080,8 @@ def render(image: Image) -> dict[str, str]:
             f"    nw_data_units, {len(units)}u,",
             f"    nw_image_registry, {len(registry)}u,",
             f"    nw_image_bounds, {len(bounds)}u,",
+            f"    {'nw_image_seeds' if seeds else '0'}, {len(seeds)}u,",
+            f"    {'nw_image_discs' if discs else '0'}, {len(discs)}u,",
             "};", ""]
 
     typ = [gen, '#include "data/convert.h"', ""]

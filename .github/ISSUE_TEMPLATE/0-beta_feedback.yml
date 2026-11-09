@@ -1,0 +1,54 @@
+name: Beta Feedback
+description: Feedback on N. Hanced Movement in the beta - something that does not work, feels wrong, or a parameter you would like to have.
+title: "[Beta]: "
+labels: ["beta feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One topic per issue. The movement panels are in the debug menu (F1) under N. Hanced Movement.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of feedback is it?
+      options:
+        - Something does not work
+        - Something feels wrong
+        - Suggestion for a new parameter
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: movement
+    attributes:
+      label: Which movement?
+      options:
+        - Crash
+        - Coco
+        - Mech
+        - Submarine
+        - Jeep
+        - Atlasphere
+        - Firefly
+        - Plane
+        - Space Fighter
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened, or what would you like?
+      placeholder: "Example: With Faster run on, Crash overshoots narrow ledges in Arctic Antics. A separate air speed parameter would help."
+    validations:
+      required: true
+  - type: input
+    id: level
+    attributes:
+      label: Level (if it matters)
+  - type: textarea
+    id: settings
+    attributes:
+      label: Your settings
+      description: Optional. The [game.movement] tables of settings.toml in your data folder, if you changed values.
+      render: toml

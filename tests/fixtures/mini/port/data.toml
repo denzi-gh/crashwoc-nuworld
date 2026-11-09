@@ -4,3 +4,6 @@ schema = 1
 "fixowned" = "the harness defines it"
 
 [conflicts]
+
+[discs."TEST v1.00"]
+"fixtent" = 0x00101200
