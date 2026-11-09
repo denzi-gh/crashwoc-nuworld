@@ -2,6 +2,7 @@
    glyph code instead (Text3D's q r u v for L1 R1 L2 R2), so they show the bound button of the device in use. */
 #include "game/gametypes.h"
 
+extern s32 LANGUAGEOPTION;
 extern struct game_s Game;
 extern struct powerdata_s PData[6];
 extern char *tSNEAKSHOES[6];
@@ -146,8 +147,8 @@ static char *nw_speedshoes_text[6][7] = {
 
 void NewLanguage(s32 lang)
 {
-    /* every table below has 6 languages; retail trusts the save's byte */
-    Game.language = lang >= 0 && lang < 6 ? lang : 0;
+    /* every table below has 6 languages; retail trusts the save's byte. English only without LANGUAGEOPTION */
+    Game.language = lang >= 0 && lang < 6 && LANGUAGEOPTION ? lang : 0;
     PData[0].name = tSNEAKSHOES[Game.language];
     PData[0].text = nw_sneakshoes_text[Game.language];
     PData[1].name = tDOUBLEJUMP[Game.language];

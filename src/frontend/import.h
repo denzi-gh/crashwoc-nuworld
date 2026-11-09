@@ -35,14 +35,17 @@ typedef enum NwImportState {
 
 typedef struct NwImport NwImport;
 
-/* Opens image and runs nw_extract_disc into root on a new thread. m must outlive the job. */
-NwImport *nw_import_start(const char *image, const char *root, const NwManifest *m);
+/* Opens image and runs nw_extract_disc into root on a new thread. known must outlive the job. */
+NwImport *nw_import_start(const char *image, const char *root, const NwManifest *const *known);
 
 /* State and bytes copied of the total so far (total is 0 while the disc is still being checked). */
 NwImportState nw_import_poll(NwImport *job, uint64_t *done, uint64_t *total);
 
 /* Why the job failed, once it is NW_IMPORT_FAILED. */
 const char *nw_import_error(const NwImport *job);
+
+/* The imported disc, once NW_IMPORT_DONE. */
+const NwManifest *nw_import_manifest(const NwImport *job);
 
 /* Asks the job to stop; it ends as NW_IMPORT_CANCELLED unless it already finished. */
 void nw_import_cancel(NwImport *job);

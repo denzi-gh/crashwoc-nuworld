@@ -6,7 +6,17 @@ static const NwManifestEntry nw_disc_entries[] = {
 #include "vfs/disc_manifest.inc"
 };
 
-const NwManifest nw_disc_manifest = { nw_disc_entries, SDL_arraysize(nw_disc_entries) };
+static const NwManifestEntry nw_disc_entries_usa100[] = {
+#include "vfs/disc_manifest_usa100.inc"
+};
+
+const NwManifest nw_disc_manifest = { nw_disc_entries, SDL_arraysize(nw_disc_entries), "PAL v1.03", "SLES_503.86",
+                                      "1.03", "PAL", NW_DISC_DATA_ELF };
+
+const NwManifest nw_disc_manifest_usa100 = { nw_disc_entries_usa100, SDL_arraysize(nw_disc_entries_usa100),
+                                             "USA v1.00", "SLUS_202.38", "1.00", "NTSC", NW_DISC_ENGLISH };
+
+const NwManifest *const nw_disc_manifests[] = { &nw_disc_manifest, &nw_disc_manifest_usa100, NULL };
 
 const NwManifestEntry *nw_manifest_find(const NwManifest *m, const char *path)
 {

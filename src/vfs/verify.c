@@ -117,9 +117,18 @@ bool nw_verify_digest(const NwManifestEntry *e, const uint8_t digest[NW_SHA256_S
     return true;
 }
 
-bool nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *m)
+static void nw_verify_names(const NwManifest *const *known, char *out, size_t size)
 {
-    char text[NW_CNF_MAX + 1], boot[64];
+    out[0] = '\0';
+    for (const NwManifest *const *m = known; *m; m++) {
+        SDL_strlcat(out, m == known ? "" : m[1] ? ", " : " and ", size);
+        SDL_strlcat(out, (*m)->name, size);
+    }
+}
+
+static bool nw_verify_cnf(NwDisc *disc, const NwIso *iso, const NwManifest *const *known, const NwManifest **out)
+{
+    char text[NW_CNF_MAX + 1], boot[64], names[128];
     uint8_t digest[NW_SHA256_SIZE];
     NwCnf cnf;
 
@@ -146,15 +155,23 @@ bool nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *m)
         return SDL_SetError("BOOT2 = %s: not a disc boot path", cnf.boot2);
     }
     nw_cnf_copy(boot, sizeof(boot), cnf.boot2 + 8, cnf.boot2 + 8 + strcspn(cnf.boot2 + 8, ";"));
-    if (SDL_strcmp(boot, NW_DISC_BOOT) != 0) {
-        return SDL_SetError("%s: %s; only the PAL disc " NW_DISC_BOOT " v" NW_DISC_VER " is supported", boot,
-                            nw_cnf_region(boot));
+    const NwManifest *m = NULL, *same_boot = NULL;
+    for (const NwManifest *const *k = known; *k && !m; k++) {
+        if (SDL_strcmp(boot, (*k)->boot) == 0) {
+            same_boot = same_boot ? same_boot : *k;
+            m = SDL_strcmp(cnf.ver, (*k)->ver) == 0 ? *k : NULL;
+        }
     }
-    if (SDL_strcmp(cnf.ver, NW_DISC_VER) != 0) {
-        return SDL_SetError("VER %s: only PAL v" NW_DISC_VER " is supported", cnf.ver[0] ? cnf.ver : "missing");
+    if (!same_boot) {
+        nw_verify_names(known, names, sizeof(names));
+        return SDL_SetError("%s: %s; only %s %s supported", boot, nw_cnf_region(boot), names,
+                            known[0] && known[1] ? "are" : "is");
     }
-    if (SDL_strcmp(cnf.vmode, NW_DISC_VMODE) != 0) {
-        return SDL_SetError("VMODE %s: only the PAL disc is supported", cnf.vmode[0] ? cnf.vmode : "missing");
+    if (!m) {
+        return SDL_SetError("VER %s: only %s is supported", cnf.ver[0] ? cnf.ver : "missing", same_boot->name);
+    }
+    if (SDL_strcmp(cnf.vmode, m->vmode) != 0) {
+        return SDL_SetError("VMODE %s: %s has %s", cnf.vmode[0] ? cnf.vmode : "missing", m->name, m->vmode);
     }
 
     const NwManifestEntry *e = nw_manifest_find(m, "SYSTEM.CNF");
@@ -163,25 +180,38 @@ bool nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *m)
     }
     nw_sha256(text, f->size, digest);
     if (f->size != e->size || !nw_verify_digest(e, digest)) {
-        return SDL_SetError("SYSTEM.CNF differs from PAL v" NW_DISC_VER);
+        return SDL_SetError("SYSTEM.CNF differs from %s", m->name);
     }
+    *out = m;
+    return true;
+}
 
-    e = nw_manifest_find(m, boot);
-    f = nw_iso_find(iso, boot);
+const NwManifest *nw_verify_identity(NwDisc *disc, const NwIso *iso, const NwManifest *const *known)
+{
+    const NwManifest *m = NULL;
+    uint8_t digest[NW_SHA256_SIZE];
+    if (!nw_verify_cnf(disc, iso, known, &m)) {
+        return NULL;
+    }
+    const NwManifestEntry *e = nw_manifest_find(m, m->boot);
+    const NwIsoFile *f = nw_iso_find(iso, m->boot);
     if (!e) {
-        return SDL_SetError("the manifest has no %s", boot);
+        SDL_SetError("the manifest has no %s", m->boot);
+        return NULL;
     }
     if (!f) {
-        return SDL_SetError("%s is missing", boot);
+        SDL_SetError("%s is missing", m->boot);
+        return NULL;
     }
     if (f->size != e->size) {
-        return SDL_SetError("%s is %u bytes, expected %llu: not PAL v" NW_DISC_VER " or a bad dump", boot, f->size,
-                            (unsigned long long)e->size);
+        SDL_SetError("%s is %u bytes, expected %llu: not %s or a bad dump", m->boot, f->size,
+                     (unsigned long long)e->size, m->name);
+        return NULL;
     }
     uint8_t *buf = SDL_malloc(NW_VERIFY_CHUNK);
     bool ok = buf && nw_verify_hash(disc, f, buf, digest, NULL) && nw_verify_digest(e, digest);
     SDL_free(buf);
-    return ok;
+    return ok ? m : NULL;
 }
 
 static bool nw_verify_hashed(const NwManifestEntry *e, unsigned flags)
@@ -193,7 +223,7 @@ bool nw_verify_listing(const NwIso *iso, const NwManifest *m)
 {
     for (uint32_t i = 0; i < iso->count; i++) {
         if (!nw_manifest_find(m, iso->files[i].path)) {
-            return SDL_SetError("%s is not part of PAL v" NW_DISC_VER, iso->files[i].path);
+            return SDL_SetError("%s is not part of %s", iso->files[i].path, m->name);
         }
     }
     for (size_t i = 0; i < m->count; i++) {

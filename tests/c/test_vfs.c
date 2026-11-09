@@ -1,5 +1,5 @@
 /* VFS: SHA-256, synthetic disc images, verification and import, data folders, game paths, overlays, .DAT archives and
-   the import wizard; NUWORLD_TEST_DISC and NUWORLD_TEST_DATA add checks against your own PAL v1.03 disc. */
+   the import wizard; NUWORLD_TEST_DISC and NUWORLD_TEST_DATA add checks against your own disc. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,24 +86,38 @@ static void test_sha256(void)
 
 static void test_disc_manifest(void)
 {
-    const NwManifest *m = &nw_disc_manifest;
-    const NwManifestEntry *cnf = nw_manifest_find(m, "system.cnf");
-    const NwManifestEntry *elf = nw_manifest_find(m, NW_DISC_BOOT);
-    unsigned skipped = 0;
+    static const struct {
+        const NwManifest *m;
+        size_t count;
+        uint64_t cnf_size, elf_size;
+        const char *cnf, *elf;
+        unsigned flags;
+    } discs[] = {
+        { &nw_disc_manifest, 451, 56, 6731763, "86fe327e4576516f57004800b2663c75c8a65a62872f3fdf3aa0618daf23d9c1",
+          "7fc6826d08c42a5a92fc018edae3e520783beb5a8330410251192bfe26b1eca1", NW_DISC_DATA_ELF },
+        { &nw_disc_manifest_usa100, 446, 57, 6823304, "c672d8baae995ad043a6af7a0351c89cbec5b96b93e1175ce1394dada10c1f61",
+          "4ce4cfb85538d5986bd2401b2a30af64ad7aa8cad3649705bbcd1fa0c6543f9d", NW_DISC_ENGLISH },
+    };
+    CHECK(nw_disc_manifests[0] == &nw_disc_manifest && nw_disc_manifests[1] == &nw_disc_manifest_usa100 &&
+          !nw_disc_manifests[2]);
+    for (size_t d = 0; d < SDL_arraysize(discs); d++) {
+        const NwManifest *m = discs[d].m;
+        const NwManifestEntry *cnf = nw_manifest_find(m, "system.cnf");
+        const NwManifestEntry *elf = nw_manifest_find(m, m->boot);
+        unsigned skipped = 0;
 
-    CHECK(m->count == 451);
-    CHECK(cnf && cnf->size == 56 &&
-          strcmp(cnf->sha256, "86fe327e4576516f57004800b2663c75c8a65a62872f3fdf3aa0618daf23d9c1") == 0);
-    CHECK(elf && elf->size == 6731763 &&
-          strcmp(elf->sha256, "7fc6826d08c42a5a92fc018edae3e520783beb5a8330410251192bfe26b1eca1") == 0);
-    for (size_t i = 0; i < m->count; i++) {
-        if (m->entries[i].flags & NW_MANIFEST_SKIP) {
-            skipped++;
-            CHECK(strcmp(m->entries[i].path, "DUMMY.DAT") == 0);
+        CHECK(m->count == discs[d].count && m->flags == discs[d].flags);
+        CHECK(cnf && cnf->size == discs[d].cnf_size && strcmp(cnf->sha256, discs[d].cnf) == 0);
+        CHECK(elf && elf->size == discs[d].elf_size && strcmp(elf->sha256, discs[d].elf) == 0);
+        for (size_t i = 0; i < m->count; i++) {
+            if (m->entries[i].flags & NW_MANIFEST_SKIP) {
+                skipped++;
+                CHECK(strcmp(m->entries[i].path, "DUMMY.DAT") == 0);
+            }
+            CHECK(i == 0 || strcmp(m->entries[i - 1].path, m->entries[i].path) < 0);
         }
-        CHECK(i == 0 || strcmp(m->entries[i - 1].path, m->entries[i].path) < 0);
+        CHECK(skipped == 1);
     }
-    CHECK(skipped == 1);
 }
 
 static char *scratch_path(const char *name)
@@ -134,6 +148,7 @@ typedef struct TestManifest {
     NwManifestEntry entries[8];
     char hex[8][NW_SHA256_HEX];
     NwManifest m;
+    const NwManifest *known[2];
 } TestManifest;
 
 static void manifest_add(TestManifest *t, const char *path, const void *data, size_t size, unsigned flags)
@@ -148,7 +163,8 @@ static void manifest_add(TestManifest *t, const char *path, const void *data, si
 static void manifest_build(TestManifest *t)
 {
     memset(t, 0, sizeof(*t));
-    t->m.entries = t->entries;
+    t->m = (NwManifest){ t->entries, 0, "PAL v1.03", "SLES_503.86", "1.03", "PAL", NW_DISC_DATA_ELF };
+    t->known[0] = &t->m;
     manifest_add(t, "DUMMY.DAT", dummy_data, DUMMY_SIZE, NW_MANIFEST_SKIP);
     manifest_add(t, "EMPTY.BIN", "", 0, 0);
     manifest_add(t, "LEVELS/B/HUB/HUB.GSC", gsc_data, GSC_SIZE, 0);
@@ -293,7 +309,7 @@ static void test_verify(void)
 
     CHECK(open_spec(&spec, &disc, &iso));
     manifest_build(&t);
-    CHECK(nw_verify_identity(&disc, &iso, &t.m));
+    CHECK(nw_verify_identity(&disc, &iso, t.known));
     last[0] = last[1] = 0;
     CHECK(nw_verify_files(&disc, &iso, &t.m, 0, progress_cb, last));
     CHECK(last[0] == ELF_SIZE + GSC_SIZE + strlen(pal_cnf) && last[1] == last[0]);
@@ -329,7 +345,7 @@ static void test_verify(void)
     for (size_t i = 0; i < SDL_arraysize(refused); i++) {
         spec.cnf = refused[i].cnf;
         if (open_spec(&spec, &disc, &iso)) {
-            CHECK_FAILS(nw_verify_identity(&disc, &iso, &t.m), refused[i].error);
+            CHECK_FAILS(nw_verify_identity(&disc, &iso, t.known), refused[i].error);
             nw_iso_free(&iso);
             nw_disc_close(&disc);
         } else {
@@ -337,18 +353,36 @@ static void test_verify(void)
         }
     }
 
+    /* Picked by BOOT2 and VER. */
+    NwManifest usa = { t.entries, t.m.count, "USA v1.00", "SLUS_202.38", "1.00", "NTSC", NW_DISC_ENGLISH };
+    NwManifest pal2 = { t.entries, t.m.count, "PAL v2.01", "SLES_503.86", "2.01", "PAL", 0 };
+    const NwManifest *several[] = { &usa, &pal2, &t.m, NULL };
+    spec.cnf = pal_cnf;
+    if (open_spec(&spec, &disc, &iso)) {
+        CHECK(nw_verify_identity(&disc, &iso, several) == &t.m);
+        nw_iso_free(&iso);
+        nw_disc_close(&disc);
+    }
+    spec.cnf = "BOOT2 = cdrom0:\\SLPM_650.00;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n";
+    if (open_spec(&spec, &disc, &iso)) {
+        CHECK_FAILS(nw_verify_identity(&disc, &iso, several),
+                    "SLPM_650.00: Japanese disc; only USA v1.00, PAL v2.01 and PAL v1.03 are supported");
+        nw_iso_free(&iso);
+        nw_disc_close(&disc);
+    }
+
     spec.cnf = pal_cnf;
     spec.elf_xor = 0x80;
     manifest_build(&t);
     if (open_spec(&spec, &disc, &iso)) {
-        CHECK_FAILS(nw_verify_identity(&disc, &iso, &t.m), "SLES_503.86: SHA-256");
+        CHECK_FAILS(nw_verify_identity(&disc, &iso, t.known), "SLES_503.86: SHA-256");
         nw_iso_free(&iso);
         nw_disc_close(&disc);
     }
     spec.elf_xor = 0;
     t.entries[3].size = 6731763;
     if (open_spec(&spec, &disc, &iso)) {
-        CHECK_FAILS(nw_verify_identity(&disc, &iso, &t.m), "SLES_503.86 is 5000 bytes, expected 6731763");
+        CHECK_FAILS(nw_verify_identity(&disc, &iso, t.known), "SLES_503.86 is 5000 bytes, expected 6731763");
         nw_iso_free(&iso);
         nw_disc_close(&disc);
     }
@@ -425,7 +459,7 @@ static void test_import(void)
         return;
     }
     manifest_build(&t);
-    CHECK(nw_extract_disc(&disc, &iso, &t.m, root, progress_cb, last));
+    CHECK(nw_extract_disc(&disc, &iso, t.known, root, progress_cb, last));
     CHECK(last[0] == last[1] && last[1] == ELF_SIZE + GSC_SIZE + strlen(pal_cnf));
     CHECK(file_is(AT("disc/LEVELS/B/HUB/HUB.GSC"), gsc_data, GSC_SIZE));
     CHECK(file_is(AT("disc/SLES_503.86"), elf_data, ELF_SIZE));
@@ -436,6 +470,21 @@ static void test_import(void)
     CHECK(!exists(AT("disc.partial")));
     CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
 
+    /* The stamp names the disc; an old one without a name is PAL. */
+    char *stamp = SDL_LoadFile(AT("disc/" NW_DISC_STAMP), NULL);
+    CHECK(stamp && SDL_strstr(stamp, "\nboot SLES_503.86\nver 1.03\n"));
+    SDL_free(stamp);
+    CHECK(nw_extract_manifest(root, t.known) == &t.m);
+    CHECK(nw_extract_manifest(root, nw_disc_manifests) == &nw_disc_manifest);
+    static const char usa[] = "nuworld-disc 1\r\nboot SLUS_202.38\r\nver 1.00\r\n";
+    static const char usa101[] = "nuworld-disc 1\nboot SLUS_202.38\nver 1.01\n";
+    SDL_SaveFile(AT("disc/" NW_DISC_STAMP), usa, strlen(usa));
+    CHECK(nw_extract_manifest(root, nw_disc_manifests) == &nw_disc_manifest_usa100);
+    SDL_SaveFile(AT("disc/" NW_DISC_STAMP), usa101, strlen(usa101));
+    CHECK_FAILS(nw_extract_manifest(root, nw_disc_manifests), "the imported disc is SLUS_202.38 v1.01");
+    SDL_SaveFile(AT("disc/" NW_DISC_STAMP), "", 0);
+    CHECK(nw_extract_manifest(root, nw_disc_manifests) == &nw_disc_manifest);
+
     /* --verify notices a changed file. */
     SDL_SaveFile(AT("disc/LEVELS/B/HUB/HUB.GSC"), "changed", 7);
     CHECK_FAILS(nw_extract_verify(root, &t.m, NULL, NULL), "LEVELS/B/HUB/HUB.GSC is 7 bytes, expected 4100");
@@ -443,30 +492,30 @@ static void test_import(void)
     /* A hash mismatch aborts the import: no disc.partial/ is left and the old disc/ is untouched. */
     SDL_SaveFile(AT("disc/OLD.TXT"), "old", 3);
     t.hex[2][0] = t.hex[2][0] == '0' ? '1' : '0';
-    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "LEVELS/B/HUB/HUB.GSC: SHA-256");
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, t.known, root, NULL, NULL), "LEVELS/B/HUB/HUB.GSC: SHA-256");
     CHECK(!exists(AT("disc.partial")));
     CHECK(exists(AT("disc/OLD.TXT")));
 
     /* A good import replaces the old disc/. */
     manifest_build(&t);
-    CHECK(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL));
+    CHECK(nw_extract_disc(&disc, &iso, t.known, root, NULL, NULL));
     CHECK(!exists(AT("disc/OLD.TXT")) && !exists(AT("disc.old")) && !exists(AT("disc.partial")));
     CHECK(nw_extract_verify(root, &t.m, NULL, NULL));
 
     /* Cancelling from the progress callback stops the import like a failure; verify can be cancelled too. */
     uint64_t limit = 0;
     SDL_SaveFile(AT("disc/OLD.TXT"), "old", 3);
-    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, cancel_cb, &limit), "cancelled");
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, t.known, root, cancel_cb, &limit), "cancelled");
     CHECK(!exists(AT("disc.partial")) && exists(AT("disc/OLD.TXT")) && nw_extract_has_disc(root));
     CHECK_FAILS(nw_extract_verify(root, &t.m, cancel_cb, &limit), "cancelled");
     limit = GSC_SIZE;
-    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, cancel_cb, &limit), "cancelled");
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, t.known, root, cancel_cb, &limit), "cancelled");
     CHECK(!exists(AT("disc.partial")) && exists(AT("disc/OLD.TXT")));
     SDL_RemovePath(AT("disc/OLD.TXT"));
 #ifdef SDL_PLATFORM_WINDOWS
     /* A file held open in disc/ blocks the swap: the import fails cleanly and keeps the old disc/. */
     SDL_IOStream *held = SDL_IOFromFile(AT("disc/SYSTEM.CNF"), "rb");
-    CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "cannot move aside");
+    CHECK_FAILS(nw_extract_disc(&disc, &iso, t.known, root, NULL, NULL), "cannot move aside");
     CHECK(!exists(AT("disc.partial")) && !exists(AT("disc.old")) && exists(AT("disc/" NW_DISC_STAMP)));
     SDL_CloseIO(held);
 #endif
@@ -481,7 +530,7 @@ static void test_import(void)
     SDL_snprintf(root, sizeof(root), "%s/data2/", scratch);
     spec.cnf = "BOOT2 = cdrom0:\\SLES_503.86;1\r\nVER = 2.01\r\nVMODE = PAL\r\n";
     if (open_spec(&spec, &disc, &iso)) {
-        CHECK_FAILS(nw_extract_disc(&disc, &iso, &t.m, root, NULL, NULL), "VER 2.01");
+        CHECK_FAILS(nw_extract_disc(&disc, &iso, t.known, root, NULL, NULL), "VER 2.01");
         CHECK(!exists(AT("disc.partial")) && !exists(AT("disc")));
         nw_iso_free(&iso);
         nw_disc_close(&disc);
@@ -579,7 +628,7 @@ static void test_vfs(void)
         CHECK(!"nw_vfs_init");
         return;
     }
-    CHECK(vfs.mounts[NW_VFS_DISC].count == 2);
+    CHECK(vfs.mounts[NW_VFS_DISC].count == 2 && vfs.manifest == &nw_disc_manifest);
     CHECK(vfs.mounts[NW_VFS_OVERLAY].count == 0 && !vfs.mounts[NW_VFS_OVERLAY].root);
 
     /* Case-insensitive lookups; open, read, seek, size, close. */
@@ -882,7 +931,7 @@ static void test_import_job(void)
     nw_disc_close(&disc);
     manifest_build(&t);
 
-    NwImport *job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    NwImport *job = nw_import_start(scratch_path("spec.iso"), root, t.known);
     CHECK(job);
     if (job) {
         CHECK(job_wait(job, &done, &total) == NW_IMPORT_DONE);
@@ -894,7 +943,7 @@ static void test_import_job(void)
     }
 
     /* Errors come from the job's thread. */
-    job = nw_import_start(scratch_path("missing.iso"), root, &t.m);
+    job = nw_import_start(scratch_path("missing.iso"), root, t.known);
     CHECK(job);
     if (job) {
         CHECK(job_wait(job, &done, &total) == NW_IMPORT_FAILED);
@@ -902,7 +951,7 @@ static void test_import_job(void)
         nw_import_free(job);
     }
     t.hex[2][0] = t.hex[2][0] == '0' ? '1' : '0';
-    job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    job = nw_import_start(scratch_path("spec.iso"), root, t.known);
     CHECK(job);
     if (job) {
         CHECK(job_wait(job, &done, &total) == NW_IMPORT_FAILED);
@@ -913,7 +962,7 @@ static void test_import_job(void)
 
     /* Freeing a running job cancels it and waits; whatever it got to, no disc.partial/ is left. */
     manifest_build(&t);
-    job = nw_import_start(scratch_path("spec.iso"), root, &t.m);
+    job = nw_import_start(scratch_path("spec.iso"), root, t.known);
     CHECK(job);
     nw_import_free(job);
     SDL_snprintf(path, sizeof(path), "%sdisc.partial", root);
@@ -949,11 +998,11 @@ static void test_real_disc(const char *path)
     printf("%s: %s, %u sectors\n", path, nw_disc_format_name(disc.format), disc.sectors);
     bool ok = nw_iso_index(&iso, &disc);
     if (ok) {
-        ok = nw_verify_identity(&disc, &iso, &nw_disc_manifest) &&
-             nw_verify_files(&disc, &iso, &nw_disc_manifest, NW_VERIFY_SKIPPED, real_progress, &percent);
+        const NwManifest *m = nw_verify_identity(&disc, &iso, nw_disc_manifests);
+        ok = m && nw_verify_files(&disc, &iso, m, NW_VERIFY_SKIPPED, real_progress, &percent);
         printf("\n");
         if (ok) {
-            printf("  %u files match the manifest (%.1f s)\n", iso.count, (SDL_GetTicks() - start) / 1000.0);
+            printf("  %u files match %s (%.1f s)\n", iso.count, m->name, (SDL_GetTicks() - start) / 1000.0);
         }
         nw_iso_free(&iso);
     }

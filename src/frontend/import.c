@@ -9,7 +9,8 @@ struct NwImport {
     SDL_Mutex *lock;
     char *image;
     char *root;
-    const NwManifest *m;
+    const NwManifest *const *known;
+    const NwManifest *imported; /* set before NW_IMPORT_DONE */
     SDL_AtomicInt state;
     SDL_AtomicInt cancel;
     uint64_t done; /* under lock */
@@ -124,15 +125,14 @@ static int SDLCALL nw_import_run(void *user)
     NwDisc disc;
     NwIso iso;
 
-    bool ok = nw_disc_open(&disc, job->image);
-    if (ok) {
-        ok = nw_iso_index(&iso, &disc);
-        if (ok) {
-            ok = nw_extract_disc(&disc, &iso, job->m, job->root, nw_import_progress, job);
+    if (nw_disc_open(&disc, job->image)) {
+        if (nw_iso_index(&iso, &disc)) {
+            job->imported = nw_extract_disc(&disc, &iso, job->known, job->root, nw_import_progress, job);
             nw_iso_free(&iso);
         }
         nw_disc_close(&disc);
     }
+    bool ok = job->imported != NULL;
     if (!ok) {
         SDL_strlcpy(job->error, SDL_GetError(), sizeof(job->error));
     }
@@ -142,13 +142,13 @@ static int SDLCALL nw_import_run(void *user)
     return 0;
 }
 
-NwImport *nw_import_start(const char *image, const char *root, const NwManifest *m)
+NwImport *nw_import_start(const char *image, const char *root, const NwManifest *const *known)
 {
     NwImport *job = SDL_calloc(1, sizeof(*job));
     if (!job) {
         return NULL;
     }
-    job->m = m;
+    job->known = known;
     job->image = SDL_strdup(image);
     job->root = SDL_strdup(root);
     job->lock = SDL_CreateMutex();
@@ -175,6 +175,11 @@ NwImportState nw_import_poll(NwImport *job, uint64_t *done, uint64_t *total)
 const char *nw_import_error(const NwImport *job)
 {
     return job->error;
+}
+
+const NwManifest *nw_import_manifest(const NwImport *job)
+{
+    return job->imported;
 }
 
 void nw_import_cancel(NwImport *job)

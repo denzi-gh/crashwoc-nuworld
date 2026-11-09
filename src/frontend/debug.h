@@ -1,4 +1,4 @@
-/* F1 debug overlay of the --scene and --boot windows. Main thread only. */
+/* F1 debug overlay of the --scene and game windows. Main thread only. */
 #ifndef NUWORLD_FRONTEND_DEBUG_H
 #define NUWORLD_FRONTEND_DEBUG_H
 

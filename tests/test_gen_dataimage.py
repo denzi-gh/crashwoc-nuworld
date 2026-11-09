@@ -58,10 +58,12 @@ class ListOutputs(unittest.TestCase):
     def test_data_toml(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "data.toml"
-            path.write_text('schema = 1\n[owned]\n"a" = 1\n[other]\n')
+            path.write_text('schema = 1\n[owned]\n"a" = 1\n[other]\n[seeds]\n"b" = "ffF"\n[discs.c]\n"d" = "e"\n')
             _data, errors = gen_dataimage.load_data_toml(path)
         self.assertEqual(errors, ["data.toml: unknown tables ['other']",
-                                  "data.toml: owned.a: the value is the reason, a string"])
+                                  "data.toml: owned.a: the value is the reason, a string",
+                                  "data.toml: seeds.b: the value is the root's retail bytes, lowercase hex",
+                                  "data.toml: discs.c: each value is the address in that disc's boot ELF"])
 
 
 @unittest.skipIf(typedb.cindex is None, "no libclang (tools/requirements.txt)")
@@ -112,6 +114,7 @@ class Fixture(unittest.TestCase):
                      '    { "D_00100680", 0x00100680u, 128u, (void *)&vu_load_fixb_mpg, 0u, 0, 0u, NW_ROOT_VU },',
                      "    0x00100600u, 0x00100700u,",
                      "    nw_vu_progs, 2u,",
+                     "    0, 0u,",
                      "#define NW_MIRROR_BASE 0x00100600u"]:
             self.assertIn(line + "\n", src)
         for line in ['    { "fixstatic", 0x00100c00u, 16u, (void *)&fixstatic, (unsigned int)sizeof fixstatic, 0, '
@@ -154,6 +157,38 @@ class Fixture(unittest.TestCase):
         self.assertEqual(image.errors, [])
         root = image.roots["D_00100B03"]
         self.assertEqual((root.kind, root.ps2_size, root.extent, root.need), ("copy", 16, "declared", 16))
+
+    def test_seeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            decomp = Path(tmp) / "decomp"
+            shutil.copytree(fb.DECOMP, decomp)
+            path = decomp / "src" / "game" / "fixdata.c"
+            path.write_text(path.read_text()
+                            .replace("extern s32 fixowned;", "extern s32 fixowned;\nextern char D_00100B04[4];")
+                            .replace("    return D_00100B00[0]", "    return D_00100B04[0] + D_00100B00[0]"))
+            image, outputs = self.generate(decomp, {**self.data, "seeds": {"D_00100B04": "6f00776f"}})
+            self.assertEqual(image.errors, [])
+            src = outputs["dataimage.c"]
+            for line in ["static const unsigned char nw_image_seed0[] = { 0x6f, 0x00, 0x77, 0x6f };",
+                         '    { "D_00100B04", 0x00100b04u, 4u, nw_image_seed0 },',
+                         "    nw_image_seeds, 1u,"]:
+                self.assertIn(line + "\n", src)
+            image, _outputs = self.generate(decomp, {**self.data, "seeds": {"D_00100B04": "00", "fixpairs": "00",
+                                                                             "D_00100B00": "00"}})
+            self.assertEqual(image.errors, ["data.toml: seeds.D_00100B00 has 1 bytes, the root 0",
+                                            "data.toml: seeds.D_00100B04 has 1 bytes, the root 4",
+                                            "data.toml: seeds.fixpairs is no mirror root"])
+
+    def test_discs(self):
+        image, outputs = self.generate()
+        self.assertEqual(image.errors, [])
+        for line in ['    { "fixtent", 0x00101100u, 0x00101200u },',
+                     '    { "TEST v1.00", nw_image_moves0, 1u },',
+                     "    nw_image_discs, 1u,"]:
+            self.assertIn(line + "\n", outputs["dataimage.c"])
+        image, _outputs = self.generate(data={**self.data, "discs": {"A": {}, "B": {"fixtent": 1, "fixstatic": 2}}})
+        self.assertEqual(image.errors, ["data.toml: discs.A has no address for fixtent, which holds retail's bytes",
+                                        "data.toml: discs.B.fixstatic is no C definition with retail's bytes"])
 
     def test_plain_and_pointer_declarations(self):
         errors = self.broken([("src/game/fixgame.c", "void FixGameTick(struct fixobj_s *obj)\n{\n",
@@ -216,6 +251,10 @@ class Fixture(unittest.TestCase):
             self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
             self.assertEqual(bad.stdout.strip(),
                              "fixmpgs[0]: 0x00100684 is vu_load_fixb_mpg+0x4, not the start of a microcode package")
+            bad = subprocess.run([str(exe), str(out / "good.elf"), "disc"], capture_output=True, text=True)
+            self.assertEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+            self.assertEqual(bad.stdout.strip(),
+                             "fixnames needs the PAL v1.03 ELF's bytes, which TEST v1.00 does not have")
             (out / "trip.elf").write_bytes(fixture_elf(cb, trip=True))
             trip = subprocess.run([str(exe), str(out / "trip.elf"), "trip"], capture_output=True, text=True)
             self.assertEqual(trip.returncode, 0, trip.stdout + trip.stderr)

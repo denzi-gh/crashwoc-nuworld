@@ -14,6 +14,7 @@
 #include "platform/paths.h"
 
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -197,12 +198,37 @@ static void nw_log_crash_install(void)
 }
 #endif
 
+#ifdef _WIN32
+/* A GUI exe has no console: redirected output stays as it is, otherwise it goes to the console that started
+   the exe or, with --console, to a new one. */
+static void nw_log_console(bool open)
+{
+    bool out = GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_UNKNOWN;
+    bool err = GetFileType(GetStdHandle(STD_ERROR_HANDLE)) == FILE_TYPE_UNKNOWN;
+    if (!(out || err) || !(AttachConsole(ATTACH_PARENT_PROCESS) || (open && AllocConsole()))) {
+        return;
+    }
+    if (out && freopen("CONOUT$", "w", stdout)) {
+        SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)_get_osfhandle(_fileno(stdout)));
+    }
+    if (err && freopen("CONOUT$", "w", stderr)) {
+        SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(_fileno(stderr)));
+    }
+}
+#endif
+
 void nw_log_init(int argc, char **argv)
 {
     nw_log.argc = argc;
     nw_log.argv = argv;
     nw_log.main = SDL_GetCurrentThreadID();
-#ifndef _WIN32
+#ifdef _WIN32
+    bool console = false;
+    for (int i = 1; i < argc; i++) {
+        console |= SDL_strcmp(argv[i], "--console") == 0;
+    }
+    nw_log_console(console);
+#else
     nw_log.raw = -1;
 #endif
     SDL_SetLogOutputFunction(nw_log_output, NULL);

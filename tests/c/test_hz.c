@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "data/image.h"
 #include "nu_port.h"
 #include "port/hz.h"
 
@@ -51,6 +52,26 @@ int main(void)
     CHECK(ram[8] == 0x78 && ram[11] == 0xFF && ram[12] == 7);
     /* A second pass finds the NTSC values and leaves them. */
     CHECK(nw_hz_apply(patches, sizeof patches / sizeof patches[0], host) == 6 && ram[4] == 12);
+
+    /* Another disc's image (a segmentless ELF for its own) still has every PAL value. */
+    unsigned char elf[52] = { 0x7f, 'E', 'L', 'F', 1, 1, 1 };
+    elf[18] = 8;  /* EM_MIPS */
+    elf[28] = 52; /* e_phoff */
+    elf[42] = 32; /* e_phentsize */
+    NwImageStats stats;
+    char err[512];
+    CHECK(!nw_image_load_disc(&nw_image_tables, "PAL v9.99", elf, sizeof(elf), &stats, err, sizeof(err)) &&
+          strstr(err, "has no PAL v9.99"));
+    if (!nw_image_load_disc(&nw_image_tables, "USA v1.00", elf, sizeof(elf), &stats, err, sizeof(err))) {
+        fprintf(stderr, "data image of USA v1.00: %s\n", err);
+        return 1;
+    }
+    for (unsigned i = 0; i < nw_image_tables.nseeds; i++) {
+        const NwImageSeed *s = &nw_image_tables.seeds[i];
+        CHECK(memcmp(nw_image_host(s->addr), s->bytes, s->size) == 0);
+    }
+    CHECK(nw_image_tables.nseeds > 0 && nw_hz_patch() == 0);
+    nw_image_free();
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

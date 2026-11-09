@@ -26,6 +26,9 @@ typedef struct NwImageStats {
    in err on a fatal problem. */
 bool nw_image_load(const NwImageTables *t, const void *elf, size_t size, NwImageStats *stats, char *err,
                    size_t err_size);
+/* Another disc (port/data.toml [discs]) from its own boot ELF, while no root is copied or converted. */
+bool nw_image_load_disc(const NwImageTables *t, const char *disc, const void *elf, size_t size, NwImageStats *stats,
+                        char *err, size_t err_size);
 
 /* Frees the objects created on demand; the roots keep their bytes. */
 void nw_image_free(void);
@@ -71,5 +74,8 @@ typedef struct NwImageTrip {
    the ELF is still in the mirror. False with the message in err when the way back itself fails. */
 bool nw_image_roundtrip(NwImageTrip *trip, FILE *out, char *err, size_t err_size);
 void nw_image_trip_report(const NwImageTrip *trip, FILE *out);
+
+/* After nw_image_load: lists the mirror roots that are not their seed or zero; returns how many. */
+unsigned nw_image_seed_check(FILE *out);
 
 #endif
