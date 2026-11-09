@@ -9,6 +9,7 @@
 #include "game/gametypes.h"
 #include "platform/paths.h"
 #include "port/saveload.h"
+#include "port/text.h"
 #include "save/ps2card.h"
 
 #define SAVE_SIZE ((int)sizeof(SaveSlot))
@@ -46,6 +47,8 @@ static char dir[1100];
 
 static unsigned seen;   /* bit n: status n was seen after a frame */
 static bool changed;    /* saveload_cardchanged was set */
+static bool folder;     /* booted with a card folder */
+static bool odd_card;   /* with one, a state that would show a dropped notice (port/text.h) */
 
 /* One menu frame: what ProcMenu's load and save menus run. */
 static void frame(void)
@@ -56,6 +59,9 @@ static void frame(void)
         seen |= 1u << saveload_status;
     }
     changed = changed || saveload_cardchanged;
+    /* no card, an unformatted one or one too full for the game's 0x42 KB */
+    odd_card = odd_card || (folder && (saveload_cardtype != 2 || saveload_cardformatted != 1 ||
+                                       saveload_freespace < 0x42));
 }
 
 #define RUN_UNTIL(cond) \
@@ -80,6 +86,7 @@ static void boot(const char *card)
     memcard_formatme = memcard_formatting = memcard_formatfailed = 0;
     seen = 0;
     changed = false;
+    folder = card != NULL;
 }
 
 static char *path_of(const char *name)
@@ -213,6 +220,8 @@ static void test_game(void)
     save();
     CHECK(memcard_savefailed && !changed);
 
+    CHECK(!odd_card);
+
     /* no card: no load is tried */
     boot(NULL);
     for (int i = 0; i < 10; i++) {
@@ -242,6 +251,59 @@ static void test_sync(void)
     CHECK(saveloadDeleteSlot(0) && !saveloadDeleteSlot(0) && !saveloadLoadSlot(0, back, SAVE_SIZE));
     CHECK(saveloadDeleteSlot(2) && saveloadGetDirectory() == 0);
     CHECK(saveloadFormatCard() && !saveloadUnFormatCard());
+}
+
+extern char *tCHECKINGMEMORYCARD[6][2], *tDONOTREMOVEMEMORYCARD[6][3], *tPLEASEINSERTMEMORYCARDSLOT1[6][3],
+    *tYOUNEEDAMEMORYCARD[6][8], *tMEMORYCARDISNOTFORMATTED[6][3], *tNOTENOUGHSPACEONMEMORYCARD[6][3],
+    *tGAMEREQUIRESiKB[6], *tFORMAT[6], *tCONFIRMFORMAT[6], *tFORMATTING[6], *tFAILEDTOFORMAT[6],
+    *tFORMATTINGCOMPLETE[6];
+
+/* A save menu line for the saves folder: upper case (lower case draws models and the PS2 logo), at most 27
+   letters, naming no card or console. */
+static bool pc_line(const char *t)
+{
+    static const char *const ps2[] = { "MEMORY", "CARD", "KAART", "TARJETA", "CONSOLE", "SLOT", "FENTE", "RANURA" };
+    bool ok = t && strlen(t) <= 27;
+    for (const char *c = t; ok && *c; c++) {
+        ok = !(*c >= 'a' && *c <= 'z');
+    }
+    for (size_t i = 0; ok && i < sizeof(ps2) / sizeof(ps2[0]); i++) {
+        ok = !strstr(t, ps2[i]);
+    }
+    return ok;
+}
+
+static bool all_empty(char **t, int n)
+{
+    for (int i = 0; i < n; i++) {
+        if (!t[i] || t[i][0]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* nw_text_platform: the shown save texts for the saves folder, the PC's or the Steam Deck's, the rest dropped. */
+static void test_text(void)
+{
+    for (int deck = 0; deck < 2; deck++) {
+        nw_text_platform(deck);
+        for (int l = 0; l < 6; l++) {
+            CHECK(pc_line(tCHECKINGMEMORYCARD[l][0]) && pc_line(tCHECKINGMEMORYCARD[l][1]));
+            CHECK(tCHECKINGMEMORYCARD[l][0][0]);
+            bool named = false;
+            for (int i = 0; i < 3; i++) {
+                CHECK(pc_line(tDONOTREMOVEMEMORYCARD[l][i]));
+                named = named || strstr(tDONOTREMOVEMEMORYCARD[l][i], deck ? "STEAM DECK" : "PC");
+            }
+            CHECK(named);
+        }
+        CHECK(all_empty(&tPLEASEINSERTMEMORYCARDSLOT1[0][0], 6 * 3) && all_empty(&tYOUNEEDAMEMORYCARD[0][0], 6 * 8));
+        CHECK(all_empty(&tMEMORYCARDISNOTFORMATTED[0][0], 6 * 3) &&
+              all_empty(&tNOTENOUGHSPACEONMEMORYCARD[0][0], 6 * 3));
+        CHECK(all_empty(tGAMEREQUIRESiKB, 6) && all_empty(tFORMAT, 6) && all_empty(tCONFIRMFORMAT, 6));
+        CHECK(all_empty(tFORMATTING, 6) && all_empty(tFAILEDTOFORMAT, 6) && all_empty(tFORMATTINGCOMPLETE, 6));
+    }
 }
 
 /* NUWORLD_TEST_CARD's save: imported, then loaded from the file and by the game, then saved by the game. */
@@ -298,6 +360,7 @@ int main(int argc, char *argv[])
     } else {
         test_game();
         test_sync();
+        test_text();
         /* what tests/save_toml.py reads with Python's tomllib */
         CHECK(nw_paths_remove_tree(dir) && SDL_CreateDirectory(dir));
         boot(dir);

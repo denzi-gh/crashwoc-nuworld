@@ -1,5 +1,8 @@
 /* game/text's NewLanguage (port/units.toml override): the power-up texts that name a shoulder button hold its
-   glyph code instead (Text3D's q r u v for L1 R1 L2 R2), so they show the bound button of the device in use. */
+   glyph code instead (Text3D's q r u v for L1 R1 L2 R2), so they show the bound button of the device in use.
+   nw_text_platform: the save menus' texts for the saves folder (port/text.h). */
+#include "port/text.h"
+
 #include "game/gametypes.h"
 
 extern s32 LANGUAGEOPTION;
@@ -162,4 +165,79 @@ void NewLanguage(s32 lang)
     PData[5].name = tSUPERBELLYFLOP[Game.language];
     PData[5].text = tSUPERBELLYFLOPTEXT[Game.language];
     DefaultTimeTrialNames(0);
+}
+
+/* The save menus (game/game's DrawMenu 20, 23, 25, 26, 28) name the PS2's memory card, its slot 1 and the console.
+   Upper case only, as retail's: Text3D draws lower case as models and pad buttons (retail's p is the PS2 logo). */
+extern char *tCHECKINGMEMORYCARD[6][2];
+extern char *tDONOTREMOVEMEMORYCARD[6][3];
+extern char *tPLEASEINSERTMEMORYCARDSLOT1[6][3];
+extern char *tYOUNEEDAMEMORYCARD[6][8];
+extern char *tMEMORYCARDISNOTFORMATTED[6][3];
+extern char *tNOTENOUGHSPACEONMEMORYCARD[6][3];
+extern char *tGAMEREQUIRESiKB[6];
+extern char *tFORMAT[6], *tCONFIRMFORMAT[6], *tFORMATTING[6], *tFAILEDTOFORMAT[6], *tFORMATTINGCOMPLETE[6];
+
+/* While the menu reads the saves folder: retail's lines, without the card. */
+static char *nw_checking_saves[6][2] = {
+    { "CHECKING SAVED GAMES", "" },
+    { "VERIFICATION DES PARTIES", "SAUVEGARDEES" },
+    { "\232BERPR\232FE SPIELST\216NDE...", "" },
+    { "CONTROLLO PARTITE SALVATE", "IN CORSO" },
+    { "COMPROBANDO PARTIDAS", "GUARDADAS" },
+    { "OPGESLAGEN SPELLEN WORDEN", "GECONTROLEERD" },
+};
+
+/* Under the checking, saving and deleting texts: nothing to remove, the power line per target. Lines of at most
+   27 letters, retail's longest at this size. */
+static char *nw_do_not_quit_pc[6][3] = {
+    { "PLEASE DO NOT QUIT THE GAME", "OR TURN OFF YOUR PC", "" },
+    { "NE PAS QUITTER LE JEU", "NI ETEINDRE LE PC", "" },
+    { "BITTE SPIEL NICHT BEENDEN", "UND PC NICHT AUSSCHALTEN", "" },
+    { "NON USCIRE DAL GIOCO", "E NON SPEGNERE IL PC", "" },
+    { "NO SALGA DEL JUEGO", "NI APAGUE EL PC", "" },
+    { "SLUIT HET SPEL NIET AF", "EN SCHAKEL DE PC NIET UIT", "" },
+};
+
+static char *nw_do_not_quit_deck[6][3] = {
+    { "PLEASE DO NOT QUIT THE GAME", "OR TURN OFF YOUR STEAM DECK", "" },
+    { "NE PAS QUITTER LE JEU", "NI ETEINDRE LE STEAM DECK", "" },
+    { "BITTE SPIEL NICHT BEENDEN", "UND DAS STEAM DECK", "NICHT AUSSCHALTEN" },
+    { "NON USCIRE DAL GIOCO", "E NON SPEGNERE", "LO STEAM DECK" },
+    { "NO SALGA DEL JUEGO", "NI APAGUE LA STEAM DECK", "" },
+    { "SLUIT HET SPEL NIET AF", "EN SCHAKEL DE STEAM DECK", "NIET UIT" },
+};
+
+static char nw_dropped[] = "";
+
+/* rows of n texts, every one dropped */
+static void nw_text_drop(char **texts, int n)
+{
+    for (int i = 0; i < n; i++) {
+        texts[i] = nw_dropped;
+    }
+}
+
+void nw_text_platform(bool deck)
+{
+    for (int l = 0; l < 6; l++) {
+        for (int i = 0; i < 2; i++) {
+            tCHECKINGMEMORYCARD[l][i] = nw_checking_saves[l][i];
+        }
+        for (int i = 0; i < 3; i++) {
+            tDONOTREMOVEMEMORYCARD[l][i] = deck ? nw_do_not_quit_deck[l][i] : nw_do_not_quit_pc[l][i];
+        }
+    }
+    /* The saves folder is the card in slot 1, always there, formatted and with room (port/saveload.c): no card to
+       insert (DrawMenu 1, 20, 23, 26), none to format (29, 30), never too full (1, 23). */
+    nw_text_drop(&tPLEASEINSERTMEMORYCARDSLOT1[0][0], 6 * 3);
+    nw_text_drop(&tYOUNEEDAMEMORYCARD[0][0], 6 * 8);
+    nw_text_drop(&tMEMORYCARDISNOTFORMATTED[0][0], 6 * 3);
+    nw_text_drop(&tNOTENOUGHSPACEONMEMORYCARD[0][0], 6 * 3);
+    nw_text_drop(tGAMEREQUIRESiKB, 6);
+    nw_text_drop(tFORMAT, 6);
+    nw_text_drop(tCONFIRMFORMAT, 6);
+    nw_text_drop(tFORMATTING, 6);
+    nw_text_drop(tFAILEDTOFORMAT, 6);
+    nw_text_drop(tFORMATTINGCOMPLETE, 6);
 }

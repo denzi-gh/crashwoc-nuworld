@@ -15,6 +15,7 @@
 #include "platform/log.h"
 #include "platform/paths.h"
 #include "platform/platform.h"
+#include "platform/prompts.h"
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
@@ -39,6 +40,7 @@
 #include "port/presence.h"
 #include "port/saveload.h"
 #include "port/scene.h"
+#include "port/text.h"
 #include "port/trace.h"
 #include "port/wide.h"
 #include "shim/shim.h"
@@ -465,6 +467,7 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     void *elf = vfs_open ? nw_read_elf(&vfs, &size) : NULL;
     char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
     nw_saveload_init(saves);
+    nw_text_platform(nw_prompts_on_deck());
     SDL_free(saves);
     SDL_free(root);
     if (!elf) {
