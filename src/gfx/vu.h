@@ -34,6 +34,7 @@ typedef enum NwVuProgram {
     NW_VU_WATERUV,
     NW_VU_TRIGLASS,
     NW_VU_SKNGLASS,
+    NW_VU_PTL_GENERAL, /* general particle filtering; PTL specializes power-of-two bilinear textures without mipmaps */
     NW_VU_PROGRAMS
 } NwVuProgram;
 
@@ -74,6 +75,9 @@ typedef struct NwVuTexture {
     unsigned int index, clut;
     bool tcc; /* TEX0.TCC */
     bool surface;
+    unsigned int rgba; /* particle-only RGBA8UI cache: GS bytes with the palette already applied */
+    uint8_t alpha_min, alpha_max; /* conservative bounds across the particle texture's mip levels */
+    bool power_of_two;
 } NwVuTexture;
 
 /* A depth CLUT (NwZClut) the programs read in place of the texture, or of its alpha alone: the target's Z as a
@@ -111,7 +115,8 @@ void nw_vu_skin(NwVuProgram program, uint32_t joints, uint32_t weights, uint32_t
 /* water's and wateruv's VU 0x1B2-0x1D1: the 32 waves a vertex picks by its normal's y, until the next table. */
 void nw_vu_waves(const float waves[32][4]);
 /* ptl's VU 0x3C-0xBF: the effect list as NwPtlList holds it. */
-void nw_vu_ptl(const uint32_t image[132][4]);
+void nw_vu_ptl(NwVuProgram program, const uint32_t image[132][4]);
+NwVuProgram nw_vu_particle_program(const NwVuTexture *texture, const NwMtlState *state);
 /* The NwPtl attributes of the bound VBO from the byte offset on, one particle per instance. */
 void nw_vu_ptl_attribs(size_t offset);
 /* vu1init and clipinit alike (src/gfx/vu1init.c), unlit: the GPU clips, so clip and trivclip need no counterpart. */
@@ -133,6 +138,8 @@ void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pas
 /* Uploads t with its mip levels. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);
+/* Lazily expands a particle texture's palette; keeps GS alpha (0x80 = 1), including values above 0x80. */
+bool nw_vu_texture_rgba(NwVuTexture *tex, const NwTex *t);
 /* The NwVifVertex attributes of the bound VAO and VBO. */
 void nw_vu_attribs(void);
 /* The NwVuSpriteVertex attributes of the bound VAO and VBO. */

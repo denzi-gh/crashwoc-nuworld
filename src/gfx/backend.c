@@ -474,7 +474,7 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
     } else {
         nw_be_resolve(s);
     }
-    tex = (NwVuTexture){ s->tex, 0, tcc, true };
+    tex = (NwVuTexture){ .index = s->tex, .tcc = tcc, .surface = true };
     return &tex;
 }
 
@@ -488,7 +488,7 @@ static const NwVuTexture *nw_be_dst(void)
     glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, nw_be_fbo(s));
-    tex = (NwVuTexture){ nw_be.copy.tex, 0, true, true };
+    tex = (NwVuTexture){ .index = nw_be.copy.tex, .tcc = true, .surface = true };
     return &tex;
 }
 
@@ -811,6 +811,9 @@ static void nw_be_particles(const NwPacket *p, const NwCmd *c)
     o.sprite[1] = -1.0f / (8.0f * (float)nw_be.height);
     NwVuMaterial m = nw_be_material(p, c, false);
     const NwGpuTex *tex = c->mtl != NW_MTL_NONE ? p->mtls[c->mtl].tex : NULL;
+    if (tex && !nw_vu_texture_rgba((NwVuTexture *)&tex->gl, &tex->tex)) {
+        return;
+    }
     if (tex && tex->tex.nlevels) {
         o.sprite[2] = 1.0f / (16.0f * (float)tex->tex.levels[0].width);
         o.sprite[3] = 1.0f / (16.0f * (float)tex->tex.levels[0].height);
@@ -819,10 +822,11 @@ static void nw_be_particles(const NwPacket *p, const NwCmd *c)
     glBindVertexArray(nw_be.ptl_vao);
     glBindBuffer(GL_ARRAY_BUFFER, nw_be.ptl_vbo);
     nw_vu_ptl_attribs((size_t)c->first * sizeof(NwPtl));
-    uint32_t n = nw_vu_use(NW_VU_PTL, &o, &m, pass);
-    nw_vu_ptl((const uint32_t(*)[4])&p->ptllists[c->ptllist]);
+    NwVuProgram program = nw_vu_particle_program(m.tex, &m.state);
+    uint32_t n = nw_vu_use(program, &o, &m, pass);
+    nw_vu_ptl(program, (const uint32_t(*)[4])&p->ptllists[c->ptllist]);
     for (uint32_t k = 0; k < n; k++) {
-        nw_vu_pass(NW_VU_PTL, &m, &pass[k]);
+        nw_vu_pass(program, &m, &pass[k]);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, (GLsizei)c->count);
     }
 }
