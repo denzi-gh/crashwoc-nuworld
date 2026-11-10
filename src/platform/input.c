@@ -24,6 +24,7 @@ static int nw_input_heard_source = -1;
 static NwPadInput nw_input_sent = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
 static bool nw_input_keys_used;
 static SDL_Window *nw_input_typing;  /* the window SDL's text input runs on for the name entry, NULL when off */
+static bool nw_input_naming;         /* a name entry was open at the last poll */
 static bool nw_input_keyboard_on = true; /* the last poll's keyboard: false while the debug UI has it */
 static int nw_input_deck = -1;
 static NwPromptStyle nw_input_style;
@@ -227,9 +228,10 @@ static void nw_input_type(const SDL_Event *event)
 static void nw_input_text(bool wanted)
 {
     SDL_Window *window = wanted ? SDL_GetKeyboardFocus() : NULL;
-    if (wanted && !nw_input_typing) {
+    if (wanted && !nw_input_naming) { /* opening: the device used last decides, then each use */
         nw_nameentry_set_keyboard(nw_input_keys_used || !nw_input_pad);
     }
+    nw_input_naming = wanted;
     if (nw_input_typing && nw_input_typing != window) {
         SDL_StopTextInput(nw_input_typing);
     }

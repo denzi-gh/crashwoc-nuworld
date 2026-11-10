@@ -159,7 +159,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c src/port/presence.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saves.c src/port/scene.c src/port/shadcom.c
-  src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
+  src/port/autosave.c src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosshealth.c
   src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c
@@ -184,7 +184,7 @@ target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audi
   nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
-target_sources(crashwoc-nuworld PRIVATE src/frontend/controlpanel.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
+target_sources(crashwoc-nuworld PRIVATE src/frontend/controlpanel.c src/frontend/saveexport.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
 if(NUWORLD_FUZZ)
@@ -335,6 +335,12 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_gameplay PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_gameplay PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME gameplay COMMAND nuworld_test_gameplay)
+  # Desktop exit: title/pause row bounds, navigation and retail's confirmation guards.
+  add_executable(nuworld_test_menu tests/c/test_menu.c)
+  target_include_directories(nuworld_test_menu PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_menu PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_menu PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME menu COMMAND nuworld_test_menu)
   # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
   add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
   target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)

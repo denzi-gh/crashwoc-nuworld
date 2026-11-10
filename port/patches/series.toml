@@ -40,3 +40,15 @@ reason = "Loads bounded by their buffers, so a file from an overlay cannot run p
 [[concern]]
 name = "97-native-saves"
 reason = "NuWorld's own saves, not the memory card: the save menus, NEW GAME and the editors' file media call src/port/saves.h on the host; the card's state, notices, format menus and save icon stay the EE's (#ifndef NW_HOST)."
+
+[[concern]]
+name = "98-desktop-menu"
+reason = "Desktop exit entries consume confirmation after retail's input guards and navigation, before its menu actions."
+
+[[concern]]
+name = "99-long-names"
+reason = "NuWorld's longer names shown where the game shows a game's or a time trial record's own (src/port/names.h): the pause panel, the times' lines."
+
+[[concern]]
+name = "99-no-cut-loading"
+reason = "No time-tunnel LOADING screen before a cutscene: BGLoadCutMovie keeps the screen black and ends as soon as the background load does."

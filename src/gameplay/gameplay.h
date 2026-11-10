@@ -251,6 +251,7 @@ typedef struct NwProfile {
     bool boss_health;   /* phase lines on the boss bar */
     bool wombat;        /* a new game named WOMBAT starts with everything open, as on the GameCube and Xbox */
     bool hub_minigame;  /* Crunch on the warp room's top floor starts the loading minigame */
+    bool long_time_names; /* a time trial record's name takes up to 8 letters, not 3 (port/names.h) */
     int camera_stability; /* percent of a jump the game camera ignores, 0 retail */
     bool hitboxes;      /* the debug menu's view of every collision shape, not saved */
 } NwProfile;

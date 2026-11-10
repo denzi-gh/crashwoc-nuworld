@@ -9,6 +9,9 @@
 
 #include "app.h"
 #include "nw_convert.h"
+#include "port/names.h"
+#include "port/autosave.h"
+#include "save/saveworker.h"
 
 /* Retail's result screens, in logic ticks: GAME SAVED / GAME DELETED (NTSC's shorter, port/values/hz.toml's
    ProcMenu 0x32), GAME LOADED. */
@@ -63,6 +66,7 @@ NW_SAVES_AT(time_s, itime, NW_SAVE_TIME_ITIME);
 
 /* The game's (a root of the data image). */
 extern struct game_s SaveSlot[2][2];
+extern struct game_s *game; /* game/game's: the slot a save menu picked */
 extern struct ldata_s LData[];
 _Static_assert(sizeof(SaveSlot) == NW_SAVES_PAGE * sizeof(struct game_s), "SaveSlot is a page");
 
@@ -73,6 +77,24 @@ static struct {
     bool converted; /* the saves from elsewhere converted, or tried */
     int page;
     NwSaveTime saved[NW_SAVES_PAGE]; /* when SaveSlot's games were saved */
+    NwSaveMeta meta[NW_SAVES_PAGE];
+    bool recovered[NW_SAVES_PAGE];
+    bool automatic;
+    bool has_autos, pending;
+    NwSaveTask task;
+    struct {
+        const char *dir;
+        const NwSaveRegistry *reg;
+        int number, page, index;
+        bool automatic, deleting, ok;
+        struct game_s game;
+        NwSaveNames names;
+        NwSaveMeta meta;
+        NwSaveTime saved;
+        int latest, last;
+        bool has_autos;
+        char error[512];
+    } job;
     int latest, last;                /* nw_save_scan's */
     bool ok;                         /* the last write or delete */
     int wait;                        /* the result screen's frames left */
@@ -85,28 +107,38 @@ static struct game_s *nw_saves_slot(int i)
 
 void nw_saves_init(const char *dir)
 {
+    nw_saves_finish();
+    nw_autosave_init(dir);
     SDL_free(nw_saves.dir);
     nw_saves.dir = dir ? SDL_strdup(dir) : NULL;
     nw_saves.converted = false;
     nw_saves.page = 0;
+    nw_saves.automatic = false;
+    nw_saves.has_autos = dir && nw_save_scan_auto(dir, NULL) >= 0;
     SDL_zeroa(nw_saves.saved);
+    SDL_zeroa(nw_saves.meta);
+    SDL_zeroa(nw_saves.recovered);
     nw_saves.latest = nw_saves.last = -1;
     nw_saves.ok = true;
     nw_saves.wait = 0;
     for (int i = 0; i < NW_SAVES_PAGE; i++) {
         nw_saves_slot(i)->empty = 1;
+        SDL_zerop(nw_names_slot(i));
     }
+    if (!dir) nw_save_worker_shutdown();
 }
 
-/* Level keys from LData's paths, made on first use. */
-static const NwSaveRegistry *nw_saves_registry(void)
+/* Level keys from LData's paths, made on first use (by whichever thread comes first). */
+const NwSaveRegistry *nw_saves_levels(void)
 {
-    if (!nw_saves.reg_ready) {
+    static SDL_InitState once;
+    if (SDL_ShouldInit(&once)) {
         const char *paths[NW_SAVE_LEVELS];
         for (int i = 0; i < NW_SAVE_LEVELS; i++) {
             paths[i] = LData[i].path;
         }
         nw_saves.reg_ready = nw_save_registry_init(&nw_saves.reg, paths, NW_SAVE_LEVELS, NW_SAVE_HUBS);
+        SDL_SetInitialized(&once, nw_saves.reg_ready);
     }
     return nw_saves.reg_ready ? &nw_saves.reg : NULL;
 }
@@ -114,7 +146,7 @@ static const NwSaveRegistry *nw_saves_registry(void)
 /* The registry, with dir's saves from elsewhere converted first; NULL without a folder. */
 static const NwSaveRegistry *nw_saves_ready(const char *dir)
 {
-    const NwSaveRegistry *reg = dir ? nw_saves_registry() : NULL;
+    const NwSaveRegistry *reg = dir ? nw_saves_levels() : NULL;
     bool ours = dir == nw_saves.dir;
     if (reg && !(ours && nw_saves.converted)) {
         int made = nw_save_convert(dir, reg);
@@ -134,10 +166,38 @@ int nw_saves_import(const char *dir, const char *file)
     return reg ? nw_save_import(dir, file, reg) : -1;
 }
 
+bool nw_saves_export(const char *dir, const char *card, const int *picks, const void *icon, size_t icon_len)
+{
+    const NwSaveRegistry *reg = nw_saves_ready(dir);
+    return reg && nw_save_export(dir, reg, card, picks, icon, icon_len);
+}
+
 static void nw_saves_scan(void)
 {
     nw_saves.last = -1;
-    nw_saves.latest = nw_saves.dir ? nw_save_scan(nw_saves.dir, &nw_saves.last) : -1;
+    nw_saves.latest = nw_saves.dir ? (nw_saves.automatic ? nw_save_scan_auto(nw_saves.dir, &nw_saves.last)
+                                                       : nw_save_scan(nw_saves.dir, &nw_saves.last)) : -1;
+    nw_saves.has_autos = nw_saves.dir && nw_save_scan_auto(nw_saves.dir, NULL) >= 0;
+    if (nw_saves.automatic) {
+        if (nw_saves.latest >= 0) nw_saves.latest -= NW_SAVE_GAMES;
+        if (nw_saves.last >= 0) nw_saves.last -= NW_SAVE_GAMES;
+    }
+}
+
+void nw_saves_autos(bool automatic)
+{
+    nw_saves.automatic = automatic;
+    nw_saves_show(0);
+}
+
+bool nw_saves_automatic(void) { return nw_saves.automatic; }
+bool nw_saves_has_autos(void) { return nw_saves.has_autos; }
+void nw_saves_auto_changed(void) { nw_saves.has_autos = true; }
+bool nw_saves_recovered(int i) { return i >= 0 && i < NW_SAVES_PAGE && nw_saves.recovered[i]; }
+
+static int nw_saves_number(int i)
+{
+    return (nw_saves.automatic ? NW_SAVE_GAMES : 0) + nw_saves.page * NW_SAVES_PAGE + i;
 }
 
 int nw_saves_page(void)
@@ -150,7 +210,7 @@ int nw_saves_pages(void)
     if (nw_saves.last < 0) {
         return 1;
     }
-    int pages = nw_saves.last / NW_SAVES_PAGE + 2; /* up to the last save's page, and one more */
+    int pages = nw_saves.last / NW_SAVES_PAGE + (nw_saves.automatic ? 1 : 2);
     return SDL_min(pages, NW_SAVES_PAGES);
 }
 
@@ -172,8 +232,11 @@ void nw_saves_show(int page)
     nw_saves.page = SDL_clamp(page, 0, NW_SAVES_PAGES - 1);
     for (int i = 0; i < NW_SAVES_PAGE; i++) {
         struct game_s *slot = nw_saves_slot(i);
-        int n = nw_saves.page * NW_SAVES_PAGE + i;
-        NwSaveResult r = reg ? nw_save_load(nw_saves.dir, n, reg, (uint8_t *)slot, &nw_saves.saved[i]) : NW_SAVE_NONE;
+        int n = nw_saves_number(i);
+        NwSaveResult r = reg ? nw_save_load_meta(nw_saves.dir, n, 0, reg, (uint8_t *)slot, nw_names_slot(i),
+                                                &nw_saves.saved[i], &nw_saves.meta[i])
+                             : NW_SAVE_NONE;
+        nw_saves.recovered[i] = r == NW_SAVE_BACKUP;
         if (r == NW_SAVE_BACKUP) {
             fprintf(stderr, NW_APP_NAME ": saves: save %d: loaded the backup: %s\n", n + 1, SDL_GetError());
         } else if (r == NW_SAVE_FAILED) {
@@ -182,6 +245,8 @@ void nw_saves_show(int page)
         if (r == NW_SAVE_NONE || r == NW_SAVE_FAILED) {
             slot->empty = 1;
             SDL_zero(nw_saves.saved[i]);
+            SDL_zerop(nw_names_slot(i));
+            SDL_zero(nw_saves.meta[i]);
         }
     }
     nw_saves_scan();
@@ -194,49 +259,121 @@ static int nw_saves_index(const struct game_s *slot)
     return at < sizeof(SaveSlot) && at % sizeof(struct game_s) == 0 ? (int)(at / sizeof(struct game_s)) : -1;
 }
 
-void nw_saves_write(struct game_s *slot)
+bool nw_saves_previous(struct game_s *slot, int generation)
 {
-    const NwSaveRegistry *reg = nw_saves_ready(nw_saves.dir);
     int i = nw_saves_index(slot);
-    nw_saves.ok = reg && i >= 0 && nw_save_store(nw_saves.dir, nw_saves.page * NW_SAVES_PAGE + i, reg,
-                                                 (const uint8_t *)slot, NULL);
-    if (nw_saves.ok) {
-        SDL_Time now = 0;
-        SDL_GetCurrentTime(&now);
-        nw_save_time_from(now, &nw_saves.saved[i]);
-    } else {
-        fprintf(stderr, NW_APP_NAME ": saves: cannot save: %s\n", reg ? SDL_GetError() : "no saves folder");
-    }
-    nw_saves_scan();
-    if (nw_saves.ok) { /* written now: the last, whatever the file times say */
-        nw_saves.latest = nw_saves.page * NW_SAVES_PAGE + i;
-    }
-    nw_saves.wait = NW_SAVES_SAVED_FRAMES;
+    const NwSaveRegistry *reg = nw_saves_ready(nw_saves.dir);
+    if (i < 0 || !reg) return false;
+    NwSaveResult r = nw_save_load_meta(nw_saves.dir, nw_saves_number(i), generation, reg, (uint8_t *)slot,
+                                      nw_names_slot(i), &nw_saves.saved[i], &nw_saves.meta[i]);
+    if (r != NW_SAVE_OK && r != NW_SAVE_BACKUP) return false;
+    nw_saves.recovered[i] = true;
+    return true;
 }
 
-void nw_saves_delete(struct game_s *slot)
+static void nw_saves_worker(void *unused)
 {
-    int i = nw_saves_index(slot);
-    NwSaveResult r = nw_saves.dir && i >= 0 ? nw_save_remove(nw_saves.dir, nw_saves.page * NW_SAVES_PAGE + i)
-                                            : NW_SAVE_FAILED;
-    nw_saves.ok = r != NW_SAVE_FAILED;
-    if (nw_saves.ok) {
-        slot->empty = 1;
-        SDL_zero(nw_saves.saved[i]);
+    (void)unused;
+    if (nw_saves.job.deleting) {
+        nw_saves.job.ok = nw_save_remove(nw_saves.job.dir, nw_saves.job.number) != NW_SAVE_FAILED;
     } else {
-        fprintf(stderr, NW_APP_NAME ": saves: cannot delete: %s\n", nw_saves.dir ? SDL_GetError() : "no saves folder");
+        nw_saves.job.ok = nw_save_store_meta(nw_saves.job.dir, nw_saves.job.number, nw_saves.job.reg,
+                                             (const uint8_t *)&nw_saves.job.game, &nw_saves.job.names,
+                                             &nw_saves.job.saved, &nw_saves.job.meta);
     }
-    nw_saves_scan();
-    nw_saves.wait = NW_SAVES_SAVED_FRAMES;
+    if (!nw_saves.job.ok) SDL_strlcpy(nw_saves.job.error, SDL_GetError(), sizeof(nw_saves.job.error));
+    nw_saves.job.latest = nw_saves.job.automatic ? nw_save_scan_auto(nw_saves.job.dir, &nw_saves.job.last)
+                                               : nw_save_scan(nw_saves.job.dir, &nw_saves.job.last);
+    if (!nw_saves.job.deleting && nw_saves.job.ok) nw_saves.job.latest = nw_saves.job.number;
+    nw_saves.job.has_autos = nw_save_scan_auto(nw_saves.job.dir, NULL) >= 0;
 }
+
+static void nw_saves_poll(void)
+{
+    if (!nw_saves.pending || !nw_save_worker_done(&nw_saves.task)) return;
+    nw_saves.pending = false;
+    nw_saves.ok = nw_saves.job.ok;
+    nw_saves.has_autos = nw_saves.job.has_autos;
+    if (nw_saves.automatic == nw_saves.job.automatic) {
+        int offset = nw_saves.automatic ? NW_SAVE_GAMES : 0;
+        nw_saves.latest = nw_saves.job.latest >= 0 ? nw_saves.job.latest - offset : -1;
+        nw_saves.last = nw_saves.job.last >= 0 ? nw_saves.job.last - offset : -1;
+    }
+    if (!nw_saves.ok) {
+        fprintf(stderr, NW_APP_NAME ": saves: %s\n", nw_saves.job.error);
+        return;
+    }
+    if (nw_saves.page == nw_saves.job.page && nw_saves.automatic == nw_saves.job.automatic) {
+        int i = nw_saves.job.index;
+        nw_saves.recovered[i] = false;
+        if (nw_saves.job.deleting) {
+            nw_saves_slot(i)->empty = 1;
+            SDL_zero(nw_saves.saved[i]);
+            SDL_zero(nw_saves.meta[i]);
+            SDL_zerop(nw_names_slot(i));
+        } else {
+            nw_saves.saved[i] = nw_saves.job.saved;
+            nw_saves.meta[i] = nw_saves.job.meta;
+        }
+    }
+}
+
+bool nw_saves_pending(void) { nw_saves_poll(); return nw_saves.pending; }
+
+void nw_saves_finish(void)
+{
+    if (nw_saves.pending) {
+        nw_save_worker_wait(&nw_saves.task);
+        nw_saves_poll();
+    }
+}
+
+static void nw_saves_submit(struct game_s *slot, bool deleting)
+{
+    nw_saves_poll();
+    if (nw_saves.pending) return;
+    const NwSaveRegistry *reg = nw_saves.dir ? nw_saves_levels() : NULL;
+    int i = nw_saves_index(slot);
+    nw_saves.wait = NW_SAVES_SAVED_FRAMES;
+    nw_saves.ok = false;
+    if (!reg || i < 0 || (!deleting && nw_saves.automatic)) return;
+    nw_saves.job.dir = nw_saves.dir;
+    nw_saves.job.reg = reg;
+    nw_saves.job.number = nw_saves_number(i);
+    nw_saves.job.page = nw_saves.page;
+    nw_saves.job.index = i;
+    nw_saves.job.automatic = nw_saves.automatic;
+    nw_saves.job.deleting = deleting;
+    nw_saves.job.game = *slot;
+    if (!deleting) nw_names_save(i);
+    nw_saves.job.names = *nw_names_slot(i);
+    nw_saves.job.meta = nw_autosave_active() ? *nw_autosave_meta() : (NwSaveMeta){ 0 };
+    SDL_Time now = 0;
+    SDL_GetCurrentTime(&now);
+    nw_save_time_from(now, &nw_saves.job.saved);
+    nw_saves.pending = nw_save_worker_submit(&nw_saves.task, nw_saves_worker, NULL);
+    if (nw_saves.pending && deleting && nw_saves.automatic && nw_autosave_active() &&
+        SDL_strcmp(nw_saves.meta[i].campaign, nw_autosave_meta()->campaign) == 0) {
+        (void)nw_autosave_set(false);
+    }
+}
+
+void nw_saves_write(struct game_s *slot) { nw_saves_submit(slot, false); }
+void nw_saves_delete(struct game_s *slot) { nw_saves_submit(slot, true); }
 
 void nw_saves_loaded(void)
 {
+    int i = nw_saves_index(game);
+    nw_names_load(i); /* retail copied the slot to the game in play: its longer names too */
+    if (i >= 0) {
+        nw_autosave_loaded(&nw_saves.meta[i], game, nw_names_slot(i), nw_saves.recovered[i]);
+    }
     nw_saves.wait = NW_SAVES_LOADED_FRAMES;
 }
 
 int nw_saves_shown(void)
 {
+    if (nw_saves_pending() || nw_autosave_loading()) return 0;
     if (nw_saves.wait > 0) {
         nw_saves.wait--;
     }
@@ -245,6 +382,7 @@ int nw_saves_shown(void)
 
 int nw_saves_ok(void)
 {
+    nw_saves_poll();
     return nw_saves.ok;
 }
 

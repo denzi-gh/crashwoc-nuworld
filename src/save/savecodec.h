@@ -67,6 +67,15 @@
 #define NW_SAVE_LANGUAGES 6
 #define NW_SAVE_VOLUME_MAX 100
 
+/* NuWorld's longer names beside a record's own (port/names.h): a game's beside its 8 letters, a time trial
+   record's beside its 3. Letters, digits and spaces; empty when the record's own name stands. */
+#define NW_SAVE_LONG_NAME 16
+#define NW_SAVE_LONG_TIME 8
+typedef struct NwSaveNames {
+    char game[NW_SAVE_LONG_NAME + 1];
+    char time[NW_SAVE_LEVELS][NW_SAVE_TIMES][NW_SAVE_LONG_TIME + 1];
+} NwSaveNames;
+
 /* The key of each level and hub record, by its index in the record. */
 typedef struct NwSaveRegistry {
     char **levels;
@@ -89,5 +98,13 @@ bool nw_save_decode(const NwDoc *doc, const NwSaveRegistry *reg, uint8_t *games,
 /* Every record holds only what the game writes (texts end in a NUL, options in the menus' ranges); false with an SDL
    error naming the field. nw_save_decode runs it; a PS2 save's games need it before they are merged. */
 bool nw_save_check(const NwSaveRegistry *reg, const uint8_t *games, size_t count);
+
+/* names as [slot.index] long_name and [slot.index.level.<key>] long_names = [3 strings], after nw_save_merge wrote
+   the record; an empty name drops its key. false with an SDL error. */
+bool nw_save_names_merge(NwDoc *doc, const NwSaveRegistry *reg, size_t index, const NwSaveNames *names);
+/* Them back; a name that is missing, too long or holds anything but letters, digits and spaces is empty. */
+void nw_save_names_decode(const NwDoc *doc, const NwSaveRegistry *reg, size_t index, NwSaveNames *names);
+/* Whether text is a name the codec keeps: at most max letters, digits and spaces. */
+bool nw_save_name_ok(const char *text, size_t len, size_t max);
 
 #endif

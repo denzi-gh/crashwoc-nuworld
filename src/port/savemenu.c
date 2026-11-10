@@ -11,6 +11,7 @@
 #include "nu3d/nugscn.h"
 #include "nu_types.h"
 #include "nups2/ps2ctl.h"
+#include "port/names.h"
 #include "port/saves.h"
 #include "shim/shim.h"
 #include "vfs/manifest.h"
@@ -32,6 +33,7 @@ extern s8 CLetter[];
 extern char tbuf[128];
 extern char *tEMPTY[6];
 extern s32 stick_bits_db;
+extern s32 fadeval, Paused;
 
 void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, s32 align, s32 colour);
 void CalculateGamePercentage(struct game_s *game);
@@ -78,11 +80,13 @@ static void nw_savemenu_stat(const char *fmt, int value, int letter, f32 x, f32 
     Text3D(tbuf, x, y, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
 }
 
-/* Retail's, with a fourth line: "HH:MM DD.MM.YY" (NTSC: "HH:MM MM.DD.YY"). */
+/* Retail's, with the longer name (port/names.h) and a fourth line: "HH:MM DD.MM.YY" (NTSC: "HH:MM MM.DD.YY"). */
 void DrawGameSlot(struct game_s *game, f32 x, f32 y, s32 colour)
 {
     if (game->empty == 0) {
-        Text3D(game->name, x, y + 0.15f, 1.0f, 0.6f, 0.6f, 0.6f, 0, colour);
+        char *name = nw_names_of(game); /* the longer name when it stands, narrower to fit the slot */
+        f32 size = nw_names_scale(0.6f, name, NW_NAMES_OWN_GAME);
+        Text3D(name, x, y + 0.15f, 1.0f, size, size, size, 0, colour);
         CalculateGamePercentage(game);
         nw_savemenu_stat("%i%%", game->percent, 0, x - 0.15f, y);
         nw_savemenu_stat("%i%c", game->crystals, CLetter[0x75], x + 0.15f, y);
@@ -130,10 +134,14 @@ static void nw_savemenu_enter(struct cursor_s *cursor)
 {
     int menu = cursor->menu, from = nw_savemenu.menu;
     nw_savemenu.menu = menu;
-    if (menu == from || !nw_savemenu_grid(menu) || from == 21 || from == 24 || from == 27) {
+    if (menu == from || !nw_savemenu_grid(menu)) {
         return;
     }
-    nw_saves_show(nw_saves_page()); /* the folder as it is now, then the last save's page */
+    if (from == 21 || from == 24 || from == 27) {
+        nw_saves_show(nw_saves_page());
+        return;
+    }
+    nw_saves_autos(menu != 23 && nw_saves_has_autos());
     int latest = nw_saves_latest();
     if (latest >= 0 && latest / NW_SAVES_PAGE != nw_saves_page()) {
         nw_saves_show(latest / NW_SAVES_PAGE);
@@ -149,9 +157,18 @@ void nw_savemenu_proc(struct cursor_s *cursor, struct nupad_s *pad, int old_x)
     int menu = cursor->menu;
     bool entered = menu != nw_savemenu.menu;
     nw_savemenu_enter(cursor);
-    if (entered || !nw_savemenu_grid(menu) || !pad || cursor->x == old_x || cursor->y >= cursor->y_max) {
+    if (entered || !nw_savemenu_grid(menu) || !pad || cursor->wait ||
+        cursor->button_lock || fadeval > 0 || (Paused > 0 && Paused < 25)) {
         return;
     }
+    /* Shoulder buttons switch banks in LOAD/DELETE only; SAVE always stays on manual destinations. */
+    if (menu != 23 && (pad->paddata_db & 0xCu) && (nw_saves_automatic() || nw_saves_has_autos())) {
+        nw_saves_autos(!nw_saves_automatic());
+        cursor->x = cursor->y = 0;
+        cursor->remember[menu].x = cursor->remember[menu].y = 0;
+        return;
+    }
+    if (cursor->x == old_x || cursor->y >= cursor->y_max) return;
     /* retail's buttons this frame (ProcMenu): 0x2000 right, 0x8000 left; a step past the edge wraps the column */
     s32 bits = (s32)pad->paddata_db;
     if ((bits & 0xF000) == 0) {
@@ -162,13 +179,22 @@ void nw_savemenu_proc(struct cursor_s *cursor, struct nupad_s *pad, int old_x)
         if (page + 1 < nw_saves_pages()) {
             nw_saves_show(page + 1);
         } else {
-            cursor->x = 1;
+            if (menu != 23 && !nw_saves_automatic() && nw_saves_has_autos()) {
+                nw_saves_autos(true);
+            } else {
+                cursor->x = 1;
+            }
         }
     } else if ((bits & 0x8000) && old_x == 0 && cursor->x == 1) {
         if (page > 0) {
             nw_saves_show(page - 1);
         } else {
-            cursor->x = 0;
+            if (menu != 23 && nw_saves_automatic()) {
+                nw_saves_autos(false);
+                nw_saves_show(nw_saves_pages() - 1);
+            } else {
+                cursor->x = 0;
+            }
         }
     }
     cursor->remember[menu].x = cursor->x;
@@ -183,12 +209,22 @@ void nw_savemenu_draw(struct cursor_s *cursor)
     if (menu != 22 && menu != 25 && menu != 28) { /* the result screens have none, as the Xbox's */
         Text3D(nw_savemenu.deck ? "STEAM DECK" : "PC", 0.0f, 0.63f, 1.0f, 0.45f, 0.45f, 0.45f, 0, 0);
     }
+    if (nw_savemenu_grid(menu)) {
+        static char *kind[2][6] = {
+            { "MANUAL SAVES", "SAUVEGARDES MANUELLES", "MANUELLE SPEICHERSTAENDE", "SALVATAGGI MANUALI", "GUARDADOS MANUALES", "HANDMATIGE SAVES" },
+            { "AUTOSAVES", "SAUVEGARDES AUTO", "AUTOMATISCHE SPEICHERSTAENDE", "AUTOSALVATAGGI", "GUARDADOS AUTOMATICOS", "AUTOMATISCHE SAVES" },
+        };
+        Text3D(kind[nw_saves_automatic()][Game.language], 0, 0.54f, 1, 0.32f, 0.32f, 0.32f, 0, 0);
+        if (menu != 23 && (nw_saves_automatic() || nw_saves_has_autos())) {
+            Text3D("q / r", 0, -0.83f, 1, 0.32f, 0.32f, 0.32f, 0, 0);
+        }
+    }
     if (nw_savemenu_grid(menu) && (menu == 23 || nw_saves_any())) { /* the slots are drawn: their pages */
         int page = nw_saves_page();
-        if (page > 0) {
+        if (page > 0 || (menu != 23 && nw_saves_automatic())) {
             Text3D("<", -NW_SAVEMENU_ARROW_X, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0);
         }
-        if (page + 1 < nw_saves_pages()) {
+        if (page + 1 < nw_saves_pages() || (menu != 23 && !nw_saves_automatic() && nw_saves_has_autos())) {
             Text3D(">", NW_SAVEMENU_ARROW_X, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0, 0);
         }
     }

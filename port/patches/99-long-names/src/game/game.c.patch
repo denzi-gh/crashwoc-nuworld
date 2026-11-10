@@ -1,0 +1,11 @@
+--- a/src/game/game.c
++++ b/src/game/game.c
+@@ -5121,7 +5121,7 @@ inline void MakeLevelTimeString(struct time_s *time, char *txt) {
+     } else {
+         fmt = "%s %s";
+     }
+-    sprintf(txt, fmt, time, time_string);
++    sprintf(txt, fmt, NW_TIME_NAME(time), time_string);
+ }
+ 
+ void NewLevelTime(s32 t) {

@@ -21,6 +21,7 @@
 #include "data/image.h"
 #include "frontend/controlpanel.h"
 #include "frontend/debug.h"
+#include "frontend/saveexport.h"
 #include "frontend/settings.h"
 #include "frontend/video.h"
 #include "gameplay/gameplay.h"
@@ -40,6 +41,8 @@
 #include "port/presence.h"
 #include "port/savemenu.h"
 #include "port/saves.h"
+#include "port/autosave.h"
+#include "save/saveworker.h"
 #include "port/scene.h"
 #include "port/trace.h"
 #include "port/wide.h"
@@ -153,6 +156,63 @@ static int nw_import_save(const char *file, const char *data_dir)
     SDL_free(saves);
     SDL_free(root);
     return made > 0 ? 0 : made == 0 ? 2 : 1;
+}
+
+/* Exports saves into the PS2 save of a PCSX2 card image. slots: up to 4, comma-separated, for PS2 slots 1 to 4: a
+   save's number, "-" keeps the card's game, "x" empties it; slots not given keep theirs. */
+static int nw_export_save(const char *card, const char *slots, const char *data_dir)
+{
+    int picks[NW_SAVE_PS2_GAMES] = { NW_SAVE_PS2_KEEP, NW_SAVE_PS2_KEEP, NW_SAVE_PS2_KEEP, NW_SAVE_PS2_KEEP };
+    int count = 0;
+    for (const char *p = slots; *p;) {
+        const char *end = SDL_strchr(p, ',');
+        size_t len = end ? (size_t)(end - p) : SDL_strlen(p);
+        char item[8] = "";
+        int n = 0;
+        if (len < sizeof(item)) {
+            SDL_memcpy(item, p, len);
+        }
+        if (count >= NW_SAVE_PS2_GAMES || len >= sizeof(item) || !len) {
+            count = -1;
+            break;
+        }
+        if (SDL_strcmp(item, "-") == 0) {
+            picks[count++] = NW_SAVE_PS2_KEEP;
+        } else if (SDL_strcasecmp(item, "x") == 0) {
+            picks[count++] = NW_SAVE_PS2_EMPTY;
+        } else if (SDL_sscanf(item, "%d", &n) == 1 && n >= 1 && n <= NW_SAVE_GAMES && SDL_isdigit(item[0]) &&
+                   SDL_isdigit(item[len - 1])) {
+            picks[count++] = n - 1;
+        } else {
+            count = -1;
+            break;
+        }
+        p = end ? end + 1 : p + len;
+    }
+    if (count <= 0) {
+        fprintf(stderr, NW_APP_NAME ": --export-save <card.ps2> <slots>: slots are up to 4 of a save's number (1 to "
+                        "%d), - (keep the card's) or x (empty), comma-separated\n", NW_SAVE_GAMES);
+        return 2;
+    }
+    char *root = nw_data_root(data_dir);
+    char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
+    NwVfs vfs;
+    bool vfs_open = root && nw_extract_has_disc(root) && nw_vfs_init(&vfs, root);
+    size_t icon_len = 0;
+    void *icon = vfs_open ? nw_saveexport_icon(&vfs, &icon_len) : NULL; /* a card with the save's has one */
+    bool ok = saves && nw_saves_export(saves, card, picks, icon, icon_len);
+    if (ok) {
+        printf("Exported to %s (the card before is %s.bak)\n", card, card);
+    } else if (root) {
+        fprintf(stderr, NW_APP_NAME ": save export failed: %s\n", SDL_GetError());
+    }
+    SDL_free(icon);
+    if (vfs_open) {
+        nw_vfs_shutdown(&vfs);
+    }
+    SDL_free(saves);
+    SDL_free(root);
+    return ok ? 0 : 1;
 }
 
 /* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
@@ -554,6 +614,11 @@ static bool nw_game_parked(void)
         SDL_Log(NW_APP_NAME ": the game thread did not stop within %d ms", NW_GAME_PARK_MS);
         return false;
     }
+    if (state == NW_GAME_PARKED || state == NW_GAME_RETURNED) {
+        nw_saves_finish();
+        nw_autosave_finish();
+        nw_save_worker_shutdown();
+    }
     return true;
 }
 
@@ -882,6 +947,7 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes)
                                      .boss_health = s->boss_health,
                                      .wombat = s->wombat,
                                      .hub_minigame = s->hub_minigame,
+                                     .long_time_names = s->long_time_names,
                                      .camera_stability = s->camera_stability,
                                      .hitboxes = hitboxes });
 }
@@ -1006,6 +1072,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                                        .boss_health = settings.boss_health,
                                        .wombat = settings.wombat,
                                        .hub_minigame = settings.hub_minigame,
+                                       .long_time_names = settings.long_time_names,
                                        .camera_stability = settings.camera_stability });
     }
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
@@ -1019,6 +1086,14 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_debug_toggle("Gameplay", "Air indicator", &settings.air_indicator);
     nw_debug_toggle("Gameplay", "Boss health", &settings.boss_health);
     nw_debug_toggle("Gameplay", "Loading minigame in the hub", &settings.hub_minigame);
+    nw_debug_toggle("Gameplay", "Time trial names of up to 8 letters", &settings.long_time_names);
+    {
+        char *root = nw_data_root(data_dir);
+        char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
+        nw_saveexport_start(platform.window, saves, nw_shim_file_vfs());
+        SDL_free(saves);
+        SDL_free(root);
+    }
     nw_debug_panel_key("N. Hanced Movement", "Crash", SDL_SCANCODE_F2, nw_boot_movement, &settings);
     nw_debug_panel_key("N. Hanced Movement", "Coco", SDL_SCANCODE_F10, nw_boot_coco, &settings);
     nw_debug_panel_key("N. Hanced Movement", "Mech", SDL_SCANCODE_F3, nw_boot_mech, &settings);
@@ -1087,6 +1162,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                                    settings.boss_health != applied.boss_health ||
                                    settings.wombat != applied.wombat ||
                                    settings.hub_minigame != applied.hub_minigame ||
+                                   settings.long_time_names != applied.long_time_names ||
                                    settings.camera_stability != applied.camera_stability)) {
                 nw_boot_request(&settings, hitboxes);
                 hitboxes_shown = hitboxes;
@@ -1140,6 +1216,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     }
     nw_input_shutdown();
     nw_audio_close();
+    nw_saveexport_stop();
     nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }
@@ -1466,6 +1543,7 @@ int main(int argc, char *argv[])
 {
     int max_frames = 0; /* 0 = run until the window is closed */
     const char *import = NULL, *import_save = NULL, *data_dir = NULL, *scene = NULL, *scene_check = NULL;
+    const char *export_card = NULL, *export_slots = NULL; /* --export-save <card.ps2> <slots> */
     const char *capture = NULL, *capture_dir = NULL; /* --capture <vblanks|file> [--capture-dir <dir>] */
     const char *dump = NULL, *dump_dir = NULL;       /* --dump <vblanks|file> [--dump-dir <dir>] [--dump-no-heap] */
     const char *poke = NULL;                         /* --poke <vblank:symbol=value,...> */
@@ -1497,12 +1575,19 @@ int main(int argc, char *argv[])
             fprintf(stderr, NW_APP_NAME ": %s needs a value\n", argv[i]);
             return 2;
         }
+        if (strcmp(argv[i], "--export-save") == 0 && i + 2 >= argc) {
+            fprintf(stderr, NW_APP_NAME ": --export-save needs a card and the slots\n");
+            return 2;
+        }
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
             max_frames = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--import") == 0) {
             import = argv[++i];
         } else if (strcmp(argv[i], "--import-save") == 0) {
             import_save = argv[++i];
+        } else if (strcmp(argv[i], "--export-save") == 0) {
+            export_card = argv[++i];
+            export_slots = argv[++i];
         } else if (strcmp(argv[i], "--data-dir") == 0) {
             data_dir = argv[++i];
         } else if (strcmp(argv[i], "--verify") == 0) {
@@ -1581,16 +1666,16 @@ int main(int argc, char *argv[])
     }
     /* The checks, tests and comparisons read the retail disc. */
     if (nw_overlay_count && (boot_check || capture || dump || check_data || check_scenes || check_disc || scene ||
-                             scene_check || verify || import || import_save)) {
+                             scene_check || verify || import || import_save || export_card)) {
         fprintf(stderr, NW_APP_NAME ": --overlay is for the game window only\n");
         return 2;
     }
     if (import) {
         return nw_import(import, data_dir);
     }
-    if (import_save) {
+    if (import_save || export_card) {
 #ifdef NW_WITH_GAME
-        return nw_import_save(import_save, data_dir);
+        return import_save ? nw_import_save(import_save, data_dir) : nw_export_save(export_card, export_slots, data_dir);
 #else
         fprintf(stderr, NW_APP_NAME ": built without the decomp (NUWORLD_DECOMP=OFF)\n");
         return 2;

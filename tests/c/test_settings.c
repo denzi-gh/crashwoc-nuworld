@@ -233,6 +233,8 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(s.hub_minigame);
     CHECK(read_text("[game]\nhub_minigame = false\n", &s) && !s.hub_minigame);
+    CHECK(!s.long_time_names); /* the original's 3 letters unless asked */
+    CHECK(read_text("[game]\nlong_time_names = true\n", &s) && s.long_time_names);
     nw_settings_defaults(&s);
     CHECK(s.discord);
     CHECK(read_text("[discord]\nenabled = false\n", &s) && !s.discord);

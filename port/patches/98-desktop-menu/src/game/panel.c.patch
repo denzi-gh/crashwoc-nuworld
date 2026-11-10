@@ -1,0 +1,29 @@
+--- a/src/game/panel.c
++++ b/src/game/panel.c
+@@ -1,3 +1,10 @@
++/* Host desktop quit confirmation keeps the pause inventory and panel visible. */
++#ifdef NW_HOST
++#define NW_QUIT_PAUSE_MENU(menu) ((menu) == 35)
++#else
++#define NW_QUIT_PAUSE_MENU(menu) 0
++#endif
++
+ /*
+  * Unit: game/panel
+  *
+@@ -305,7 +312,7 @@ inline void GameVP(void) {
+     }
+ 
+     if ((editor_active != 0) ||
+-        ((paused != 0) && ((Cursor.menu < 3) || (Cursor.menu > 8)))) {
++        ((paused != 0) && (((Cursor.menu < 3) || (Cursor.menu > 8)) && !NW_QUIT_PAUSE_MENU(Cursor.menu)))) {
+         NuVpSetSize((float)(MAXVPSIZEX << 4), (float)(MAXVPSIZEY << 3));
+         NW_WIDE_ONLY(nw_wide_vp(0);)
+     } else {
+@@ -1067,5 +1074,5 @@ void DrawPanel(void) {
+     }
+ 
+     if (paused != 0) {
+-        if ((Cursor.menu >= 3) && (Cursor.menu <= 8)) {
++        if (((Cursor.menu >= 3) && (Cursor.menu <= 8)) || NW_QUIT_PAUSE_MENU(Cursor.menu)) {
+             ys = 0.0f;
