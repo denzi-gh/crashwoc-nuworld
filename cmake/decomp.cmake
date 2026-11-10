@@ -159,7 +159,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c src/port/presence.c
   src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saves.c src/port/scene.c src/port/shadcom.c
-  src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
+  src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosshealth.c
   src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c
@@ -482,6 +482,14 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_pad PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_pad PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME pad COMMAND nuworld_test_pad)
+
+  # NEW GAME's name typed on the keyboard, as game/game's name entry runs it.
+  add_executable(nuworld_test_nameentry tests/c/test_nameentry.c)
+  add_dependencies(nuworld_test_nameentry nuworld_types)
+  target_include_directories(nuworld_test_nameentry PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_nameentry PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_nameentry PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nameentry COMMAND nuworld_test_nameentry)
 
   # The port's saves as the save menus use them; saves-ps2 converts NUWORLD_TEST_CARD (a .ps2 card image).
   add_executable(nuworld_test_saves tests/c/test_saves.c)

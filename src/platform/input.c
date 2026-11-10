@@ -2,6 +2,7 @@
 
 #include "platform/prompts.h"
 #include "port/font3d.h"
+#include "port/nameentry.h"
 
 /* By target (platform/controls.h). */
 static const uint16_t nw_input_bits[NW_CONTROL_BUTTONS] = {
@@ -22,6 +23,8 @@ static NwInputListen nw_input_listening;
 static int nw_input_heard_source = -1;
 static NwPadInput nw_input_sent = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
 static bool nw_input_keys_used;
+static SDL_Window *nw_input_typing;  /* the window SDL's text input runs on for the name entry, NULL when off */
+static bool nw_input_keyboard_on = true; /* the last poll's keyboard: false while the debug UI has it */
 static int nw_input_deck = -1;
 static NwPromptStyle nw_input_style;
 static struct {
@@ -195,12 +198,56 @@ static int nw_input_hear(const SDL_Event *event)
     return -1;
 }
 
+/* The name entry's keys (port/nameentry.h): typed characters, Backspace, Enter and Escape; any key makes the
+   keyboard the device used last. */
+static void nw_input_type(const SDL_Event *event)
+{
+    if (event->type == SDL_EVENT_TEXT_INPUT) {
+        for (const char *t = event->text.text; *t; t++) {
+            nw_nameentry_type((unsigned char)*t);
+        }
+    } else if (event->type == SDL_EVENT_KEY_DOWN) {
+        SDL_Scancode key = event->key.scancode;
+        if (key == SDL_SCANCODE_BACKSPACE) {
+            nw_nameentry_type(NW_NAMEENTRY_BACK);
+        } else if ((key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_KP_ENTER) && !event->key.repeat) {
+            nw_nameentry_type(NW_NAMEENTRY_DONE);
+        } else if (key == SDL_SCANCODE_ESCAPE && !event->key.repeat) {
+            nw_nameentry_type(NW_NAMEENTRY_QUIT);
+        }
+    } else {
+        return;
+    }
+    nw_nameentry_set_keyboard(true);
+    nw_input_keys_used = true;
+}
+
+/* SDL's text input on while the game asks for a name, on the window with the keyboard (again if the debug UI's
+   stopped it); off when it no longer asks. Opening, the letter table hides if the keyboard was used last. */
+static void nw_input_text(bool wanted)
+{
+    SDL_Window *window = wanted ? SDL_GetKeyboardFocus() : NULL;
+    if (wanted && !nw_input_typing) {
+        nw_nameentry_set_keyboard(nw_input_keys_used || !nw_input_pad);
+    }
+    if (nw_input_typing && nw_input_typing != window) {
+        SDL_StopTextInput(nw_input_typing);
+    }
+    if (window && !SDL_TextInputActive(window)) {
+        SDL_StartTextInput(window);
+    }
+    nw_input_typing = window;
+}
+
 void nw_input_event(const SDL_Event *event)
 {
     int heard = nw_input_listening ? nw_input_hear(event) : -1;
     if (heard >= 0) {
         nw_input_heard_source = heard;
         nw_input_listening = NW_INPUT_LISTEN_OFF;
+    }
+    if (nw_input_typing && nw_input_keyboard_on && !nw_input_listening) {
+        nw_input_type(event);
     }
     if (event->type == SDL_EVENT_GAMEPAD_ADDED && !nw_input_pad) {
         nw_input_pad = SDL_OpenGamepad(event->gdevice.which);
@@ -261,14 +308,18 @@ static void nw_input_prompts(void)
 void nw_input_poll(bool keyboard)
 {
     NwPadInput in = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
+    bool naming = nw_nameentry_wanted();
+    nw_input_text(naming && keyboard);
+    nw_input_keyboard_on = keyboard;
     if (nw_input_pad && !nw_input_listening) {
         nw_input_gamepad(nw_input_pad, &nw_input_controls, &in);
         if (in.buttons || in.l2 || in.r2 || nw_input_stick_used(in.lx) || nw_input_stick_used(in.ly) ||
             nw_input_stick_used(in.rx) || nw_input_stick_used(in.ry)) {
             nw_input_keys_used = false;
+            nw_nameentry_set_keyboard(false); /* the controller again: the letter table is back */
         }
     }
-    if (keyboard && !nw_input_listening) {
+    if (keyboard && !naming && !nw_input_listening) { /* typing a name, the keyboard is no pad */
         NwPadInput pad = in;
         nw_input_keyboard(SDL_GetKeyboardState(NULL), &nw_input_controls, &in);
         if (SDL_memcmp(&pad, &in, sizeof(in)) != 0) {
@@ -285,6 +336,7 @@ void nw_input_poll(bool keyboard)
 
 void nw_input_shutdown(void)
 {
+    nw_input_text(false);
     if (nw_input_pad) {
         SDL_CloseGamepad(nw_input_pad);
         nw_input_pad = NULL;
