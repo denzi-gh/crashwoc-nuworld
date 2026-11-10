@@ -1,5 +1,5 @@
-/* game/game's DrawMenu (port/units.toml wrap): the build ID on the title and pause menus, and the title menu's
-   MODS (SOON) teaser. */
+/* game/game's DrawMenu (port/units.toml wrap): the build ID on the title and pause menus, the title menu's MODS
+   (SOON) teaser, and the save menus (port/savemenu.h). */
 #include <SDL3/SDL.h>
 
 #include "game/gametypes.h"
@@ -7,6 +7,7 @@
 #include "nu_types.h"
 #include "platform/buildid.h"
 #include "port/font3d.h"
+#include "port/savemenu.h"
 
 extern s32 editor_active, GameMode, pause_dir, LANGUAGEOPTION;
 extern struct game_s Game;
@@ -50,10 +51,12 @@ void DrawMenu(struct cursor_s *cursor, s32 paused)
         DrawMenu__retail(cursor, paused);
         return;
     }
+    nw_savemenu_prepare(cursor);
     if (cursor->menu == 0 && (u32)Game.language < 6) {
         nw_menu_title(cursor, paused);
     } else {
         DrawMenu__retail(cursor, paused);
+        nw_savemenu_draw(cursor);
     }
     /* 0: title, 3 and 4: pause */
     if (cursor->menu == 0 || ((cursor->menu == 3 || cursor->menu == 4) && paused >= 25)) {

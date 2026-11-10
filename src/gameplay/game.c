@@ -7,6 +7,7 @@
 #include "game/game.retail.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/jeep.h"
+#include "port/savemenu.h"
 
 /* Declared by no header. */
 extern struct game_s Game;
@@ -20,12 +21,14 @@ u16 SeekRot(u16 a, u16 b, s32 shift)
     return nw_jeep_steer(a, b, shift, &hdg) ? hdg : SeekRot__retail(a, b, shift);
 }
 
-/* WOMBAT name detection */
+/* WOMBAT name detection; the save menus' pages (port/savemenu.h) */
 void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad)
 {
     bool naming = cursor->menu == 2 && new_level != 0x25;
+    int x = cursor->x;
 
     ProcMenu__retail(cursor, pad);
+    nw_savemenu_proc(cursor, pad, x);
     if (naming && new_level == 0x25 && nw_profile.wombat && strstr(Game.name, "WOMBAT")) {
         NW_DEVIATION(wombat);
         NuStrCpy(Game.name, "CRASH   ");

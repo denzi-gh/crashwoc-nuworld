@@ -30,7 +30,7 @@ static const NwSaveField nw_save_slot_fields[] = {
     { "mask", NW_SAVE_MASK, 1, NW_SAVE_U8, 0, false },
     { "powerbits", NW_SAVE_POWERBITS, 1, NW_SAVE_U8, 2, false },
     { "cutbits", NW_SAVE_CUTBITS, 4, NW_SAVE_U32, 8, false },
-    /* derived (CalculateGamePercentage), kept so that a card's records come back unchanged */
+    /* derived (CalculateGamePercentage), kept so that a PS2 save's games come back unchanged */
     { "percent", NW_SAVE_PERCENT, 1, NW_SAVE_U8, 0, false },
     { "crystals", NW_SAVE_CRYSTALS, 1, NW_SAVE_U8, 0, false },
     { "relics", NW_SAVE_RELICS, 1, NW_SAVE_U8, 0, false },

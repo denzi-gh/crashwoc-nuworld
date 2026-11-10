@@ -12,6 +12,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tests"))
 import fixture_build  # noqa: E402
+import gen_funcmap  # noqa: E402
 import gen_stubs  # noqa: E402
 import nwunits  # noqa: E402
 import stub_hits  # noqa: E402
@@ -200,6 +201,49 @@ class Model(unittest.TestCase):
         self.assertEqual((allowed.errors, allowed.warnings), ([], []))
         self.assertEqual(unused.warnings, ["unit game/fixdead: called 'FixDeadA': no compiled code calls it"])
         self.assertIn("unit game/fixdata: called on a compile unit (editor and dead only)", misplaced.errors)
+
+    def test_drop(self):
+        """drop: neither C nor a stub nor a function map entry; a unit with nothing left is not built."""
+        fixasm = '"numath/fixasm" = { treatment = "hle" }'
+        fixdead = '"game/fixdead" = { treatment = "dead" }'
+        with tempfile.TemporaryDirectory() as tmp:
+            units = Path(tmp) / "units.toml"
+            units.write_text(UNITS.read_text()
+                             .replace(fixdead, '"game/fixdead" = { treatment = "dead", drop = ["*"] }')
+                             .replace(fixasm, '"numath/fixasm" = { treatment = "hle", drop = ["FixAsmA"] }'))
+            dropped = load(units)
+            units.write_text(UNITS.read_text()
+                             .replace(fixasm, '"numath/fixasm" = { treatment = "hle", drop = ["FixAsmB"] }')
+                             .replace('"game/fixgame" = { treatment = "compile",',
+                                      '"game/fixgame" = { treatment = "compile", drop = ["FixGameTick"],'))
+            refused = load(units)
+            units.write_text(UNITS.read_text().replace(fixasm, '"numath/fixasm" = { treatment = "hle", drop = ["FixNone*"] }'))
+            unmatched = load(units)
+            decomp = Path(tmp) / "decomp"
+            shutil.copytree(DECOMP, decomp)
+            src = decomp / "src" / "game" / "fixgame.c"
+            src.write_text(src.read_text().replace(
+                "void FixGameTick(struct fixobj_s *obj)\n{\n",
+                "static void FixGameHelp(void)\n{\n    FixDeadA(0);\n}\n\n"
+                "void FixGameTick(struct fixobj_s *obj)\n{\n    FixGameHelp();\n"))
+            units.write_text(UNITS.read_text().replace(fixdead, '"game/fixdead" = { treatment = "dead", drop = ["*"] }'))
+            called = nwunits.load(decomp, units, PORT_SRC)
+        self.assertEqual((dropped.errors, dropped.warnings), ([], []))
+        fn = {f.name: f for f in dropped.functions()}
+        self.assertEqual((fn["FixDeadA"].provider, fn["FixAsmA"].provider, fn["FixAsmB"].provider),
+                         ("dropped", "dropped", "port"))
+        self.assertEqual(stub_hits.todo(fn["FixAsmA"]), "dropped")
+        unit = {u.name: u for u in dropped.units}
+        self.assertEqual((unit["game/fixdead"].kind, unit["numath/fixasm"].kind), ("none", "standalone"))
+        self.assertNotIn("FixAsmA", gen_stubs.render(unit["numath/fixasm"]))
+        self.assertNotIn("FixAsmA", gen_funcmap.render_unit(unit["numath/fixasm"]))
+        self.assertIn("FixAsmB", gen_funcmap.render_unit(unit["numath/fixasm"]))
+        self.assertIn("unit numath/fixasm: drop FixAsmB: the port defines it", refused.errors)
+        self.assertEqual(unmatched.errors, ["unit numath/fixasm: drop 'FixNone*' matches no function"])
+        self.assertIn("unit game/fixgame: drop FixGameTick: the decomp compiles it (keep it from the host: "
+                      "#ifndef NW_HOST)", refused.errors)
+        self.assertEqual(called.errors, ["src/game/fixgame.c:11: FixGameHelp calls FixDeadA, which game/fixdead "
+                                         "drops (port/units.toml)"])
 
     def test_units_toml_errors(self):
         bad = {

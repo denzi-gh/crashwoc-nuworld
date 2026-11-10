@@ -36,3 +36,7 @@ reason = "The attract demos at 60 Hz (NW_DEMOS); the 50/60 Hz values are rules i
 [[concern]]
 name = "95-load-bounds"
 reason = "Loads bounded by their buffers, so a file from an overlay cannot run past them (NW_LOAD_*)."
+
+[[concern]]
+name = "97-native-saves"
+reason = "NuWorld's own saves, not the memory card: the save menus, NEW GAME and the editors' file media call src/port/saves.h on the host; the card's state, notices, format menus and save icon stay the EE's (#ifndef NW_HOST)."

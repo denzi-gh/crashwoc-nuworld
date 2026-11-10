@@ -66,8 +66,8 @@ def report(model: nwunits.Model, changes: dict, defs: dict[str, str]) -> list[di
             row = {"unit": u.name, "name": f.name, "address": f"0x{f.address:08x}", "treatment": u.treatment}
             if f.provider == "shim":
                 row["kind"] = "shim"
-            elif f.provider == "stub":
-                row["kind"] = "stub"
+            elif f.provider in ("stub", "dropped"):
+                row["kind"] = f.provider
             elif f.provider == "port":
                 row["kind"] = "wrap" if f.wrapped else "copy" if f.definition is not None else "port"
                 row["where"] = defs.get(f.host, "")

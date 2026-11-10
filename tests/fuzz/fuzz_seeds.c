@@ -10,7 +10,7 @@
 #include "dat_builder.h"
 #include "disc_builder.h"
 #include "ghg_builder.h"
-#include "mc_builder.h"
+#include "ps2card_builder.h"
 #include "rnc2_fixture.inc"
 #include "save/savecodec.h"
 #include "save/savestore.h"
@@ -184,7 +184,7 @@ int main(int argc, char *argv[])
 
     /* a save as the codec writes it (level keys "#0".., as fuzz_vfs.c's registry has them), one written by hand, and
        a card that holds the first */
-    static uint8_t games[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE];
+    static uint8_t games[NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE];
     for (size_t i = 0; i < sizeof(games); i++) {
         games[i] = (uint8_t)(i * 7 + (i >> 5));
     }
@@ -205,7 +205,7 @@ int main(int argc, char *argv[])
     size_t size = 0;
     char *text = NULL;
     if (!nw_save_registry_init(&reg, NULL, NW_SAVE_LEVELS, NW_SAVE_HUBS) || !nw_doc_init(&doc) ||
-        !nw_save_merge(&doc, &reg, games, NW_SAVE_RECORDS) || !(text = nw_doc_write(&doc, "seed", &size))) {
+        !nw_save_merge(&doc, &reg, games, NW_SAVE_PS2_GAMES) || !(text = nw_doc_write(&doc, "seed", &size))) {
         fprintf(stderr, "save seed: %s\n", SDL_GetError());
         return 1;
     }
@@ -219,12 +219,12 @@ int main(int argc, char *argv[])
                                   "[slot.0.level.\"#3\"]\r\nflags = 0x001f\r\ntime = [[\"1ST\", 25500]]\r\n";
     seed("save-by-hand", FUZZ_SAVE, NULL, 0, by_hand, sizeof(by_hand) - 1);
 
-    static Mcb card;
-    const char *names[1] = { NW_SAVE_CARD_NAME "slot00" };
+    static Pcb card;
+    const char *names[1] = { NW_SAVE_PS2_NAME "slot00" };
     const void *files[1] = { games };
     size_t lens[1] = { sizeof(games) };
-    mcb_build(&card, 1, NW_SAVE_CARD_NAME, 1, names, files, lens);
-    uint8_t *image = mcb_image(&card, false, &size);
+    pcb_build(&card, 1, NW_SAVE_PS2_NAME, 1, names, files, lens);
+    uint8_t *image = pcb_image(&card, false, &size);
     seed("card", FUZZ_CARD, NULL, 0, image, size);
     free(image);
     seed("rnc", FUZZ_RNC, NULL, 0, nw_rnc2_fixture, sizeof(nw_rnc2_fixture));

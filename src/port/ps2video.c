@@ -418,7 +418,7 @@ void NuPs2Init(void)
     nw_tb_main_set = nw_tbset_alloc(0);
 }
 
-/* No IOP modules: NUSOUND is src/audio/nusound.c behind the SIF shim, pads and memory cards have their own shims. */
+/* No IOP modules: NUSOUND is src/audio/nusound.c behind the SIF shim, pads have their own shim, NuWorld saves natively (port/saves.h). */
 void NuPs2InitIOP(void)
 {
     if (!nw_iop_initialised) {

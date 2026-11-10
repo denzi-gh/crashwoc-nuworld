@@ -17,7 +17,7 @@
 
 #define NW_SAVE_FORMAT 1 /* documents with a higher format are refused */
 
-/* struct game_s (decomp/include/game/gametypes.h); src/port/saveload.c checks these against it. */
+/* struct game_s (decomp/include/game/gametypes.h); src/port/saves.c checks these against it. */
 #define NW_SAVE_GAME_SIZE 0x40C
 #define NW_SAVE_NAME 0x000
 #define NW_SAVE_NAME_SIZE 9
@@ -87,7 +87,7 @@ bool nw_save_merge(NwDoc *doc, const NwSaveRegistry *reg, const uint8_t *games, 
 /* doc's first count slots as records: a missing slot is empty, a missing field zero. false with an SDL error. */
 bool nw_save_decode(const NwDoc *doc, const NwSaveRegistry *reg, uint8_t *games, size_t count);
 /* Every record holds only what the game writes (texts end in a NUL, options in the menus' ranges); false with an SDL
-   error naming the field. nw_save_decode runs it; a card's records need it before they are merged. */
+   error naming the field. nw_save_decode runs it; a PS2 save's games need it before they are merged. */
 bool nw_save_check(const NwSaveRegistry *reg, const uint8_t *games, size_t count);
 
 #endif

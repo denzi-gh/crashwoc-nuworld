@@ -1,0 +1,106 @@
+--- a/src/gamelib/edfile.c
++++ b/src/gamelib/edfile.c
+@@ -34,24 +34,30 @@
+ enum edfile_media_e {
+     EDFILE_MEDIA_NONE = 0,
+     EDFILE_MEDIA_HOST = 1,
++#ifndef NW_HOST
+     EDFILE_MEDIA_MEMCARD = 2
++#endif
+ };
+ 
+ extern int NuFileOpen(char *file, enum nufilemode_e mode);
+ extern int NuFileRead(int fh, void *data, int size);
+ extern int NuFileWrite(int fh, void *data, int size);
+ extern void NuFileClose(int fh);
++#ifndef NW_HOST
+ extern int NuMcRead(int fd, void *buff, int size, int async);
+ extern int NuMcWrite(int fd, void *buff, int size, int async);
+ extern int sceMcOpen(int port, int slot, const char *name, int mode);
+ extern int sceMcClose(int fd);
+ extern int sceMcSync(int mode, int *cmd, int *result);
++#endif
+ 
+ char edfile_buffer[EDFILE_BUFFER_SIZE] = {0};
+ static int edfile_media = 0;
+ int edfile_handle = -1;
+ int edfile_write_flag = 0;
++#ifndef NW_HOST
+ int edfile_mcresult = 0;
++#endif
+ int edfile_lock[2] = {0};
+ int edfile_buffer_pointer = 0;
+ 
+@@ -64,10 +70,12 @@ static inline void EdFileReadBlock(void) {
+         NuFileRead(edfile_handle, edfile_buffer, EDFILE_BUFFER_SIZE);
+         edfile_buffer_pointer = 0;
+         break;
++#ifndef NW_HOST
+     case EDFILE_MEDIA_MEMCARD:
+         NuMcRead(edfile_handle, edfile_buffer, EDFILE_BUFFER_SIZE, 0);
+         edfile_buffer_pointer = 0;
+         break;
++#endif
+     }
+ }
+ 
+@@ -80,10 +88,12 @@ static inline void EdFileWriteBlock(int size) {
+         NuFileWrite(edfile_handle, edfile_buffer, size);
+         edfile_buffer_pointer = 0;
+         break;
++#ifndef NW_HOST
+     case EDFILE_MEDIA_MEMCARD:
+         NuMcWrite(edfile_handle, edfile_buffer, size, 0);
+         edfile_buffer_pointer = 0;
+         break;
++#endif
+     }
+ }
+ 
+@@ -156,6 +166,7 @@ int EdFileOpen(char *name, enum nufilemode_e mode) {
+             }
+             EdFileReadBlock();
+             break;
++#ifndef NW_HOST
+         case EDFILE_MEDIA_MEMCARD:
+             if (mode != NUFILE_READ) {
+                 if (mode != NUFILE_WRITE) {
+@@ -180,6 +191,7 @@ int EdFileOpen(char *name, enum nufilemode_e mode) {
+                 EdFileReadBlock();
+             }
+             break;
++#endif
+         }
+         return 1;
+     }
+@@ -200,12 +212,14 @@ int EdFileClose(void) {
+             edfile_media = EDFILE_MEDIA_NONE;
+             edfile_handle = -1;
+             return 1;
++#ifndef NW_HOST
+         case EDFILE_MEDIA_MEMCARD:
+             sceMcClose(edfile_handle);
+             sceMcSync(0, 0, 0);
+             edfile_media = EDFILE_MEDIA_NONE;
+             edfile_handle = -1;
+             return 1;
++#endif
+         }
+     }
+     return 0;
+@@ -292,6 +306,7 @@ void EdFileRead(void *data, int size) {
+ }
+ 
+ 
++#ifndef NW_HOST
+ int EdFileWriteMemCard(char *name, int size, void *data) {
+     edfile_media = EDFILE_MEDIA_MEMCARD;
+     if (EdFileOpen(name, NUFILE_WRITE) == 0) {
+@@ -310,6 +325,7 @@ int EdFileReadMemCard(char *name, int size, void *data) {
+     EdFileReadData(data, size);
+     return EdFileClose();
+ }
++#endif
+ 
+ 
+ void EdFileResetBuffers(void) {

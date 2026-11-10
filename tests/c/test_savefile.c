@@ -5,7 +5,7 @@
 
 #include <SDL3/SDL.h>
 
-#include "mc_builder.h"
+#include "ps2card_builder.h"
 #include "platform/paths.h"
 #include "save/ps2card.h"
 #include "save/savecodec.h"
@@ -23,7 +23,7 @@ static char dir[1100];
         } \
     } while (0)
 
-#define SAVE_SIZE (NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE)
+#define SAVE_SIZE (NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE)
 
 static NwSaveRegistry reg;
 static uint32_t seed = 0x12345678;
@@ -270,12 +270,12 @@ static void test_codec(void)
     uint8_t games[SAVE_SIZE], back[SAVE_SIZE];
     char *text = NULL;
     for (int round = 0; round < 50; round++) {
-        for (int s = 0; s < NW_SAVE_RECORDS; s++) {
+        for (int s = 0; s < NW_SAVE_PS2_GAMES; s++) {
             random_record(games + s * NW_SAVE_GAME_SIZE);
         }
         memset(games + 3 * NW_SAVE_GAME_SIZE, 0, NW_SAVE_GAME_SIZE); /* an empty slot of zeros */
         games[3 * NW_SAVE_GAME_SIZE + NW_SAVE_EMPTY] = 1;
-        CHECK(round_trip(games, NW_SAVE_RECORDS, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
+        CHECK(round_trip(games, NW_SAVE_PS2_GAMES, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
         SDL_free(text);
         text = NULL;
     }
@@ -295,10 +295,10 @@ static void test_codec(void)
     g[NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME + 4] = 0x9C;
     g[NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME + 5] = 0x63;
     g[NW_SAVE_CUTBITS] = 1;
-    for (int s = 1; s < NW_SAVE_RECORDS; s++) {
+    for (int s = 1; s < NW_SAVE_PS2_GAMES; s++) {
         games[s * NW_SAVE_GAME_SIZE + NW_SAVE_EMPTY] = 1;
     }
-    CHECK(round_trip(games, NW_SAVE_RECORDS, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
+    CHECK(round_trip(games, NW_SAVE_PS2_GAMES, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
     CHECK(starts(text, "format = 1\n\n[slot.0]\nempty = false\nname = \"CRASH   \"\nlives = 4\n"));
     CHECK(text && strstr(text, "powerbits = 0x00\ncutbits = 0x00000001\n"));
     CHECK(text && strstr(text, "\n[slot.0.options]\nvibration = 1\nsurround = 0\nsfx_volume = 100\n"));
@@ -312,7 +312,7 @@ static void test_codec(void)
 
     /* the minigame best: a key of the slot, not the top floor hub's pad */
     g[NW_SAVE_MINIGAME_BEST] = 37;
-    CHECK(round_trip(games, NW_SAVE_RECORDS, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
+    CHECK(round_trip(games, NW_SAVE_PS2_GAMES, back, &text) && memcmp(games, back, SAVE_SIZE) == 0);
     CHECK(text && strstr(text, "gembits = 0x00\nminigame_best = 37\n"));
     CHECK(text && !strstr(text, "pad") && !strstr(text, "[slot.0.hub.5]"));
     SDL_free(text);
@@ -341,7 +341,7 @@ static void test_codec(void)
     if (failures) {
         return;
     }
-    CHECK(nw_save_merge(&doc, &reg, games, NW_SAVE_RECORDS));
+    CHECK(nw_save_merge(&doc, &reg, games, NW_SAVE_PS2_GAMES));
     char *merged = nw_doc_write(&doc, NULL, NULL);
     nw_doc_free(&doc);
     CHECK(merged && parse(&doc, merged));
@@ -361,7 +361,7 @@ static void test_codec(void)
         const char *hub1[4] = { "slot", "0", "hub", "1" };
         CHECK(nw_doc_table(&doc, hub1, 4) == NULL);
         CHECK((v = nw_doc_get(table2(&doc, "slot", "4"), "lives")) && v->i == 3);
-        CHECK(nw_save_decode(&doc, &reg, back, NW_SAVE_RECORDS) && memcmp(games, back, SAVE_SIZE) == 0);
+        CHECK(nw_save_decode(&doc, &reg, back, NW_SAVE_PS2_GAMES) && memcmp(games, back, SAVE_SIZE) == 0);
         nw_doc_free(&doc);
     }
     SDL_free(merged);
@@ -401,7 +401,7 @@ static void test_codec(void)
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         CHECK(parse(&doc, bad[i]));
         if (!failures) {
-            bool decoded = nw_save_decode(&doc, &reg, back, NW_SAVE_RECORDS);
+            bool decoded = nw_save_decode(&doc, &reg, back, NW_SAVE_PS2_GAMES);
             if (decoded) {
                 fprintf(stderr, "decoded: %s", bad[i]);
             }
@@ -411,7 +411,7 @@ static void test_codec(void)
     }
     CHECK(parse(&doc, "format = 1\n[slot.0]\nname = \"12345678\"\n[slot.0.options]\nlanguage = 5\nsfx_volume = 100\n"));
     if (!failures) {
-        CHECK(nw_save_decode(&doc, &reg, back, NW_SAVE_RECORDS) && back[NW_SAVE_LANGUAGE] == 5);
+        CHECK(nw_save_decode(&doc, &reg, back, NW_SAVE_PS2_GAMES) && back[NW_SAVE_LANGUAGE] == 5);
         nw_doc_free(&doc);
     }
     CHECK(parse(&doc, "format = 2\n"));
@@ -448,71 +448,18 @@ static void fresh(void)
     CHECK(nw_paths_remove_tree(dir) && SDL_CreateDirectory(dir));
 }
 
-#define MAIN NW_SAVE_CARD_NAME "slot00.toml"
-
-static void test_store(const uint8_t *games, const uint8_t *other)
-{
-    uint8_t back[SAVE_SIZE];
-    size_t size = 0;
-    fresh();
-    memset(back, 0xAA, sizeof(back));
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_NONE && back[0] == 0xAA);
-    CHECK(nw_save_store(dir, 0, &reg, games, NW_SAVE_RECORDS) && there(MAIN) && !there(MAIN ".bak"));
-    CHECK(!there(MAIN ".tmp") && nw_save_exists(dir, 0) && !nw_save_exists(dir, 1));
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_OK && memcmp(back, games, SAVE_SIZE) == 0);
-    char *first = get(MAIN, &size);
-    CHECK(nw_save_store(dir, 0, &reg, other, NW_SAVE_RECORDS));
-    size_t bak_size = 0;
-    char *bak = get(MAIN ".bak", &bak_size);
-    CHECK(first && bak && size == bak_size && memcmp(first, bak, size) == 0);
-    SDL_free(bak);
-
-    /* fewer records than the file has: the others stay */
-    CHECK(nw_save_store(dir, 0, &reg, games, 1));
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_OK);
-    CHECK(memcmp(back, games, NW_SAVE_GAME_SIZE) == 0 &&
-          memcmp(back + NW_SAVE_GAME_SIZE, other + NW_SAVE_GAME_SIZE, SAVE_SIZE - NW_SAVE_GAME_SIZE) == 0);
-    CHECK(nw_save_load(dir, 0, &reg, back, 0) == NW_SAVE_FAILED);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS + 1) == NW_SAVE_FAILED);
-    CHECK(nw_save_load(dir, NW_SAVE_CARD_SLOTS, &reg, back, 1) == NW_SAVE_FAILED);
-
-    /* a main file that does not load: the .bak is loaded, and the next save sets the file aside */
-    CHECK(nw_save_store(dir, 0, &reg, games, NW_SAVE_RECORDS)); /* .bak: games + other */
-    put(MAIN, "format = 1\n[slot.0\n", 19);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_BACKUP && strstr(SDL_GetError(), "line 2"));
-    CHECK(memcmp(back, games, NW_SAVE_GAME_SIZE) == 0);
-    CHECK(nw_save_store(dir, 0, &reg, other, NW_SAVE_RECORDS) && there(MAIN ".corrupt"));
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_OK && memcmp(back, other, SAVE_SIZE) == 0);
-    put(MAIN ".bak", "garbage", 7);
-    put(MAIN, "format = 1\nlives = [\n", 21);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_FAILED);
-
-    /* a newer build's file is neither loaded nor overwritten */
-    static const char newer[] = "format = 2\n[slot.0]\nlives = 9\n";
-    put(MAIN, newer, sizeof(newer) - 1);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_FAILED && strstr(SDL_GetError(), "newer"));
-    CHECK(!nw_save_store(dir, 0, &reg, games, NW_SAVE_RECORDS));
-    char *kept = get(MAIN, &size);
-    CHECK(kept && size == sizeof(newer) - 1 && memcmp(kept, newer, size) == 0);
-    SDL_free(kept);
-
-    /* delete: no data afterwards, and no import over it */
-    CHECK(nw_save_store(dir, 1, &reg, games, NW_SAVE_RECORDS) && there(NW_SAVE_CARD_NAME "slot01.toml"));
-    CHECK(nw_save_remove(dir, 1) == NW_SAVE_OK && !nw_save_exists(dir, 1) && there(NW_SAVE_CARD_NAME "slot01.toml.bak"));
-    CHECK(nw_save_remove(dir, 1) == NW_SAVE_NONE);
-    put(NW_SAVE_CARD_NAME "slot01", games, SAVE_SIZE);
-    CHECK(nw_save_load(dir, 1, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_NONE && !nw_save_exists(dir, 1));
-    SDL_free(first);
-}
+#define OLDER NW_SAVE_PS2_NAME "slot00.toml" /* an older NuWorld build's file of 4 games */
+#define RAW NW_SAVE_PS2_NAME "slot00"         /* a raw PS2 save */
+#define GAME NW_SAVE_GAME_SIZE
 
 static uint8_t *card_with(const uint8_t *save, size_t save_size, bool ecc, uint32_t gap, size_t *size)
 {
-    static Mcb m;
-    const char *names[2] = { "icon.sys", NW_SAVE_CARD_NAME "slot00" };
+    static Pcb m;
+    const char *names[2] = { "icon.sys", RAW };
     const void *data[2] = { "icon", save };
     size_t lens[2] = { 4, save_size };
-    mcb_build(&m, gap, NW_SAVE_CARD_NAME, save ? 2 : 1, names, data, lens);
-    return mcb_image(&m, ecc, size);
+    pcb_build(&m, gap, NW_SAVE_PS2_NAME, save ? 2 : 1, names, data, lens);
+    return pcb_image(&m, ecc, size);
 }
 
 static void test_card(const uint8_t *games)
@@ -522,45 +469,45 @@ static void test_card(const uint8_t *games)
     for (int variant = 0; variant < 4; variant++) {
         uint8_t *img = card_with(games, SAVE_SIZE, variant & 1, (uint32_t)variant / 2, &size);
         CHECK(nw_ps2card_is_card(img, size));
-        uint8_t *file = nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, NW_SAVE_CARD_NAME "slot00", &len, &missing);
+        uint8_t *file = nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, RAW, &len, &missing);
         CHECK(file && len == SAVE_SIZE && memcmp(file, games, SAVE_SIZE) == 0 && !missing);
         SDL_free(file);
-        CHECK(!nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, "nothing", &len, &missing) && missing);
-        CHECK(!nw_ps2card_file(img, size, "OTHER", NW_SAVE_CARD_NAME "slot00", &len, &missing) && missing);
-        CHECK(!nw_ps2card_file(img, size - 1, NW_SAVE_CARD_NAME, NW_SAVE_CARD_NAME "slot00", &len, &missing) &&
+        CHECK(!nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, "nothing", &len, &missing) && missing);
+        CHECK(!nw_ps2card_file(img, size, "OTHER", RAW, &len, &missing) && missing);
+        CHECK(!nw_ps2card_file(img, size - 1, NW_SAVE_PS2_NAME, RAW, &len, &missing) &&
               !missing);
         free(img);
     }
 
     /* a chain that loops back and a FAT outside the card */
-    static Mcb m;
-    const char *names[1] = { NW_SAVE_CARD_NAME "slot00" };
+    static Pcb m;
+    const char *names[1] = { RAW };
     const void *data[1] = { games };
     size_t lens[1] = { SAVE_SIZE };
-    mcb_build(&m, 0, NW_SAVE_CARD_NAME, 1, names, data, lens);
-    uint8_t *entry = mcb_entry_at(&m, mcb_rd32(mcb_entry_at(&m, 0, 2) + 0x10), 2);
-    uint32_t first = mcb_rd32(entry + 0x10), last = first;
-    while (mcb_rd32(mcb_fat(&m, last)) != MCB_END) {
-        last = mcb_rd32(mcb_fat(&m, last)) & 0x7FFFFFFFu;
+    pcb_build(&m, 0, NW_SAVE_PS2_NAME, 1, names, data, lens);
+    uint8_t *entry = pcb_entry_at(&m, pcb_rd32(pcb_entry_at(&m, 0, 2) + 0x10), 2);
+    uint32_t first = pcb_rd32(entry + 0x10), last = first;
+    while (pcb_rd32(pcb_fat(&m, last)) != PCB_END) {
+        last = pcb_rd32(pcb_fat(&m, last)) & 0x7FFFFFFFu;
     }
-    mcb_le32(mcb_fat(&m, last), 0x80000000u | first);
-    mcb_le32(entry + 0x04, 0x100000); /* a size longer than the card */
-    uint8_t *img = mcb_image(&m, true, &size);
-    CHECK(!nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, names[0], &len, &missing) && !missing);
+    pcb_le32(pcb_fat(&m, last), 0x80000000u | first);
+    pcb_le32(entry + 0x04, 0x100000); /* a size longer than the card */
+    uint8_t *img = pcb_image(&m, true, &size);
+    CHECK(!nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, names[0], &len, &missing) && !missing);
     free(img);
-    mcb_le32(entry + 0x04, MCB_CLUSTERS * MCB_CLUSTER + 1); /* more clusters than the card has */
-    img = mcb_image(&m, true, &size);
-    CHECK(!nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, names[0], &len, &missing) && !missing &&
+    pcb_le32(entry + 0x04, PCB_CLUSTERS * PCB_CLUSTER + 1); /* more clusters than the card has */
+    img = pcb_image(&m, true, &size);
+    CHECK(!nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, names[0], &len, &missing) && !missing &&
           strstr(SDL_GetError(), "loops"));
     free(img);
-    mcb_le32(m.c[MCB_IFC], 0x7FFFFFF0u);
-    img = mcb_image(&m, true, &size);
-    CHECK(!nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, names[0], &len, &missing) && !missing);
+    pcb_le32(m.c[PCB_IFC], 0x7FFFFFF0u);
+    img = pcb_image(&m, true, &size);
+    CHECK(!nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, names[0], &len, &missing) && !missing);
     free(img);
-    mcb_le32(m.c[MCB_IFC], MCB_FAT);
-    mcb_le16(m.c[0] + 0x2A, 0);
-    img = mcb_image(&m, true, &size);
-    CHECK(!nw_ps2card_file(img, size, NW_SAVE_CARD_NAME, names[0], &len, &missing) && !missing);
+    pcb_le32(m.c[PCB_IFC], PCB_FAT);
+    pcb_le16(m.c[0] + 0x2A, 0);
+    img = pcb_image(&m, true, &size);
+    CHECK(!nw_ps2card_file(img, size, NW_SAVE_PS2_NAME, names[0], &len, &missing) && !missing);
     free(img);
 
     uint8_t blank[4096];
@@ -569,81 +516,225 @@ static void test_card(const uint8_t *games)
     CHECK(!nw_ps2card_file(blank, sizeof(blank), "a", "b", &len, &missing) && !missing);
 }
 
-static void test_import(const uint8_t *games, const uint8_t *other)
+/* A PS2 save's 4 games from games: 0, 2 and 3 games, 1 empty. */
+static void as_card(uint8_t *card, const uint8_t *games)
 {
-    uint8_t back[SAVE_SIZE];
+    memcpy(card, games, SAVE_SIZE);
+    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) {
+        card[i * GAME + NW_SAVE_EMPTY] = i == 1;
+    }
+}
+
+/* The file an older NuWorld build wrote: the codec's 4 records. */
+static void put_older(const uint8_t *card, const char *name)
+{
+    NwDoc doc;
     size_t size = 0;
+    char *text = NULL;
+    CHECK(nw_doc_init(&doc) && nw_save_merge(&doc, &reg, card, NW_SAVE_PS2_GAMES) &&
+          (text = nw_doc_write(&doc, NULL, &size)));
+    if (text) {
+        put(name, text, size);
+    }
+    SDL_free(text);
+    nw_doc_free(&doc);
+}
 
-    /* a raw save in the folder, imported on the first load and left as it is */
-    fresh();
-    put(NW_SAVE_CARD_NAME "slot00", games, SAVE_SIZE);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_IMPORTED && memcmp(back, games, SAVE_SIZE) == 0);
-    CHECK(there(MAIN) && there(NW_SAVE_CARD_NAME "slot00"));
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_OK);
+/* A game per file with its time, kept as .bak when replaced or deleted. */
+static void test_saves(const uint8_t *games, const uint8_t *other)
+{
+    uint8_t g[GAME], o[GAME], e[GAME], back[GAME];
+    NwSaveTime when = { 2026, 9, 24, 23, 28, 5 }, t;
+    size_t size = 0;
+    memcpy(g, games, GAME);
+    g[NW_SAVE_EMPTY] = 0;
+    memcpy(o, other, GAME);
+    o[NW_SAVE_EMPTY] = 0;
+    memcpy(e, g, GAME);
+    e[NW_SAVE_EMPTY] = 1;
 
-    /* card images, by name: the first that holds the save */
     fresh();
-    uint8_t *with = card_with(games, SAVE_SIZE, true, 1, &size);
+    memset(back, 0xAA, sizeof(back));
+    CHECK(!nw_save_started(dir) && nw_save_load(dir, 0, &reg, back, &t) == NW_SAVE_NONE && back[0] == 0xAA);
+    CHECK(nw_save_scan(dir, NULL) == -1);
+    CHECK(nw_save_store(dir, 0, &reg, g, &when) && there("save001.toml") && nw_save_exists(dir, 0));
+    CHECK(nw_save_started(dir) && !nw_save_exists(dir, 1) && !there("save001.toml.bak"));
+    CHECK(nw_save_load(dir, 0, &reg, back, &t) == NW_SAVE_OK && memcmp(back, g, GAME) == 0);
+    CHECK(t.year == 2026 && t.month == 9 && t.day == 24 && t.hour == 23 && t.minute == 28 && t.second == 5);
+    char *text = get("save001.toml", &size);
+    CHECK(text && strstr(text, "saved = \"2026-09-24T23:28:05\"") && strstr(text, "[slot.0]") &&
+          !strstr(text, "[slot.1]"));
+    SDL_free(text);
+
+    /* saved now; out of range; an empty game is no save */
+    CHECK(nw_save_store(dir, NW_SAVE_GAMES - 1, &reg, o, NULL) && there("save100.toml"));
+    CHECK(nw_save_load(dir, NW_SAVE_GAMES - 1, &reg, back, &t) == NW_SAVE_OK && memcmp(back, o, GAME) == 0);
+    CHECK(t.year >= 2024 && t.month >= 1);
+    int last = 0;
+    CHECK(nw_save_scan(dir, &last) >= 0 && last == NW_SAVE_GAMES - 1);
+    CHECK(!nw_save_store(dir, NW_SAVE_GAMES, &reg, g, NULL) && !nw_save_store(dir, -1, &reg, g, NULL));
+    CHECK(nw_save_load(dir, NW_SAVE_GAMES, &reg, back, NULL) == NW_SAVE_FAILED);
+    CHECK(!nw_save_store(dir, 1, &reg, e, NULL) && !there("save002.toml"));
+    put("save002.toml", "format = 1\n[slot.0]\nempty = 1\n", 30);
+    CHECK(nw_save_load(dir, 1, &reg, back, NULL) == NW_SAVE_NONE);
+    put("save003.toml", "format = 1\n[slot.0]\nlives = 3\n", 30);
+    CHECK(nw_save_load(dir, 2, &reg, back, &t) == NW_SAVE_OK && back[NW_SAVE_LIVES] == 3 && t.year == 0);
+
+    /* replaced: the last one kept as .bak, loaded when the file does not, the next save sets the file aside */
+    CHECK(nw_save_store(dir, 0, &reg, o, &when) && there("save001.toml.bak"));
+    CHECK(nw_save_load(dir, 0, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, o, GAME) == 0);
+    put("save001.toml", "format = 1\n[slot.0\n", 19);
+    CHECK(nw_save_load(dir, 0, &reg, back, &t) == NW_SAVE_BACKUP && strstr(SDL_GetError(), "line 2"));
+    CHECK(memcmp(back, g, GAME) == 0 && t.year == 2026);
+    CHECK(nw_save_store(dir, 0, &reg, o, NULL) && there("save001.toml.corrupt"));
+    CHECK(nw_save_load(dir, 0, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, o, GAME) == 0);
+
+    /* a newer build's file is neither loaded nor overwritten */
+    static const char newer[] = "format = 2\n[slot.0]\nlives = 9\n";
+    put("save004.toml", newer, sizeof(newer) - 1);
+    CHECK(nw_save_load(dir, 3, &reg, back, NULL) == NW_SAVE_FAILED && strstr(SDL_GetError(), "newer"));
+    CHECK(!nw_save_store(dir, 3, &reg, g, NULL));
+    char *kept = get("save004.toml", &size);
+    CHECK(kept && size == sizeof(newer) - 1 && memcmp(kept, newer, size) == 0);
+    SDL_free(kept);
+
+    /* deleted to .bak: no save afterwards, and the folder has had saves */
+    CHECK(nw_save_remove(dir, 0) == NW_SAVE_OK && !nw_save_exists(dir, 0) && there("save001.toml.bak"));
+    CHECK(nw_save_remove(dir, 0) == NW_SAVE_NONE && nw_save_load(dir, 0, &reg, back, NULL) == NW_SAVE_NONE);
+    for (int n = 1; n < NW_SAVE_GAMES; n++) {
+        CHECK(nw_save_remove(dir, n) != NW_SAVE_FAILED);
+    }
+    CHECK(nw_save_started(dir) && nw_save_scan(dir, &last) == -1 && last == -1);
+}
+
+/* Before the first save, once: an older NuWorld file, else the folder's PS2 save, by the games' places. */
+static void test_convert(const uint8_t *games)
+{
+    uint8_t card[SAVE_SIZE], back[GAME];
+    NwSaveTime t;
+    size_t size = 0;
+    as_card(card, games);
+
+    fresh();
+    CHECK(nw_save_convert(dir, &reg) == 0 && !nw_save_started(dir));
+
+    /* an older NuWorld build's file: renamed once converted, at its own time */
+    fresh();
+    put_older(card, OLDER);
+    CHECK(nw_save_convert(dir, &reg) == 3);
+    CHECK(there("save001.toml") && !there("save002.toml") && there("save003.toml") && there("save004.toml"));
+    CHECK(!there(OLDER) && there(OLDER ".converted"));
+    CHECK(nw_save_load(dir, 2, &reg, back, &t) == NW_SAVE_OK && memcmp(back, card + 2 * GAME, GAME) == 0);
+    CHECK(t.year >= 2024);
+    put_older(card, OLDER);
+    CHECK(nw_save_convert(dir, &reg) == 0 && there(OLDER)); /* the folder has saves: never again */
+
+    /* its .bak when the file does not load; a newer build's is kept and not converted */
+    fresh();
+    put_older(card, OLDER ".bak");
+    put(OLDER, "format = 1\n[slot.0\n", 19);
+    CHECK(nw_save_convert(dir, &reg) == 3 && there("save004.toml"));
+    fresh();
+    put(OLDER, "format = 2\n", 11);
+    CHECK(nw_save_convert(dir, &reg) == -1 && strstr(SDL_GetError(), "newer") && there(OLDER));
+    CHECK(!nw_save_started(dir));
+
+    /* the folder's raw PS2 save, left as it is */
+    fresh();
+    put(RAW, card, SAVE_SIZE);
+    CHECK(nw_save_convert(dir, &reg) == 3 && there("save004.toml") && there(RAW));
+    CHECK(nw_save_load(dir, 3, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, card + 3 * GAME, GAME) == 0);
+
+    /* card images, by name: the first that holds the save; a stray file is passed over */
+    fresh();
+    uint8_t *with = card_with(card, SAVE_SIZE, true, 1, &size);
     put("b.ps2", with, size);
     free(with);
     uint8_t *without = card_with(NULL, 0, true, 0, &size);
     put("a.ps2", without, size);
-    put("0.PS2", "not a card", 10);
     free(without);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_IMPORTED && strstr(SDL_GetError(), "b.ps2"));
-    CHECK(memcmp(back, games, SAVE_SIZE) == 0);
+    put("0.PS2", "not a card", 10);
+    CHECK(nw_save_convert(dir, &reg) == 3);
+    CHECK(nw_save_load(dir, 0, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, card, GAME) == 0);
 
     /* nothing usable: no save, and no file made */
     fresh();
     put("x.ps2", "junk", 4);
-    put(NW_SAVE_CARD_NAME "slot00", games, 100);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_NONE && !there(MAIN));
+    put(RAW, card, 100);
+    CHECK(nw_save_convert(dir, &reg) == 0 && !nw_save_started(dir));
+}
 
-    /* explicit: over an existing save, which is kept */
+/* A PS2 save's games into the first free saves, in their order; nothing written when one does not convert. */
+static void test_import(const uint8_t *games, const uint8_t *other)
+{
+    uint8_t card[SAVE_SIZE], g[GAME], o[GAME], back[GAME];
+    size_t size = 0;
+    as_card(card, games);
+    memcpy(g, games, GAME);
+    g[NW_SAVE_EMPTY] = 0;
+    memcpy(o, other, GAME);
+    o[NW_SAVE_EMPTY] = 0;
+
     fresh();
-    CHECK(nw_save_store(dir, 0, &reg, other, NW_SAVE_RECORDS));
-    with = card_with(games, SAVE_SIZE, false, 0, &size);
+    CHECK(nw_save_store(dir, 0, &reg, g, NULL) && nw_save_store(dir, 2, &reg, o, NULL));
+    uint8_t *with = card_with(card, SAVE_SIZE, false, 0, &size);
     put("card.ps2", with, size);
     free(with);
-    CHECK(nw_save_import(dir, 0, path_of("card.ps2"), &reg) == NW_SAVE_IMPORTED);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_OK && memcmp(back, games, SAVE_SIZE) == 0);
-    CHECK(nw_save_remove(dir, 0) == NW_SAVE_OK);
-    CHECK(nw_save_load(dir, 0, &reg, back, NW_SAVE_RECORDS) == NW_SAVE_NONE); /* the .bak holds the import now */
-    without = card_with(NULL, 0, true, 0, &size);
+    CHECK(nw_save_import(dir, path_of("card.ps2"), &reg) == 3);
+    CHECK(nw_save_load(dir, 0, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, g, GAME) == 0);
+    CHECK(nw_save_load(dir, 1, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, card, GAME) == 0);
+    CHECK(nw_save_load(dir, 3, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, card + 2 * GAME, GAME) == 0);
+    CHECK(nw_save_load(dir, 4, &reg, back, NULL) == NW_SAVE_OK && memcmp(back, card + 3 * GAME, GAME) == 0);
+    CHECK(!nw_save_exists(dir, 5));
+    put(RAW, card, SAVE_SIZE);
+    CHECK(nw_save_import(dir, path_of(RAW), &reg) == 3 && nw_save_exists(dir, 7) && !nw_save_exists(dir, 8));
+
+    uint8_t *without = card_with(NULL, 0, true, 0, &size);
     put("empty.ps2", without, size);
     free(without);
-    CHECK(nw_save_import(dir, 0, path_of("empty.ps2"), &reg) == NW_SAVE_NONE);
+    CHECK(nw_save_import(dir, path_of("empty.ps2"), &reg) == 0);
     uint8_t blank[1024];
     memset(blank, 0xFF, sizeof(blank));
     put("blank.ps2", blank, sizeof(blank));
-    CHECK(nw_save_import(dir, 0, path_of("blank.ps2"), &reg) == NW_SAVE_FAILED && strstr(SDL_GetError(), "card"));
+    CHECK(nw_save_import(dir, path_of("blank.ps2"), &reg) == -1 && strstr(SDL_GetError(), "card"));
     put("short", games, 16);
-    CHECK(nw_save_import(dir, 0, path_of("short"), &reg) == NW_SAVE_FAILED);
-    CHECK(nw_save_import(dir, 0, path_of("missing"), &reg) == NW_SAVE_FAILED);
-    with = card_with(games, 100, true, 0, &size);
+    CHECK(nw_save_import(dir, path_of("short"), &reg) == -1 && strstr(SDL_GetError(), "short"));
+    CHECK(nw_save_import(dir, path_of("missing"), &reg) == -1);
+    with = card_with(card, 100, true, 0, &size);
     put("odd.ps2", with, size);
     free(with);
-    CHECK(nw_save_import(dir, 0, path_of("odd.ps2"), &reg) == NW_SAVE_FAILED);
+    CHECK(nw_save_import(dir, path_of("odd.ps2"), &reg) == -1);
 
     /* crafted saves (a time name without its NUL, a language past the tables) are refused before anything is written */
     fresh();
     uint8_t *crafted = malloc(SAVE_SIZE);
-    memcpy(crafted, games, SAVE_SIZE);
-    memcpy(crafted + 2 * NW_SAVE_GAME_SIZE + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME, "ABCD", 4);
+    memcpy(crafted, card, SAVE_SIZE);
+    memcpy(crafted + 2 * GAME + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME, "ABCD", 4);
     put("crafted", crafted, SAVE_SIZE);
-    CHECK(nw_save_import(dir, 0, path_of("crafted"), &reg) == NW_SAVE_FAILED && strstr(SDL_GetError(), "slot.2"));
-    CHECK(!there(MAIN));
-    crafted[2 * NW_SAVE_GAME_SIZE + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME + 3] = 0;
+    CHECK(nw_save_import(dir, path_of("crafted"), &reg) == -1 && strstr(SDL_GetError(), "slot.2"));
+    CHECK(!nw_save_started(dir));
+    crafted[2 * GAME + NW_SAVE_LEVEL + NW_SAVE_LEVEL_TIME + 3] = 0;
     crafted[NW_SAVE_LANGUAGE] = 200;
     with = card_with(crafted, SAVE_SIZE, true, 0, &size);
     put("crafted.ps2", with, size);
     free(with);
-    CHECK(nw_save_import(dir, 0, path_of("crafted.ps2"), &reg) == NW_SAVE_FAILED && strstr(SDL_GetError(), "language"));
-    CHECK(!there(MAIN));
+    CHECK(nw_save_import(dir, path_of("crafted.ps2"), &reg) == -1 && strstr(SDL_GetError(), "language"));
+    CHECK(!nw_save_started(dir));
     free(crafted);
 
+    /* no room: nothing written */
+    for (int n = 0; n < NW_SAVE_GAMES - 1; n++) {
+        CHECK(nw_save_store(dir, n, &reg, g, NULL));
+    }
+    with = card_with(card, SAVE_SIZE, false, 0, &size);
+    put("card.ps2", with, size);
+    free(with);
+    CHECK(nw_save_import(dir, path_of("card.ps2"), &reg) == -1 && strstr(SDL_GetError(), "free saves"));
+    CHECK(!nw_save_exists(dir, NW_SAVE_GAMES - 1));
+
     /* what tests/save_toml.py reads with Python's tomllib */
-    CHECK(nw_save_store(dir, 0, &reg, games, NW_SAVE_RECORDS));
+    fresh();
+    CHECK(nw_save_store(dir, 0, &reg, g, NULL) && nw_save_store(dir, 1, &reg, o, NULL));
 }
 
 int main(int argc, char *argv[])
@@ -658,12 +749,13 @@ int main(int argc, char *argv[])
     test_codec();
 
     uint8_t *games = malloc(SAVE_SIZE), *other = malloc(SAVE_SIZE);
-    for (int s = 0; s < NW_SAVE_RECORDS; s++) {
+    for (int s = 0; s < NW_SAVE_PS2_GAMES; s++) {
         random_record(games + s * NW_SAVE_GAME_SIZE);
         random_record(other + s * NW_SAVE_GAME_SIZE);
     }
-    test_store(games, other);
+    test_saves(games, other);
     test_card(games);
+    test_convert(games);
     test_import(games, other);
     free(games);
     free(other);

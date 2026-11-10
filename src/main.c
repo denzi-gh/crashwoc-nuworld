@@ -38,9 +38,9 @@
 #include "port/padscript.h"
 #include "port/options.h"
 #include "port/presence.h"
-#include "port/saveload.h"
+#include "port/savemenu.h"
+#include "port/saves.h"
 #include "port/scene.h"
-#include "port/text.h"
 #include "port/trace.h"
 #include "port/wide.h"
 #include "shim/shim.h"
@@ -136,20 +136,23 @@ static int nw_verify(const char *data_dir)
 }
 
 #ifdef NW_WITH_GAME
-/* Imports a raw BESLES-50386slot00 or a .ps2 card image as the game's save; exit code 2 when the card has no save. */
+/* Imports the games of a raw BESLES-50386slot00 or a .ps2 card image into the first free saves; exit code 2 when the
+   card has no save. */
 static int nw_import_save(const char *file, const char *data_dir)
 {
     char *root = nw_data_root(data_dir);
     char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
-    NwSaveResult r = saves ? nw_saveload_import(saves, file) : NW_SAVE_FAILED;
-    if (r == NW_SAVE_IMPORTED) {
-        printf("Imported %s into %s\n", file, saves);
-    } else if (root) {
+    int made = saves ? nw_saves_import(saves, file) : -1;
+    if (made > 0) {
+        printf("Imported %d games of %s into %s\n", made, file, saves);
+    } else if (made < 0 && root) {
         fprintf(stderr, NW_APP_NAME ": save import failed: %s\n", SDL_GetError());
+    } else if (made == 0) {
+        fprintf(stderr, NW_APP_NAME ": %s holds no save\n", file);
     }
     SDL_free(saves);
     SDL_free(root);
-    return r == NW_SAVE_IMPORTED ? 0 : r == NW_SAVE_NONE ? 2 : 1;
+    return made > 0 ? 0 : made == 0 ? 2 : 1;
 }
 
 /* The boot ELF of the imported disc, checked against the manifest; NULL with SDL_GetError() otherwise. */
@@ -466,8 +469,8 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     bool vfs_open = root && nw_vfs_init(&vfs, root);
     void *elf = vfs_open ? nw_read_elf(&vfs, &size) : NULL;
     char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
-    nw_saveload_init(saves);
-    nw_text_platform(nw_prompts_on_deck());
+    nw_saves_init(saves);
+    nw_savemenu_platform(nw_prompts_on_deck());
     SDL_free(saves);
     SDL_free(root);
     if (!elf) {

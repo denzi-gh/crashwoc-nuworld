@@ -1,0 +1,26 @@
+--- a/src/game/main.c
++++ b/src/game/main.c
+@@ -237,7 +237,9 @@ extern void edbitsRegisterSfx(void *tab, void *sfx, s32 count, s32 total);
+ extern void NuWaterInit(struct nugscn_s *scene);
+ extern void NuBridgeInit(void);
+ extern void NuWindInit(void);
++#ifndef NW_HOST
+ extern s32 saveloadLoadIcon(char *name, void *buf);
++#endif
+ extern void edppDestroyAllParticles(void);
+ extern void edppDestroyAllEffects(void);
+ extern s32 NuFileSize(char *name);
+@@ -514,11 +516,13 @@ void InitWorld(void)
+     NuWindInit();
+     NuLightFogClear(0);
+ 
++#ifndef NW_HOST
+     if (Level == 0x25) {
+         LOAD_MESSAGE("loading Mem card Icon");
+         n = saveloadLoadIcon("stuff\\crash.ico", superbuffer_ptr.voidptr);
+         superbuffer_ptr.intaddr = (superbuffer_ptr.intaddr + n + 0xF) & ~(nuintptr)0xF;
+     }
++#endif
+ 
+     noterraininit();
+     if (LDATA->flags & 0x8) {
