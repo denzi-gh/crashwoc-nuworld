@@ -105,8 +105,7 @@ schema = 1
 "gamelib/debris" = { treatment = "compile", wrap = ["DebrisCollisionCheck"] }
 "gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
     "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
-    "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"],
-    drop = ["*MemCard*"] }
+    "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"], drop = ["*MemCard*"] }
 "gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
     "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
     "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
