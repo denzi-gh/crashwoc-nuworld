@@ -24,7 +24,7 @@ extern s32 Level, TimeTrial;
 extern s32 new_level, cutmovie, next_cut_movie, fade_rate, i_nameinput;
 extern struct game_s *game;
 extern char *tVIBRATION[6], *tON[6], *tOFF[6], *tSOUNDOPTIONS[6], *tADJUSTSCREEN[6], *tDONE[6];
-extern s32 temp_vibration;
+extern u8 temp_vibration;
 extern int nw_hz;
 void NuStrCpy(char *dst, char *src);
 void OpenGame(void);

@@ -10,7 +10,8 @@
 extern struct game_s Game;
 extern struct cursor_s Cursor;
 extern struct panelcount_s plr_lives, plr_wumpas;
-extern s32 Level, Hub, Demo, GameMode, editor_active, cutmovie, new_level, new_mode, new_lev_flags;
+extern s32 Level, Hub, Demo, GameMode, editor_active, cutmovie, new_level, new_mode;
+extern u16 new_lev_flags;
 void CalculateGamePercentage(struct game_s *game);
 
 typedef struct NwAutoSnapshot {
