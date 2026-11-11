@@ -1,6 +1,6 @@
 --- a/src/gamelib/gcutscn.c
 +++ b/src/gamelib/gcutscn.c
-@@ -1688,6 +1688,7 @@ void instNuGCutCamSysUpdate(struct instNUGCUTSCENE_s *scene, float time) {
+@@ -1704,6 +1704,7 @@ void instNuGCutCamSysUpdate(struct instNUGCUTSCENE_s *scene, float time) {
  
      if (camdef->camchanges && StateAnimEvaluate(camdef->camchanges, &camsys->next_switch, &camchange, time)) {
          camsys->current = camchange;

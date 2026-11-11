@@ -1,0 +1,25 @@
+--- a/src/game/cut.c
++++ b/src/game/cut.c
+@@ -361,7 +361,14 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
+     if (icutscene->flags & NUGCUTSCENE_MATRIXSET) {
+         NuMtxMul(&mtx, &mtx, &icutscene->mtx);
+     }
++    NW_WIDE_ONLY(if (is_visible == 0 && nw_wide_cut_char_hold(icutscene, cutchar, icutchar, obj, &current_frame)) {
++        NuGCutCharAnimProcess(cutchar, current_frame, &mtx, &is_visible, 0, 0, 0);
++        if (icutscene->flags & NUGCUTSCENE_MATRIXSET) {
++            NuMtxMul(&mtx, &mtx, &icutscene->mtx);
++        }
++    })
+     if (is_visible == 0) {
++        NW_WIDE_ONLY(nw_wide_cut_char(icutscene, cutchar, icutchar, 0, current_frame, &mtx, obj, tmtx);)
+         return;
+     }
+ 
+@@ -375,6 +382,7 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
+     } else {
+         dwa = 0;
+     }
++    NW_WIDE_ONLY(nw_wide_cut_char(icutscene, cutchar, icutchar, 1, current_frame, &mtx, obj, tmtx);)
+     NuHGobjRndrMtxDwa(obj, &mtx, obj->num_layers, layertab, tmtx, dwa);
+ 
+     if (cutchar->first_locator == 0xFF) {

@@ -1,0 +1,69 @@
+--- a/src/gamelib/gcutscn.c
++++ b/src/gamelib/gcutscn.c
+@@ -799,10 +799,13 @@ void instNuGCutLocatorSysUpdate(struct instNUGCUTSCENE_s *scene, float time) {
+         if (data->flags & 0x2) {
+             continue;
+         }
++        NW_WIDE_ONLY(struct numtx_s nw_moved;)
+         if (scene->flags & NUGCUTSCENE_MATRIXSET) {
+-            instNuGCutLocatorUpdate(scene, def, &sys->locators[i], data, time, &scene->mtx);
++            instNuGCutLocatorUpdate(scene, def, &sys->locators[i], data, time,
++                                    NW_WIDE(&scene->mtx, nw_wide_cut_locator(scene, data, time, &scene->mtx, &nw_moved)));
+         } else {
+-            instNuGCutLocatorUpdate(scene, def, &sys->locators[i], data, time, 0);
++            instNuGCutLocatorUpdate(scene, def, &sys->locators[i], data, time,
++                                    NW_WIDE(0, nw_wide_cut_locator(scene, data, time, 0, &nw_moved)));
+         }
+     }
+ }
+@@ -1119,6 +1122,7 @@ void instNuGCutRigidSysUpdate(struct instNUGCUTSCENE_s *scene, float time) {
+         if (!(data->flags & NUGCUTRIGID_FOUND)) {
+             continue;
+         }
++        NW_WIDE_ONLY(nw_wide_cut_unforce(&rigid->obj);)
+         if (data->visibiltyanim && StateAnimEvaluate(data->visibiltyanim, &rigid->state, (unsigned char *)&state, time)) {
+             if (state) {
+                 rigid->obj.special->instance->flagword |= NUINSTANCE_VISIBLE;
+@@ -1126,11 +1130,19 @@ void instNuGCutRigidSysUpdate(struct instNUGCUTSCENE_s *scene, float time) {
+                 rigid->obj.special->instance->flagword &= ~NUINSTANCE_VISIBLE;
+             }
+         }
++        NW_WIDE_ONLY(if (!(rigid->obj.special->instance->flagword & NUINSTANCE_VISIBLE)) {
++            if (nw_wide_cut_rigid(scene, data, &rigid->obj, 0, time, &mtx)) {
++                rigid->obj.special->instance->flagword |= NUINSTANCE_VISIBLE;
++                rigid->obj.special->instance->mtx = mtx;
++            }
++            continue;
++        })
+         if (rigid->obj.special->instance->flagword & NUINSTANCE_VISIBLE) {
+             NuGCutRigidCalcMtx(data, time, &mtx);
+             if (scene->flags & NUGCUTSCENE_MATRIXSET) {
+                 NuMtxMul(&mtx, &mtx, &scene->mtx);
+             }
++            NW_WIDE_ONLY(nw_wide_cut_rigid(scene, data, &rigid->obj, 1, time, &mtx);)
+             rigid->obj.special->instance->mtx = mtx;
+             if ((rigid->obj.special->instance->flagword & NUINSTANCE_VISIBLE) && data->first_locator != 0xFF) {
+                 struct NUGCUTLOCATORSYS_s *locatordef = def->locatordef;
+@@ -1180,11 +1192,14 @@ void instNuGCutRigidSysRender(struct instNUGCUTSCENE_s *scene, float time) {
+                 rigid->obj.special->instance->flagword &= ~NUINSTANCE_VISIBLE;
+             }
+         }
++        NW_WIDE_ONLY(if (!(rigid->obj.special->instance->flagword & NUINSTANCE_VISIBLE))
++                         nw_wide_cut_rigid(scene, data, &rigid->obj, 0, time, &mtx);)
+         if (rigid->obj.special->instance->flagword & NUINSTANCE_VISIBLE) {
+             NuGCutRigidCalcMtx(data, time, &mtx);
+             if (scene->flags & NUGCUTSCENE_MATRIXSET) {
+                 NuMtxMul(&mtx, &mtx, &scene->mtx);
+             }
++            NW_WIDE_ONLY(nw_wide_cut_rigid(scene, data, &rigid->obj, 1, time, &mtx);)
+             if (draw) {
+                 NuSpecialDrawAt(&rigid->obj, &mtx);
+             }
+@@ -1598,6 +1613,7 @@ void instNuGCutSceneRender(struct instNUGCUTSCENE_s *scene) {
+     if (!(scene->flags & NUGCUTSCENE_VISIBLE)) {
+         return;
+     }
++    NW_WIDE_ONLY(nw_wide_cut_camera();)
+     if (do_rigids && scene->rigidsys) {
+         instNuGCutRigidSysRender(scene, scene->time);
+     }

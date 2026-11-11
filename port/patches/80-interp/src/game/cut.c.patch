@@ -1,9 +1,9 @@
 --- a/src/game/cut.c
 +++ b/src/game/cut.c
-@@ -375,7 +375,9 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
-     } else {
+@@ -383,7 +383,9 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
          dwa = 0;
      }
+     NW_WIDE_ONLY(nw_wide_cut_char(icutscene, cutchar, icutchar, 1, current_frame, &mtx, obj, tmtx);)
 +    NW_INTERP_KEY(icutchar);
      NuHGobjRndrMtxDwa(obj, &mtx, obj->num_layers, layertab, tmtx, dwa);
 +    NW_INTERP_KEY(0);

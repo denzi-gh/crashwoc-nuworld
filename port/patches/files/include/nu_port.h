@@ -147,10 +147,28 @@ float nw_ee_fdiv(float a, float b);
  * except where that carries collision; NW_WIDE_SEEN narrows a draw result to retail's 4:3 frustum for logic;
  * nw_wide_vp moves the viewport origin for the pause shrink (paused 0-25) to retail's 4:3 area, nw_wide_vp_x is its
  * offset from the frame's left edge in 1/16 pixels; NW_WIDE_HUD gives a HUD model past retail's 4:3 picture the
- * perspective it has at the picture's edge. */
+ * perspective it has at the picture's edge. Cutscenes, which put what retail's picture does not show just past its
+ * edge: nw_wide_cut_rigid and nw_wide_cut_char see a rigid or character each frame (visible: the cut shows it; m: its
+ * world matrix then, unread when hidden; a character's joints its model space matrices) and move a rigid a visibility
+ * key shows or hides past retail's picture out past the wider view's edge, so that it slides in or out instead of
+ * popping (not where the key falls on one of the scene's camera changes), and a character past retail's picture that
+ * reaches the camera out of view. For a hidden rigid nw_wide_cut_rigid returns 1 when it comes in ahead of its key, at
+ * m; the cut then shows it this frame, and nw_wide_cut_unforce, before the rigid's keys are read, takes that back. For a
+ * hidden character nw_wide_cut_char_hold returns 1 when it stays in its place for the shot, time then the frame of its
+ * pose (a character seated past retail's picture, shown or hidden mid-shot).
+ * nw_wide_cut_locator gives a free locator (an emitter) inside such an object the same move: the parent matrix to place
+ * it with, wm itself or out moved; nw_wide_cut_camera keeps the cut's camera as its render draws, for the rigids its
+ * next update places. */
 #ifdef NW_HOST
 struct nuinstance_s;
 struct numtx_s;
+struct nuvec_s;
+struct nuhspecial_s;
+struct NUGCUTRIGID_s;
+struct NUGCUTCHAR_s;
+struct NUGCUTLOCATOR_s;
+struct NUHGOBJ_s;
+struct instNUGCUTSCENE_s;
 struct nw_wide_s {
     float k;       /* view width over retail's 4:3 width */
     float aspect;  /* h/w */
@@ -167,6 +185,17 @@ int nw_wide_seen(int drawn);
 void nw_wide_vp(int paused);
 int nw_wide_vp_x(void);
 void nw_wide_hud(struct numtx_s *m);
+void nw_wide_cut_camera(void);
+struct numtx_s *nw_wide_cut_locator(const struct instNUGCUTSCENE_s *scene, struct NUGCUTLOCATOR_s *data, float time,
+                                    struct numtx_s *wm, struct numtx_s *out);
+int nw_wide_cut_rigid(const struct instNUGCUTSCENE_s *scene, const struct NUGCUTRIGID_s *data,
+                      const struct nuhspecial_s *obj, int visible, float time, struct numtx_s *m);
+void nw_wide_cut_unforce(const struct nuhspecial_s *obj);
+void nw_wide_cut_char(const struct instNUGCUTSCENE_s *scene, const struct NUGCUTCHAR_s *desc, const void *key,
+                      int visible, float time, struct numtx_s *m, const struct NUHGOBJ_s *hobj,
+                      const struct numtx_s *joints);
+int nw_wide_cut_char_hold(const struct instNUGCUTSCENE_s *scene, struct NUGCUTCHAR_s *desc, const void *key,
+                          struct NUHGOBJ_s *hobj, float *time);
 #define NW_WIDE(ps2, host) (host)
 #define NW_WIDE_SCALE(x, f) ((x) * (f))
 #define NW_WIDE_ONLY(stmt) stmt
