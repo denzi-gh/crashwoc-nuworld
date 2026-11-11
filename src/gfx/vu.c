@@ -321,7 +321,7 @@ static const char nw_vu_fs[] =
     /* TFX MODULATE in GS units (0x80 = 1.0): Cf = Cv * Ct >> 7, Af the same with TCC; untextured Cf = Cv. */
     "void main()\n"
     "{\n"
-    "    vec4 c = clamp(floor(v_col), 0.0, 255.0);\n"
+    "    vec4 c = clamp(floor(v_col + 1.0 / 256.0), 0.0, 255.0);\n"
     /* The frame-copy texcoords (water's size in VU 0x15.zw, the glass offset in VU 0x14.xy), per pixel rather than per
        vertex as the VU, so they hold on vertices the GPU's clipping makes. */
     "#if PROGRAM == WATER || PROGRAM == TRIGLASS || PROGRAM == SKNGLASS\n"
