@@ -9,10 +9,13 @@
 #include "gfx/packet.h"
 #include "gfx/rndr.h"
 #include "nw_convert.h"
+#include "port/cloudscn.h"
 #include "port/heap.h"
 #include "port/nuanim.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
+#include "port/silhouette.h"
+#include "port/wide.h"
 #include "port/xfile.h"
 
 #define nugscn_srcfile "..\\nu2crash.ps2\\nu3d\\nugscn.c"
@@ -221,7 +224,7 @@ void ReadTextureSet(int fh)
         }
         void *data = NuMemFileAddr(fh);
         NuMemFileSeek(fh, size, 1);
-        gscene->tids[i] = NuTexCreateNative(data);
+        gscene->tids[i] = nw_tex_create_native(data, nw_wide_texture(gsc_load_context.filename, i));
     }
 }
 
@@ -590,6 +593,8 @@ struct nugscn_s *NuGScnLoadFix(void)
             *buffer = (char *)(((uintptr_t)*buffer + 0xF) & ~(uintptr_t)0xF);
             nw_heap_side_own(gscene_side, data, *buffer);
             NuRndrSplineSearch(gscene);
+            nw_cloudscn_mark(gscene, filename);
+            nw_silhouette_mark(gscene, filename);
         }
     }
     return gscene;

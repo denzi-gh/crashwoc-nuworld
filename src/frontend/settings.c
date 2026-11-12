@@ -256,6 +256,15 @@ static const NwSettingKey nw_settings_keys[] = {
       .help = "multisampling: 0 (off), 2, 4 or 8 samples, at most the GPU's" },
     { .table = "video", .name = "filter", .kind = NW_SETTING_ENUM, NW_FIELD(filter), .hi = NW_FILTERS,
       .names = nw_settings_filters, .help = "textures: retail (the PS2's, per texture), nearest or bilinear" },
+    { .table = "video", .name = "clouds", .kind = NW_SETTING_BOOL, NW_FIELD(clouds),
+      .help = "true draws the intro island's sky live, its clouds volumetric, gathering over the sun as the storm "
+              "comes; false as the PS2's painted sky and flat clouds" },
+    { .table = "video", .name = "water", .kind = NW_SETTING_BOOL, NW_FIELD(water),
+      .help = "true draws water that refracts, reflects and foams on the shore, with caustics under it; false as the "
+              "PS2's" },
+    { .table = "video", .name = "silhouettes", .kind = NW_SETTING_BOOL, NW_FIELD(silhouettes),
+      .help = "true shows the heroes in the door at the intro's end as their own models, black against the light; "
+              "false as the PS2's picture of them" },
     { .table = "video", .name = "aspect", .kind = NW_SETTING_TEXT, NW_FIELD(aspect), .parse = nw_settings_aspect_parse,
       .format = nw_settings_aspect_format,
       .help = "auto (the screen's or window's shape), 4:3, 16:9, 16:10, 21:9, 32:9 or a ratio; 4:3 is the PS2's" },
@@ -344,6 +353,9 @@ void nw_settings_defaults(NwSettings *s)
     s->scale = 0;
     s->msaa = 0;
     s->filter = NW_FILTER_RETAIL;
+    s->clouds = true;
+    s->water = true;
+    s->silhouettes = true;
     nw_controls_defaults(&s->controls);
 }
 

@@ -12,10 +12,32 @@
 
 struct numtl_s;
 
+/* What the clouds option does with a geom (src/gfx/cloudvol.c), set as its scene loads (src/port/cloudscn.c). */
+typedef enum NwCloudKind {
+    NW_CLOUD_NONE,
+    NW_CLOUD_PUFF, /* a flat cloud card: drawn as a volumetric cloud instead */
+    NW_CLOUD_SKY,  /* a sky dome: drawn, then a sky of its own over it, clouds and all */
+    NW_CLOUD_SUN,  /* the sun's card: left out, the sky draws the sun where it stands */
+} NwCloudKind;
+
+typedef struct NwGpuCloud {
+    uint8_t kind;         /* an NwCloudKind */
+    float min[3], max[3]; /* PUFF: the volume, in the geom's object space; SUN: the card's bounds */
+    float shape[3];       /* PUFF: object space to the cloud's own, where its noise is round: the instance's scale */
+    float sun[3];         /* the scene's sun, world */
+    bool sun_ok;
+    float front[3]; /* SKY: where the storm gathers first, world */
+    float weather;  /* SKY: how stormy its sky is when no storm runs, 0 fair to 1 overcast */
+    float seed;     /* PUFF: where in the noise it starts, 0-1 */
+} NwGpuCloud;
+
 /* A geom's mesh and a texture: made on the game thread, uploaded and freed on the render thread. */
 typedef struct NwGpuMesh {
     NwVifMesh mesh;
     unsigned int vao, vbo, ibo;
+    NwGpuCloud cloud;
+    bool heroes_picture; /* control.gsc's picture of the heroes in the door, left out where their models stand in
+                            it (src/port/silhouette.c) */
 } NwGpuMesh;
 
 typedef struct NwGpuTex {
@@ -56,6 +78,8 @@ typedef enum NwCmdOp {
     NW_CMD_PARTICLES, /* particles under the local matrix, as the ptl program draws them from their effect list */
     NW_CMD_VOLUMES, /* the volume shadows' start on the target: the back buffer's Z, squeezed, and the stencil 0x7F */
     NW_CMD_WAVES,   /* a water material's wave table, which the draws after it read */
+    NW_CMD_SHADOW_BEGIN, /* receiver plane for the following native shadow mesh draws */
+    NW_CMD_SHADOW_END,
 } NwCmdOp;
 
 /* nuwater's animateWater table at VU 0x1B2: per wave the camera-space texcoord offset (x, y), 1, the local y lift. */
@@ -154,6 +178,9 @@ typedef struct NwCmd {
                                            the triangles pass the Z test; NW_STENCIL_SHADOWED: drawn only where the
                                            count is 0x80 or more; 0 none */
             uint32_t ptllist;           /* PARTICLES: the effect list in NwPacket.ptllists */
+            bool shadow;               /* DRAW/SKIN: native caster, between SHADOW_BEGIN and END */
+            bool silhouette;           /* DRAW/SKIN: a character drawn black against the light, left out without
+                                          the silhouettes option (src/port/silhouette.c) */
         };
         struct {
             int32_t xy[4]; /* the corners in GS 12.4 */
@@ -184,6 +211,8 @@ typedef struct NwPacket {
     int32_t vbcnt; /* nuvideo_global_vbcnt when it was published */
     uint64_t edge; /* the clock's edges then */
     bool snap;     /* a cut: drawn without blending from the packet before */
+    bool storm_on; /* the intro's storm runs (src/port/cloudscn.c) */
+    float storm;   /* how far: 0 a clear sky to 1 overcast */
     NwCmd *cmds;
     uint32_t ncmds, cmdcap;
     NwView *views;

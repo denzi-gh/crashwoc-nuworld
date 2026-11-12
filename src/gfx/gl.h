@@ -39,6 +39,10 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_ONE_MINUS_DST_ALPHA 0x0305
 #define GL_DST_COLOR 0x0306
 #define GL_LEQUAL 0x0203
+#define GL_NOTEQUAL 0x0205
+#define GL_EQUAL 0x0202
+#define GL_GREATER 0x0204
+#define GL_REPLACE 0x1E01
 #define GL_ALWAYS 0x0207
 #define GL_FRONT_AND_BACK 0x0408
 #define GL_DEPTH_BUFFER_BIT 0x00000100
@@ -103,6 +107,13 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE_BUFFER 0x8C2A
 #define GL_RGBA32F 0x8814
 #define GL_R32F 0x822E
+#define GL_TEXTURE_3D 0x806F
+#define GL_TEXTURE_WRAP_S 0x2802
+#define GL_TEXTURE_WRAP_T 0x2803
+#define GL_TEXTURE_WRAP_R 0x8072
+#define GL_REPEAT 0x2901
+#define GL_VIEWPORT 0x0BA2
+#define GL_LINEAR_MIPMAP_LINEAR 0x2703
 
 /* X(return type, name, parameter list) */
 #define NW_GL_FUNCTIONS(X) \
@@ -165,6 +176,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLint, glGetUniformLocation, (GLuint program, const GLchar *name)) \
     X(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
     X(void, glUniform1i, (GLint location, GLint v0)) \
+    X(void, glUniform1f, (GLint location, GLfloat v0)) \
     X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
     X(void, glUniform2i, (GLint location, GLint v0, GLint v1)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
@@ -189,7 +201,9 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glFramebufferRenderbuffer, \
         (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
     X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
-        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
+        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter)) \
+    X(void, glTexImage3D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
+        GLsizei depth, GLint border, GLenum format, GLenum type, const void *data))
 
 #define NW_GL_DECLARE(ret, name, params) \
     typedef ret (NW_GLAPI *PFN_nw_##name) params; \
@@ -253,6 +267,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glGetUniformLocation nw_glGetUniformLocation
 #define glUniformMatrix4fv nw_glUniformMatrix4fv
 #define glUniform1i nw_glUniform1i
+#define glUniform1f nw_glUniform1f
 #define glUniform4i nw_glUniform4i
 #define glUniform2i nw_glUniform2i
 #define glUniform4fv nw_glUniform4fv
@@ -274,6 +289,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glRenderbufferStorageMultisample nw_glRenderbufferStorageMultisample
 #define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
 #define glBlitFramebuffer nw_glBlitFramebuffer
+#define glTexImage3D nw_glTexImage3D
 
 /* Loads every function in NW_GL_FUNCTIONS; needs a current GL context. */
 bool nw_gl_load(void);

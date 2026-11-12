@@ -85,7 +85,9 @@ static void nw_video_set(const NwSettings *s)
 
 static void nw_video_render(const NwSettings *s)
 {
-    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter });
+    nw_backend_set_options(
+        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .clouds = s->clouds,
+                                               .water = s->water, .silhouettes = s->silhouettes });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -204,6 +206,21 @@ static void nw_video_panel(void *user)
     if (nw_debug_combo("Texture filter", &filter, filters, NW_FILTERS)) {
         s->filter = filter;
     }
+    static const char *const clouds_names[] = { "Retail", "Volumetric" };
+    int clouds = s->clouds;
+    if (nw_debug_combo("Clouds", &clouds, clouds_names, 2)) {
+        s->clouds = clouds;
+    }
+    static const char *const water_names[] = { "Retail", "Enhanced" };
+    int water = s->water;
+    if (nw_debug_combo("Water", &water, water_names, 2)) {
+        s->water = water;
+    }
+    static const char *const silhouette_names[] = { "Retail", "Models" };
+    int silhouettes = s->silhouettes;
+    if (nw_debug_combo("Silhouettes", &silhouettes, silhouette_names, 2)) {
+        s->silhouettes = silhouettes;
+    }
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
     }
@@ -278,7 +295,8 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter) {
+    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->clouds != was->clouds ||
+        s->water != was->water || s->silhouettes != was->silhouettes) {
         nw_video_render(s);
     }
     int w, h;

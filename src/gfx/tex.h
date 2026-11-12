@@ -30,4 +30,8 @@ void nw_tex_free(NwTex *t);
 /* Row y of level 0 as ps2_texture.py's decode_rgba returns it (alpha doubled, at most 255): width * 4 bytes. */
 void nw_tex_rgba(const NwTex *t, uint32_t y, uint8_t *out);
 
+/* Every level factor times as wide: the texels in the middle, each row's first and last texel repeated out to its
+   sides; false (t as it was) when out of memory. */
+bool nw_tex_widen(NwTex *t, uint32_t factor);
+
 #endif

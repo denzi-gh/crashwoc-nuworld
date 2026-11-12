@@ -6,10 +6,12 @@
 #include "gameplay/firefly.h"
 #include "gameplay/hitboxes.h"
 #include "port/font3d.h"
+#include "port/shadows.h"
 
 void NuMtlRelease(void)
 {
     NuMtlRelease__retail();
+    nw_shadow_release();
     nw_air_indicator_release();
     nw_boss_health_release();
     nw_firefly_release();

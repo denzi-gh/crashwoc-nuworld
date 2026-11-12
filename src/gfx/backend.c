@@ -9,8 +9,10 @@
 #include "app.h"
 #include "data/image_tables.h"
 #include "frontend/debug.h"
+#include "gfx/cloudvol.h"
 #include "gfx/gl.h"
 #include "gfx/interp.h"
+#include "gfx/shadow.h"
 #include "gfx/vu.h"
 #include "platform/paths.h"
 
@@ -41,6 +43,11 @@ static struct {
     int shown_w, shown_h;  /* those of the back buffer */
     uint64_t drawn;        /* the last packet run */
     float drawn_t;         /* at that blend */
+    float seconds;         /* the clock's edges at the frame drawn, as seconds at 60 a second, wrapped at 10000 */
+    bool storm_on;         /* the intro's storm runs in the frame drawn */
+    NwCloudSky sky;        /* how far, blended as the frame is, and its sun */
+    bool shadows_off;      /* the debug menu's Disable native shadows */
+    uint32_t shadow_casters, shadow_draws, shadow_tris; /* the last frame's native shadows */
     NwGpuJob *jobs;
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo; /* the packet's sprites, four vertices each */
@@ -100,9 +107,22 @@ static void nw_be_screenshot(void *user)
     SDL_free(path);
 }
 
+static void nw_be_shadow_panel(void *user)
+{
+    (void)user;
+    nw_debug_text("casters %u, draws %u, triangles %u (each drawn twice)", nw_be.shadow_casters, nw_be.shadow_draws,
+                  nw_be.shadow_tris);
+}
+
 bool nw_backend_init(void)
 {
     nw_be.opts.scale = 1;
+    static bool menu;
+    if (!menu) {
+        menu = true;
+        nw_debug_toggle("Render", "Disable native shadows", &nw_be.shadows_off);
+        nw_debug_panel("Render", "Native shadows", nw_be_shadow_panel, NULL, false);
+    }
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &nw_be.max_tex);
     glGetIntegerv(GL_MAX_SAMPLES, &nw_be.max_samples);
     return nw_vu_init();
@@ -205,6 +225,7 @@ void nw_backend_shutdown(void)
     glDeleteVertexArrays(1, &nw_be.ptl_vao);
     glDeleteBuffers(1, &nw_be.ptl_vbo);
     glDeleteFramebuffers(1, &nw_be.present_fbo);
+    nw_cloudvol_shutdown();
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -559,11 +580,15 @@ static NwVuMaterial nw_be_material(const NwPacket *p, const NwCmd *c, bool uvrow
     return m;
 }
 
+
 static void nw_be_passes(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, GLsizei count,
-                         const void *first)
+                         const void *first, bool black)
 {
     NwMtlPass pass[2];
     uint32_t n = nw_vu_use(program, o, m, pass);
+    if (black) {
+        nw_vu_black(program, m->state.abe); /* a silhouette against the light (NwCmd.silhouette) */
+    }
     for (uint32_t k = 0; k < n; k++) {
         nw_vu_pass(program, m, &pass[k]);
         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, first);
@@ -653,7 +678,7 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     memcpy(o.lv, g, sizeof(o.lv));
     NwVuMaterial m = nw_be_material(p, c, false);
     glBindVertexArray(nw_be.rect_vao);
-    nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
+    nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)), false);
 }
 
 static void nw_be_verts(const NwPacket *p)
@@ -844,16 +869,67 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
         nw_be_undrawn(mpg, false);
         return;
     }
+    if (c->shadow) {
+        return; /* a native shadow's copy of its caster: nw_be_shadow draws those */
+    }
+    if (c->silhouette && !nw_be.opts.silhouettes) {
+        return; /* out of sight, as on the PS2 */
+    }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
+    if (mesh->heroes_picture && nw_be.opts.silhouettes) {
+        return; /* their models stand there */
+    }
+    const NwGpuCloud *cloud = c->op == NW_CMD_DRAW && nw_be.opts.clouds ? &mesh->cloud : NULL;
+    if (cloud && cloud->kind == NW_CLOUD_PUFF &&
+        nw_cloudvol_draw(cloud, c->local, o.lv, nw_be.seconds, nw_be.storm_on ? nw_be.sky.storm : 0.0f)) {
+        return;
+    }
+    if (cloud && cloud->kind == NW_CLOUD_SUN && nw_cloudvol_ready()) {
+        return; /* the sky draws the sun */
+    }
     NwVuMaterial m = nw_be_material(p, c, mesh->mesh.uvrow);
     glBindVertexArray(mesh->vao);
     if (c->op == NW_CMD_DRAW_OT) {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
-        nw_be_passes(program, &o, &m, (GLsizei)c->count, (const void *)(uintptr_t)(c->first * sizeof(uint32_t)));
+        nw_be_passes(program, &o, &m, (GLsizei)c->count, (const void *)(uintptr_t)(c->first * sizeof(uint32_t)),
+                     c->silhouette);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
     } else {
-        nw_be_passes(program, &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
+        nw_be_passes(program, &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL, c->silhouette);
+    }
+    if (cloud && cloud->kind == NW_CLOUD_SKY) {
+        NwCloudSky sky = nw_be.sky;
+        sky.storm = nw_be.storm_on ? sky.storm : cloud->weather;
+        nw_cloudvol_sky(mesh, c->local, o.lv, nw_be.seconds, &sky);
+    }
+}
+
+/* The sky's sun this frame: the sun card's draw, if the packet has one, which the sky draws in its place. */
+static void nw_be_sky_sun(const NwPacket *p)
+{
+    nw_be.sky.sun_on = false;
+    for (uint32_t i = 0; nw_be.opts.clouds && i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        const NwGpuCloud *card = c->op == NW_CMD_DRAW && c->mesh ? &c->mesh->cloud : NULL;
+        if (!card || card->kind != NW_CLOUD_SUN) {
+            continue;
+        }
+        float centre[3], half = 0.0f;
+        for (int k = 0; k < 3; k++) {
+            centre[k] = (card->min[k] + card->max[k]) * 0.5f;
+        }
+        for (int k = 0; k < 3; k++) {
+            nw_be.sky.sun_at[k] =
+                centre[0] * c->local[k] + centre[1] * c->local[4 + k] + centre[2] * c->local[8 + k] + c->local[12 + k];
+        }
+        for (int r = 0; r < 2; r++) {
+            const float *row = &c->local[r * 4];
+            float len = sqrtf(row[0] * row[0] + row[1] * row[1] + row[2] * row[2]);
+            half = SDL_max(half, (card->max[r] - card->min[r]) * 0.5f * len);
+        }
+        nw_be.sky.sun_radius = half;
+        nw_be.sky.sun_on = true;
     }
 }
 
@@ -870,12 +946,21 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
         nw_be_undrawn(mpg, true);
         return;
     }
+    if (c->shadow) {
+        return; /* a native shadow's copy of its caster: nw_be_shadow draws those */
+    }
+    if (c->silhouette && !nw_be.opts.silhouettes) {
+        return; /* out of sight, as on the PS2 */
+    }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
     NwVuMaterial m = nw_be_material(p, c, false);
     NwMtlPass pass[2];
     glBindVertexArray(s->vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);
+    if (c->silhouette) {
+        nw_vu_black(program, m.state.abe); /* against the light */
+    }
     nw_vu_skin(program, c->first, c->weights, s->delta_tex ? c->nweights : 0);
     if (s->delta_tex) {
         glActiveTexture(GL_TEXTURE0 + 5);
@@ -954,7 +1039,135 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
     }
     NwVuMaterial m = nw_be_material(p, c, false);
     glBindVertexArray(s->vao);
-    nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL);
+    nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL,
+                 false);
+}
+
+/* Native shadows (port/shadcom.c, docs/native-shadows.md): a SHADOW_BEGIN with the receiver plane (its Y axis the
+   normal, flattened as ScaleFlatShadow leaves it), the caster's lights and its opacity in alpha (127 most), then
+   copies of the caster's draws marked shadow, then SHADOW_END. */
+#define NW_BE_SHADOW_CASTERS 32 /* a frame's at most */
+#define NW_BE_SHADOW_MARK 0xC5  /* the stencil of a receiver pixel the caster's projection may darken */
+#define NW_BE_SHADOW_BAND 0.075f /* how far under the plane the receiver may lie, world units */
+#define NW_BE_SHADOW_OPACITY 0.25f
+
+/* One caster draw projected by proj (world to the plane): pass 0 marks, in the stencil alone, the pixels whose Z
+   lies in front of the projection onto the plane under the receiver (the receiver's band, nothing past it); pass 1
+   darkens the marked pixels the projection onto the plane is in front of or on, each once (its mark taken), leaving
+   Z and the frame's alpha. The material's first pass keeps its alpha test, so cutouts cast no shadow. */
+static void nw_be_shadow_draw(const NwPacket *p, const NwCmd *c, const float proj[16], int pass, float opacity)
+{
+    const NwVuProg *mpg = c->mpg;
+    bool skin = c->op == NW_CMD_SKIN;
+    NwVuProgram program = skin ? nw_vu_skin_program(mpg ? mpg->name : NULL) : nw_vu_program(mpg ? mpg->name : NULL);
+    if (program == NW_VU_PROGRAMS) {
+        program = skin ? NW_VU_SKIN : NW_VU_TRICU; /* black either way: only the skinning and the cutout matter */
+    }
+    uint32_t tris;
+    if (skin) {
+        const NwGpuSkin *s = c->skin;
+        if (!s || !s->vao || c->first + c->count > p->njoints || c->weights + c->nweights > p->nweights) {
+            return;
+        }
+        glBindVertexArray(s->vao);
+        tris = s->skin.ntris;
+    } else {
+        if (c->op != NW_CMD_DRAW || !c->mesh || !c->mesh->vao) {
+            return;
+        }
+        glBindVertexArray(c->mesh->vao);
+        tris = c->mesh->mesh.ntris;
+    }
+    NwCmd at = *c;
+    for (int r = 0; r < 4; r++) {
+        for (int k = 0; k < 4; k++) {
+            at.local[r * 4 + k] = c->local[r * 4] * proj[k] + c->local[r * 4 + 1] * proj[4 + k] +
+                                  c->local[r * 4 + 2] * proj[8 + k] + c->local[r * 4 + 3] * proj[12 + k];
+        }
+    }
+    NwVuObject o;
+    nw_be_object(p, &at, program, &o);
+    NwVuMaterial m = nw_be_material(p, c, skin ? false : c->mesh->mesh.uvrow);
+    NwMtlPass passes[2];
+    nw_vu_use(program, &o, &m, passes);
+    if (skin) {
+        nw_vu_skin(program, c->first, c->weights, c->skin->delta_tex ? c->nweights : 0);
+        if (c->skin->delta_tex) {
+            glActiveTexture(GL_TEXTURE0 + 5);
+            glBindTexture(GL_TEXTURE_BUFFER, c->skin->delta_tex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
+    nw_vu_pass(program, &m, &passes[0]);
+    nw_vu_shadow(program, opacity);
+    glDepthMask(GL_FALSE);
+    if (pass == 0) {
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthFunc(GL_GREATER);
+        glStencilFunc(GL_ALWAYS, NW_BE_SHADOW_MARK, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    } else {
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+        glDepthFunc(GL_LEQUAL);
+        glStencilFunc(GL_EQUAL, NW_BE_SHADOW_MARK, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_ZERO);
+    }
+    glDrawElements(GL_TRIANGLES, (GLsizei)(tris * 3), GL_UNSIGNED_INT, NULL);
+    nw_be.shadow_draws++;
+    nw_be.shadow_tris += tris;
+}
+
+/* The caster from begin to its SHADOW_END, which it returns: projected along the strongest of its directional lights
+   (from overhead for an unlit caster; along the receiver's normal for a light under it or grazing it), every draw
+   marking first, then every draw darkening, so overlapping draws darken a pixel once. */
+static uint32_t nw_be_shadow(const NwPacket *p, uint32_t begin, uint32_t *casters)
+{
+    uint32_t end = begin + 1;
+    while (end < p->ncmds && p->cmds[end].op != NW_CMD_SHADOW_END) {
+        end++;
+    }
+    const NwCmd *b = &p->cmds[begin];
+    if (nw_be.shadows_off || !nw_be.target || *casters >= NW_BE_SHADOW_CASTERS) {
+        return end;
+    }
+    float light[3] = { 0.0f, 1.0f, 0.0f }, *towards = light, best = 0.0f; /* unlit: from overhead */
+    for (int i = 0; b->light != NW_LIGHT_NONE && i < 3; i++) {
+        const NwLights *l = &p->lights[b->light];
+        float strength = l->col[i][0] + l->col[i][1] + l->col[i][2];
+        float len = l->dir[i][0] * l->dir[i][0] + l->dir[i][1] * l->dir[i][1] + l->dir[i][2] * l->dir[i][2];
+        if (strength > best && len > 1e-12f) {
+            best = strength;
+            memcpy(light, l->dir[i], sizeof(light));
+            towards = light;
+        }
+    }
+    float n[3], plane[16], under[16], shade[16], mark[16];
+    memcpy(plane, b->local, sizeof(plane));
+    memcpy(under, plane, sizeof(under));
+    if (!nw_shadow_normal(n, plane)) {
+        return end;
+    }
+    for (int k = 0; k < 3; k++) {
+        under[12 + k] -= NW_BE_SHADOW_BAND * n[k];
+    }
+    if (!nw_shadow_projection(shade, plane, towards) || !nw_shadow_projection(mark, under, towards)) {
+        return end;
+    }
+    (*casters)++;
+    float opacity = NW_BE_SHADOW_OPACITY * SDL_clamp((float)b->alpha / 127.0f, 0.0f, 1.0f);
+    glEnable(GL_STENCIL_TEST);
+    glStencilMask(0xFF);
+    for (int pass = 0; pass < 2; pass++) {
+        for (uint32_t i = begin + 1; i < end; i++) {
+            const NwCmd *c = &p->cmds[i];
+            if ((c->op == NW_CMD_DRAW || c->op == NW_CMD_SKIN) && c->shadow) {
+                nw_be_shadow_draw(p, c, pass ? shade : mark, pass, opacity);
+            }
+        }
+    }
+    glDisable(GL_STENCIL_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, nw_be.alpha);
+    return end;
 }
 
 /* Runs once into GS memory, which keeps what it drew; the front buffer is the back buffer as it ends. */
@@ -976,6 +1189,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     nw_be_verts(p);
     nw_be_ptls(p);
     nw_be_pool(p);
+    nw_be_sky_sun(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
             glGenBuffers(1, &nw_be.ot_ibo);
@@ -985,10 +1199,14 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)p->nidx * (GLsizeiptr)sizeof(uint32_t), p->idx,
                      GL_STREAM_DRAW);
     }
-    uint32_t rects = 0;
+    uint32_t rects = 0, casters = 0;
+    nw_be.shadow_draws = nw_be.shadow_tris = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
         switch (c->op) {
+        case NW_CMD_SHADOW_BEGIN:
+            i = nw_be_shadow(p, i, &casters);
+            break;
         case NW_CMD_DRAW:
         case NW_CMD_DRAW_OT:
             nw_be_draw(p, c);
@@ -1024,6 +1242,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         }
     }
+    nw_be.shadow_casters = casters;
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     nw_be_resolve(back);
     NwBeSurf *front = nw_be_surf(NW_SURF_FRONT, back->tw, back->th);
@@ -1115,6 +1334,15 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
     if (p && now >= 0.0 && nw_interp_redraws(p)) {
         t = nw_interp_t(prev, p, now);
         run = nw_interp_blend(prev, p, t);
+    }
+    if (p) {
+        double edge = run != p && prev ? (double)prev->edge + ((double)p->edge - (double)prev->edge) * t
+                                       : (double)p->edge;
+        nw_be.seconds = (float)fmod(edge / 60.0, 10000.0);
+        nw_be.storm_on = p->storm_on;
+        nw_be.sky.storm = run != p && prev && prev->storm_on && p->storm_on
+                              ? prev->storm + (p->storm - prev->storm) * t
+                              : p->storm;
     }
     uint32_t njobs = nw_gpu_take(p ? p->seq : 0, &nw_be.jobs, &nw_be.jobcap);
     for (uint32_t i = 0; i < njobs; i++) {

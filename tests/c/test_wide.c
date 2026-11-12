@@ -3,7 +3,11 @@
 #include <math.h>
 #include <stdio.h>
 
+#include <SDL3/SDL.h>
+
 #include "nu_port.h"
+#include "gamelib/gcutscn.h"
+#include "gfx/tex.h"
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
 #include "port/wide.h"
@@ -103,6 +107,46 @@ int main(void)
     nw_wide_poll();
     CHECK(nw_wide.width == 854 && PS2_REZ_W == 640);
     nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
+
+    /* The logo planes: their textures (by the scene's path as the game opens it) and the planes of logos1.cut,
+       NW_WIDE_PLANES times as wide along the first camera's right axis, the rest as they were. */
+    CHECK(nw_wide_texture("levels\\b\\logos\\logos.gsc", 53) == NW_WIDE_PLANES);
+    CHECK(nw_wide_texture("LEVELS\\B\\LOGOS\\LOGOS.GSC", 54) == NW_WIDE_PLANES);
+    CHECK(nw_wide_texture("levels\\b\\logos\\logos.gsc", 52) == 1 && nw_wide_texture("levels\\b\\hub\\hub.gsc", 53) == 1);
+    CHECK(nw_wide_texture(NULL, 53) == 1);
+    struct NUGCUTCAM_s cams[2] = {
+        { .mtx = { ._00 = 1.0f, ._11 = 1.0f, ._22 = 1.0f, ._33 = 1.0f } },
+        { .mtx = { ._02 = 1.0f, ._11 = 1.0f, ._20 = -1.0f, ._33 = 1.0f } },
+    };
+    struct NUGCUTCAMSYS_s camsys = { .ncutcams = 2, .cutcams = cams, .initial_camid = 1 };
+    struct NUGCUTRIGID_s rigids[3] = {
+        { .mtx = { ._02 = 1.0f, ._11 = 1.0f, ._20 = -1.0f, ._30 = -0.9f, ._32 = -11.5f, ._33 = 1.0f },
+          .name = "KONAMI" },
+        { .mtx = { ._00 = 1.0f, ._11 = 1.0f, ._22 = 1.0f, ._33 = 1.0f }, .name = "fadePlane07" },
+        { .mtx = { ._00 = 1.0f, ._11 = 1.0f, ._22 = 1.0f, ._33 = 1.0f }, .name = "space" },
+    };
+    struct NUGCUTRIGIDSYS_s rigidsys = { .rigids = rigids, .count = 3 };
+    struct NUGCUTSCENE_s def = { .version = 1, .camdef = &camsys, .rigiddef = &rigidsys };
+    nw_wide_planes("levels\\b\\logos\\logos1.cut", NULL);
+    nw_wide_planes("levels\\b\\logos\\logos2.cut", &def);
+    CHECK(rigids[0].mtx._02 == 1.0f && rigids[1].mtx._22 == 1.0f);
+    camsys.initial_camid = 2;
+    nw_wide_planes("levels\\b\\logos\\logos1.cut", &def);
+    CHECK(rigids[0].mtx._02 == 1.0f && rigids[1].mtx._22 == 1.0f);
+    camsys.initial_camid = 1;
+    nw_wide_planes("levels\\b\\logos\\logos1.cut", &def);
+    CHECK(near(rigids[0].mtx._02, NW_WIDE_PLANES) && rigids[0].mtx._11 == 1.0f && rigids[0].mtx._20 == -1.0f);
+    CHECK(rigids[0].mtx._30 == -0.9f && rigids[0].mtx._32 == -11.5f);
+    CHECK(near(rigids[1].mtx._22, NW_WIDE_PLANES) && rigids[1].mtx._00 == 1.0f && rigids[1].mtx._11 == 1.0f);
+    CHECK(rigids[2].mtx._22 == 1.0f && rigids[2].mtx._00 == 1.0f);
+
+    /* A texture widened: its rows centred, each row's edge texels out to the sides. */
+    uint8_t texels[] = { 1, 2, 3, 4 };
+    NwTex tex = { .ncolours = 16, .nlevels = 1, .levels = { { 2, 2, SDL_malloc(4) } } };
+    SDL_memcpy(tex.levels[0].texels, texels, 4);
+    CHECK(nw_tex_widen(&tex, 3) && tex.levels[0].width == 6 && tex.levels[0].height == 2);
+    CHECK(SDL_memcmp(tex.levels[0].texels, "\1\1\1\2\2\2\3\3\3\4\4\4", 12) == 0);
+    nw_tex_free(&tex);
 
     if (failures) {
         fprintf(stderr, "wide: %d checks failed\n", failures);

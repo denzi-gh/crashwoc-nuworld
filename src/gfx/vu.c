@@ -207,6 +207,8 @@ static const char nw_vu_fs[] =
     "uniform int u_filter;\n"    /* NwTexFilter */
     "uniform int u_tcc;\n"
     "uniform int u_ascolour;\n" /* the blend needs As as the source colour */
+    "uniform int u_black;\n"    /* 1, 2 a silhouette (nw_vu_black); 3 a native shadow (nw_vu_shadow) */
+    "uniform float u_shade;\n"  /* the shadow's opacity */
     "uniform ivec4 u_atest;\n"  /* ATST (1 ALWAYS without ATE), AREF, the pass keeps the failing pixels */
     "uniform vec4 u_vu[2];\n"   /* VU 0x14-0x15 */
     "uniform vec4 u_frag;\n"    /* the pixel's GS coordinates */
@@ -349,6 +351,11 @@ static const char nw_vu_fs[] =
     "    if (atest(int(c.a)) == (u_atest.z != 0)) {\n"
     "        discard;\n"
     "    }\n"
+    "    if (u_black != 0) {\n"
+    "        float a = u_black == 3 ? u_shade : u_black == 2 ? smoothstep(0.08, 0.4, c.a / 128.0) : 1.0;\n"
+    "        o_col = vec4(0.0, 0.0, 0.0, a);\n"
+    "        return;\n"
+    "    }\n"
     /* ((A - B) * C >> 7) + D clamped, A, B and D Cs, Cd or 0, C As, Ad or FIX (0 here); the frame keeps As. */
     "#if !PARTICLE\n"
     "    if (u_gsblend.x >= 0) {\n"
@@ -368,7 +375,7 @@ static const char nw_vu_fs[] =
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
-        uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter, texalpha, zero;
+        uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter, texalpha, zero, black, shade;
 } nw_vu[NW_VU_PROGRAMS];
 static NwTexFilter nw_vu_filter_mode;
 
@@ -432,6 +439,8 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].texlod = glGetUniformLocation(p, "u_texlod");
     nw_vu[program].tcc = glGetUniformLocation(p, "u_tcc");
     nw_vu[program].ascolour = glGetUniformLocation(p, "u_ascolour");
+    nw_vu[program].black = glGetUniformLocation(p, "u_black");
+    nw_vu[program].shade = glGetUniformLocation(p, "u_shade");
     nw_vu[program].atest = glGetUniformLocation(p, "u_atest");
     nw_vu[program].joints = glGetUniformLocation(p, "u_joints");
     nw_vu[program].blend = glGetUniformLocation(p, "u_blend");
@@ -543,6 +552,7 @@ NwVuProgram nw_vu_particle_program(const NwVuTexture *texture, const NwMtlState 
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2])
 {
     glUseProgram(nw_vu[program].prog);
+    glUniform1i(nw_vu[program].black, 0);
     glUniformMatrix4fv(nw_vu[program].lv, 1, GL_FALSE, o->lv);
     glUniform4fv(nw_vu[program].diffuse, 1, m->diffuse);
     glUniform4fv(nw_vu[program].ambient, 1, o->ambient);
@@ -641,6 +651,28 @@ void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pas
     }
     glColorMask(pass->rgb, pass->rgb, pass->rgb, pass->alpha && nw_vu_alpha);
     glDepthMask(pass->z);
+}
+
+/* Black over the frame where the program draws, as solid as the blend would make it: a blended material (feathers,
+   hair: cards whose texture's alpha draws the shape) covers inside its shape, a short ramp at its edge, nothing past
+   it; any other all over. Its alpha test still cuts it out. Blends over the frame, leaving its alpha. */
+void nw_vu_black(NwVuProgram program, bool blended)
+{
+    glUniform1i(nw_vu[program].black, blended ? 2 : 1);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+}
+
+/* A native shadow's pass over the frame: black at opacity where the program draws (the receiver's pixels darken by
+   it), its alpha test still cutting it out, the frame's alpha left. The caller sets the buffers it writes. */
+void nw_vu_shadow(NwVuProgram program, float opacity)
+{
+    glUniform1i(nw_vu[program].black, 3);
+    glUniform1f(nw_vu[program].shade, opacity);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 }
 
 /* Integer textures are only read by texelFetch; a mip chain needs a mipmap MIN_FILTER to be complete. */

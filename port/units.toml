@@ -144,8 +144,8 @@ schema = 1
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
 "game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
-    "MovePlayer"] }
-"game/inst" = { treatment = "compile" }
+    "MovePlayer", "DrawCharacterModel"] }
+"game/inst" = { treatment = "compile", override = ["InstShadDataLoad", "InstShadDataDestroy"] }
 "game/camera" = { treatment = "compile", wrap = ["MoveGameCamera"] }
 "game/game" = { treatment = "compile", wrap = ["DrawMenu", "ProcMenu", "SeekRot"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
@@ -168,7 +168,8 @@ schema = 1
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }
 "game/deb3" = { treatment = "compile" }
-"game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad"], expose = ["palids"] }
+"game/shadcom" = { treatment = "compile", override = ["ShadRndr", "ShadDataLoad", "ShadDataDestroy", "ShadFindData",
+    "ShadComInit"] }
 "game/visidat" = { treatment = "compile" }
 "game/cloudfx" = { treatment = "compile", override = ["cloudRender"] }
 "game/sfx" = { treatment = "compile" }
@@ -177,7 +178,7 @@ schema = 1
 "game/chase" = { treatment = "compile", wrap = ["UpdateChase"] }
 "game/loadsave" = { treatment = "compile" }
 "game/bgload" = { treatment = "compile" }
-"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst"] }
+"game/cut" = { treatment = "compile", wrap = ["StartCutMovie", "AppCutSceneCharacterRender"], expose = ["cutworldix", "CutInst"] }
 "game/bug" = { treatment = "compile" }
 "game/game_deb" = { treatment = "compile" }
 "game/credits" = { treatment = "compile" }

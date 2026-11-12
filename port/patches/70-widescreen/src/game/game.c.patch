@@ -1,6 +1,6 @@
 --- a/src/game/game.c
 +++ b/src/game/game.c
-@@ -4577,6 +4577,7 @@ void StartTimeTrial(struct nuvec_s *pos, s32 clock) {
+@@ -4594,6 +4594,7 @@ void StartTimeTrial(struct nuvec_s *pos, s32 clock) {
      }
      NuCameraTransformScreenClip(&TTScrPos, pos, 1, 0);
      TTScrPos.z = (1.0f - TTScrPos.z) * (TEXTZMUL / 0.1f);
@@ -8,7 +8,7 @@
      if (ObjTab[101].obj.special != NULL) {
          ObjTab[101].obj.special->instance->flags.visible = 1;
      }
-@@ -7642,7 +7643,8 @@ void UpdateScreenWumpas(void) {
+@@ -7659,7 +7660,8 @@ void UpdateScreenWumpas(void) {
                      v[0].y = anew->pos.y + GameCam[0].vX.y * 0.1f;
                      v[0].z = anew->pos.z + GameCam[0].vX.z * 0.1f;
                      NuCameraTransformScreenClip(&v[1], v, 1, 0);
@@ -18,7 +18,7 @@
                  }
                  scr = &WScr[i_screenwumpa];
                  scr->pos = anew->screen;
-@@ -7762,10 +7764,10 @@ void DrawWumpa(void) {
+@@ -7779,10 +7781,10 @@ void DrawWumpa(void) {
              dz = pCam->pos.z - wumpa->pos.z;
              dx2 = dx * dx;
              dz2 = dz * dz;

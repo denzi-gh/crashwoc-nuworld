@@ -336,6 +336,38 @@ void nw_tex_free(NwTex *t)
     memset(t, 0, sizeof(*t));
 }
 
+bool nw_tex_widen(NwTex *t, uint32_t factor)
+{
+    size_t bpp = t->ncolours ? 1 : 4;
+    uint8_t *wide[NW_TEX_LEVELS] = { 0 };
+    for (uint32_t i = 0; i < t->nlevels && factor > 1; i++) {
+        wide[i] = SDL_malloc((size_t)t->levels[i].width * factor * t->levels[i].height * bpp);
+        if (!wide[i]) {
+            for (uint32_t k = 0; k < i; k++) {
+                SDL_free(wide[k]);
+            }
+            return false;
+        }
+    }
+    for (uint32_t i = 0; i < t->nlevels && factor > 1; i++) {
+        NwTexLevel *l = &t->levels[i];
+        uint32_t w = l->width * factor, left = (w - l->width) / 2;
+        uint8_t *texels = wide[i];
+        for (uint32_t y = 0; y < l->height; y++) {
+            const uint8_t *src = l->texels + (size_t)y * l->width * bpp;
+            uint8_t *dst = texels + (size_t)y * w * bpp;
+            for (uint32_t x = 0; x < w; x++) {
+                uint32_t from = x < left ? 0 : x - left < l->width ? x - left : l->width - 1;
+                memcpy(dst + x * bpp, src + from * bpp, bpp);
+            }
+        }
+        SDL_free(l->texels);
+        l->texels = texels;
+        l->width = w;
+    }
+    return true;
+}
+
 void nw_tex_rgba(const NwTex *t, uint32_t y, uint8_t *out)
 {
     const NwTexLevel *l = &t->levels[0];

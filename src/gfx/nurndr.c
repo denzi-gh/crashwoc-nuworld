@@ -21,6 +21,7 @@
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
 #include "port/wide.h"
+#include "port/shadows.h"
 
 int NuPs2ScreenSwap(int vsync);
 void NuCameraSet(struct nucamera_s *cam);
@@ -739,7 +740,11 @@ int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm)
             for (uint32_t pass = 0; mtl && geom->dmastream; mtl = mtl->next, pass++) {
                 nw_interp_at(link, g, pass);
                 rndrstream_3d = &mtl->rs;
-                nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW)->mesh = geom->dmastream;
+                NwCmd *cmd = nw_rndr_cmd(rndrstream_3d, NW_CMD_DRAW);
+                cmd->mesh = geom->dmastream;
+                if (pass == 0) {
+                    nw_shadow_record(cmd);
+                }
             }
         }
         g = 0x10000;
@@ -777,7 +782,11 @@ int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struc
         for (uint32_t pass = 0; mtl && geom->skindma; mtl = mtl->next, pass++) {
             nw_interp_at(g, pass, 0);
             rndrstream_3d = &mtl->rs;
-            nw_rndr_cmd(rndrstream_3d, NW_CMD_SKIN)->skin = (const NwGpuSkin *)geom->skindma;
+            NwCmd *cmd = nw_rndr_cmd(rndrstream_3d, NW_CMD_SKIN);
+            cmd->skin = (const NwGpuSkin *)geom->skindma;
+            if (pass == 0) {
+                nw_shadow_record(cmd);
+            }
         }
     }
     nw_interp_end(scope);
@@ -798,6 +807,7 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
         nw_interp_end(scope);
         return 0;
     }
+    bool shadow_captured = nw_shadow_model_begin(hobj, wm);
     if (hobj->shadow && (u8)hobj->pad81[0] == 0) {
         for (struct NUSHADOWDATA_s *shadow = hobj->shadow; shadow->joint != 0xFF; shadow++) {
             if (shadstorecnt < 256) {
@@ -846,6 +856,7 @@ int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, s
             }
         }
     }
+    nw_shadow_model_end(shadow_captured);
     nw_interp_end(scope);
     return rv;
 }

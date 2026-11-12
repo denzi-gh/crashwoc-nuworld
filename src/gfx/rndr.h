@@ -21,6 +21,8 @@ typedef struct NwStateBlock {
 
 const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl);
 
+/* NuTexCreateNative with the decoded texture widen times as wide (nw_tex_widen), for src/port/wide.c's planes. */
+int nw_tex_create_native(void *data, uint32_t widen);
 /* Takes gpu (NULL: none) as the slot's texture and queues its upload; the slot's texture before is freed. */
 void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
 /* tid as NuTexCreate returns it; NULL for 0, a surface (< 0) or a slot with no decoded texture. */

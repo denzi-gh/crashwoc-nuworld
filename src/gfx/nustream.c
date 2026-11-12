@@ -18,7 +18,10 @@
 #include "numath/nuvec.h"
 #include "nu_port.h"
 #include "port/capture.h"
+#include "port/cloudscn.h"
 #include "port/game.h"
+#include "port/shadows.h"
+#include "port/silhouette.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
 #define NW_STREAMS 32
@@ -185,6 +188,9 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, int m
     r->misc = (uint8_t)misc;
     r->joints = op == NW_CMD_SKIN ? nw_joint_snap : NULL;
     r->blend = op == NW_CMD_SKIN ? nw_blend : NULL;
+    if (op == NW_CMD_DRAW || op == NW_CMD_SKIN) {
+        r->cmd.silhouette = nw_silhouette_drawing;
+    }
     return r;
 }
 
@@ -416,6 +422,7 @@ void NuRndrInitStreams(void)
     nw_fx_snap = NULL;
     nw_joint_snap = NULL;
     nw_blend = NULL;
+    nw_shadow_reset();
     nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
@@ -534,6 +541,7 @@ void NuRndrVu1Draw(void)
 {
     nw_rndr_snap(nw_packet_building());
     nw_packet_building()->edge = nw_game_edges();
+    nw_packet_building()->storm_on = nw_cloudscn_storm(&nw_packet_building()->storm);
     nw_interp_publish(nw_packet_building());
     nw_capture_published(nw_packet_publish(nuvideo_global_vbcnt), nuvideo_global_vbcnt);
 }

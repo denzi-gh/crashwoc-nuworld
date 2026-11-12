@@ -1,0 +1,33 @@
+--- a/src/game/game.c
++++ b/src/game/game.c
+@@ -4039,6 +4039,11 @@ float RatioAlongLine(struct nuvec_s *pos, struct nuvec_s *p0,
+ extern struct obj_s death_obj;
+ extern s32 Death;
+ extern s32 death_begun;
++#ifdef NW_HOST
++extern struct nugspline_s *death_pCAM;
++extern struct nugspline_s *death_pPLAT;
++extern float death_duration;
++#endif
+ 
+ /* &Rail[6]. Retail addresses this rail through its own symbol (%hi/%lo of
+  * Rail+0xF0); indexing Rail[6] instead makes gcc CSE &Rail and reach the
+@@ -4057,6 +4062,18 @@ void ResetDeath(void) {
+                                                 death_rail.pINPLAT->ptsize));
+         Death = 2;
+         death_begun = 1;
++#ifdef NW_HOST
++        /* Retail keeps the splines DeathTransporter's state 0 aimed at on an earlier hub load: the hub reloads at
++           the same heap address, so they are this load's again. The host records move with each load. */
++        death_pCAM = death_rail.pINCAM;
++        death_pPLAT = death_rail.pINPLAT;
++        death_duration = death_rail.in_distance * 0.2f;
++        if (death_duration > 10.0f) {
++            death_duration = 10.0f;
++        } else if (death_duration < 5.0f) {
++            death_duration = 5.0f;
++        }
++#endif
+     }
+ }
+ 

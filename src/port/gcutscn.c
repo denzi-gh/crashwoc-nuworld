@@ -7,7 +7,10 @@
 #include <SDL3/SDL.h>
 
 #include "nw_convert.h"
+#include "port/cloudscn.h"
 #include "port/heap.h"
+#include "port/silhouette.h"
+#include "port/wide.h"
 #include "port/xfile.h"
 
 #define gcutscn_srcfile "..\\nu2crash.ps2\\gamelib\\gcutscn.c"
@@ -276,5 +279,8 @@ struct NUGCUTSCENE_s *NuGCutSceneLoad(char *name, union variptr_u *heap, union v
         nw_cut_triggers(&ld, def);
     }
     def->bounds = (struct NUGCUTBBOX_s *)NW_CUT_PTR(&ld, def->bounds, sizeof(nw_ps2_NUGCUTBBOX_s));
+    nw_wide_planes(name, def);
+    nw_cloudscn_cut(name, def);
+    nw_silhouette_cut(name, def, heap, heapend);
     return def;
 }

@@ -3,8 +3,19 @@
 #ifndef NUWORLD_PORT_WIDE_H
 #define NUWORLD_PORT_WIDE_H
 
+#include <stdint.h>
+
 #define NW_WIDE_MIN (4.0f / 3.0f)
 #define NW_WIDE_MAX (32.0f / 9.0f)
+#define NW_WIDE_PLANES 3 /* how much wider the logo planes and textures get: 4:3 times 3 is past NW_WIDE_MAX */
+
+struct NUGCUTSCENE_s;
+
+/* NW_WIDE_PLANES for a texture of a logo plane (index into scene's texture set, the path as the game opens it), 1
+   for the rest. */
+uint32_t nw_wide_texture(const char *scene, int index);
+/* Widens the logo planes of a cutscene the game just loaded (cut: its path), NW_WIDE_PLANES times. */
+void nw_wide_planes(const char *cut, struct NUGCUTSCENE_s *def);
 
 /* aspect: the shown picture's w/h, clamped to NW_WIDE_MIN..NW_WIDE_MAX; hud: the widest w/h the HUD spreads to,
    0 for the picture's edges. */

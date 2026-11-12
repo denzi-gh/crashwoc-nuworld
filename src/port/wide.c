@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include "nu_port.h"
+#include "gamelib/gcutscn.h"
 #include "gamelib/terrain.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
@@ -231,4 +232,76 @@ void nw_wide_clip(int retail_visible)
 int nw_wide_seen(int drawn)
 {
     return drawn && (nw_wide_tests == 0 || nw_wide_retail);
+}
+
+/* Retail's logos (levels\b\logos\logos1.cut): the Universal and Konami splashes, and the fade planes over them, fill
+   a 4:3 view from just in front of the camera, so that hor+ shows the space scene beside them. NW_WIDE_PLANES times
+   as wide (along their own axis nearest the first camera's right, about their centres, so that a plane a mod turns
+   keeps its shape) they fill any view up to NW_WIDE_MAX; their textures are as much wider with each row's edge texels
+   repeated (nw_tex_widen), so that a logo keeps its size and its background runs on to the sides. At 4:3 the picture
+   is retail's. */
+static const struct {
+    const char *scene;
+    int tex;
+} nw_wide_textures[] = {
+    { "levels\\b\\logos\\logos.gsc", 53 }, /* Universal */
+    { "levels\\b\\logos\\logos.gsc", 54 }, /* Konami */
+};
+
+uint32_t nw_wide_texture(const char *scene, int index)
+{
+    for (size_t i = 0; scene && i < SDL_arraysize(nw_wide_textures); i++) {
+        if (index == nw_wide_textures[i].tex && SDL_strcasecmp(scene, nw_wide_textures[i].scene) == 0) {
+            return NW_WIDE_PLANES;
+        }
+    }
+    return 1;
+}
+
+static bool nw_wide_plane(const char *name)
+{
+    return name && (strcmp(name, "UIS_splash") == 0 || strcmp(name, "KONAMI") == 0 ||
+                    strncmp(name, "fadePlane", 9) == 0);
+}
+
+void nw_wide_planes(const char *cut, struct NUGCUTSCENE_s *def)
+{
+    struct NUGCUTCAMSYS_s *cams = def ? def->camdef : NULL;
+    if (!cut || SDL_strcasecmp(cut, "levels\\b\\logos\\logos1.cut") != 0 || !def || !def->rigiddef || !cams ||
+        !cams->cutcams || (unsigned int)cams->initial_camid >= cams->ncutcams) {
+        return;
+    }
+    const struct numtx_s *view = &cams->cutcams[(unsigned char)cams->initial_camid].mtx;
+    float a[3] = { view->_00, view->_01, view->_02 };
+    float len = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (len == 0.0f) {
+        return;
+    }
+    for (int k = 0; k < 3; k++) {
+        a[k] /= len;
+    }
+    for (int i = 0; i < def->rigiddef->count; i++) {
+        struct NUGCUTRIGID_s *rigid = &def->rigiddef->rigids[i];
+        if (!nw_wide_plane(rigid->name)) {
+            continue;
+        }
+        struct numtx_s *m = &rigid->mtx;
+        float rows[3][3] = { { m->_00, m->_01, m->_02 }, { m->_10, m->_11, m->_12 }, { m->_20, m->_21, m->_22 } };
+        int across = 0;
+        float best = -1.0f;
+        for (int r = 0; r < 3; r++) {
+            float d = rows[r][0] * a[0] + rows[r][1] * a[1] + rows[r][2] * a[2];
+            float n = sqrtf(rows[r][0] * rows[r][0] + rows[r][1] * rows[r][1] + rows[r][2] * rows[r][2]);
+            if (n > 0.0f && fabsf(d) / n > best) {
+                best = fabsf(d) / n;
+                across = r;
+            }
+        }
+        for (int k = 0; k < 3; k++) {
+            rows[across][k] *= (float)NW_WIDE_PLANES;
+        }
+        m->_00 = rows[0][0], m->_01 = rows[0][1], m->_02 = rows[0][2];
+        m->_10 = rows[1][0], m->_11 = rows[1][1], m->_12 = rows[1][2];
+        m->_20 = rows[2][0], m->_21 = rows[2][1], m->_22 = rows[2][2];
+    }
 }

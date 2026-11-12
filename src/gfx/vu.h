@@ -135,6 +135,13 @@ void nw_vu_alpha_writes(bool on);
 void nw_vu_filter(NwTexFilter filter);
 /* One of those passes: which side of the alpha test it keeps, and the buffers it writes. */
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass);
+/* After nw_vu_use: the draw is a silhouette, black where it covers (a blended material as far as its As does).
+   Reset by nw_vu_use. */
+void nw_vu_black(NwVuProgram program, bool blended);
+/* After nw_vu_pass: every pixel the alpha test keeps is drawn, even one that changes no colour (a stencil count). */
+void nw_vu_draw_all(NwVuProgram program);
+/* The current program's native silhouette output, preserving the material's alpha cutout. Reset by nw_vu_use. */
+void nw_vu_shadow(NwVuProgram program, float opacity);
 /* Uploads t with its mip levels. */
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);

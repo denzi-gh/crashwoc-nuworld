@@ -92,8 +92,10 @@ add_executable(crashwoc-nuworld
   src/platform/display.c
   src/platform/log.c
   src/platform/platform.c
+  src/gfx/cloudvol.c
   src/gfx/gl.c
   src/gfx/vu.c
+  src/gfx/water.c
   src/frontend/debug.cpp
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
@@ -160,6 +162,7 @@ add_library(nuworld_gfx STATIC
   src/gfx/interp.c
   src/gfx/mtl.c
   src/gfx/packet.c
+  src/gfx/shadow.c
   src/gfx/tex.c
   src/gfx/vif.c
   src/gfx/vu1init.c)
@@ -204,6 +207,14 @@ target_link_libraries(nuworld_save PUBLIC SDL3::SDL3)
 
 if(NUWORLD_TESTS)
   enable_testing()
+  # Hidden-window image checks through the production renderer, with no game data or decomp dependency.
+  add_executable(nuworld_test_shadow_gl tests/c/test_shadow_gl.c src/gfx/backend.c src/gfx/gl.c src/gfx/vu.c
+    src/gfx/cloudvol.c src/gfx/water.c)
+  target_include_directories(nuworld_test_shadow_gl PRIVATE src)
+  target_compile_options(nuworld_test_shadow_gl PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_shadow_gl PRIVATE nuworld_gfx SDL3::SDL3)
+  add_test(NAME shadow-gl COMMAND nuworld_test_shadow_gl ${CMAKE_CURRENT_BINARY_DIR}/native-shadow-test.png)
+  set_tests_properties(shadow-gl PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
   add_executable(nuworld_test_vfs tests/c/test_vfs.c)
   target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_vfs PRIVATE nuworld_frontend)

@@ -35,6 +35,9 @@ typedef struct NwSettings {
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;
+    bool clouds;         /* the intro island's sky live and its clouds volumetric, not the PS2's pictures */
+    bool water;          /* water that refracts, reflects and foams, not the PS2's two passes */
+    bool silhouettes;    /* the intro's heroes in the door as their models against the light, not a picture */
     NwControls controls; /* [input], [pad], [keyboard] */
 } NwSettings;
 

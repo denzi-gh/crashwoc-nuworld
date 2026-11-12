@@ -3,6 +3,13 @@
 #include "app.h"
 #include "gfx/gl.h"
 
+#ifdef _WIN32
+/* Hybrid laptop drivers inspect these executable exports before OpenGL starts. Explicit user GPU preferences
+   still take precedence. Keep them in a source linked directly into the executable, not in a static library. */
+__declspec(dllexport) Uint32 NvOptimusEnablement = 1;
+__declspec(dllexport) Uint32 AmdPowerXpressRequestHighPerformance = 1;
+#endif
+
 static void nw_platform_fail(const char *what)
 {
     char msg[512];

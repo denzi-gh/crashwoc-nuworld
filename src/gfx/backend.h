@@ -12,6 +12,9 @@ typedef struct NwRenderOptions {
     int scale; /* every surface's pixels across a GS pixel, 1-NW_BACKEND_SCALE_MAX; 0 = auto: the shown height */
     int msaa;  /* samples of the back buffer and the targets under its Z: 0 off, 2, 4 or 8, at most the GPU's */
     NwTexFilter filter;
+    bool clouds; /* the geoms marked as clouds drawn as volumes (gfx/cloudvol.h) instead of their flat cards */
+    bool water;  /* the PS2's water (fxid 4) drawn as gfx/water.h's instead of its two passes */
+    bool silhouettes; /* control.cut's heroes as their models against a light, not the picture (port/silhouette.h) */
 } NwRenderOptions;
 
 bool nw_backend_init(void);

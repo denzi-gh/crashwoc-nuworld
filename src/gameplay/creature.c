@@ -8,6 +8,17 @@
 #include "gameplay/mech.h"
 #include "gameplay/submarine.h"
 #include "nups2/ps2ctl.h"
+#include "port/shadows.h"
+
+s32 DrawCharacterModel(struct CharacterModel *model, AnimPacket *anim, struct numtx_s *mC, struct numtx_s *mS,
+                       s32 render, struct numtx_s *mR, struct numtx_s *loc_mtx, struct nuvec_s *loc_mom,
+                       struct obj_s *obj)
+{
+    nw_shadow_character_begin();
+    s32 drawn = DrawCharacterModel__retail(model, anim, mC, mS, render, mR, loc_mtx, loc_mom, obj);
+    nw_shadow_character_end();
+    return drawn;
+}
 
 void MovePlayer(struct creature_s *c, struct nupad_s *pad)
 {

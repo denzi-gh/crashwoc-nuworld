@@ -30,6 +30,7 @@
 #include "platform/audio.h"
 #include "platform/input.h"
 #include "port/capture.h"
+#include "port/cutstart.h"
 #include "port/dump.h"
 #include "port/game.h"
 #include "port/hz.h"
@@ -1463,6 +1464,7 @@ int main(int argc, char *argv[])
     const char *capture = NULL, *capture_dir = NULL; /* --capture <vblanks|file> [--capture-dir <dir>] */
     const char *dump = NULL, *dump_dir = NULL;       /* --dump <vblanks|file> [--dump-dir <dir>] [--dump-no-heap] */
     const char *poke = NULL;                         /* --poke <vblank:symbol=value,...> */
+    const char *cut = NULL;                          /* --cut <shot>: the intro from that shot (port/cutstart.h) */
     const char *dump_after = NULL;                   /* --dump-after <symbol=value> */
     bool dump_heap = true;
     bool verify = false, setup = false, check_data = false, check_scenes = false, check_disc = false;
@@ -1484,7 +1486,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
-             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
+             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--cut") == 0 ||
+             strcmp(argv[i], "--pad-script") == 0 ||
              strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--hz") == 0 ||
              strcmp(argv[i], "--overlay") == 0) &&
             i + 1 >= argc) {
@@ -1547,6 +1550,8 @@ int main(int argc, char *argv[])
             dump_after = argv[++i];
         } else if (strcmp(argv[i], "--level") == 0) {
             nw_run_level = argv[++i];
+        } else if (strcmp(argv[i], "--cut") == 0) {
+            cut = argv[++i];
         } else if (strcmp(argv[i], "--pad-script") == 0) {
             nw_pad_script = argv[++i];
         } else if (strcmp(argv[i], "--overlay") == 0) {
@@ -1619,6 +1624,13 @@ int main(int argc, char *argv[])
     }
     if (trace_sound) {
         nw_trace_sound_start();
+    }
+    if (cut) {
+        /* NEW GAME as --level intro,37 has it (the intro, then the hub), unless the run says where to go itself. */
+        nw_cut_start(cut);
+        if (!nw_run_level && !poke) {
+            nw_run_level = "intro,37";
+        }
     }
     if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
         return 2;

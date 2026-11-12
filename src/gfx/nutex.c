@@ -59,9 +59,15 @@ static int nw_log2(int size)
     return shift;
 }
 
-/* Header version 0 (old) or 1 (cur), the palette chunk of types 4-7, then a chunk per mip level; an unknown version
-   takes a slot it never marks valid, as retail. */
 int NuTexCreateNative(void *data)
+{
+    return nw_tex_create_native(data, 1);
+}
+
+/* Header version 0 (old) or 1 (cur), the palette chunk of types 4-7, then a chunk per mip level; an unknown version
+   takes a slot it never marks valid, as retail. The slot keeps the record's size; widen applies to the decoded
+   texture the renderer samples alone. */
+int nw_tex_create_native(void *data, uint32_t widen)
 {
     const uint8_t *hdr = data;
     int slot = NuTexFindFreeSlot();
@@ -114,7 +120,8 @@ int NuTexCreateNative(void *data)
     ps2tex->th = nw_log2(entry->height);
 
     NwGpuTex *gpu = SDL_calloc(1, sizeof(*gpu));
-    if (!gpu || !nw_tex_decode(&gpu->tex, data, (size_t)(chunk - (uint8_t *)data))) {
+    if (!gpu || !nw_tex_decode(&gpu->tex, data, (size_t)(chunk - (uint8_t *)data)) ||
+        !nw_tex_widen(&gpu->tex, widen)) {
         NuErrorProlog(nutex_srcfile, 0)("texture %d: %s", slot + 1, gpu ? SDL_GetError() : "out of memory");
     }
     nw_ps2tx_set(ps2tex, gpu);
