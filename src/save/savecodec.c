@@ -30,7 +30,7 @@ static const NwSaveField nw_save_slot_fields[] = {
     { "mask", NW_SAVE_MASK, 1, NW_SAVE_U8, 0, false },
     { "powerbits", NW_SAVE_POWERBITS, 1, NW_SAVE_U8, 2, false },
     { "cutbits", NW_SAVE_CUTBITS, 4, NW_SAVE_U32, 8, false },
-    /* derived (CalculateGamePercentage), kept so that a card's records come back unchanged */
+    /* derived (CalculateGamePercentage), kept so that a PS2 save's games come back unchanged */
     { "percent", NW_SAVE_PERCENT, 1, NW_SAVE_U8, 0, false },
     { "crystals", NW_SAVE_CRYSTALS, 1, NW_SAVE_U8, 0, false },
     { "relics", NW_SAVE_RELICS, 1, NW_SAVE_U8, 0, false },
@@ -454,4 +454,105 @@ bool nw_save_check(const NwSaveRegistry *reg, const uint8_t *games, size_t count
         }
     }
     return true;
+}
+
+bool nw_save_name_ok(const char *text, size_t len, size_t max)
+{
+    if (len > max) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        char c = text[i];
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* name as key of t, or no key when it is empty. */
+static bool nw_save_put_name(NwDoc *doc, NwDocTable *t, const char *key, const char *name)
+{
+    NwDocValue v;
+    if (!name[0]) {
+        nw_doc_unset(t, key);
+        return true;
+    }
+    return nw_doc_str(&v, name, SDL_strlen(name)) && nw_doc_set(doc, t, key, &v);
+}
+
+bool nw_save_names_merge(NwDoc *doc, const NwSaveRegistry *reg, size_t index, const NwSaveNames *names)
+{
+    char slot[16];
+    if (!nw_save_registry_ok(reg)) {
+        return false;
+    }
+    SDL_snprintf(slot, sizeof(slot), "%u", (unsigned)index);
+    const char *path[4] = { "slot", slot, "level", NULL };
+    NwDocTable *t = nw_doc_add_table(doc, path, 2);
+    if (!t || !nw_save_put_name(doc, t, "long_name", names->game)) {
+        return false;
+    }
+    for (size_t l = 0; l < reg->level_count && l < NW_SAVE_LEVELS; l++) {
+        path[3] = reg->levels[l];
+        bool any = false;
+        for (size_t i = 0; i < NW_SAVE_TIMES; i++) {
+            any = any || names->time[l][i][0];
+        }
+        t = nw_doc_table(doc, path, 4);
+        if (!any) {
+            if (t) {
+                nw_doc_unset(t, "long_names");
+                if (!t->count) {
+                    nw_doc_drop_table(doc, t);
+                }
+            }
+            continue;
+        }
+        NwDocValue v;
+        if ((!t && !(t = nw_doc_add_table(doc, path, 4))) || !nw_doc_array(&v, NW_SAVE_TIMES)) {
+            return false;
+        }
+        for (size_t i = 0; i < NW_SAVE_TIMES; i++) {
+            if (!nw_doc_str(&v.items[i], names->time[l][i], SDL_strlen(names->time[l][i]))) {
+                nw_doc_value_free(&v);
+                return false;
+            }
+        }
+        if (!nw_doc_set(doc, t, "long_names", &v)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* v as a name of at most max, else empty. */
+static void nw_save_get_name(const NwDocValue *v, char *name, size_t max)
+{
+    name[0] = 0;
+    if (v && v->type == NW_DOC_STR && nw_save_name_ok((const char *)v->bytes, v->len, max)) {
+        SDL_memcpy(name, v->bytes, v->len);
+        name[v->len] = 0;
+    }
+}
+
+void nw_save_names_decode(const NwDoc *doc, const NwSaveRegistry *reg, size_t index, NwSaveNames *names)
+{
+    char slot[16];
+    SDL_zerop(names);
+    if (!nw_save_registry_ok(reg)) {
+        return;
+    }
+    SDL_snprintf(slot, sizeof(slot), "%u", (unsigned)index);
+    const char *path[4] = { "slot", slot, "level", NULL };
+    const NwDocTable *t = nw_doc_table(doc, path, 2);
+    nw_save_get_name(t ? nw_doc_get(t, "long_name") : NULL, names->game, NW_SAVE_LONG_NAME);
+    for (size_t l = 0; l < reg->level_count && l < NW_SAVE_LEVELS; l++) {
+        path[3] = reg->levels[l];
+        t = nw_doc_table(doc, path, 4);
+        const NwDocValue *v = t ? nw_doc_get(t, "long_names") : NULL;
+        for (size_t i = 0; v && v->type == NW_DOC_ARRAY && i < v->len && i < NW_SAVE_TIMES; i++) {
+            nw_save_get_name(&v->items[i], names->time[l][i], NW_SAVE_LONG_TIME);
+        }
+    }
 }

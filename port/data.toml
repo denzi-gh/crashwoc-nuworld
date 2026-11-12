@@ -22,9 +22,6 @@ schema = 1
 [seeds]
 "__infinity" = "000000000000f07f"
 "__fdlib_version" = "01000000"
-"saveload_cardtype" = "ffffffff"
-"saveload_freespace" = "ffffffff"
-"saveload_cardformatted" = "ffffffff"
 "glb_amb_error_flag" = "ffffffff"
 "glb_dir_error_flag" = "ffffffff"
 

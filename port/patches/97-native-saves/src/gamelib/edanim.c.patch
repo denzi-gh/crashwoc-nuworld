@@ -1,0 +1,12 @@
+--- a/src/gamelib/edanim.c
++++ b/src/gamelib/edanim.c
+@@ -140,7 +140,9 @@ struct eduimenu_s *edanim_soundtype_menu = 0;
+ struct eduimenu_s *edanim_localsoundtype_menu = 0;
+ struct eduimenu_s *edanim_localsound_menu = 0;
+ struct eduimenu_s *edanim_bouncy_menu = 0;
++#ifndef NW_HOST
+ struct eduimenu_s *edanim_mctb_menu = 0;
++#endif
+ struct nugscn_s *edanim_base_scene = 0;
+ int edanim_emitrotz = 0;
+ int edanim_emitroty = 0;

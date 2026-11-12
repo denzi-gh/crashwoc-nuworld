@@ -215,4 +215,20 @@ int nw_demos(void);
 #define NW_DEMOS() 1
 #endif
 
+/* A game's and a time trial record's name as shown: NuWorld's longer one when it stands (src/port/names.h), and a
+   scale that keeps a longer name inside the width of fit letters; the game's own on the PS2. */
+#ifdef NW_HOST
+struct game_s;
+char *nw_names_of(const struct game_s *g);
+char *nw_names_time_text(const void *time);
+float nw_names_scale(float scale, const char *text, __SIZE_TYPE__ fit);
+#define NW_GAME_NAME(g) nw_names_of(g)
+#define NW_TIME_NAME(t) nw_names_time_text(t)
+#define NW_NAME_SCALE(scale, text, fit) nw_names_scale((scale), (text), (fit))
+#else
+#define NW_GAME_NAME(g) ((g)->name)
+#define NW_TIME_NAME(t) (t)
+#define NW_NAME_SCALE(scale, text, fit) (scale)
+#endif
+
 #endif /* NU_PORT_H */

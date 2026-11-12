@@ -73,6 +73,29 @@ cmake --build --preset release
 > [!NOTE]
 > The settings menu is a debug menu. A proper in-game menu comes with the first release.
 
+## Saves
+
+After entering a new game's name, choose whether to enable autosave. Each playthrough has its own automatic slot,
+separate from the 100 manual slots; the choice can be changed in the pause menu's Options. Autosave records earned
+level/boss rewards, confirmed time trial names and changes in the hub. Loading resumes from the hub, with the last
+completed save's progress. Progress inside an unfinished level is not restored.
+
+In Load/Delete, use the shoulder buttons (or their bound keys) to switch between manual and automatic saves. Manual
+saving never overwrites an automatic slot. Loading older progress asks before replacing a newer autosave.
+
+While an autosave is writing, its notice blinks; completion and error notices stay steady. Both manual and automatic
+saves are verified before atomic replacement, synchronized to disk and keep two previous versions. A damaged main
+file falls back to a valid backup; previous versions can also be selected from the load confirmation. A failed or
+interrupted write leaves the last completed save available.
+
+Manual writes, automatic writes, backup rotation and destination searches use one persistent low-priority I/O
+worker. Gameplay only queues immutable snapshots and polls completion; it does not wait for disk flushes. Save-menu
+draws use cached slot availability. Save-page reads still occur when opening or changing a page.
+
+Save files remain TOML. New writes include a length/CRC integrity comment on the first line. When deliberately
+editing a save, remove that line so it is read as a legacy editable document; the next save restores protection.
+Back up the file before editing. Existing saves and PS2 imports remain readable and start with autosave disabled.
+
 ## Discord
 
 Updates on NuWorld are posted on [Discord](https://discord.gg/kmCPpW4KvJ).

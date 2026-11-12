@@ -1,0 +1,92 @@
+--- a/src/game/text.c
++++ b/src/game/text.c
+@@ -931,6 +931,7 @@ char *tINSERTCONTROLLERINPORT1[6][2] = {
+     { "SLUIT CONTROLLER AAN", "OP CONTROLLER-AANSLUITING" }
+ };
+ 
++#ifndef NW_HOST
+ char *tCHECKINGMEMORYCARD[6][2] = {
+     { "CHECKING MEMORY CARD", "(8MB) (FOR p)" },
+     { "VERIFICATION DE LA MEMORY", "CARD (8MO) (p)" },
+@@ -939,6 +940,7 @@ char *tCHECKINGMEMORYCARD[6][2] = {
+     { "COMPROBANDO TARJETA DE", "MEMORIA (8MB) (p)" },
+     { "GEHEUGENKAART WORDT GECONTROLEERD", "(8MB) (p)" }
+ };
++#endif
+ 
+ char *tEMPTY[6] = { "EMPTY", "VIDE", "LEER", "VUOTO", "VAC\241O", "LEEG" };
+ 
+@@ -975,6 +977,7 @@ char *tDELETEGAME[6] = {
+     "SPEL WISSEN"
+ };
+ 
++#ifndef NW_HOST
+ char *tPLEASEINSERTMEMORYCARDSLOT1[6][3] = {
+     { "PLEASE INSERT MEMORY CARD", "(8MB) (FOR p)", "IN MEMORY CARD SLOT 1" },
+     { "INSERER UNE MEMORY CARD", "(8MO) (p)", "DANS LA FENTE N\3701" },
+@@ -983,6 +986,7 @@ char *tPLEASEINSERTMEMORYCARDSLOT1[6][3] = {
+     { "INSERTE LA TARJETA DE MEMORIA", "(8MB) (p)", "EN LA RANURA 1" },
+     { "VOER GEHEUGENKAART", "(8MB) (p)", "IN AANSLUITING 1 IN" }
+ };
++#endif
+ 
+ char *tNODATAAVAILABLE[6] = {
+     "NO DATA AVAILABLE",
+@@ -993,7 +997,9 @@ char *tNODATAAVAILABLE[6] = {
+     "GEEN GEGEVENS BESCHIKBAAR"
+ };
+ 
++#ifndef NW_HOST
+ char *tFORMAT[6] = { "FORMAT", "FORMATER", "FORMAT", "FORMATTA", "FORMATEAR", "FORMATTEREN" };
++#endif
+ 
+ char *tOVERWRITE[6] = {
+     "OVERWRITE",
+@@ -1031,6 +1037,7 @@ char *tCONFIRMDELETE[6] = {
+     "VERWIJDEREN BEVESTIGEN"
+ };
+ 
++#ifndef NW_HOST
+ char *tCONFIRMFORMAT[6] = {
+     "CONFIRM FORMAT?",
+     "CONFIRMER FORMATAGE",
+@@ -1039,6 +1046,7 @@ char *tCONFIRMFORMAT[6] = {
+     "CONFIRMAR FORMATEAR",
+     "FORMATTEREN BEVESTIGEN"
+ };
++#endif
+ 
+ char *tCONFIRMOVERWRITE[6][2] = {
+     { "DO YOU WISH TO", "OVERWRITE PREVIOUS DATA?" },
+@@ -1076,6 +1084,7 @@ char *tDELETING[6] = {
+     "BEZIG MET VERWIJDEREN"
+ };
+ 
++#ifndef NW_HOST
+ char *tFORMATTING[6] = {
+     "FORMATTING",
+     "FORMATAGE",
+@@ -1084,6 +1093,7 @@ char *tFORMATTING[6] = {
+     "FORMATEANDO",
+     "BEZIG MET FORMATTEREN"
+ };
++#endif
+ 
+ char *tGAMELOADED[6] = {
+     "GAME LOADED",
+@@ -1139,6 +1149,7 @@ char *tFAILEDTODELETE[6] = {
+     "VERWIJDEREN MISLUKT"
+ };
+ 
++#ifndef NW_HOST
+ char *tFAILEDTOFORMAT[6] = {
+     "FAILED TO FORMAT",
+     "ECHEC DU FORMATAGE",
+@@ -1255,6 +1266,7 @@ char *tYOUNEEDAMEMORYCARD[6][8] = {
+         "NIET OPSLAAN"
+     }
+ };
++#endif
+ 
+ extern void NuStrCpy(char *dst, char *src);
+ extern void DefaultTimeTrialNames(s32 all);

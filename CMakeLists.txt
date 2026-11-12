@@ -193,6 +193,8 @@ target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)
 
 # Saves: the TOML document, the save records in it, the saves folder and PS2 card images (no decomp).
 set(NW_SAVE_SOURCES
+  src/save/saveio.c
+  src/save/saveworker.c
   src/save/ps2card.c
   src/save/savecodec.c
   src/save/savedoc.c
@@ -249,8 +251,13 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_display PRIVATE SDL3::SDL3)
   add_test(NAME display COMMAND nuworld_test_display)
   add_executable(nuworld_test_savefile tests/c/test_savefile.c)
+  add_library(nuworld_save_test STATIC ${NW_SAVE_SOURCES})
+  target_include_directories(nuworld_save_test PUBLIC src)
+  target_compile_definitions(nuworld_save_test PUBLIC NW_SAVE_TESTING)
+  target_compile_options(nuworld_save_test PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_save_test PUBLIC SDL3::SDL3)
   target_compile_options(nuworld_test_savefile PRIVATE -Wall -Wextra)
-  target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save nuworld_vfs)
+  target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save_test nuworld_vfs)
   add_test(NAME savefile COMMAND nuworld_test_savefile ${CMAKE_CURRENT_BINARY_DIR}/test-savefile)
 endif()
 

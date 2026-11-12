@@ -68,6 +68,8 @@ def todo(f: nwunits.Function | None, unit: str = "") -> str:
         return "done"
     if f.provider == "shim":
         return "port:shim"
+    if f.provider == "dropped":
+        return "dropped"
     if f.unit.treatment in ("dead", "editor"):
         return f.unit.treatment
     if f.unit.treatment in ("hle", "replace"):

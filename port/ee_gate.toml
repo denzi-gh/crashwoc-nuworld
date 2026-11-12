@@ -6,3 +6,10 @@ schema = 1
 "10-host-base" = 31
 "40-ee-faithful" = 2
 "50-host-memory" = 9
+# The memory card stays the EE's: its state, notices, format menus, save icon and the editors' card media under
+# #ifndef NW_HOST, the host's calls into src/port/saves.h under #ifdef NW_HOST.
+"97-native-saves" = 82
+# The desktop exit entries exist only on the host.
+"98-desktop-menu" = 3
+# The time-tunnel LOADING screen before a cutscene is the EE's; the host keeps the screen black.
+"99-no-cut-loading" = 2

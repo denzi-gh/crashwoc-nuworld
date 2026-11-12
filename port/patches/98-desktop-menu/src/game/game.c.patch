@@ -1,0 +1,28 @@
+--- a/src/game/game.c
++++ b/src/game/game.c
+@@ -1018,6 +1018,10 @@ inline void InputNewLetter(struct cursor_s *cursor, char *name, s32 *i, s32 coun
+     }
+ }
+ 
++#ifdef NW_HOST
++extern _Bool nw_menu_quit(struct cursor_s *cursor, int confirm, int cancel);
++#endif
++
+ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+     s32 old;
+     s32 bits;
+@@ -1186,6 +1190,14 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+ 
+     x = cursor->x;
+     y = cursor->y;
++#ifdef NW_HOST
++    /* Desktop exit: keep retail's input guards, navigation and menu sounds. */
++    if (nw_menu_quit(cursor, CROSS, TRIANGLE)) {
++        if (CROSS != 0) {
++            sfx = 0x36;
++        }
++    } else
++#endif
+     switch (cursor->menu) {
+     case 3:
+         if (CROSS != 0) {
