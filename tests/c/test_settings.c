@@ -243,6 +243,9 @@ int main(int argc, char *argv[])
     CHECK(discord && SDL_strstr(discord, "\n[discord]\nenabled = false\n") && SDL_strstr(discord, "# discord.enabled: "));
     SDL_free(discord);
     nw_settings_defaults(&s);
+    CHECK(s.updates);
+    CHECK(read_text("[updates]\ncheck = false\n", &s) && !s.updates);
+    nw_settings_defaults(&s);
     CHECK(s.camera_stability == 100);
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
     CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);

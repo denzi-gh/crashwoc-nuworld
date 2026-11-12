@@ -5,6 +5,7 @@
 #include "game/game.retail.h"
 #include "nu_types.h"
 #include "platform/buildid.h"
+#include "platform/update.h"
 #include "port/font3d.h"
 #include "port/menu.h"
 #include "port/nameentry.h"
@@ -36,8 +37,13 @@ void DrawMenuEntry(struct cursor_s *cursor, char *txt, f32 *x, f32 *y, s32 *i);
 
 #define NW_MENU_QUIT_TITLE 34
 #define NW_MENU_QUIT_PAUSE 35
+#define NW_MENU_UPDATE 40
+#define NW_MENU_L2 0x0001u /* ProcMenu's pad bits */
+#define NW_MENU_SFX 0x36   /* retail's confirm sound */
 
 void NewMenu(struct cursor_s *cursor, s32 menu, s32 y, s32 level);
+void GameSfx(s32 sfx, void *p);
+extern struct gtimer_s GlobalTimer;
 
 #define NW_MENUDY -0.120000005f /* game/game's static MENUDY */
 
@@ -45,9 +51,45 @@ static char *nw_menu_mods[6] = {
     "MODS (SOON)", "MODS (BIENTOT)", "MODS (BALD)", "MOD (PRESTO)", "MODS (PRONTO)", "MODS (BINNENKORT)",
 };
 
+static char *nw_menu_update_notice[6][2] = {
+    { "NEW VERSION AVAILABLE", "PRESS u TO UPDATE" },
+    { "NOUVELLE VERSION DISPONIBLE", "APPUIE SUR u POUR METTRE A JOUR" },
+    { "NEUE VERSION VERFUEGBAR", "DRUECKEN SIE u ZUM AKTUALISIEREN" },
+    { "NUOVA VERSIONE DISPONIBILE", "PREMI IL TASTO u PER AGGIORNARE" },
+    { "NUEVA VERSION DISPONIBLE", "PULSA u PARA ACTUALIZAR" },
+    { "NIEUWE VERSIE BESCHIKBAAR", "DRUK OP DE u -TOETS OM BIJ TE WERKEN" },
+};
+
 static char nw_menu_typed[NW_NAMES_GAME + 1], nw_menu_own[9];
 static int nw_menu_position;
 static bool nw_menu_rollback_options, nw_menu_previous_failed;
+static uint32_t nw_menu_pressed;
+
+void nw_menu_buttons(uint32_t pressed)
+{
+    nw_menu_pressed = pressed;
+}
+
+/* L2 on the title menu while a newer release is out, then the browser question. */
+static bool nw_menu_update_proc(struct cursor_s *cursor, int confirm, int cancel)
+{
+    if (cursor->menu == 0 && (nw_menu_pressed & NW_MENU_L2) && cursor->item_frame > 1 && GameMode != 1 &&
+        (u32)Game.language < 6 && nw_update_available()) {
+        GameSfx(NW_MENU_SFX, NULL);
+        NewMenu(cursor, NW_MENU_UPDATE, 0, -1);
+        return true;
+    }
+    if (cursor->menu != NW_MENU_UPDATE) {
+        return false;
+    }
+    if (confirm && cursor->y == 0) {
+        nw_update_open();
+    }
+    if (confirm || cancel) {
+        NewMenu(cursor, 0, -1, -1);
+    }
+    return true;
+}
 
 static char *nw_menu_autosave_title[6] = {
     "AUTOSAVE", "SAUVEGARDE AUTO", "AUTOMATISCH SPEICHERN", "AUTOSALVATAGGIO", "GUARDADO AUTOMATICO", "AUTOMATISCH OPSLAAN",
@@ -185,7 +227,7 @@ void GetMenuInfo(struct cursor_s *cursor)
                cursor->menu == NW_MENU_AUTOSAVE_OPTIONS || cursor->menu == NW_MENU_SAVE_PREVIOUS) {
         cursor->x_min = cursor->x_max = cursor->y_min = 0;
         cursor->y_max = 2;
-    } else if (cursor->menu == NW_MENU_AUTOSAVE_ROLLBACK) {
+    } else if (cursor->menu == NW_MENU_AUTOSAVE_ROLLBACK || cursor->menu == NW_MENU_UPDATE) {
         cursor->x_min = cursor->x_max = cursor->y_min = 0;
         cursor->y_max = 1;
     } else if (cursor->menu == NW_MENU_QUIT_TITLE || cursor->menu == NW_MENU_QUIT_PAUSE) {
@@ -196,6 +238,7 @@ void GetMenuInfo(struct cursor_s *cursor)
 bool nw_menu_quit(struct cursor_s *cursor, int confirm, int cancel)
 {
     if (nw_menu_autosave_proc(cursor, confirm, cancel)) return true;
+    if (nw_menu_update_proc(cursor, confirm, cancel)) return true;
     bool title = cursor->menu == NW_MENU_QUIT_TITLE;
     if (title || cursor->menu == NW_MENU_QUIT_PAUSE) {
         if (cancel || (confirm && cursor->y == 1)) {
@@ -270,6 +313,32 @@ static void nw_menu_autosave_draw(struct cursor_s *cursor)
         nw_menu_dialog_entry(cursor, menu == NW_MENU_AUTOSAVE_NEW ? without[lang] : disable[lang], &x, &y, &i);
         nw_menu_dialog_entry(cursor, nw_menu_back[lang], &x, &y, &i);
     }
+}
+
+static void nw_menu_update_draw(struct cursor_s *cursor)
+{
+    int lang = Game.language;
+    static char *title[6] = {
+        "OPEN BROWSER?", "OUVRIR LE NAVIGATEUR?", "BROWSER OEFFNEN?", "APRIRE IL BROWSER?", "ABRIR EL NAVEGADOR?",
+        "BROWSER OPENEN?",
+    };
+    static char *text[6][3] = {
+        { "THIS OPENS THE RELEASE PAGE", "OF THE NEW VERSION IN YOUR BROWSER.", "DOWNLOAD AND START THE NEW VERSION." },
+        { "CECI OUVRE LA PAGE DE LA NOUVELLE", "VERSION DANS TON NAVIGATEUR.", "TELECHARGE ET LANCE LA NOUVELLE VERSION." },
+        { "DIES OEFFNET DIE SEITE DER NEUEN", "VERSION IN IHREM BROWSER.", "LADEN UND STARTEN SIE DIE NEUE VERSION." },
+        { "SI APRIRA LA PAGINA DELLA NUOVA", "VERSIONE NEL TUO BROWSER.", "SCARICA E AVVIA LA NUOVA VERSIONE." },
+        { "SE ABRIRA LA PAGINA DE LA NUEVA", "VERSION EN TU NAVEGADOR.", "DESCARGA E INICIA LA NUEVA VERSION." },
+        { "DIT OPENT DE PAGINA VAN DE NIEUWE", "VERSIE IN JE BROWSER.", "DOWNLOAD EN START DE NIEUWE VERSIE." },
+    };
+    static char *open[6] = {
+        "OPEN BROWSER", "OUVRIR LE NAVIGATEUR", "BROWSER OEFFNEN", "APRI IL BROWSER", "ABRIR EL NAVEGADOR", "BROWSER OPENEN",
+    };
+    f32 x = 0.0f, y = -0.36f;
+    s32 i = 0;
+    nw_menu_confirm_text(title[lang], 0, 0.65f, 0.6f, 28);
+    for (int row = 0; row < 3; row++) nw_menu_confirm_text(text[lang][row], 0, 0.28f - row * 0.15f, 0.4f, 39);
+    nw_menu_dialog_entry(cursor, open[lang], &x, &y, &i);
+    nw_menu_dialog_entry(cursor, nw_menu_back[lang], &x, &y, &i);
 }
 
 static void nw_menu_load_confirm(struct cursor_s *cursor)
@@ -398,6 +467,12 @@ static void nw_menu_title(struct cursor_s *cursor, s32 paused)
         DrawMenuEntry(cursor, tbuf, &x, &y, &i);
     }
     nw_menu_draw_quit(cursor, &x, &y, &i);
+    if (nw_update_available()) {
+        /* DrawMenuEntry's flashing colours for the selected row */
+        s32 colour = (GlobalTimer.frame % 10 < 5) ? 0 : 3;
+        Text3D(nw_menu_update_notice[Game.language][0], 0.95f, 0.9f, 1.0f, 0.3f, 0.3f, 0.3f, 8, colour);
+        Text3D(nw_menu_update_notice[Game.language][1], 0.95f, 0.82f, 1.0f, 0.3f, 0.3f, 0.3f, 8, colour);
+    }
 }
 
 static void nw_menu_pause(struct cursor_s *cursor, s32 paused)
@@ -442,6 +517,8 @@ void DrawMenu(struct cursor_s *cursor, s32 paused)
         nw_menu_options(cursor, paused);
     } else if ((cursor->menu == NW_MENU_QUIT_TITLE || cursor->menu == NW_MENU_QUIT_PAUSE) && (u32)Game.language < 6) {
         nw_menu_confirm(cursor, paused);
+    } else if (cursor->menu == NW_MENU_UPDATE && (u32)Game.language < 6) {
+        nw_menu_update_draw(cursor);
     } else if (cursor->menu == 0 && (u32)Game.language < 6) {
         nw_menu_title(cursor, paused);
     } else if (cursor->menu == 3 && nw_menu_has_quit(cursor) && (u32)Game.language < 6) {
@@ -453,7 +530,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused)
         nw_savemenu_draw(cursor);
     }
     /* 0: title, 3 and 4: pause */
-    if (cursor->menu == 0 || cursor->menu == NW_MENU_QUIT_TITLE ||
+    if (cursor->menu == 0 || cursor->menu == NW_MENU_QUIT_TITLE || cursor->menu == NW_MENU_UPDATE ||
         ((cursor->menu == 3 || cursor->menu == 4 || cursor->menu == NW_MENU_QUIT_PAUSE) && paused >= 25)) {
         if (!id[0]) {
             SDL_snprintf(id, sizeof(id), "NUWORLD %s", nw_build_name);
