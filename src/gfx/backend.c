@@ -9,6 +9,7 @@
 #include "app.h"
 #include "data/image_tables.h"
 #include "frontend/debug.h"
+#include "gfx/gem.h"
 #include "gfx/gl.h"
 #include "gfx/interp.h"
 #include "gfx/vu.h"
@@ -53,6 +54,12 @@ static struct {
     uint32_t rect_cap;
     bool wireframe;
     NwRenderOptions opts;
+    uint64_t runs;           /* packets run */
+    const NwBeSurf *copy_of; /* the target copy holds */
+    uint64_t copy_run;       /* in that run */
+    uint32_t held[512];      /* the world's [video] gems draws, in NwPacket.cmds, till the scene behind them is drawn */
+    uint32_t nheld;
+    bool flushing; /* drawing those */
     int scale;          /* the frame's */
     int samples;        /* the frame's MSAA, 0 off */
     GLint max_tex;      /* GL_MAX_TEXTURE_SIZE */
@@ -470,6 +477,8 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
         glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
                           GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, nw_be_fbo(s));
+        nw_be.copy_of = s;
+        nw_be.copy_run = nw_be.runs;
         s = &nw_be.copy;
     } else {
         nw_be_resolve(s);
@@ -488,6 +497,8 @@ static const NwVuTexture *nw_be_dst(void)
     glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, nw_be_fbo(s));
+    nw_be.copy_of = s;
+    nw_be.copy_run = nw_be.runs;
     tex = (NwVuTexture){ .index = nw_be.copy.tex, .tcc = true, .surface = true };
     return &tex;
 }
@@ -831,6 +842,215 @@ static void nw_be_particles(const NwPacket *p, const NwCmd *c)
     }
 }
 
+static bool nw_be_inverse(const float m[16], float out[16])
+{
+    float inv[16];
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] +
+             m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] -
+             m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] +
+             m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] -
+              m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] -
+             m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] +
+             m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] -
+             m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] +
+              m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] +
+             m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] -
+             m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] +
+              m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] -
+              m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] -
+             m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] +
+             m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] -
+              m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] +
+              m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+    float det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if (det == 0.0f) {
+        return false;
+    }
+    for (int i = 0; i < 16; i++) {
+        out[i] = inv[i] / det;
+    }
+    return true;
+}
+
+/* A clip-space point (row vector) back into the world. */
+static void nw_be_unproject(const float inv[16], float x, float y, float z, float w, float out[4])
+{
+    for (int c = 0; c < 4; c++) {
+        out[c] = x * inv[c] + y * inv[4 + c] + z * inv[8 + c] + w * inv[12 + c];
+    }
+}
+
+static void nw_be_unit(float v[3])
+{
+    float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    for (int i = 0; l > 0.0f && i < 3; i++) {
+        v[i] /= l;
+    }
+}
+
+/* Menus and the HUD draw under the identity camera (DrawPanel's pNuCam). */
+static bool nw_be_panel_view(const NwView *v)
+{
+    for (int i = 0; i < 16; i++) {
+        if (SDL_fabsf(v->cam[i] - (i % 5 == 0 ? 1.0f : 0.0f)) > 1e-4f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* What the gems see behind them: the target as the first of them since the last flush found it. */
+static GLuint nw_be_gem_backdrop(void)
+{
+    if (nw_be.copy_of != nw_be.target || nw_be.copy_run != nw_be.runs) {
+        nw_be_dst();
+    }
+    return nw_be.copy.tex;
+}
+
+/* A [video] gems material in the gem programs, opaque; false when the view gives no eye (draw it as the PS2). */
+static bool nw_be_gem(const NwPacket *p, const NwCmd *c, NwVuProgram program, const NwGemInfo *gem, GLsizei count,
+                      const void *first)
+{
+    NwVuGem g;
+    memset(&g, 0, sizeof(g));
+    nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, g.vp);
+    float inv[16], e[4], a[4], b[4];
+    if (!nw_be_inverse(g.vp, inv)) {
+        return false;
+    }
+    /* The eye maps to w 0 on the axis; right and up from the screen's centre at some depth. */
+    nw_be_unproject(inv, 0.0f, 0.0f, 1.0f, 0.0f, e);
+    nw_be_unproject(inv, 0.0f, 0.0f, 0.5f, 1.0f, a);
+    if (SDL_fabsf(e[3]) < 1e-12f || SDL_fabsf(a[3]) < 1e-12f) {
+        return false;
+    }
+    float centre[3];
+    for (int i = 0; i < 3; i++) {
+        g.eye[i] = e[i] / e[3];
+        centre[i] = a[i] / a[3];
+        g.cam[6 + i] = centre[i] - g.eye[i];
+    }
+    for (int axis = 0; axis < 2; axis++) {
+        nw_be_unproject(inv, axis ? 0.0f : 0.5f, axis ? 0.5f : 0.0f, 0.5f, 1.0f, b);
+        for (int i = 0; i < 3; i++) {
+            g.cam[axis * 3 + i] = b[i] / b[3] - centre[i];
+        }
+    }
+    for (int axis = 0; axis < 3; axis++) {
+        nw_be_unit(g.cam + axis * 3);
+    }
+    memcpy(g.world, c->local, sizeof(g.world));
+    memcpy(g.tint, gem->tint, sizeof(g.tint));
+    g.kind = gem->kind;
+    g.role = gem->role;
+    g.panel = nw_be_panel_view(&p->views[c->view]);
+    glGetIntegerv(GL_VIEWPORT, g.viewport);
+
+    GLuint backdrop = nw_be_gem_backdrop();
+    NwVuObject o;
+    nw_be_object(p, c, program, &o);
+    NwVuMaterial m = nw_be_material(p, c, false);
+    m.state.abe = false;
+    NwMtlPass pass[2];
+    nw_vu_use(program, &o, &m, pass);
+    nw_vu_gem(program, &g);
+    glDepthFunc(GL_LEQUAL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glActiveTexture(GL_TEXTURE0 + 8);
+    glBindTexture(GL_TEXTURE_2D, backdrop);
+    glActiveTexture(GL_TEXTURE0);
+    if (program == NW_VU_SKNGEM) {
+        const NwGpuSkin *s = c->skin;
+        nw_vu_skin(program, c->first, c->weights, s->delta_tex ? c->nweights : 0);
+        if (s->delta_tex) {
+            glActiveTexture(GL_TEXTURE0 + 5);
+            glBindTexture(GL_TEXTURE_BUFFER, s->delta_tex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
+    glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, first);
+    return true;
+}
+
+/* The draw's [video] gems role, NW_GEM_KEEP when it draws as the PS2. */
+static NwGemRole nw_be_gem_of(const NwPacket *p, const NwCmd *c, NwGemInfo *gem)
+{
+    if (!nw_be.opts.gems || c->mtl == NW_MTL_NONE) {
+        return NW_GEM_KEEP;
+    }
+    *gem = p->mtls[c->mtl].gem;
+    return gem->kind == NW_GEM_NONE ? NW_GEM_KEEP : (NwGemRole)gem->role;
+}
+
+/* Whether a draw waits for the rest of the scene: the PS2 sorts the world's gems ahead of what lies behind them, which
+   their stone then would not see. Menus and the HUD keep their order. */
+static bool nw_be_gem_hold(const NwPacket *p, const NwCmd *c)
+{
+    if (nw_be.flushing || !nw_be.opts.gems || c->mtl == NW_MTL_NONE || p->mtls[c->mtl].gem.kind == NW_GEM_NONE ||
+        nw_be.nheld == SDL_arraysize(nw_be.held) || nw_be_panel_view(&p->views[c->view])) {
+        return false;
+    }
+    nw_be.held[nw_be.nheld++] = (uint32_t)(c - p->cmds);
+    return true;
+}
+
+static void nw_be_draw(const NwPacket *p, const NwCmd *c);
+static void nw_be_skin(const NwPacket *p, const NwCmd *c);
+
+/* The held gems over one copy of the scene, before c: a target change, a clear, the shadows' Z, the HUD, or anything
+   under the identity camera; NULL at the run's end. */
+static void nw_be_gems_flush(const NwPacket *p, const NwCmd *c)
+{
+    if (!nw_be.nheld) {
+        return;
+    }
+    if (c) {
+        switch (c->op) {
+        case NW_CMD_TARGET:
+        case NW_CMD_CLEAR:
+        case NW_CMD_RECT:
+        case NW_CMD_VOLUMES:
+            break;
+        case NW_CMD_WAVES:
+            return;
+        default:
+            if (!nw_be_panel_view(&p->views[c->view])) {
+                return;
+            }
+        }
+    }
+    nw_be.copy_of = NULL;
+    nw_be.flushing = true;
+    for (uint32_t i = 0; i < nw_be.nheld; i++) {
+        const NwCmd *h = &p->cmds[nw_be.held[i]];
+        if (h->op == NW_CMD_SKIN) {
+            nw_be_skin(p, h);
+        } else {
+            nw_be_draw(p, h);
+        }
+    }
+    nw_be.flushing = false;
+    nw_be.nheld = 0;
+    nw_be.copy_of = NULL;
+}
+
 /* A geom's mesh; an OT batch draws its triangles in the packet's order through the packet's index buffer. */
 static void nw_be_draw(const NwPacket *p, const NwCmd *c)
 {
@@ -843,6 +1063,26 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     if (program == NW_VU_PROGRAMS) {
         nw_be_undrawn(mpg, false);
         return;
+    }
+    NwGemInfo gem;
+    NwGemRole role = nw_be_gem_of(p, c, &gem);
+    if (role == NW_GEM_HIDE || nw_be_gem_hold(p, c)) {
+        return;
+    }
+    if (role != NW_GEM_KEEP) {
+        bool ot = c->op == NW_CMD_DRAW_OT;
+        glBindVertexArray(mesh->vao);
+        if (ot) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
+        }
+        bool drawn = nw_be_gem(p, c, NW_VU_GEM, &gem, ot ? (GLsizei)c->count : (GLsizei)(mesh->mesh.ntris * 3),
+                               ot ? (const void *)(uintptr_t)(c->first * sizeof(uint32_t)) : NULL);
+        if (ot) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
+        }
+        if (drawn) {
+            return;
+        }
     }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
@@ -869,6 +1109,17 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     if (program == NW_VU_PROGRAMS) {
         nw_be_undrawn(mpg, true);
         return;
+    }
+    NwGemInfo gem;
+    NwGemRole role = nw_be_gem_of(p, c, &gem);
+    if (role == NW_GEM_HIDE || nw_be_gem_hold(p, c)) {
+        return;
+    }
+    if (role != NW_GEM_KEEP) {
+        glBindVertexArray(s->vao);
+        if (nw_be_gem(p, c, NW_VU_SKNGEM, &gem, (GLsizei)(s->skin.ntris * 3), NULL)) {
+            return;
+        }
     }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
@@ -960,6 +1211,7 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
 /* Runs once into GS memory, which keeps what it drew; the front buffer is the back buffer as it ends. */
 static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
+    nw_be.runs++;
     back->ms = nw_be.samples > 1;
     if (back->ms) {
         nw_be_ms(back, NULL);
@@ -986,8 +1238,10 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
                      GL_STREAM_DRAW);
     }
     uint32_t rects = 0;
+    nw_be.nheld = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
+        nw_be_gems_flush(p, c);
         switch (c->op) {
         case NW_CMD_DRAW:
         case NW_CMD_DRAW_OT:
@@ -1024,6 +1278,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         }
     }
+    nw_be_gems_flush(p, NULL);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     nw_be_resolve(back);
     NwBeSurf *front = nw_be_surf(NW_SURF_FRONT, back->tw, back->th);

@@ -418,6 +418,9 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
 
     CHECK(read_text("[video]\nfilter = \"bilinear\"\n", &s) && s.filter == NW_FILTER_BILINEAR);
+    nw_settings_defaults(&s);
+    CHECK(s.gems);
+    CHECK(read_text("[video]\ngems = false\n", &s) && !s.gems);
 
     /* A resolution: auto or WxH. */
     NwResolution res = { 1, 1 };

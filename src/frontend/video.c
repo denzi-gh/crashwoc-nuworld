@@ -85,7 +85,8 @@ static void nw_video_set(const NwSettings *s)
 
 static void nw_video_render(const NwSettings *s)
 {
-    nw_backend_set_options(&(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter });
+    nw_backend_set_options(
+        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .gems = s->gems });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -204,6 +205,11 @@ static void nw_video_panel(void *user)
     if (nw_debug_combo("Texture filter", &filter, filters, NW_FILTERS)) {
         s->filter = filter;
     }
+    static const char *const looks[] = { "Retail", "Enhanced" };
+    int gems = s->gems;
+    if (nw_debug_combo("Gems and relics", &gems, looks, 2)) {
+        s->gems = gems;
+    }
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
     }
@@ -278,7 +284,7 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter) {
+    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->gems != was->gems) {
         nw_video_render(s);
     }
     int w, h;

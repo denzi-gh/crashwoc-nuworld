@@ -4,6 +4,7 @@
 #include "game/gametypes.h"
 #include "game/creature.h"
 #include "game/game.retail.h"
+#include "gameplay/gems.h"
 #include "gameplay/jeep.h"
 #include "port/nameentry.h"
 #include "port/savemenu.h"
@@ -26,6 +27,12 @@ void CheckFinish(struct obj_s *obj)
     if (obj->finished == 1 && new_level != -1 && new_level != before) {
         nw_autosave_checkpoint(true);
     }
+}
+
+void InitObjectTable(void)
+{
+    InitObjectTable__retail();
+    nw_gems_objects();
 }
 
 u16 SeekRot(u16 a, u16 b, s32 shift)

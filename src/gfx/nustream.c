@@ -7,6 +7,7 @@
 #include <SDL3/SDL.h>
 
 #include "app.h"
+#include "gfx/gem.h"
 #include "gfx/interp.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
@@ -523,6 +524,7 @@ static void nw_rndr_snap(NwPacket *p)
             s->surf = nw_ps2tx_surf(m->tid);
             s->key = m;
             s->wrap = (uint8_t)((m->uanmmode == 2) | (m->vanmmode == 2) << 1);
+            s->gem = nw_gem_find(m);
         }
         c->mtl = nw_snap_index[h];
     }

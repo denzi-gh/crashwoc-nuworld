@@ -1,7 +1,9 @@
-/* Wraps of game/creature: the air indicator's, the hitbox view's, the vehicles', the slide's and the hub Crunch's hooks. */
+/* Wraps of game/creature: the air indicator's, the hitbox view's, the vehicles', the slide's, the hub Crunch's and the
+   gems' hooks. */
 #include "game/creature.h"
 #include "game/creature.retail.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/gems.h"
 #include "gameplay/ground.h"
 #include "gameplay/hubcrunch.h"
 #include "gameplay/hitboxes.h"
@@ -29,6 +31,7 @@ void LoadCharacterModels(void)
 {
     LoadCharacterModels__retail();
     nw_ground_loaded();
+    nw_gems_models();
 }
 
 void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
