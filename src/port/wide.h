@@ -13,6 +13,8 @@ void nw_wide_set(float aspect, float hud);
 int nw_wide_width(void);
 /* Asks the game thread for nw_wide_set(aspect, hud) at its next frame; the last request wins. Any thread. */
 void nw_wide_request(float aspect, float hud);
+/* Draw radii in percent of retail's, from the next nw_wide_poll. Any thread. */
+void nw_wide_draw_distance(int percent);
 /* Game thread, at a frame's end (NuRndrSwapScreen) outside a background load: applies a pending request. */
 void nw_wide_poll(void);
 /* The VU0 clip test's box: whether it is inside retail's 4:3 frustum, for NW_WIDE_SEEN. */

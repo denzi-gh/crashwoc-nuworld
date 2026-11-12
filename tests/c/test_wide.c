@@ -104,6 +104,19 @@ int main(void)
     CHECK(nw_wide.width == 854 && PS2_REZ_W == 640);
     nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
 
+    /* The draw distance, on top of the widening */
+    bgload_complete = 0;
+    nw_wide_draw_distance(200);
+    nw_wide_poll();
+    CHECK(nw_wide.draw == 2.0f && nw_wide.draw2 == 4.0f && nw_wide.width == 640);
+    nw_wide_set(16.0f / 9.0f, 16.0f / 9.0f);
+    CHECK(fabsf(nw_wide.draw - 2.16f) < 0.02f && near(nw_wide.draw2, nw_wide.draw * nw_wide.draw));
+    nw_wide_draw_distance(100);
+    nw_wide_poll();
+    CHECK(fabsf(nw_wide.draw - 1.08f) < 0.01f);
+    nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
+    CHECK(nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f);
+
     if (failures) {
         fprintf(stderr, "wide: %d checks failed\n", failures);
         return 1;

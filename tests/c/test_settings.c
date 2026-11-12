@@ -247,6 +247,11 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
     CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);
     nw_settings_defaults(&s);
+    CHECK(s.draw_distance == 400);
+    CHECK(read_text("[video]\ndraw_distance = 250\n", &s) && s.draw_distance == 250);
+    CHECK(read_text("[video]\ndraw_distance = 50\n", &s) && s.draw_distance == 100);
+    CHECK(read_text("[video]\ndraw_distance = 900\n", &s) && s.draw_distance == NW_DRAW_DISTANCE_MAX);
+    nw_settings_defaults(&s);
     CHECK(s.movement.monkey_bar_speed == ((NwMovement)NW_MOVEMENT_NHANCED).monkey_bar_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 900\n", &s) && s.movement.monkey_bar_speed == 500);

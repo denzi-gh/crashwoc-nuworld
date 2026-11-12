@@ -210,6 +210,8 @@ static void nw_video_panel(void *user)
     if (nw_debug_combo("Gems and relics", &gems, looks, 2)) {
         s->gems = gems;
     }
+    nw_debug_slider_int("Draw distance %", &s->draw_distance, 100, NW_DRAW_DISTANCE_MAX);
+    nw_debug_tooltip("How far objects are drawn; 100 is the PS2's");
     if (nw_debug_combo("Aspect", &aspect, aspect_names, (int)SDL_arraysize(aspects))) {
         s->aspect = aspects[aspect];
     }
@@ -255,6 +257,7 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     }
     nw_video_vsync(s->vsync);
     nw_video_render(s);
+    nw_wide_draw_distance(s->draw_distance);
     return aspect;
 }
 
@@ -286,6 +289,9 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     }
     if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->gems != was->gems) {
         nw_video_render(s);
+    }
+    if (s->draw_distance != was->draw_distance) {
+        nw_wide_draw_distance(s->draw_distance);
     }
     int w, h;
     nw_display_size(nw_video.platform->window, &w, &h);

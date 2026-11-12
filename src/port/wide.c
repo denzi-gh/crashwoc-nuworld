@@ -30,6 +30,16 @@ struct nw_wide_s nw_wide = { .k = 1.0f, .aspect = 0.75f, .width = 640, .hud = 1.
 static SDL_AtomicInt nw_wide_shown = { 640 }; /* nw_wide.width for other threads */
 static SDL_AtomicInt nw_wide_asked;           /* a request waits */
 static SDL_AtomicInt nw_wide_asks[2];         /* its aspect and HUD reach, as float bits */
+static SDL_AtomicInt nw_wide_distance_asked = { 100 }; /* percent of retail's */
+static int nw_wide_distance = 100;
+static float nw_wide_side = 1.0f; /* the widening's share of the draw radii */
+
+static void nw_wide_draw(void)
+{
+    float draw = nw_wide_side * (float)nw_wide_distance / 100.0f;
+    nw_wide.draw = draw;
+    nw_wide.draw2 = draw * draw;
+}
 
 /* game/panel's HUD anchors in panel x (-1 to 1 spans retail's 4:3 picture at depth 1) and the side they keep to; the
    panel heads with their depth. The pause screen's (PAUSEPANELX) stay: it is drawn in retail's 4:3 area
@@ -83,9 +93,10 @@ void nw_wide_set(float aspect, float hud)
     /* A radius r around the camera reaches depth r / sqrt(1 + zx^2) at the view's side edge (zx = x clip ratio,
        tan(fov / 2) / aspect, fov 0.75): the draw radii grow to keep retail's edge depth. */
     float zx0 = tanf(0.375f) / 0.75f, zx = zx0 * k;
-    float draw = sqrtf(1.0f + zx * zx) / sqrtf(1.0f + zx0 * zx0);
-    nw_wide = (struct nw_wide_s){ .k = k, .aspect = 0.75f / k, .width = width, .hud = h, .draw = draw,
-                                  .draw2 = draw * draw, .pvs_all = width > 640 };
+    nw_wide_side = sqrtf(1.0f + zx * zx) / sqrtf(1.0f + zx0 * zx0);
+    nw_wide_distance = SDL_GetAtomicInt(&nw_wide_distance_asked);
+    nw_wide = (struct nw_wide_s){ .k = k, .aspect = 0.75f / k, .width = width, .hud = h, .pvs_all = width > 640 };
+    nw_wide_draw();
     SDL_SetAtomicInt(&nw_wide_shown, width);
 }
 
@@ -102,6 +113,11 @@ void nw_wide_request(float aspect, float hud)
     SDL_SetAtomicInt(&nw_wide_asks[0], bits[0]);
     SDL_SetAtomicInt(&nw_wide_asks[1], bits[1]);
     SDL_SetAtomicInt(&nw_wide_asked, 1);
+}
+
+void nw_wide_draw_distance(int percent)
+{
+    SDL_SetAtomicInt(&nw_wide_distance_asked, percent);
 }
 
 /* Recomputes from the old width `was` what the game derived from it: main's SWIDTH, MAXVPSIZEX and video size, the
@@ -135,6 +151,11 @@ static void nw_wide_frame(int was)
 
 void nw_wide_poll(void)
 {
+    int distance = SDL_GetAtomicInt(&nw_wide_distance_asked);
+    if (distance != nw_wide_distance) {
+        nw_wide_distance = distance;
+        nw_wide_draw();
+    }
     if (!bgload_complete || !SDL_CompareAndSwapAtomicInt(&nw_wide_asked, 1, 0)) {
         return;
     }
