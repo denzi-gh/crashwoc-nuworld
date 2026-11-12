@@ -36,6 +36,7 @@ typedef struct NwSettings {
     int scale; /* the internal resolution, NwRenderOptions' */
     int msaa;
     NwTexFilter filter;
+    bool gems; /* gems, crystals and relics as cut stone and polished metal */
     NwControls controls; /* [input], [pad], [keyboard] */
 } NwSettings;
 

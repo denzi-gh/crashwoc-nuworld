@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "gfx/gem.h"
 #include "gfx/mtl.h"
 #include "gfx/tex.h"
 #include "gfx/vif.h"
@@ -119,6 +120,7 @@ typedef struct NwMtlSnap {
     NwSurf surf; /* a texture in GS memory instead of tex */
     const void *key; /* the material, for interpolation */
     uint8_t wrap;    /* 1 u, 2 v: the offset scrolls, kept in 0-1 (NuMtlAnimate's mode 2) */
+    NwGemInfo gem;   /* [video] gems: kind NW_GEM_NONE for every other material */
 } NwMtlSnap;
 
 #define NW_MTL_NONE UINT32_MAX   /* NwCmd.mtl of a command with no material */

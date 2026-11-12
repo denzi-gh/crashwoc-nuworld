@@ -46,6 +46,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
 #define GL_SCISSOR_TEST 0x0C11
+#define GL_VIEWPORT 0x0BA2
 #define GL_STENCIL_TEST 0x0B90
 #define GL_KEEP 0x1E00
 #define GL_INCR_WRAP 0x8507
@@ -171,6 +172,10 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniform4uiv, (GLint location, GLsizei count, const GLuint *value)) \
     X(void, glUniform4ui, (GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3)) \
     X(void, glUniform3ui, (GLint location, GLuint v0, GLuint v1, GLuint v2)) \
+    X(void, glUniform3fv, (GLint location, GLsizei count, const GLfloat *value)) \
+    X(void, glUniformMatrix3fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
+    X(void, glUniform3i, (GLint location, GLint v0, GLint v1, GLint v2)) \
+    X(void, glUniform4f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count)) \
     X(void, glDrawArraysInstanced, (GLenum mode, GLint first, GLsizei count, GLsizei instances)) \
@@ -259,6 +264,10 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniform4uiv nw_glUniform4uiv
 #define glUniform4ui nw_glUniform4ui
 #define glUniform3ui nw_glUniform3ui
+#define glUniform3fv nw_glUniform3fv
+#define glUniformMatrix3fv nw_glUniformMatrix3fv
+#define glUniform3i nw_glUniform3i
+#define glUniform4f nw_glUniform4f
 #define glDrawElements nw_glDrawElements
 #define glDrawArrays nw_glDrawArrays
 #define glDrawArraysInstanced nw_glDrawArraysInstanced

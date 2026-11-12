@@ -11,7 +11,7 @@
 
 /* Row-major PS2 matrices uploaded as they are: GL reads them transposed, which makes u_lv * v the VU's v x LV. */
 static const char nw_vu_vs[] =
-    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS || PROGRAM == SKNGEM\n"
     "layout(location = 0) in vec3 a_pos;\n"
     "layout(location = 1) in vec3 a_nrm;\n"
     "layout(location = 2) in vec2 a_uv;\n"
@@ -50,7 +50,13 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "out vec4 v_col;\n"
     "out vec2 v_uv;\n"
-    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
+    "#if GEMS\n"
+    "uniform mat4 u_world;\n"
+    "out vec3 v_wpos;\n"
+    "out vec3 v_wnrm;\n"
+    "out vec3 v_lnrm;\n"
+    "#endif\n"
+    "#if PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS || PROGRAM == SKNGEM\n"
     "vec3 row(uint joint, int r)\n"
     "{\n"
     "    return texelFetch(u_pool, u_joints + int(joint) * 4 + r).xyz;\n"
@@ -115,7 +121,7 @@ static const char nw_vu_vs[] =
     "#endif\n"
     "    v_uv = a_tex.xy;\n"
     "    v_col = a_col;\n"
-    "#elif PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS\n"
+    "#elif PROGRAM == SKIN || PROGRAM == SKINXUV || PROGRAM == SKNGLASS || PROGRAM == SKNGEM\n"
     /* skinmod.vsm, then skin.vsm: the weights are not normalised, and the normal turns under the heaviest joint alone.
        skin lights the material diffuse without vertex colour; skinxuv and sknglass work as trixuv and triglass. */
     "    vec3 q = a_pos;\n"
@@ -133,7 +139,13 @@ static const char nw_vu_vs[] =
     "    }\n"
     "    gl_Position = u_lv * vec4(p, 1.0);\n"
     "    vec3 n = a_nrm.x * row(a_nrmjoint.x, 0) + a_nrm.y * row(a_nrmjoint.x, 1) + a_nrm.z * row(a_nrmjoint.x, 2);\n"
-    "#if PROGRAM == SKIN\n"
+    "#if PROGRAM == SKNGEM\n"
+    "    v_wpos = (u_world * vec4(p, 1.0)).xyz;\n"
+    "    v_wnrm = mat3(u_world) * n;\n"
+    "    v_lnrm = a_nrm;\n"
+    "    v_col = u_diffuse;\n"
+    "    v_uv = a_uv;\n"
+    "#elif PROGRAM == SKIN\n"
     "    vec3 nl = max(vec3(dot(u_lightdir[0].xyz, n), dot(u_lightdir[1].xyz, n), dot(u_lightdir[2].xyz, n)), 0.0);\n"
     "    vec4 lit = u_lightcol[0] * nl.x + u_lightcol[1] * nl.y + u_lightcol[2] * nl.z;\n"
     "    v_col = vec4(min(u_diffuse.rgb * (u_ambient.rgb + lit.rgb), 255.0), u_diffuse.a);\n"
@@ -157,6 +169,14 @@ static const char nw_vu_vs[] =
     "    v_uv += (a_tex.xy + u_uvoff.zw) / 4096.0;\n"
     "    v_col = a_col;\n"
     "#endif\n"
+    "#elif PROGRAM == GEM\n"
+    "    gl_Position = u_lv * vec4(a_pos.xyz, 1.0);\n"
+    "    vec3 n = vec3(a_pos.w, a_tex.zw / 4096.0);\n"
+    "    v_wpos = (u_world * vec4(a_pos.xyz, 1.0)).xyz;\n"
+    "    v_wnrm = mat3(u_world) * n;\n"
+    "    v_lnrm = n;\n"
+    "    v_col = a_col;\n"
+    "    v_uv = (a_tex.xy + u_uvoff.zw) / 4096.0;\n"
     "#elif PROGRAM == TRIXUV || PROGRAM == TRIGLASS\n"
     /* trixuv.vsm: the material colour unlit, the texcoords the normal in the UV matrix (specular, environment).
        triglass.vsm: those times VU 0x14.z, to which the fragment program adds the frame copy at the vertex's pixel. */
@@ -365,10 +385,166 @@ static const char nw_vu_fs[] =
     "    o_col = vec4(u_ascolour != 0 ? vec3(c.a / 128.0) : c.rgb / 255.0, c.a / 128.0);\n"
     "}\n";
 
+/* [video] gems (gfx/gem.h): cut stone over the copied target, or a relic's metal, under a studio that turns with the
+   camera. */
+static const char nw_gem_fs[] =
+    "in vec3 v_wpos;\n"
+    "in vec3 v_wnrm;\n"
+    "in vec3 v_lnrm;\n"
+    "uniform sampler2D u_dst;\n"
+    "uniform mat4 u_world;\n"
+    "uniform mat4 u_vp;\n"
+    "uniform vec3 u_eye;\n"
+    "uniform mat3 u_cam;\n"
+    "uniform vec3 u_tint;\n"
+    "uniform ivec3 u_gem;\n"
+    "uniform vec4 u_viewport;\n"
+    "out vec4 o_col;\n"
+    "\n"
+    "const int CRYSTAL = 1, CLEAR = 2, COLOUR = 3, RELIC = 4;\n"
+    "const int BODY = 1, METAL = 2;\n"
+    "\n"
+    /* A world point's pixel on the target, kept inside the view. */
+    "vec2 screen_of(vec3 p)\n"
+    "{\n"
+    "    vec4 c = u_vp * vec4(p, 1.0);\n"
+    "    vec2 ndc = c.xy / max(c.w, 1e-4);\n"
+    "    return clamp(u_viewport.xy + (ndc * 0.5 + 0.5) * u_viewport.zw, u_viewport.xy + 1.0,\n"
+    "                 u_viewport.xy + u_viewport.zw - 2.0);\n"
+    "}\n"
+    "\n"
+    "vec3 backdrop(vec2 px)\n"
+    "{\n"
+    "    return texelFetch(u_dst, ivec2(px), 0).rgb;\n"
+    "}\n"
+    "\n"
+    "vec3 backdrop_soft(vec2 px, float r)\n"
+    "{\n"
+    "    vec3 c = backdrop(px) * 0.4;\n"
+    "    c += (backdrop(px + vec2(r, 0.0)) + backdrop(px - vec2(r, 0.0))) * 0.15;\n"
+    "    c += (backdrop(px + vec2(0.0, r)) + backdrop(px - vec2(0.0, r))) * 0.15;\n"
+    "    return c;\n"
+    "}\n"
+    "\n"
+    "float shine = 1.0;\n"
+    "\n"
+    "float box(vec3 v, vec3 dir, float soft, float hot)\n"
+    "{\n"
+    "    float d = dot(v, normalize(dir));\n"
+    "    return (smoothstep(soft, 0.985, d) * 0.6 + smoothstep(hot, 0.997, d) * 2.4) * shine;\n"
+    "}\n"
+    "\n"
+    /* A studio that turns with the camera: a floor, a sky warmer to the left and tinted by the level, three soft boxes. */
+    "vec3 studio(vec3 d, vec3 level)\n"
+    "{\n"
+    "    vec3 v = vec3(dot(d, u_cam[0]), dot(d, u_cam[1]), dot(d, u_cam[2]));\n"
+    "    vec3 c = mix(vec3(0.10, 0.10, 0.13), vec3(0.62, 0.66, 0.78), smoothstep(-0.6, 0.9, v.y));\n"
+    "    c *= mix(vec3(1.08, 0.98, 0.88), vec3(0.88, 0.97, 1.10), 0.5 + 0.5 * v.x);\n"
+    "    c = mix(c, level * (0.5 + 0.9 * smoothstep(-0.6, 0.9, v.y)), 0.3);\n"
+    "    c += vec3(2.6, 2.5, 2.3) * box(v, vec3(-0.55, 0.62, -0.55), 0.80, 0.975);\n"
+    "    c += vec3(1.5, 1.7, 2.0) * box(v, vec3(0.72, 0.32, -0.42), 0.84, 0.98);\n"
+    "    c += vec3(1.8) * box(v, vec3(0.1, 0.35, 0.93), 0.86, 0.985);\n"
+    "    c += vec3(0.5) * exp(-abs(v.y - 0.05) * 14.0);\n"
+    "    return c;\n"
+    "}\n"
+    "\n"
+    "float hash(vec3 p)\n"
+    "{\n"
+    "    return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);\n"
+    "}\n"
+    "\n"
+    /* Highlights past white spill into the other channels, then roll off. */
+    "vec3 knee(vec3 c)\n"
+    "{\n"
+    "    vec3 over = max(c - 1.0, 0.0);\n"
+    "    c += vec3(over.r + over.g + over.b) * 0.25;\n"
+    "    return mix(c, 0.85 + 0.15 * (1.0 - exp(-(c - 0.85) * 4.0)), step(0.85, c));\n"
+    "}\n"
+    "\n"
+    "void main()\n"
+    "{\n"
+    "    int kind = u_gem.x, role = u_gem.y;\n"
+        /* menus and the HUD: dimmer, with soft highlights */
+    "    bool panel = u_gem.z != 0;\n"
+    "    shine = panel ? 0.35 : 1.0;\n"
+    "    vec3 P = v_wpos;\n"
+    "    vec3 V = normalize(u_eye - P);\n"
+        /* The flat facet the pixel is on, and a slight dome over the whole stone so a facet is not one colour. */
+    "    vec3 Ng = cross(dFdx(P), dFdy(P));\n"
+    "    Ng = dot(Ng, Ng) > 0.0 ? normalize(Ng) : V;\n"
+    "    Ng = dot(Ng, V) < 0.0 ? -Ng : Ng;\n"
+    "    vec3 Nv = normalize(v_wnrm);\n"
+    "    Nv = dot(Nv, V) < 0.0 ? -Nv : Nv;\n"
+    "    vec3 dome = P - (u_world * vec4(0.0, 0.0, 0.0, 1.0)).xyz;\n"
+    "    dome = dot(dome, dome) > 0.0 ? normalize(dome) : Ng;\n"
+    "    float NdotV = clamp(dot(Ng, V), 0.0, 1.0);\n"
+        /* the level's colour around the stone */
+    "    float r = u_viewport.w * 0.06;\n"
+    "    vec2 lo = u_viewport.xy + 1.0, hi = u_viewport.xy + u_viewport.zw - 2.0;\n"
+    "    vec3 level = (backdrop(clamp(gl_FragCoord.xy + vec2(r, 0.0), lo, hi)) +\n"
+    "                  backdrop(clamp(gl_FragCoord.xy - vec2(r, 0.0), lo, hi)) +\n"
+    "                  backdrop(clamp(gl_FragCoord.xy + vec2(0.0, r), lo, hi)) +\n"
+    "                  backdrop(clamp(gl_FragCoord.xy - vec2(0.0, r), lo, hi))) * 0.25;\n"
+    "    vec3 col;\n"
+    "\n"
+    "    if (role == METAL) {\n"
+    "        vec3 N = normalize(mix(Ng, Nv, 0.8) + dome * 0.15);\n"
+    "        float nv = clamp(dot(N, V), 0.0, 1.0);\n"
+    "        vec3 R = reflect(-V, N);\n"
+            /* the relic tiers by their diffuse: platinum grey, gold, sapphire */
+    "        vec3 t = u_tint / max(max(u_tint.r, u_tint.g), max(u_tint.b, 0.05));\n"
+    "        vec3 f0 = t.g > 0.95 && t.b > 0.95 ? vec3(0.92, 0.92, 0.95)\n"
+    "                : t.r > 0.95 && t.b < 0.3   ? vec3(1.0, 0.71, 0.26)\n"
+    "                                            : vec3(0.32, 0.55, 1.0);\n"
+    "        vec3 F = f0 + (1.0 - f0) * pow(1.0 - nv, 5.0);\n"
+    "        float env = dot(studio(R, level), vec3(0.3, 0.5, 0.2));\n"
+    "        vec3 around = backdrop_soft(screen_of(P + R * 0.9), 3.0);\n"
+    "        col = F * (env * 1.2 + dot(around, vec3(0.3, 0.5, 0.2)) * 0.35) + f0 * around * 0.12;\n"
+    "        o_col = vec4(knee(col * (panel ? 0.82 : 1.0)), 1.0);\n"
+    "        return;\n"
+    "    }\n"
+    "\n"
+    "    vec3 N = normalize(Ng + dome * 0.28);\n"
+    "    vec3 R = reflect(-V, N);\n"
+    "    vec3 tint = kind == CLEAR ? vec3(1.0, 0.985, 0.96) : u_tint / max(max(u_tint.r, u_tint.g), max(u_tint.b, 0.05));\n"
+        /* a coloured stone a little deeper than its material */
+    "    if (kind != CLEAR) {\n"
+    "        tint = clamp(mix(vec3(dot(tint, vec3(0.3, 0.5, 0.2))), tint, 1.25), 0.0, 1.0);\n"
+    "        tint /= max(max(tint.r, tint.g), max(tint.b, 0.05));\n"
+    "    }\n"
+    "    float f0 = kind == CLEAR ? 0.17 : 0.09;\n"
+    "    float F = f0 + (1.0 - f0) * pow(1.0 - NdotV, 5.0);\n"
+    "    float thick = kind == CRYSTAL ? 0.25 : 0.18;\n"
+        /* the backdrop through the stone, each channel bent a little more (dispersion) */
+    "    float spread = kind == CLEAR ? 0.08 : 0.04;\n"
+    "    vec3 through;\n"
+    "    through.r = backdrop(screen_of(P + refract(-V, Ng, 1.0 / 1.52) * thick)).r;\n"
+    "    through.g = backdrop(screen_of(P + refract(-V, Ng, 1.0 / (1.52 + spread)) * thick)).g;\n"
+    "    through.b = backdrop(screen_of(P + refract(-V, Ng, 1.0 / (1.52 + 2.0 * spread)) * thick)).b;\n"
+        /* light bounced off a pavilion facet and out through the crown */
+    "    float facet = hash(floor(normalize(v_lnrm) * 7.0 + 0.5));\n"
+    "    vec3 T = refract(-V, N, 1.0 / 1.6);\n"
+    "    vec3 Nb = normalize(vec3(-Ng.x, -abs(Ng.y) - 0.6, -Ng.z) + (facet - 0.5) * 0.6);\n"
+    "    vec3 inner = studio(reflect(T, Nb), level);\n"
+    "    vec3 absorb = mix(vec3(1.0), tint, 0.6 + 0.25 * (1.0 - NdotV));\n"
+    "    vec3 body = (through * 0.78 + inner * 0.3) * absorb;\n"
+        /* a coloured stone shows the light behind it in its own colour: see-through, not tinted glass */
+    "    if (kind != CLEAR) {\n"
+    "        vec3 deep = mix(vec3(1.0), tint, 0.85 + 0.15 * (1.0 - NdotV));\n"
+    "        body = tint * dot(through, vec3(0.3, 0.5, 0.2)) * 1.4 + through * deep * 0.25 + inner * tint * 0.28 +\n"
+    "               tint * 0.07;\n"
+    "    }\n"
+    "    vec3 refl = studio(R, level);\n"
+    "    vec3 around = backdrop_soft(screen_of(P + R * 0.6), 2.0);\n"
+    "    col = mix(body, mix(refl, around * 1.3, 0.2), F) + refl * 0.04;\n"
+    "    o_col = vec4(knee(col * (panel ? 0.82 : 1.0)), 1.0);\n"
+    "}\n";
+
 static struct {
     GLuint prog;
     GLint lv, diffuse, ambient, lightdir, lightcol, uvoff, sprite, texmode, texlod, tcc, ascolour, atest, joints, blend,
         uv, ptl, zclut, zclear, zalpha, zad, gsblend, vu, frag, wave, filter, texalpha, zero;
+    GLint world, vp, eye, cam, tint, gem, viewport;
 } nw_vu[NW_VU_PROGRAMS];
 static NwTexFilter nw_vu_filter_mode;
 
@@ -376,14 +552,16 @@ static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 {
     static const char *const names[NW_VU_PROGRAMS] = { "TRIC",    "TRICU", "TRICA", "TRICDV",  "FACEON",
                                                        "FACEY",   "SKIN",  "TRIXUV", "SKINXUV", "PTL",
-                                                       "WATER", "WATERUV", "TRIGLASS", "SKNGLASS", "PTL_GENERAL" };
+                                                       "WATER", "WATERUV", "TRIGLASS", "SKNGLASS", "PTL_GENERAL",
+                                                       "GEM",     "SKNGEM" };
     char head[512];
     int n = SDL_snprintf(head, sizeof(head), "#version 330 core\n");
     for (int i = 0; i < NW_VU_PROGRAMS; i++) {
         n += SDL_snprintf(head + n, sizeof(head) - (size_t)n, "#define %s %d\n", names[i], i);
     }
     SDL_snprintf(head + n, sizeof(head) - (size_t)n,
-                  "#define PROGRAM %d\n#define PARTICLE (PROGRAM == PTL || PROGRAM == PTL_GENERAL)\n", (int)program);
+                  "#define PROGRAM %d\n#define PARTICLE (PROGRAM == PTL || PROGRAM == PTL_GENERAL)\n"
+                  "#define GEMS (PROGRAM == GEM || PROGRAM == SKNGEM)\n", (int)program);
     const GLchar *parts[2] = { head, src };
     GLuint s = glCreateShader(type);
     GLint ok = 0;
@@ -403,7 +581,8 @@ static GLuint nw_vu_shader(GLenum type, NwVuProgram program, const char *src)
 static bool nw_vu_link(NwVuProgram program)
 {
     GLuint vs = nw_vu_shader(GL_VERTEX_SHADER, program, nw_vu_vs);
-    GLuint fs = vs ? nw_vu_shader(GL_FRAGMENT_SHADER, program, nw_vu_fs) : 0;
+    bool gem = program == NW_VU_GEM || program == NW_VU_SKNGEM;
+    GLuint fs = vs ? nw_vu_shader(GL_FRAGMENT_SHADER, program, gem ? nw_gem_fs : nw_vu_fs) : 0;
     if (!fs) {
         glDeleteShader(vs);
         return false;
@@ -448,6 +627,13 @@ static bool nw_vu_link(NwVuProgram program)
     nw_vu[program].filter = glGetUniformLocation(p, "u_filter");
     nw_vu[program].texalpha = glGetUniformLocation(p, "u_texalpha");
     nw_vu[program].zero = glGetUniformLocation(p, "u_zero");
+    nw_vu[program].world = glGetUniformLocation(p, "u_world");
+    nw_vu[program].vp = glGetUniformLocation(p, "u_vp");
+    nw_vu[program].eye = glGetUniformLocation(p, "u_eye");
+    nw_vu[program].cam = glGetUniformLocation(p, "u_cam");
+    nw_vu[program].tint = glGetUniformLocation(p, "u_tint");
+    nw_vu[program].gem = glGetUniformLocation(p, "u_gem");
+    nw_vu[program].viewport = glGetUniformLocation(p, "u_viewport");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "u_tex"), 0);
     glUniform1i(glGetUniformLocation(p, "u_clut"), 1);
@@ -619,6 +805,18 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
 }
 
 static bool nw_vu_alpha = true;
+
+void nw_vu_gem(NwVuProgram program, const NwVuGem *g)
+{
+    glUniformMatrix4fv(nw_vu[program].world, 1, GL_FALSE, g->world);
+    glUniformMatrix4fv(nw_vu[program].vp, 1, GL_FALSE, g->vp);
+    glUniform3fv(nw_vu[program].eye, 1, g->eye);
+    glUniformMatrix3fv(nw_vu[program].cam, 1, GL_FALSE, g->cam);
+    glUniform3fv(nw_vu[program].tint, 1, g->tint);
+    glUniform3i(nw_vu[program].gem, g->kind, g->role, g->panel);
+    glUniform4f(nw_vu[program].viewport, (float)g->viewport[0], (float)g->viewport[1], (float)g->viewport[2],
+                (float)g->viewport[3]);
+}
 
 void nw_vu_alpha_writes(bool on)
 {
