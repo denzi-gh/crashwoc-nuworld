@@ -5,6 +5,7 @@
 #define NUWORLD_FRONTEND_SAVEEXPORT_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <SDL3/SDL.h>
 
@@ -12,6 +13,8 @@
 
 /* The save icon of the disc (STUFF/CRASH.ICO, as the game loads it), SDL_malloc'd; NULL with an SDL error. */
 void *nw_saveexport_icon(const NwVfs *vfs, size_t *len);
+char *nw_saveexport_cards_folder(void);
+void nw_saveexport_game(const uint8_t *game, char *out, size_t size);
 
 /* Registers the panel: the saves of dir (ending in a separator, copied), the card picked in a dialog over window,
    the icon from vfs. */

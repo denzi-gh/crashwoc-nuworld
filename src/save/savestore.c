@@ -603,33 +603,70 @@ int nw_save_convert(const char *dir, const NwSaveRegistry *reg)
     return ok ? made : -1;
 }
 
+int nw_save_add(const char *dir, const NwSaveRegistry *reg, const uint8_t *games, int count, int *numbers)
+{
+    int free_saves[NW_SAVE_GAMES], wanted = 0, found = 0;
+    for (int i = 0; i < count; i++) {
+        wanted += !nw_save_empty(games + i * NW_SAVE_GAME_SIZE);
+        if (numbers) {
+            numbers[i] = -1;
+        }
+    }
+    for (int n = 0; n < NW_SAVE_GAMES && found < wanted; n++) {
+        if (!nw_save_exists(dir, n)) {
+            free_saves[found++] = n;
+        }
+    }
+    if (found < wanted) {
+        SDL_SetError("%d games, %d free saves", wanted, found);
+        return -1;
+    }
+    int made = 0;
+    for (int i = 0; i < count; i++) {
+        const uint8_t *game = games + i * NW_SAVE_GAME_SIZE;
+        if (nw_save_empty(game)) {
+            continue;
+        }
+        if (!nw_save_store(dir, free_saves[made], reg, game, NULL, NULL)) {
+            return -1;
+        }
+        if (numbers) {
+            numbers[i] = free_saves[made];
+        }
+        made++;
+    }
+    return made;
+}
+
+int nw_save_match(const char *dir, const NwSaveRegistry *reg, const uint8_t *games, int count, int *numbers)
+{
+    int wanted = 0, found = 0;
+    for (int i = 0; i < count; i++) {
+        numbers[i] = -1;
+        wanted += !nw_save_empty(games + i * NW_SAVE_GAME_SIZE);
+    }
+    for (int n = 0; n < NW_SAVE_GAMES && found < wanted; n++) {
+        uint8_t game[NW_SAVE_GAME_SIZE];
+        NwSaveResult r = nw_save_exists(dir, n) ? nw_save_load(dir, n, reg, game, NULL, NULL) : NW_SAVE_NONE;
+        for (int i = 0; i < count && (r == NW_SAVE_OK || r == NW_SAVE_BACKUP); i++) {
+            const uint8_t *wants = games + i * NW_SAVE_GAME_SIZE;
+            if (numbers[i] < 0 && !nw_save_empty(wants) && SDL_memcmp(wants, game, NW_SAVE_GAME_SIZE) == 0) {
+                numbers[i] = n;
+                found++;
+            }
+        }
+    }
+    return found;
+}
+
 int nw_save_import(const char *dir, const char *file, const NwSaveRegistry *reg)
 {
-    int free_saves[NW_SAVE_PS2_GAMES], games = 0, found = 0;
     bool none = false;
     uint8_t *raw = nw_save_ps2_games(file, reg, &none);
     if (!raw) {
         return none ? 0 : -1;
     }
-    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) {
-        games += !nw_save_empty(raw + i * NW_SAVE_GAME_SIZE);
-    }
-    for (int n = 0; n < NW_SAVE_GAMES && found < games; n++) {
-        if (!nw_save_exists(dir, n)) {
-            free_saves[found++] = n;
-        }
-    }
-    int made = 0;
-    if (found < games) {
-        SDL_SetError("%d games, %d free saves", games, found);
-        made = -1;
-    }
-    for (int i = 0; i < NW_SAVE_PS2_GAMES && made >= 0; i++) {
-        const uint8_t *game = raw + i * NW_SAVE_GAME_SIZE;
-        if (!nw_save_empty(game)) {
-            made = nw_save_store(dir, free_saves[made], reg, game, NULL, NULL) ? made + 1 : -1;
-        }
-    }
+    int made = nw_save_add(dir, reg, raw, NW_SAVE_PS2_GAMES, NULL);
     SDL_free(raw);
     if (made < 0) {
         nw_save_blame(file);

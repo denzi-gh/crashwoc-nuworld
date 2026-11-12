@@ -11,6 +11,7 @@
 #include "nw_convert.h"
 #include "port/names.h"
 #include "port/autosave.h"
+#include "port/savemenu.h"
 #include "save/saveworker.h"
 
 /* Retail's result screens, in logic ticks: GAME SAVED / GAME DELETED (NTSC's shorter, port/values/hz.toml's
@@ -79,6 +80,7 @@ static struct {
     NwSaveTime saved[NW_SAVES_PAGE]; /* when SaveSlot's games were saved */
     NwSaveMeta meta[NW_SAVES_PAGE];
     bool recovered[NW_SAVES_PAGE];
+    bool free[NW_SAVES_PAGE]; /* shown empty: a write must not replace a save made since */
     bool automatic;
     bool has_autos, pending;
     NwSaveTask task;
@@ -86,7 +88,7 @@ static struct {
         const char *dir;
         const NwSaveRegistry *reg;
         int number, page, index;
-        bool automatic, deleting, ok;
+        bool automatic, deleting, free, ok;
         struct game_s game;
         NwSaveNames names;
         NwSaveMeta meta;
@@ -99,6 +101,16 @@ static struct {
     bool ok;                         /* the last write or delete */
     int wait;                        /* the result screen's frames left */
 } nw_saves;
+
+/* The main thread owns games and result unless WAITING or RUNNING. */
+static struct {
+    SDL_AtomicInt state, screen;
+    uint8_t games[NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE];
+    NwSavesImported result;
+    const char *dir;
+    const NwSaveRegistry *reg;
+    NwSaveTask task;
+} nw_saves_imp;
 
 static struct game_s *nw_saves_slot(int i)
 {
@@ -118,6 +130,8 @@ void nw_saves_init(const char *dir)
     SDL_zeroa(nw_saves.saved);
     SDL_zeroa(nw_saves.meta);
     SDL_zeroa(nw_saves.recovered);
+    SDL_zeroa(nw_saves.free);
+    SDL_SetAtomicInt(&nw_saves_imp.state, NW_SAVES_IMPORT_IDLE);
     nw_saves.latest = nw_saves.last = -1;
     nw_saves.ok = true;
     nw_saves.wait = 0;
@@ -237,6 +251,7 @@ void nw_saves_show(int page)
                                                 &nw_saves.saved[i], &nw_saves.meta[i])
                              : NW_SAVE_NONE;
         nw_saves.recovered[i] = r == NW_SAVE_BACKUP;
+        nw_saves.free[i] = r == NW_SAVE_NONE && reg && !nw_save_exists(nw_saves.dir, n);
         if (r == NW_SAVE_BACKUP) {
             fprintf(stderr, NW_APP_NAME ": saves: save %d: loaded the backup: %s\n", n + 1, SDL_GetError());
         } else if (r == NW_SAVE_FAILED) {
@@ -276,6 +291,8 @@ static void nw_saves_worker(void *unused)
     (void)unused;
     if (nw_saves.job.deleting) {
         nw_saves.job.ok = nw_save_remove(nw_saves.job.dir, nw_saves.job.number) != NW_SAVE_FAILED;
+    } else if (nw_saves.job.free && nw_save_exists(nw_saves.job.dir, nw_saves.job.number)) {
+        nw_saves.job.ok = SDL_SetError("save %d was made while the menu showed it empty", nw_saves.job.number + 1);
     } else {
         nw_saves.job.ok = nw_save_store_meta(nw_saves.job.dir, nw_saves.job.number, nw_saves.job.reg,
                                              (const uint8_t *)&nw_saves.job.game, &nw_saves.job.names,
@@ -306,6 +323,7 @@ static void nw_saves_poll(void)
     if (nw_saves.page == nw_saves.job.page && nw_saves.automatic == nw_saves.job.automatic) {
         int i = nw_saves.job.index;
         nw_saves.recovered[i] = false;
+        nw_saves.free[i] = nw_saves.job.deleting;
         if (nw_saves.job.deleting) {
             nw_saves_slot(i)->empty = 1;
             SDL_zero(nw_saves.saved[i]);
@@ -320,11 +338,17 @@ static void nw_saves_poll(void)
 
 bool nw_saves_pending(void) { nw_saves_poll(); return nw_saves.pending; }
 
+static void nw_saves_import_end(bool reshow);
+
 void nw_saves_finish(void)
 {
     if (nw_saves.pending) {
         nw_save_worker_wait(&nw_saves.task);
         nw_saves_poll();
+    }
+    if (SDL_GetAtomicInt(&nw_saves_imp.state) == NW_SAVES_IMPORT_RUNNING) {
+        nw_save_worker_wait(&nw_saves_imp.task);
+        nw_saves_import_end(false);
     }
 }
 
@@ -344,6 +368,7 @@ static void nw_saves_submit(struct game_s *slot, bool deleting)
     nw_saves.job.index = i;
     nw_saves.job.automatic = nw_saves.automatic;
     nw_saves.job.deleting = deleting;
+    nw_saves.job.free = !deleting && nw_saves.free[i];
     nw_saves.job.game = *slot;
     if (!deleting) nw_names_save(i);
     nw_saves.job.names = *nw_names_slot(i);
@@ -389,4 +414,79 @@ int nw_saves_ok(void)
 int nw_saves_any(void)
 {
     return nw_saves.latest >= 0;
+}
+
+bool nw_saves_import_games(const uint8_t *games)
+{
+    int state = SDL_GetAtomicInt(&nw_saves_imp.state);
+    if (state == NW_SAVES_IMPORT_WAITING || state == NW_SAVES_IMPORT_RUNNING) return false;
+    SDL_memcpy(nw_saves_imp.games, games, sizeof(nw_saves_imp.games));
+    SDL_SetAtomicInt(&nw_saves_imp.state, NW_SAVES_IMPORT_WAITING);
+    return true;
+}
+
+NwSavesImport nw_saves_import_result(NwSavesImported *out)
+{
+    NwSavesImport state = (NwSavesImport)SDL_GetAtomicInt(&nw_saves_imp.state);
+    if (out && (state == NW_SAVES_IMPORT_DONE || state == NW_SAVES_IMPORT_FAILED)) *out = nw_saves_imp.result;
+    return state;
+}
+
+bool nw_saves_screen(void) { return SDL_GetAtomicInt(&nw_saves_imp.screen) != 0; }
+
+static void nw_saves_import_worker(void *unused)
+{
+    (void)unused;
+    NwSavesImported *r = &nw_saves_imp.result;
+    uint8_t *games = nw_saves_imp.games;
+    nw_save_match(nw_saves_imp.dir, nw_saves_imp.reg, games, NW_SAVE_PS2_GAMES, r->already);
+    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) {
+        if (r->already[i] >= 0) games[i * NW_SAVE_GAME_SIZE + NW_SAVE_EMPTY] = 1;
+    }
+    r->why[0] = '\0';
+    if (nw_save_add(nw_saves_imp.dir, nw_saves_imp.reg, games, NW_SAVE_PS2_GAMES, r->saved) < 0) {
+        SDL_strlcpy(r->why, SDL_GetError(), sizeof(r->why));
+    }
+}
+
+static void nw_saves_import_fail(const char *why)
+{
+    NwSavesImported *r = &nw_saves_imp.result;
+    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) r->saved[i] = r->already[i] = -1;
+    SDL_strlcpy(r->why, why, sizeof(r->why));
+    SDL_SetAtomicInt(&nw_saves_imp.state, NW_SAVES_IMPORT_FAILED);
+}
+
+static void nw_saves_import_end(bool reshow)
+{
+    if (reshow && nw_savemenu_grid_open()) nw_saves_show(nw_saves.page);
+    NwSavesImported *r = &nw_saves_imp.result;
+    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) {
+        if (r->saved[i] >= 0) fprintf(stderr, NW_APP_NAME ": saves: imported a game as save %d\n", r->saved[i] + 1);
+    }
+    if (r->why[0]) fprintf(stderr, NW_APP_NAME ": saves: import failed: %s\n", r->why);
+    SDL_SetAtomicInt(&nw_saves_imp.state, r->why[0] ? NW_SAVES_IMPORT_FAILED : NW_SAVES_IMPORT_DONE);
+}
+
+void nw_saves_import_poll(void)
+{
+    bool screen = nw_savemenu_open();
+    SDL_SetAtomicInt(&nw_saves_imp.screen, screen);
+    int state = SDL_GetAtomicInt(&nw_saves_imp.state);
+    if (state == NW_SAVES_IMPORT_WAITING && !screen) {
+        const NwSaveRegistry *reg = nw_saves_ready(nw_saves.dir);
+        if (!reg) {
+            nw_saves_import_fail(nw_saves.dir ? SDL_GetError() : "no saves folder");
+            return;
+        }
+        nw_saves_imp.dir = nw_saves.dir;
+        nw_saves_imp.reg = reg;
+        if (nw_save_worker_submit(&nw_saves_imp.task, nw_saves_import_worker, NULL)) {
+            SDL_SetAtomicInt(&nw_saves_imp.state, NW_SAVES_IMPORT_RUNNING);
+        } else {
+            nw_saves_import_fail(SDL_GetError());
+        }
+    } else if (state == NW_SAVES_IMPORT_RUNNING && nw_save_worker_done(&nw_saves_imp.task)) {
+        nw_saves_import_end(true);
+    }
 }

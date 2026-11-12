@@ -72,6 +72,10 @@ int nw_save_convert(const char *dir, const NwSaveRegistry *reg);
 /* The games of file (a raw PS2 save or a .ps2 card image) into dir's first free saves, in their order, saved now.
    The saves made, 0 when it holds no save, -1 with an SDL error (also with fewer free saves than games). */
 int nw_save_import(const char *dir, const char *file, const NwSaveRegistry *reg);
+/* Into the first free saves, all or none; -1 with an SDL error. */
+int nw_save_add(const char *dir, const NwSaveRegistry *reg, const uint8_t *games, int count, int *numbers);
+/* Each game's manual save with the same record, -1 for none. */
+int nw_save_match(const char *dir, const NwSaveRegistry *reg, const uint8_t *games, int count, int *numbers);
 
 /* What a PS2 slot gets in an export, beside a save's number. */
 #define NW_SAVE_PS2_KEEP -1  /* the card's game stays (an empty slot when it has none) */

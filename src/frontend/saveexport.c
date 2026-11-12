@@ -58,8 +58,7 @@ void *nw_saveexport_icon(const NwVfs *vfs, size_t *len)
     return data;
 }
 
-/* A record's name and completion: "NUWORLD  45%". */
-static void nw_saveexport_game(const uint8_t *game, char *out, size_t size)
+void nw_saveexport_game(const uint8_t *game, char *out, size_t size)
 {
     char name[NW_SAVE_NAME_SIZE];
     SDL_memcpy(name, game + NW_SAVE_NAME, sizeof(name));
@@ -131,8 +130,7 @@ static void SDLCALL nw_saveexport_picked(void *user, const char *const *files, i
     }
 }
 
-/* PCSX2's own folder of cards when there is one. */
-static char *nw_saveexport_cards_folder(void)
+char *nw_saveexport_cards_folder(void)
 {
     const char *docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS);
     char *path = NULL;

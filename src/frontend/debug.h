@@ -43,6 +43,8 @@ void nw_debug_tooltip(const char *text);
 /* Text level with the buttons on its line. */
 void nw_debug_label(const char *text);
 bool nw_debug_button(const char *label);
+void nw_debug_enable_begin(bool enabled);
+void nw_debug_enable_end(void);
 bool nw_debug_checkbox(const char *label, bool *value);
 void nw_debug_indent(bool in);
 /* The next item on this line, column font sizes from the window's left edge. */

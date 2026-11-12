@@ -22,6 +22,7 @@
 #include "frontend/controlpanel.h"
 #include "frontend/debug.h"
 #include "frontend/saveexport.h"
+#include "frontend/saveimport.h"
 #include "frontend/settings.h"
 #include "frontend/video.h"
 #include "gameplay/gameplay.h"
@@ -1090,6 +1091,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     {
         char *root = nw_data_root(data_dir);
         char *saves = root ? nw_paths_dir(root, NW_PATHS_SAVES, false) : NULL;
+        nw_saveimport_start(platform.window, saves);
         nw_saveexport_start(platform.window, saves, nw_shim_file_vfs());
         SDL_free(saves);
         SDL_free(root);
@@ -1216,6 +1218,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     }
     nw_input_shutdown();
     nw_audio_close();
+    nw_saveimport_stop();
     nw_saveexport_stop();
     nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);

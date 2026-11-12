@@ -18,5 +18,8 @@ void nw_savemenu_proc(struct cursor_s *cursor, struct nupad_s *pad, int old_x);
 void nw_savemenu_prepare(struct cursor_s *cursor);
 /* After it: the platform under the save menus' titles, the grid's page arrows. */
 void nw_savemenu_draw(struct cursor_s *cursor);
+/* Game thread. */
+bool nw_savemenu_open(void);
+bool nw_savemenu_grid_open(void);
 
 #endif

@@ -11,6 +11,7 @@
 #include "nu3d/nugscn.h"
 #include "nu_types.h"
 #include "nups2/ps2ctl.h"
+#include "port/menu.h"
 #include "port/names.h"
 #include "port/saves.h"
 #include "shim/shim.h"
@@ -126,6 +127,16 @@ void DrawGameSlots(void)
 static bool nw_savemenu_grid(int menu)
 {
     return menu == 20 || menu == 23 || menu == 26;
+}
+
+bool nw_savemenu_open(void)
+{
+    return (Cursor.menu >= 19 && Cursor.menu <= 28) || Cursor.menu == NW_MENU_SAVE_PREVIOUS;
+}
+
+bool nw_savemenu_grid_open(void)
+{
+    return nw_savemenu_grid(Cursor.menu);
 }
 
 /* A save grid opened (from the load/save menu, or the title's LOAD GAME): the page of the save written last, the

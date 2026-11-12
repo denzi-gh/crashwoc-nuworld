@@ -129,6 +129,16 @@ bool nw_debug_button(const char *label)
     return ImGui::Button(label);
 }
 
+void nw_debug_enable_begin(bool enabled)
+{
+    ImGui::BeginDisabled(!enabled);
+}
+
+void nw_debug_enable_end(void)
+{
+    ImGui::EndDisabled();
+}
+
 bool nw_debug_checkbox(const char *label, bool *value)
 {
     return ImGui::Checkbox(label, value);

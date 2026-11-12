@@ -556,6 +556,93 @@ static void test_nonblocking_saves(void)
     nw_saves_init(NULL);
 }
 
+static NwSavesImport run_import(NwSavesImported *r)
+{
+    NwSavesImport state = NW_SAVES_IMPORT_RUNNING;
+    for (int frames = 0; frames < 10000; frames++) {
+        nw_saves_import_poll();
+        state = nw_saves_import_result(r);
+        if (state == NW_SAVES_IMPORT_DONE || state == NW_SAVES_IMPORT_FAILED) {
+            break;
+        }
+        SDL_Delay(1);
+    }
+    return state;
+}
+
+static void test_import(void)
+{
+    static uint8_t games[NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE];
+    static struct game_s first, imported;
+    NwSavesImported r;
+    nw_saves_init(NULL);
+    fresh();
+    nw_saves_init(dir);
+    play();
+    nw_saves_show(0);
+    fill(9);
+    write_save(&SaveSlot[0][0]);
+    CHECK(nw_saves_ok());
+    first = SaveSlot[0][0];
+    memcpy(games, SaveSlot, sizeof(games));
+
+    Cursor.menu = 23;
+    CHECK(nw_saves_import_games(games) && !nw_saves_import_games(games));
+    for (int i = 0; i < 5; i++) {
+        nw_saves_import_poll();
+    }
+    CHECK(nw_saves_screen() && nw_saves_import_result(&r) == NW_SAVES_IMPORT_WAITING && !there("save002.toml"));
+    Cursor.menu = -1;
+    CHECK(run_import(&r) == NW_SAVES_IMPORT_DONE && !nw_saves_screen());
+    CHECK(r.already[0] == 0 && r.already[1] < 0 && r.already[2] < 0 && r.already[3] < 0);
+    CHECK(r.saved[0] < 0 && r.saved[1] < 0 && r.saved[2] == 1 && r.saved[3] < 0);
+    CHECK(there("save002.toml") && !there("save003.toml"));
+    CHECK(run_import(&r) == NW_SAVES_IMPORT_DONE);
+
+    CHECK(nw_saves_import_games(games) && run_import(&r) == NW_SAVES_IMPORT_DONE);
+    CHECK(r.already[0] == 0 && r.already[2] == 1 && r.saved[0] < 0 && r.saved[2] < 0 && !there("save003.toml"));
+
+    /* a grid opened meanwhile reloads */
+    for (int i = 0; i < NW_SAVE_PS2_GAMES; i++) {
+        games[i * NW_SAVE_GAME_SIZE + NW_SAVE_EMPTY] = 1;
+    }
+    fill(10);
+    imported = SaveSlot[0][0];
+    memcpy(games, &imported, sizeof(imported));
+    nw_saves_show(0);
+    CHECK(SaveSlot[1][0].empty);
+    CHECK(nw_saves_import_games(games));
+    nw_saves_import_poll();
+    Cursor.menu = 20;
+    CHECK(run_import(&r) == NW_SAVES_IMPORT_DONE && r.saved[0] == 2);
+    CHECK(!SaveSlot[1][0].empty && memcmp(&SaveSlot[1][0], &imported, sizeof(imported)) == 0);
+
+    /* a save into a slot shown empty that the import filled is refused */
+    Cursor.menu = -1;
+    nw_saves_show(0);
+    CHECK(SaveSlot[1][1].empty);
+    fill(11);
+    imported = SaveSlot[0][0];
+    memcpy(games, &imported, sizeof(imported));
+    CHECK(nw_saves_import_games(games));
+    nw_saves_import_poll();
+    Cursor.menu = 24;
+    CHECK(run_import(&r) == NW_SAVES_IMPORT_DONE && r.saved[0] == 3);
+    SaveSlot[1][1] = first;
+    write_save(&SaveSlot[1][1]);
+    CHECK(!nw_saves_ok());
+    struct game_s kept;
+    CHECK(nw_save_load(dir, 3, nw_saves_levels(), (uint8_t *)&kept, NULL, NULL) == NW_SAVE_OK &&
+          memcmp(&kept, &imported, sizeof(imported)) == 0);
+    Cursor.menu = -1;
+    nw_saves_show(0);
+    CHECK(memcmp(&SaveSlot[1][1], &imported, sizeof(imported)) == 0);
+    SaveSlot[1][1] = first;
+    write_save(&SaveSlot[1][1]);
+    CHECK(nw_saves_ok());
+    nw_saves_init(NULL);
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2 || argc > 3 || (argc == 3 && strcmp(argv[2], "ps2") != 0)) {
@@ -570,6 +657,7 @@ int main(int argc, char *argv[])
         test_menus();
         test_autosaves();
         test_nonblocking_saves();
+        test_import();
         /* what tests/save_toml.py reads with Python's tomllib */
         fresh();
         nw_saves_init(dir);

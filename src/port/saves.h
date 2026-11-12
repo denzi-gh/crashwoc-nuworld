@@ -4,6 +4,8 @@
 #ifndef NUWORLD_PORT_SAVES_H
 #define NUWORLD_PORT_SAVES_H
 
+#include <stdint.h>
+
 #include "save/savestore.h"
 
 #define NW_SAVES_PAGE 4
@@ -22,6 +24,28 @@ int nw_saves_import(const char *dir, const char *file);
 bool nw_saves_export(const char *dir, const char *card, const int *picks, const void *icon, size_t icon_len);
 /* Any thread: the level and hub keys of the saves (the game's level table); NULL with an SDL error. */
 const NwSaveRegistry *nw_saves_levels(void);
+
+/* F1's import from a PS2 card; it only starts while no save screen shows. */
+typedef enum NwSavesImport {
+    NW_SAVES_IMPORT_IDLE,
+    NW_SAVES_IMPORT_WAITING,
+    NW_SAVES_IMPORT_RUNNING,
+    NW_SAVES_IMPORT_DONE,
+    NW_SAVES_IMPORT_FAILED,
+} NwSavesImport;
+
+typedef struct NwSavesImported {
+    int saved[NW_SAVE_PS2_GAMES];
+    int already[NW_SAVE_PS2_GAMES];
+    char why[512];
+} NwSavesImported;
+
+/* Main thread; false while an import is waiting or running. */
+bool nw_saves_import_games(const uint8_t *games);
+NwSavesImport nw_saves_import_result(NwSavesImported *out);
+bool nw_saves_screen(void);
+/* Game thread, each frame. */
+void nw_saves_import_poll(void);
 
 /* The page SaveSlot shows (saves page * 4 on), loaded at once by nw_saves_show. */
 int nw_saves_page(void);

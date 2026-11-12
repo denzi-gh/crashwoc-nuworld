@@ -245,6 +245,10 @@ static void nw_menu_autosave_draw(struct cursor_s *cursor)
     static char *activate[6] = { "ENABLE", "ACTIVER", "AKTIVIEREN", "ATTIVA", "ACTIVAR", "AANZETTEN" };
     static char *disable[6] = { "DISABLE", "DESACTIVER", "DEAKTIVIEREN", "DISATTIVA", "DESACTIVAR", "UITZETTEN" };
     static char *without[6] = { "CONTINUE WITHOUT", "CONTINUER SANS", "OHNE FORTFAHREN", "CONTINUA SENZA", "CONTINUAR SIN", "DOORGAAN ZONDER" };
+    static char *enable_title[6] = {
+        "ENABLE AUTOSAVE?", "ACTIVER LA SAUVEGARDE AUTO?", "AUTOMATISCHES SPEICHERN AKTIVIEREN?",
+        "ATTIVARE L'AUTOSALVATAGGIO?", "ACTIVAR GUARDADO AUTOMATICO?", "AUTOMATISCH OPSLAAN AANZETTEN?",
+    };
     static char *rollback[6][3] = {
         { "A NEWER AUTOSAVE EXISTS.", "REPLACE IT WITH THIS PROGRESS?", "ITS PREVIOUS VERSIONS WILL BE KEPT." },
         { "UNE SAUVEGARDE AUTO PLUS RECENTE EXISTE.", "LA REMPLACER PAR CETTE PROGRESSION?", "LES VERSIONS PRECEDENTES SONT GARDEES." },
@@ -255,7 +259,7 @@ static void nw_menu_autosave_draw(struct cursor_s *cursor)
     };
     f32 x = 0.0f, y = -0.36f;
     s32 i = 0;
-    nw_menu_confirm_text(nw_menu_autosave_title[lang], 0, 0.65f, 0.6f, 28);
+    nw_menu_confirm_text(menu == NW_MENU_AUTOSAVE_NEW ? enable_title[lang] : nw_menu_autosave_title[lang], 0, 0.65f, 0.6f, 28);
     if (menu == NW_MENU_AUTOSAVE_ROLLBACK) {
         for (int row = 0; row < 3; row++) nw_menu_confirm_text(rollback[lang][row], 0, 0.28f - row * 0.15f, 0.4f, 39);
         nw_menu_dialog_entry(cursor, activate[lang], &x, &y, &i);

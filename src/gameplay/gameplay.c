@@ -12,6 +12,7 @@
 #include "gameplay/title.h"
 #include "port/game.h"
 #include "port/autosave.h"
+#include "port/saves.h"
 
 NwProfile nw_profile;
 
@@ -143,4 +144,5 @@ void nw_gameplay_swap(void)
     nw_profile_poll();
     nw_title_poll();
     nw_autosave_poll();
+    nw_saves_import_poll();
 }
