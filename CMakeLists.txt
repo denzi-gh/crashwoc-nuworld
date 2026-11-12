@@ -126,9 +126,12 @@ add_custom_target(nuworld_buildid
   BYPRODUCTS ${nw_buildid}
   VERBATIM)
 
-# Runtime for the generated stubs and function map, the vblank clock the game thread runs on, and the build ID.
+# Runtime for the generated stubs and function map, the vblank clock the game thread runs on, the build ID and the
+# check for a newer release.
 add_library(nuworld_port STATIC
   src/platform/clock.c
+  src/platform/http.c
+  src/platform/update.c
   src/port/stub.c
   src/port/funcmap.c
   ${nw_buildid})
@@ -136,6 +139,9 @@ add_dependencies(nuworld_port nuworld_buildid)
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_port PUBLIC SDL3::SDL3)
+if(WIN32)
+  target_link_libraries(nuworld_port PUBLIC winhttp)
+endif()
 
 # Disc images, the data folder and the game file system.
 set(NW_VFS_SOURCES
@@ -247,6 +253,10 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_prompts PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_prompts PRIVATE nuworld_frontend)
   add_test(NAME prompts COMMAND nuworld_test_prompts)
+  add_executable(nuworld_test_update tests/c/test_update.c)
+  target_compile_options(nuworld_test_update PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_update PRIVATE nuworld_port)
+  add_test(NAME update COMMAND nuworld_test_update)
   add_executable(nuworld_test_display tests/c/test_display.c src/platform/display.c)
   target_include_directories(nuworld_test_display PRIVATE src)
   target_compile_options(nuworld_test_display PRIVATE -Wall -Wextra)

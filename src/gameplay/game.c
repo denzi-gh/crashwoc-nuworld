@@ -6,6 +6,7 @@
 #include "game/game.retail.h"
 #include "gameplay/gems.h"
 #include "gameplay/jeep.h"
+#include "nups2/ps2ctl.h"
 #include "port/nameentry.h"
 #include "port/savemenu.h"
 #include "port/autosave.h"
@@ -48,6 +49,7 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad)
     int menu = cursor->menu;
 
     uint32_t taken = 0, typed = nw_nameentry_proc(cursor, pad, &taken);
+    nw_menu_buttons(pad && cursor->button_lock <= 1 ? pad->paddata_db : 0); /* retail reads none while locked */
     ProcMenu__retail(cursor, pad);
     nw_nameentry_done(pad, typed, taken);
     nw_savemenu_proc(cursor, pad, x);

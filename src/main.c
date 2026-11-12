@@ -16,6 +16,7 @@
 #include "platform/paths.h"
 #include "platform/platform.h"
 #include "platform/prompts.h"
+#include "platform/update.h"
 #include "vfs/extract.h"
 #ifdef NW_WITH_GAME
 #include "data/image.h"
@@ -1082,6 +1083,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_debug_panel("Settings", "Game Speed", nw_boot_speed, &settings, false);
     if (presence) {
         nw_debug_toggle("Settings", "Discord Rich Presence", &settings.discord);
+        nw_debug_toggle("Settings", "Check for updates", &settings.updates);
     }
     nw_debug_panel("Gameplay", "Camera", nw_boot_camera, &settings, false);
     nw_debug_toggle("Gameplay", "Air indicator", &settings.air_indicator);
@@ -1134,6 +1136,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         SDL_Log("discord: %s", SDL_GetError());
     }
     nw_discord_enable(settings.discord);
+    nw_update_enable(presence && settings.updates, nw_build_version);
     uint64_t titled = 0, presented = 0;
     NwPacer pacer = { 0 };
     bool running = true;
@@ -1156,6 +1159,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         if (!nw_settings_equal(&settings, &applied)) {
             if (settings.discord != applied.discord) {
                 nw_discord_enable(settings.discord);
+            }
+            if (settings.updates != applied.updates) {
+                nw_update_enable(presence && settings.updates, nw_build_version);
             }
             nw_audio_set_buses(settings.master_volume, settings.voice_volume);
             nw_input_set_controls(&settings.controls);
@@ -1199,6 +1205,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
             nw_discord_set(&activity);
             presented = SDL_GetTicks();
         }
+        nw_update_poll(platform.window);
         int width, height;
         nw_display_size(platform.window, &width, &height);
         nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
