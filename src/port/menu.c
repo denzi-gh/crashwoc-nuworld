@@ -533,7 +533,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused)
     if (cursor->menu == 0 || cursor->menu == NW_MENU_QUIT_TITLE || cursor->menu == NW_MENU_UPDATE ||
         ((cursor->menu == 3 || cursor->menu == 4 || cursor->menu == NW_MENU_QUIT_PAUSE) && paused >= 25)) {
         if (!id[0]) {
-            SDL_snprintf(id, sizeof(id), "NUWORLD %s", nw_build_name);
+            SDL_snprintf(id, sizeof(id), "NUWORLD V%s", nw_build_name);
             for (char *c = id; *c; c++) {
                 *c = (char)SDL_toupper((unsigned char)*c);
             }

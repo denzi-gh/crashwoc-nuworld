@@ -1143,7 +1143,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     }
     nw_discord_enable(settings.discord);
     nw_update_enable(presence && settings.updates, nw_build_version);
-    uint64_t titled = 0, presented = 0;
+    char title[96];
+    SDL_snprintf(title, sizeof(title), NW_APP_NAME " v%s", nw_build_name);
+    SDL_SetWindowTitle(platform.window, title);
+    uint64_t presented = 0;
     NwPacer pacer = { 0 };
     bool running = true;
     while (running) {
@@ -1193,15 +1196,6 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         if (unsaved && SDL_GetTicks() - changed >= NW_SETTINGS_SAVE_MS) {
             nw_boot_settings(data_dir, &settings, true);
             unsaved = false;
-        }
-        if (SDL_GetTicks() - titled >= 500) {
-            char title[160];
-            NwGameState state = nw_game_state();
-            SDL_snprintf(title, sizeof(title), NW_APP_NAME " %s - game %s, frame %llu, vblank %llu", nw_build_name,
-                         nw_game_state_name(state), (unsigned long long)nw_game_swaps(),
-                         (unsigned long long)nw_game_edges());
-            SDL_SetWindowTitle(platform.window, title);
-            titled = SDL_GetTicks();
         }
         if (presence && SDL_GetTicks() - presented >= 1000) {
             NwPresenceSnap snap;
