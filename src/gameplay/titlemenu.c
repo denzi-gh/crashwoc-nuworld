@@ -1,5 +1,5 @@
-/* [game] title_menu: the NuWorld mark (tools/title_logo.py) is a second character of the title cuts, in the movie's
-   model cache so CloseCutMovie frees it. */
+/* [game] retail_menu = false: the NuWorld mark (tools/title_logo.py) is a second character of the title cuts, in the
+   movie's model cache so CloseCutMovie frees it. */
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>

@@ -1,0 +1,59 @@
+name: release
+
+# A v* tag builds and checks everything build.yml does, then drafts the GitHub release with the packages, their
+# SHA256SUMS and a build attestation; it is published by hand. Run by hand, it is a dry run: the packages are an
+# artifact, nothing is released.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is CMakeLists.txt's version
+        if: github.ref_type == 'tag'
+        run: test "$GITHUB_REF_NAME" = "v$(python3 tools/package.py version)"
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: crashwoc-nuworld-*
+          path: dist
+      - name: Package
+        run: |
+          version="$(python3 tools/package.py version)"
+          python3 tools/package.py archive "CrashWOC-NuWorld-v$version" out dist/crashwoc-nuworld-*
+      - if: github.ref_type == 'tag'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: out/CrashWOC-NuWorld-*
+      - name: Draft the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes
+          --title "CrashWOC: NuWorld v$(python3 tools/package.py version --full)" out/*
+      - if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: out/

@@ -9,4 +9,8 @@ void nw_log_init(int argc, char **argv);
 bool nw_log_open(const char *root);
 void nw_log_close(int code);
 
+/* text with the home folder (home NULL: USERPROFILE or HOME at nw_log_init) as %USERPROFILE% or ~, as in every log
+   line: logs get posted in bug reports. SDL_free it; NULL when out of memory. */
+char *nw_log_redact(const char *text, const char *home);
+
 #endif

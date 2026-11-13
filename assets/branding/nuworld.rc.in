@@ -1,0 +1,26 @@
+1 ICON "@NW_RC_ICON@"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "CrashWOC: NuWorld"
+      VALUE "FileVersion", "@PROJECT_VERSION@"
+      VALUE "InternalName", "NuWorld"
+      VALUE "LegalCopyright", "GPL-3.0"
+      VALUE "OriginalFilename", "NuWorld.exe"
+      VALUE "ProductName", "CrashWOC: NuWorld"
+      VALUE "ProductVersion", "@NW_RC_VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=CrashWOC: NuWorld
+Comment=Native PC port of Crash Bandicoot: The Wrath of Cortex
+Exec=NuWorld
+Icon=nuworld
+Terminal=false
+Categories=Game;ActionGame;

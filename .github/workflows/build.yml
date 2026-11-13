@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # release.yml
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run; main and release runs always finish.
+concurrency:
+  group: build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   deny-gamedata:
@@ -122,7 +131,8 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          [[ "$(./build/release/NuWorld --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
+          version="$(python3 tools/package.py version --full)"
+          [[ "$(./build/release/NuWorld --version)" =~ ^"CrashWOC: NuWorld $version "[0-9a-f]{7}$ ]]
       - name: Check default data folder
         run: |
           data_home="$(mktemp -d)"
@@ -139,10 +149,11 @@ jobs:
             ./build/release/NuWorld --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
           done
+      - run: python3 tools/package.py stage build/release linux-x86_64 dist
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-linux-x86_64
-          path: build/release/NuWorld
+          path: dist/crashwoc-nuworld-linux-x86_64/
 
   sanitize:
     runs-on: ubuntu-22.04
@@ -216,7 +227,8 @@ jobs:
       - run: cmake --build --preset release
       - run: ctest --test-dir build/release --output-on-failure
       - run: |
-          [[ "$(./build/release/NuWorld.exe --version)" =~ ^"CrashWOC: NuWorld 0.7.0 BETA "[0-9a-f]{7}$ ]]
+          version="$("$(cygpath -u "$pythonLocation")/python.exe" tools/package.py version --full)"
+          [[ "$(./build/release/NuWorld.exe --version)" =~ ^"CrashWOC: NuWorld $version "[0-9a-f]{7}$ ]]
       - name: Check the data image, the scenes and the boot without data
         run: |
           for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
@@ -224,20 +236,22 @@ jobs:
             ./build/release/NuWorld.exe --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
           done
+      - run: '"$(cygpath -u "$pythonLocation")/python.exe" tools/package.py stage build/release windows-x64 dist'
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-windows-x64
-          path: build/release/NuWorld.exe
+          path: dist/crashwoc-nuworld-windows-x64/
 
 
   archive:
     needs: [linux, windows]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.NUWORLD_BUILDS_TOKEN }}
       ARCHIVE_REPO: denzi-gh/denzi-gh-crashwoc-nuworld-builds
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: crashwoc-nuworld-*
@@ -246,9 +260,7 @@ jobs:
         run: |
           tag="build-$(jq -r '.head_commit.timestamp[0:10]' "$GITHUB_EVENT_PATH" | tr -d -)-${GITHUB_SHA::7}"
           echo "TAG=$tag" >> "$GITHUB_ENV"
-          chmod +x dist/crashwoc-nuworld-linux-x86_64/NuWorld
-          tar -C dist/crashwoc-nuworld-linux-x86_64 -czf "$tag-linux-x86_64.tar.gz" NuWorld
-          (cd dist/crashwoc-nuworld-windows-x64 && zip -q "../../$tag-windows-x64.zip" NuWorld.exe)
+          python3 tools/package.py archive "$tag" out dist/crashwoc-nuworld-*
           {
             echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
             echo
@@ -257,7 +269,7 @@ jobs:
       - name: Publish to the archive repo
         run: |
           if gh release view "$TAG" --repo "$ARCHIVE_REPO" > /dev/null 2>&1; then
-            gh release upload "$TAG" --repo "$ARCHIVE_REPO" --clobber "$TAG"-*
+            gh release upload "$TAG" --repo "$ARCHIVE_REPO" --clobber out/*
           else
-            gh release create "$TAG" --repo "$ARCHIVE_REPO" --title "$TAG" --notes-file notes.md "$TAG"-*
+            gh release create "$TAG" --repo "$ARCHIVE_REPO" --title "$TAG" --notes-file notes.md out/*
           fi
