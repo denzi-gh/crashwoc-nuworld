@@ -83,6 +83,9 @@ void nw_spu2_set_output(NwSpu2Output out, void *user);
 #define NW_SPU2_UNITY 0x8000
 void nw_spu2_set_gain(unsigned voice, int gain);
 
+/* A voice's (0-47) next key on: silent `quiet` samples (48 kHz), then up over `rise`. Where the SPU runs. */
+void nw_spu2_fade_in(unsigned voice, uint32_t quiet, uint32_t rise);
+
 /* Each voice's decoded samples (voice 0-47), 4 at a time in the order its decoder reads them. */
 typedef void (*NwSpu2Tap)(void *user, unsigned voice, const int16_t samples[4]);
 void nw_spu2_set_tap(NwSpu2Tap tap, void *user);

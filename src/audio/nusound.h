@@ -24,4 +24,7 @@ void nw_nusound_cd_moved(void);
 /* On (the default) the drive and the SPU DMA take their PCSX2 time, off none. Any thread; init keeps it. */
 void nw_nusound_set_hardware_speed(bool on);
 
+/* Streams started from now on start `seconds` in, silent `quiet` seconds, then fade in over `rise` (game thread). */
+void nw_nusound_skip(float seconds, float quiet, float rise);
+
 #endif

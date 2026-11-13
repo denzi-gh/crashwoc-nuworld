@@ -40,6 +40,7 @@
 
 static NwIrx irx;
 static SDL_AtomicInt nw_irx_instant; /* off the hardware speed */
+static float nw_irx_skip, nw_irx_quiet, nw_irx_rise; /* nw_nusound_skip's */
 
 /* cd_dat: the DAT under the drive head (NULL once the game moved it); cd_ahead: sectors read ahead as of cd_since;
    cd_done/dma_done: when the CD command and the SPU DMA in flight end (0: none). */
@@ -620,6 +621,13 @@ void nw_nusound_set_hardware_speed(bool on)
     SDL_SetAtomicInt(&nw_irx_instant, !on);
 }
 
+void nw_nusound_skip(float seconds, float quiet, float rise)
+{
+    nw_irx_skip = seconds;
+    nw_irx_quiet = quiet;
+    nw_irx_rise = rise;
+}
+
 /* sceCdRead of the DAT's sectors; past the end of the DAT it reads zeros. */
 static int nw_irx_cd_read(int lsn, int sectors, uint8_t *dst)
 {
@@ -971,6 +979,18 @@ static int StartStream(int Stream, int SPUChannel, int VolL, int VolR, int Strea
         }
         s->Status = 0;
         return -1;
+    }
+    if (LoopInfo != NW_IRX_SPOT && nw_irx_skip > 0.0f) {
+        /* whole ADPCM blocks at the file's rate */
+        uint32_t bytes = (uint32_t)(nw_irx_skip * (float)irx.ADPCM_FileNames[FileIndex].Pitch / NW_ADPCM_SAMPLES) *
+                         NW_ADPCM_BLOCK;
+        if (bytes < s->FileRemainder) {
+            s->FileSeek += bytes;
+            s->FileRemainder -= bytes;
+        }
+    }
+    if (LoopInfo != NW_IRX_SPOT && (nw_irx_quiet > 0.0f || nw_irx_rise > 0.0f)) {
+        nw_spu2_fade_in(s->Channel, (uint32_t)(nw_irx_quiet * 48000.0f), (uint32_t)(nw_irx_rise * 48000.0f));
     }
     return Stream;
 }

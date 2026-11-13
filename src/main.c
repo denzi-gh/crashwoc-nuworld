@@ -1068,7 +1068,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     if (nw_pad_script) {
         SDL_Log(NW_APP_NAME ": --pad-script plays the retail game: no [game] switches");
     } else {
-        nw_profile_apply(&(NwProfile){ .unused_title = settings.unused_title,
+        nw_profile_apply(&(NwProfile){ .title_menu = !settings.retail_menu,
                                        .movement = settings.movement,
                                        .air_indicator = settings.air_indicator,
                                        .boss_health = settings.boss_health,

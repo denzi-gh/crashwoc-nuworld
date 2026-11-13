@@ -162,13 +162,13 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/autosave.c src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosshealth.c
-  src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c
-  src/gameplay/edges.c src/gameplay/firefly.c
-  src/gameplay/game.c src/gameplay/game_obj.c src/gameplay/gems.c src/gameplay/gameplay.c src/gameplay/ground.c src/gameplay/hazards.c
+  src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/cut.c src/gameplay/debris.c
+  src/gameplay/edbits.c src/gameplay/edges.c src/gameplay/firefly.c
+  src/gameplay/game.c src/gameplay/game_obj.c src/gameplay/gems.c src/gameplay/gameplay.c src/gameplay/gcutscn.c src/gameplay/ground.c src/gameplay/hazards.c
   src/gameplay/hitboxes.c src/gameplay/hubcrunch.c src/gameplay/jeep.c src/gameplay/line2d.c src/gameplay/mech.c src/gameplay/minigame.c src/gameplay/monkeybars.c
   src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c src/gameplay/plane.c src/gameplay/spacefighter.c
   src/gameplay/steadycam.c src/gameplay/submarine.c
-  src/gameplay/terrain.c src/gameplay/title.c src/gameplay/vehicle.c
+  src/gameplay/terrain.c src/gameplay/titlemenu.c src/gameplay/vehicle.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
@@ -176,6 +176,15 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 nw_embed_dir(nuworld_game nw_prompt_icons ${CMAKE_CURRENT_SOURCE_DIR}/assets/prompts)
+# The title menu's NuWorld mark.
+set(nw_title_logo ${nw_gen}/nw_title_logo.ghg)
+add_custom_command(OUTPUT ${nw_title_logo}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/title_logo.py ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon.svg
+    ${nw_title_logo}
+  DEPENDS ${nw_tools}/title_logo.py ${nw_tools}/nughg.py ${nw_tools}/nuvif.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon.svg
+  VERBATIM)
+nw_embed(nuworld_game nw_title_logo_ghg ${nw_title_logo})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)

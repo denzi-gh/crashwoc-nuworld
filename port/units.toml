@@ -114,13 +114,14 @@ schema = 1
 "gamelib/edanim" = { treatment = "editor", runtime = ["edanimUpdateObjects", "edanimDetermineNearestAnim",
     "edanimSoundDestroy", "edanimParticleDestroy", "edanimFileLoad", "edanimLookupInstanceIndex",
     "edanimRegisterBaseScene", "edanimLookupSpecial", "edanimParamReset"], drop = ["edanimcb*MCTB*"] }
-"gamelib/edbits" = { treatment = "compile" }
+"gamelib/edbits" = { treatment = "compile", wrap = ["edbitsSoundPlay"] }
 "gamelib/edfile" = { treatment = "compile", drop = ["EdFile*MemCard"] }
 "gamelib/specterr" = { treatment = "compile" }
 # The memory card: NuWorld saves natively (port/saves.h, port/patches/97-native-saves)
 "gamelib/saveload" = { treatment = "dead", drop = ["*"] }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
-"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
+"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs",
+                      "StateAnimFixPtrs"], wrap = ["NuGCutSceneFixUp"] }
 # dead: NuTriggerSysLoad, called only by sceneman's NuSceneDataLoad; the disc has no .trg
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
 # called: from the trigger systems, which only sceneman creates
@@ -181,7 +182,8 @@ schema = 1
 # NuWorld's saves draw the slots (port/savemenu.c); the card's load and save requests are gone
 "game/loadsave" = { treatment = "replace", drop = ["UpdateSaveSlots", "loadsaveCallEachFrame", "LoadGameSlots", "SaveGameSlots"] }
 "game/bgload" = { treatment = "compile" }
-"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst"] }
+"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst", "ghg_insts", "ghg_inst_count"], wrap = [
+               "StartCutMovie", "SetCutMovieRate", "AppCutSceneCharacterRender"] }
 "game/bug" = { treatment = "compile" }
 "game/game_deb" = { treatment = "compile" }
 "game/credits" = { treatment = "compile" }

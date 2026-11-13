@@ -231,19 +231,6 @@ static void nw_level_enter(int level)
     nw_level_cut();
 }
 
-bool nw_level_routing(void)
-{
-    return nw_level.intro || nw_level_pending() >= 0 || nw_level.entering >= 0;
-}
-
-void nw_level_titles(void)
-{
-    Level = NW_LEVEL_TITLES;
-    new_level = NW_LEVEL_TITLES;
-    Hub = -1;
-    nw_level_cut();
-}
-
 /* Acts after two steady swaps (loads done, faded in, which BGLoad's loading screen never is, no other level change),
    since InitGameMode drops a new_level set before the level loop; an arrival cutscene is skipped as Start skips it. */
 void nw_level_poll(void)

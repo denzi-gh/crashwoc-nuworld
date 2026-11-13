@@ -394,13 +394,8 @@ static char *nw_ghg_texanims(NwGhgLoad *ld, const struct nughgheader_s *h, char 
     return ptr;
 }
 
-struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
+static struct NUHGOBJ_s *nw_ghg_parse(union variptr_u *buffer, char *base, int size, const char *file)
 {
-    char *base = (char *)(((uintptr_t)buffer->voidptr + 0xF) & ~(uintptr_t)0xF);
-    int size = NuFileLoadBuffer(file, base, 0x7FFFFFFF);
-    if (size <= 0) {
-        return 0;
-    }
     NwGhgLoad ld = { .base = base, .size = (size_t)size, .file = file };
     struct nughgheader_s h;
     memcpy(&h, nw_ghg_at(&ld, 0, sizeof(h)), sizeof(h));
@@ -449,6 +444,26 @@ struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
     }
     nw_ghgs[nw_nghgs++] = ld.g;
     return hobj;
+}
+
+struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
+{
+    char *base = (char *)(((uintptr_t)buffer->voidptr + 0xF) & ~(uintptr_t)0xF);
+    int size = NuFileLoadBuffer(file, base, 0x7FFFFFFF);
+    if (size <= 0) {
+        return 0;
+    }
+    return nw_ghg_parse(buffer, base, size, file);
+}
+
+struct NUHGOBJ_s *nw_ghg_read_image(union variptr_u *buffer, const void *image, size_t size, const char *name)
+{
+    char *base = (char *)(((uintptr_t)buffer->voidptr + 0xF) & ~(uintptr_t)0xF);
+    if (size == 0 || size > INT32_MAX) {
+        return 0;
+    }
+    memcpy(base, image, size);
+    return nw_ghg_parse(buffer, base, (int)size, name);
 }
 
 /* Retail's; the meshes and records are freed once the frames that drew the object are on screen. */

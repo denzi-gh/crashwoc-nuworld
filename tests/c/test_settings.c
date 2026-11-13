@@ -207,8 +207,8 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
     nw_settings_defaults(&s);
-    CHECK(s.unused_title);
-    CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
+    CHECK(!s.retail_menu);
+    CHECK(read_text("[game]\nretail_menu = true\n", &s) && s.retail_menu);
     nw_settings_defaults(&s);
     CHECK(s.air_indicator);
     CHECK(read_text("[game]\nair_indicator = false\n", &s) && !s.air_indicator);

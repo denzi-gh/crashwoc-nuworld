@@ -245,7 +245,7 @@ typedef enum NwMovementProfile {
 NwMovementProfile nw_movement_profile(const NwMovement *m);
 
 typedef struct NwProfile {
-    bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
+    bool title_menu;   /* NuWorld's title menu instead of the logos and the title cut */
     NwMovement movement;
     bool air_indicator; /* a ring on the floor under Crash while he is in the air */
     bool boss_health;   /* phase lines on the boss bar */
