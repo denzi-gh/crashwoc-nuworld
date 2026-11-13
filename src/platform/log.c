@@ -22,18 +22,77 @@
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+#define NW_LOG_HOME_VAR "USERPROFILE"
+#define NW_LOG_HOME "%USERPROFILE%"
+#else
+#define NW_LOG_HOME_VAR "HOME"
+#define NW_LOG_HOME "~"
+#endif
+
 static struct {
     SDL_SpinLock lock;
     SDL_IOStream *file;
     int argc;
     char **argv;
     SDL_ThreadID main;
+    char home[512];
 #ifdef _WIN32
     HANDLE raw; /* the file for the crash handler */
 #else
     int raw;
 #endif
 } nw_log;
+
+static bool nw_log_name_char(char c)
+{
+    return SDL_isalnum((unsigned char)c) || c == '.' || c == '_' || c == '-';
+}
+
+/* Windows paths ignore case and take either separator. */
+static bool nw_log_home_at(const char *text, const char *home, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        char a = text[i], b = home[i];
+#ifdef _WIN32
+        a = a == '/' ? '\\' : (char)SDL_tolower((unsigned char)a);
+        b = b == '/' ? '\\' : (char)SDL_tolower((unsigned char)b);
+#endif
+        if (a != b) {
+            return false;
+        }
+    }
+    return !nw_log_name_char(text[n]);
+}
+
+char *nw_log_redact(const char *text, const char *home)
+{
+    if (!home) {
+        home = nw_log.home;
+    }
+    size_t n = SDL_strlen(home), len = SDL_strlen(text), r = SDL_strlen(NW_LOG_HOME);
+    while (n && (home[n - 1] == '/' || home[n - 1] == '\\')) {
+        n--;
+    }
+    if (n < 2) {
+        return SDL_strdup(text);
+    }
+    char *out = SDL_malloc(len + (len / n + 1) * r + 1), *o = out;
+    if (!out) {
+        return NULL;
+    }
+    for (size_t i = 0; i < len;) {
+        if ((i == 0 || !nw_log_name_char(text[i - 1])) && nw_log_home_at(text + i, home, n)) {
+            SDL_memcpy(o, NW_LOG_HOME, r);
+            o += r;
+            i += n;
+        } else {
+            *o++ = text[i++];
+        }
+    }
+    *o = '\0';
+    return out;
+}
 
 static void SDLCALL nw_log_output(void *user, int category, SDL_LogPriority priority, const char *message)
 {
@@ -43,6 +102,10 @@ static void SDLCALL nw_log_output(void *user, int category, SDL_LogPriority prio
                                                                : "";
     (void)user;
     (void)category;
+    char *redacted = nw_log_redact(message, NULL);
+    if (redacted) {
+        message = redacted;
+    }
     fprintf(stderr, "%s%s\n", prefix, message);
     fflush(stderr);
     SDL_LockSpinlock(&nw_log.lock);
@@ -53,6 +116,7 @@ static void SDLCALL nw_log_output(void *user, int category, SDL_LogPriority prio
         SDL_FlushIO(nw_log.file);
     }
     SDL_UnlockSpinlock(&nw_log.lock);
+    SDL_free(redacted);
 }
 
 /* From a crash handler */
@@ -222,6 +286,8 @@ void nw_log_init(int argc, char **argv)
     nw_log.argc = argc;
     nw_log.argv = argv;
     nw_log.main = SDL_GetCurrentThreadID();
+    const char *home = SDL_getenv(NW_LOG_HOME_VAR);
+    SDL_strlcpy(nw_log.home, home ? home : "", sizeof(nw_log.home));
 #ifdef _WIN32
     bool console = false;
     for (int i = 1; i < argc; i++) {

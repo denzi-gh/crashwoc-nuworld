@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fail if any tracked file looks like data from the game disc (CI, every push and pull request)."""
+"""Fail if any tracked file, or any file under the given paths, looks like data from the game disc (CI: every push and
+pull request, and the release packages)."""
 import os
 import subprocess
 import sys
@@ -14,9 +15,10 @@ DENY_EXTENSIONS = {
 }
 DENY_NAMES = {"sles_503.86", "slus_202.38", "sceu_000.01", "system.cnf"}
 
-# (offset, magic): ELF, RNC, NU20 scene, VAG, memory card image, raw CD sector, ISO9660 volume descriptor.
+# (offset, magic): 32-bit little-endian ELF (the PS2's; NuWorld's own Linux build is 64-bit), RNC, NU20 scene, VAG,
+# memory card image, raw CD sector, ISO9660 volume descriptor.
 DENY_MAGIC = [
-    (0, b"\x7fELF"),
+    (0, b"\x7fELF\x01\x01"),
     (0, b"RNC\x02"),
     (0, b"NU20"),
     (0, b"VAGp"),
@@ -55,16 +57,32 @@ def problems(path):
             yield f"magic {magic[:8]!r} at {offset:#x}"
 
 
-def main():
-    bad = [(p, why) for p in tracked_files() for why in problems(p)]
+def files_under(paths):
+    for path in paths:
+        if os.path.isdir(path):
+            for root, dirs, names in os.walk(path):
+                dirs.sort()
+                for name in sorted(names):
+                    yield os.path.join(root, name)
+        else:
+            yield path
+
+
+def check(files):
+    """Prints each problem; True when there is none."""
+    bad = [(p, why) for p in files for why in problems(p)]
     for path, why in bad:
         print(f"{path}: {why}")
     if bad:
-        print(f"{len(bad)} problem(s): game data must never be committed.")
-        return 1
+        print(f"{len(bad)} problem(s): game data must never be committed or shipped.")
+        return False
     print("no game data found")
-    return 0
+    return True
+
+
+def main(argv):
+    return 0 if check(files_under(argv) if argv else tracked_files()) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

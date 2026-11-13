@@ -7,6 +7,7 @@
 
 #include "app.h"
 #include "audio/nusound.h"
+#include "frontend/help.h"
 #include "frontend/ui.h"
 #include "frontend/wizard.h"
 #include "gfx/gl.h"
@@ -1117,6 +1118,11 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         nw_debug_toggle("Debug", "Hitboxes", &hitboxes);
     }
     nw_backend_debug_menu();
+    {
+        char *root = nw_data_root(data_dir);
+        nw_help_start(platform.window, root);
+        SDL_free(root);
+    }
     NwSettings applied = settings;
     bool unsaved = false;
     uint64_t changed = 0; /* when the settings last changed */
@@ -1227,6 +1233,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_audio_close();
     nw_saveimport_stop();
     nw_saveexport_stop();
+    nw_help_stop();
     nw_window_close(&platform);
     return nw_boot_exit(state == NW_GAME_FATAL ? 1 : 0, parked);
 }

@@ -1,4 +1,4 @@
-/* [game] title_menu: NuWorld's title instead of the PS2's logos and title cut. */
+/* [game] retail_menu = false: NuWorld's title instead of the PS2's logos and title cut. */
 #ifndef NUWORLD_GAMEPLAY_TITLEMENU_H
 #define NUWORLD_GAMEPLAY_TITLEMENU_H
 

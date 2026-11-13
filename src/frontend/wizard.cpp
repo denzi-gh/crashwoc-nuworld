@@ -488,7 +488,7 @@ static void nw_wizard_failed(NwWizard *w)
     nw_wizard_title("Import failed");
     ImGui::TextWrapped("%s", nw_wizard_basename(w->image ? w->image : ""));
     nw_wizard_wrapped(nw_wizard_bad, w->error);
-    ImGui::TextWrapped("NuWorld runs only the PAL version 1.03 (SLES-50386). The data folder is unchanged.");
+    ImGui::TextWrapped("NuWorld runs PAL v1.03 (SLES-50386) and USA v1.00 (SLUS-20238). The data folder is unchanged.");
     ImGui::Spacing();
     static const char *const buttons[] = { "Try again", "Back" };
     nw_wizard_align_right(buttons, 2);

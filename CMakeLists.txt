@@ -95,6 +95,7 @@ add_executable(crashwoc-nuworld
   src/gfx/gl.c
   src/gfx/vu.c
   src/frontend/debug.cpp
+  src/frontend/help.c
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
 set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
@@ -103,7 +104,11 @@ nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/
 nw_embed(crashwoc-nuworld nw_beta_menu_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/wizard/beta-menu.png)
 # Window icon: the exe's icon resource on Windows (SDL takes the first one), a PNG set at runtime elsewhere.
 if(WIN32)
-  target_sources(crashwoc-nuworld PRIVATE assets/branding/nuworld.rc)
+  # Plus the version in the exe's properties (FILEOS VOS_NT_WINDOWS32, FILETYPE VFT_APP).
+  set(NW_RC_ICON ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld.ico)
+  string(STRIP "${PROJECT_VERSION} ${NUWORLD_TAG}" NW_RC_VERSION)
+  configure_file(assets/branding/nuworld.rc.in ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc @ONLY)
+  target_sources(crashwoc-nuworld PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc)
   # No console window; --console opens one (src/platform/log.c).
   set_target_properties(crashwoc-nuworld PROPERTIES WIN32_EXECUTABLE ON)
 else()
@@ -257,6 +262,10 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_update PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_update PRIVATE nuworld_port)
   add_test(NAME update COMMAND nuworld_test_update)
+  add_executable(nuworld_test_log tests/c/test_log.c src/platform/log.c)
+  target_compile_options(nuworld_test_log PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_log PRIVATE nuworld_port ${CMAKE_DL_LIBS})
+  add_test(NAME log COMMAND nuworld_test_log)
   add_executable(nuworld_test_display tests/c/test_display.c src/platform/display.c)
   target_include_directories(nuworld_test_display PRIVATE src)
   target_compile_options(nuworld_test_display PRIVATE -Wall -Wextra)
