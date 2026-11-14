@@ -513,6 +513,8 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
 static int nw_run_hz;             /* --hz, else the disc's rate */
+static bool nw_run_pal;           /* the disc is PAL */
+static bool nw_pal_60hz;          /* [game] pal_60hz: a PAL disc at 60 Hz; */
 static const char *nw_overlays[NW_VFS_OVERLAYS]; /* --overlay, in the order given: the later wins */
 static int nw_overlay_count;
 
@@ -569,7 +571,9 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
     if (nw_run_hz == 60 && recording) {
         SDL_Log(NW_APP_NAME ": --pad-script %s replays 50 Hz ticks: 50 Hz", nw_pad_script);
     }
-    int disc_hz = SDL_strcmp(vfs.manifest->vmode, "NTSC") == 0 ? 60 : 50;
+    /* Each disc at its own release's rate, PAL's 50 Hz and the US disc's 60; a PAL disc at 60 on request. */
+    nw_run_pal = SDL_strcmp(vfs.manifest->vmode, "NTSC") != 0;
+    int disc_hz = nw_run_pal && !nw_pal_60hz ? 50 : 60;
     int hz = nw_hz_set(recording ? 50 : nw_run_hz ? nw_run_hz : disc_hz);
     SDL_Log("disc: %s at %d Hz", vfs.manifest->name, hz);
     int kept = hz == 60 ? nw_hz_patch() : 0;
@@ -767,6 +771,19 @@ static void nw_boot_audio(void *user)
         nw_options_set_volume(false, sfx);
     }
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
+}
+
+static void nw_boot_speed(void *user)
+{
+    NwSettings *s = user;
+    nw_debug_checkbox("PAL disc at 60 Hz", &s->pal_60hz);
+    nw_debug_tooltip("plays like the US release, within a few percent of PAL; off: the PAL disc at its own 50 Hz, "
+                     "1:1 with the PS2. The US disc always runs at 60 Hz.");
+    if (nw_run_pal) {
+        nw_debug_text("running at %d Hz; a change takes effect at the next start", nw_run_hz);
+    } else {
+        nw_debug_text("running at %d Hz, the US disc's own rate", nw_run_hz);
+    }
 }
 
 static const char *const nw_movement_profiles[] = { "Retail", "N. Hanced", "Custom" };
@@ -1033,9 +1050,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         settings.aspect = aspect;
     }
     char aspect_name[32];
-    SDL_Log("settings: hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s, "
-            "boss health %s, camera stability %d%%",
-            settings.hardware_speed ? "on" : "off",
+    nw_pal_60hz = settings.pal_60hz;
+    SDL_Log("settings: hardware speed %s, PAL at 60 Hz %s, aspect %s, interpolation %s, movement %s, "
+            "air indicator %s, boss health %s, camera stability %d%%",
+            settings.hardware_speed ? "on" : "off", settings.pal_60hz ? "on" : "off",
             nw_settings_aspect_name(settings.aspect, aspect_name, sizeof(aspect_name)),
             settings.interpolation ? "on" : "off", nw_movement_profiles[nw_movement_profile(&settings.movement)],
             settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off", settings.camera_stability);
@@ -1068,6 +1086,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
     nw_debug_panel("Settings", "Audio", nw_boot_audio, &settings, false);
     nw_control_panel_start(&settings.controls);
+    nw_debug_panel("Settings", "Game Speed", nw_boot_speed, &settings, false);
     if (presence) {
         nw_debug_toggle("Settings", "Discord Rich Presence", &settings.discord);
         nw_debug_toggle("Settings", "Check for updates", &settings.updates);

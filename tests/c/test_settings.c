@@ -341,8 +341,10 @@ int main(int argc, char *argv[])
           !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.spacefighter.aim_assist);
 
-    /* The rate is the disc's now: an older file's hz is kept but changes nothing. */
+    /* The rate is the disc's now: an older file's hz is kept but changes nothing; PAL at 60 Hz is asked for. */
     CHECK(read_speed("[game]\nhz = 60\nhardware_speed = true\n") == 1);
+    CHECK(read_text("[game]\nhz = 60\n", &s) && !s.pal_60hz);
+    CHECK(read_text("[game]\npal_60hz = true\n", &s) && s.pal_60hz);
 
     float a = -1.0f;
     char name[16];
