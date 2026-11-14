@@ -8,6 +8,7 @@
 
 #include "game/font3d.h"
 #include "game/gametypes.h"
+#include "gfx/interp.h"
 #include "gfx/rndr.h"
 #include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
@@ -63,6 +64,21 @@ static struct {
 } nw_font3d_icons[NW_FONT3D_ICONS];
 static int nw_font3d_nicons;
 static struct numtl_s *nw_font3d_grey[2]; /* forced table: the letters' special_id 1 */
+
+/* This frame's and the last frame's strings, for stable interpolation keys. */
+#define NW_FONT3D_TEXTS 256
+typedef struct NwFont3DText {
+    const void *site;
+    uint32_t hash;
+    uint32_t id;
+    f32 x, y;
+    bool taken;
+} NwFont3DText;
+static struct {
+    uint32_t frame, ids;
+    int cur, n[2];
+    NwFont3DText text[2][NW_FONT3D_TEXTS];
+} nw_font3d_texts;
 
 void nw_font3d_prompts(const NwPrompts *p)
 {
@@ -162,6 +178,52 @@ static struct numtl_s **nw_font3d_grey_table(void)
         nw_font3d_grey[1] = mtl;
     }
     return nw_font3d_grey[1] ? nw_font3d_grey : NULL;
+}
+
+/* The last frame's id of this string: same caller, same text nearest, else any text within reach. */
+static uint32_t nw_font3d_text(const void *site, const char *txt, f32 x, f32 y, f32 reach)
+{
+    uint32_t frame = nw_interp_frame();
+    if (frame != nw_font3d_texts.frame) {
+        nw_font3d_texts.cur ^= 1;
+        nw_font3d_texts.n[nw_font3d_texts.cur] = 0;
+        if (frame != nw_font3d_texts.frame + 1) {
+            nw_font3d_texts.n[nw_font3d_texts.cur ^ 1] = 0;
+        }
+        nw_font3d_texts.frame = frame;
+    }
+    uint32_t hash = 2166136261u;
+    for (const char *s = txt; *s; s++) {
+        hash = (hash ^ (unsigned char)*s) * 16777619u;
+    }
+    NwFont3DText *prev = nw_font3d_texts.text[nw_font3d_texts.cur ^ 1], *best = NULL;
+    f32 bestd = 0.0f;
+    for (int i = 0; i < nw_font3d_texts.n[nw_font3d_texts.cur ^ 1]; i++) {
+        NwFont3DText *p = &prev[i];
+        f32 d = (p->x - x) * (p->x - x) + (p->y - y) * (p->y - y);
+        bool same = p->hash == hash;
+        if (p->taken || p->site != site || (!same && d > reach * reach)) {
+            continue;
+        }
+        bool bestsame = best && best->hash == hash;
+        if (!best || (same && !bestsame) || (same == bestsame && d < bestd)) {
+            best = p;
+            bestd = d;
+        }
+    }
+    uint32_t id;
+    if (best) {
+        best->taken = true;
+        id = best->id;
+    } else {
+        id = ++nw_font3d_texts.ids;
+    }
+    int n = nw_font3d_texts.n[nw_font3d_texts.cur];
+    if (n < NW_FONT3D_TEXTS) {
+        nw_font3d_texts.text[nw_font3d_texts.cur][n] = (NwFont3DText){ site, hash, id, x, y, false };
+        nw_font3d_texts.n[nw_font3d_texts.cur] = n + 1;
+    }
+    return id;
 }
 
 /* A glyph code's width in letters, 0 for another character. */
@@ -334,6 +396,7 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
     font3d_dx = dx;
     dy = (scaley * 0.1f) * FONT3DYMUL;
     font3d_dy = dy;
+    uint64_t text = (uint64_t)nw_font3d_text(__builtin_return_address(0), txt, x, y, dy * 0.5f) << 32;
     i = align & 5;
     if (i == 4) {
         y = y + dy * 0.5f;
@@ -354,6 +417,7 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
     font3d_xleft = x - dx * 0.5f;
 
     for (i = 0; i < l; i++) {
+        nw_interp_slot(&nw_font3d_texts, text | (uint32_t)i);
         c = txt[i];
         xpulse = 1.0f;
         if (Game.language == 0x63) {
@@ -457,6 +521,7 @@ void Text3D(char *txt, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f32 scalez, 
     }
 
 Finish:
+    nw_interp_slot(NULL, 0);
     font3d_xright = x - dx * 0.5f;
     font3d_xmid = (font3d_xleft + font3d_xright) * 0.5f;
     font3d_ytop = y + dy * 0.5f;

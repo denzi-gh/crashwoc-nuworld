@@ -26,9 +26,13 @@ uint64_t nw_interp_cmd(NwCmdOp op);
 uint32_t nw_interp_view(void);
 /* The frame is published as p: its snap, and the counts start again. */
 void nw_interp_publish(NwPacket *p);
-/* The decomp's NW_INTERP_KEY and NW_INTERP_SNAP (nu_port.h). */
+/* The decomp's NW_INTERP_KEY, NW_INTERP_SNAP and NW_INTERP_SLOT (nu_port.h). */
 void nw_interp_key(const void *key);
 void nw_interp_snap(void);
+/* Keys top-level draws by owner and place instead of tag, matrix and object; owner NULL ends it. */
+void nw_interp_slot(const void *owner, unsigned long long place);
+/* Frames published so far. */
+uint32_t nw_interp_frame(void);
 
 /* Render thread. */
 typedef struct NwInterpStats {

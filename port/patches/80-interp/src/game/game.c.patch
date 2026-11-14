@@ -1,0 +1,41 @@
+--- a/src/game/game.c
++++ b/src/game/game.c
+@@ -7755,6 +7755,7 @@ void DrawWumpa(void) {
+         r2 *= r2;
+         wumpa = Wumpa;
+         for (i = 0; i < 320; i++, wumpa++) {
++            NW_INTERP_KEY(wumpa);
+             wumpa->in_range = 0;
+             if (wumpa->active == 0 ||
+                 (TimeTrial != 0 && (wumpa->active != 3 || wumpa->destroy == 0))) {
+@@ -7819,12 +7820,14 @@ void DrawWumpa(void) {
+                     mTEMP._11 = -mTEMP._11;
+                     mTEMP._21 = -mTEMP._21;
+                     mTEMP._31 = wumpa->shadow - (mTEMP._31 - wumpa->shadow);
++                    NW_INTERP_KEY(&wumpa->shadow);
+                     NuRndrGScnObj(
+                         ObjTab[0].obj.scene->gobjs[ObjTab[0].obj.special->instance->objid],
+                         &mTEMP);
+                 }
+             }
+         }
++        NW_INTERP_KEY(0);
+     }
+ }
+ 
+@@ -8798,6 +8801,7 @@ void Draw3DCrateCount(struct nuvec_s *pos, u16 angle) {
+     v.z -= dz * (len - 1) * 0.5f;
+     for (i = 0; i < len; i++) {
+         c = &tbuf[i];
++        NW_INTERP_SLOT(pos, i);
+         if (Font3DRemap[*c] != -1) {
+             Draw3DObject(-1, &v, 0, ang, 0, CRATECOUNT3DSCALE, CRATECOUNT3DSCALE,
+                          CRATECOUNT3DSCALE, font3d_scene, Font3DTab[Font3DRemap[*c]].obj.special,
+@@ -8806,6 +8810,7 @@ void Draw3DCrateCount(struct nuvec_s *pos, u16 angle) {
+         v.x += dx;
+         v.z += dz;
+     }
++    NW_INTERP_SLOT(0, 0);
+ }
+ 
+ 

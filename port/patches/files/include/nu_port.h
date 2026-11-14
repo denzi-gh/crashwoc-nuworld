@@ -185,14 +185,18 @@ void nw_wide_hud(struct numtx_s *m);
 #endif
 
 /* Display-rate interpolation (NuWorld's src/gfx/interp.c): NW_INTERP_KEY names the object the following draws belong
- * to (0: none) so a skipped draw does not shift later keys; NW_INTERP_SNAP marks a cut, drawn without blending. */
+ * to (0: none) so a skipped draw does not shift later keys; NW_INTERP_SLOT keys them by place i in p (p 0: off);
+ * NW_INTERP_SNAP marks a cut, drawn without blending. */
 #ifdef NW_HOST
 void nw_interp_key(const void *key);
+void nw_interp_slot(const void *owner, unsigned long long place);
 void nw_interp_snap(void);
 #define NW_INTERP_KEY(p) nw_interp_key(p)
+#define NW_INTERP_SLOT(p, i) nw_interp_slot(p, i)
 #define NW_INTERP_SNAP() nw_interp_snap()
 #else
 #define NW_INTERP_KEY(p)
+#define NW_INTERP_SLOT(p, i)
 #define NW_INTERP_SNAP()
 #endif
 
