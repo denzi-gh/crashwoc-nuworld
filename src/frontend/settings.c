@@ -267,8 +267,6 @@ static const NwSettingKey nw_settings_keys[] = {
       .format = nw_settings_hud_format, .help = "how far out the HUD goes: edges, or an aspect it stays inside, centred" },
     { .table = "game", .name = "hardware_speed", .kind = NW_SETTING_BOOL, NW_FIELD(hardware_speed),
       .help = "true simulates original hardware speed: the PS2's disc and sound load times" },
-    { .table = "game", .name = "hz", .kind = NW_SETTING_INT, NW_FIELD(hz), .lo = 50, .hi = 60, .step = 10,
-      .help = "the game's speed: 60 (NTSC) or 50 (PAL, the original's); from the next start" },
     { .table = "game", .name = "retail_menu", .kind = NW_SETTING_BOOL, NW_FIELD(retail_menu),
       .help = "true starts with the PS2's logos and title cut, false with NuWorld's title menu; from the next start" },
     { .table = "game", .name = "air_indicator", .kind = NW_SETTING_BOOL, NW_FIELD(air_indicator),
@@ -330,7 +328,6 @@ static const NwSettingKey nw_settings_keys[] = {
 void nw_settings_defaults(NwSettings *s)
 {
     s->hardware_speed = false;
-    s->hz = 60;
     s->retail_menu = false;
     s->movement = (NwMovement)NW_MOVEMENT_NHANCED;
     s->air_indicator = true;

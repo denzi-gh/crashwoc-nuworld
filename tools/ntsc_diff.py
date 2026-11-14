@@ -284,6 +284,7 @@ class Elf:
         self.funcs = sorted((s for s in self.symbols if s["type"] == FUNC and s["size"]), key=lambda s: s["value"])
         self.objects = sorted((s["value"], s["value"] + s["size"], s["name"]) for s in self.symbols
                               if s["type"] == OBJECT and s["size"])
+        self.func_at = {f["value"]: f["name"] for f in self.funcs}
         refs = code_refs(text["data"], text["addr"], [f["value"] for f in self.funcs], self.gp)
         self.lo = {r.vram: r for r in refs}
         self.hi = {r.hi_vram for r in refs if r.hi_vram is not None}
@@ -296,6 +297,14 @@ class Elf:
     def named(self, addr: int) -> bool:
         i = bisect.bisect_right(self.objects, (addr, 1 << 32, "")) - 1
         return i >= 0 and self.objects[i][0] <= addr < self.objects[i][1]
+
+    def target(self, addr: int) -> tuple[str, int] | None:
+        """The data symbol or function addr points into, and how far."""
+        i = bisect.bisect_right(self.objects, (addr, 1 << 32, "")) - 1
+        if i >= 0 and self.objects[i][0] <= addr < self.objects[i][1]:
+            return self.objects[i][2], addr - self.objects[i][0]
+        f = self.func_at.get(addr)
+        return (f, 0) if f else None
 
     def read(self, addr: int, n: int) -> bytes | None:
         s = self.section_at(addr)
@@ -506,14 +515,15 @@ class Field:
         return f"{f32(v):.9g}" if self.kind == "f32" else str(v)
 
 
-def data_fields(name: str, a: bytes, b: bytes, pal_end: int, us_end: int) -> list[Field]:
+def data_fields(name: str, a: bytes, b: bytes, pal: Elf, us: Elf) -> list[Field]:
     """Per differing word: a float, else the widest aligned unit holding the changed bytes whose values are a rate
     (word, halfword, then each byte), else the narrowest one, for review."""
     out = []
     for off in range(0, len(a) - len(a) % 4, 4):
         x, y = struct.unpack_from("<I", a, off)[0], struct.unpack_from("<I", b, off)[0]
-        if x == y or (0x100000 <= x <= pal_end and 0x100000 <= y <= us_end):
-            continue  # equal, or a pointer in each
+        # A pointer only when both point at the same symbol: packed shorts look like addresses too.
+        if x == y or (pal.target(x) is not None and pal.target(x) == us.target(y)):
+            continue
         if plausible_f32(x) and plausible_f32(y):
             out.append(Field(name, off, 4, "f32", x, y, "rate" if rate_float(f32(x), f32(y)) else "review"))
             continue
@@ -574,7 +584,7 @@ def data_diff(pal: Elf, us: Elf) -> tuple[list[Field], list[str], int]:
                 sized.append(f"{what} ({x['size']} -> {y['size']} bytes)")
                 continue
             for base, ea, eb in pairs:
-                for f in data_fields(what, ea, eb, pal.end, us.end):
+                for f in data_fields(what, ea, eb, pal, us):
                     f.off += base
                     f.addr = x["value"]
                     fields.append(f)
@@ -582,6 +592,7 @@ def data_diff(pal: Elf, us: Elf) -> tuple[list[Field], list[str], int]:
 
 
 SOUND = 0x30  # a GameSound: its name first
+SOUND_KEEP = ((0x18, 4), (0x22, 2))  # its path and id: PAL's extra sounds move both, no rate
 
 
 def sound_pairs(a: bytes, b: bytes) -> list[tuple[int, bytes, bytes]]:
@@ -589,8 +600,16 @@ def sound_pairs(a: bytes, b: bytes) -> list[tuple[int, bytes, bytes]]:
     names = {}
     for off in range(0, len(b), SOUND):
         names.setdefault(b[off:off + 16].split(b"\0")[0], b[off:off + SOUND])
-    return [(off, a[off:off + SOUND], names[a[off:off + 16].split(b"\0")[0]]) for off in range(0, len(a), SOUND)
-            if a[off:off + 16].split(b"\0")[0] in names]
+    out = []
+    for off in range(0, len(a), SOUND):
+        ea = a[off:off + SOUND]
+        eb = names.get(ea[:16].split(b"\0")[0])
+        if eb is not None:
+            eb = bytearray(eb)
+            for at, n in SOUND_KEEP:
+                eb[at:at + n] = ea[at:at + n]
+            out.append((off, ea, bytes(eb)))
+    return out
 
 
 def cmd_data(args) -> int:

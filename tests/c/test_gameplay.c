@@ -309,11 +309,16 @@ static void crash_at(int hz, const NwProfile *p)
     nw_profile_apply(&(NwProfile){ 0 });
     CrashMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
     CrashMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CrashMoveInfo.JUMPFRAMES2 = NW_HZ(15, 18);
+    CrashMoveInfo.STARJUMPFRAMES = NW_HZ(20, 24);
+    CrashMoveInfo.SPINFRAMES = NW_HZ(16, 20);
+    CrashMoveInfo.SPINRESETFRAMES = NW_HZ(12, 15);
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
     CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
     CrashMoveInfo.SLIDESPEED = NW_HZ(0.096f, 0.080000006f);
     CocoMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
     CocoMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CocoMoveInfo.JUMPFRAMES2 = NW_HZ(15, 18);
     CocoMoveInfo.RUNSPEED = NW_HZ(0.06f, 0.050000004f);
     CocoMoveInfo.SPRINTSPEED = NW_HZ(0.089999996f, 0.075f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
@@ -432,7 +437,7 @@ static void jump_fall(void)
         CHECK(fabsf(ntsc.time - arc.time) <= 0.03f);
     }
     CHECK(jump(50, &on, 5).apex > jump(50, &on, 1).apex && jump(50, &on, 100).apex > jump(50, &on, 5).apex);
-    CHECK(jump(60, &retail, 100).apex > jump(50, &retail, 100).apex * 1.1f);
+    CHECK(near(jump(60, &retail, 120).apex, jump(50, &retail, 100).apex, 0.03f)); /* the US data: PAL's in seconds */
 
     /* The sliders keep the height asked for and at least retail's reach. */
     Arc pal = jump(50, &retail, 100);
@@ -452,7 +457,7 @@ static void jump_fall(void)
     crash_at(50, &on);
     CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
     crash_at(60, &retail);
-    CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
+    CHECK(CrashMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.STARJUMPFRAMES == 24); /* the US data's own */
 
     /* Switched off mid-air: retail's gravity from the next frame. */
     struct creature_s *c = &Character[0];
@@ -726,11 +731,11 @@ static void long_spin(void)
     crash_at(60, &on);
     CHECK(CrashMoveInfo.SPINFRAMES == 36);
     crash_at(60, &retail);
-    CHECK(CrashMoveInfo.SPINFRAMES == 16);
+    CHECK(CrashMoveInfo.SPINFRAMES == 20);
     CrashMoveInfo.SPINFRAMES = 30;
     nw_profile_apply(&on);
     CHECK(CrashMoveInfo.SPINFRAMES == 30);
-    CrashMoveInfo.SPINFRAMES = 16;
+    CrashMoveInfo.SPINFRAMES = 20;
 }
 
 /* MoveCRASH's slide timer, crouch held or let go; his speed after the frame. */
@@ -822,9 +827,7 @@ static void coco_jump(void)
     CHECK(coco.apex == crash.apex && coco.time == crash.time);
     CHECK(off.apex == pal.apex && off.reach == pal.reach && off.time == pal.time);
     crash_at(60, &on);
-    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 15);
-    crash_at(60, &retail);
-    CHECK(CocoMoveInfo.JUMPFRAMES2 == 15);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 18); /* the arc leaves the US frames */
 
     /* Her run speed in the air, her dash in a dash jump. */
     float step = 0.0072f;

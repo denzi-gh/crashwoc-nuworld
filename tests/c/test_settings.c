@@ -140,13 +140,6 @@ static int read_speed(const char *text)
     return read_text(text, &s) ? s.hardware_speed : -1;
 }
 
-/* hz as root's settings.toml with text reads it; -1 when it does not load. */
-static int read_hz(const char *text)
-{
-    NwSettings s;
-    return read_text(text, &s) ? s.hz : -1;
-}
-
 /* master_volume * 1000 + voice_volume; -1 when it does not load. */
 static int read_volumes(const char *text)
 {
@@ -348,17 +341,8 @@ int main(int argc, char *argv[])
           !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.run_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.spacefighter.aim_assist);
 
-    nw_settings_defaults(&s);
-    CHECK(s.hz == 60);
-    s.hz = 50;
-    CHECK(nw_settings_save(&s, root));
-    nw_settings_defaults(&s);
-    CHECK(nw_settings_load(&s, root) && s.hz == 50);
-    CHECK(read_hz("[game]\nhz = 50\n") == 50);
-    CHECK(read_hz("[game]\nhz = 55\n") == 60); /* off the step: the default stays */
-    CHECK(read_hz("[game]\nhz = 240\n") == 60);
-    CHECK(read_hz("[game]\nhz = 0\n") == 50);
-    CHECK(read_hz("[game]\nhz = \"60\"\n") == 60);
+    /* The rate is the disc's now: an older file's hz is kept but changes nothing. */
+    CHECK(read_speed("[game]\nhz = 60\nhardware_speed = true\n") == 1);
 
     float a = -1.0f;
     char name[16];

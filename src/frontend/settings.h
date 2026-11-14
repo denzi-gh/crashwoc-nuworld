@@ -15,7 +15,6 @@
 
 typedef struct NwSettings {
     bool hardware_speed; /* [game]: the PS2's disc and sound load times instead of instant loads */
-    int hz;              /* the game logic's rate: 60 (NTSC) or 50 (PAL), taken at the start */
     bool retail_menu;    /* the PS2's logos and title cut, from the next start */
     NwMovement movement; /* [game.movement], N. Hanced Movement */
     bool air_indicator;  /* a ring under Crash where he lands while he is in the air */

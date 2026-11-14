@@ -34,7 +34,7 @@ static float nw_ground_run = 1.0f;
 static float nw_ground_anims[sizeof(nw_ground_runs) / sizeof(nw_ground_runs[0])] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static float nw_ground_coco_anims[sizeof(nw_ground_coco_runs) / sizeof(nw_ground_coco_runs[0])] = { 1.0f, 1.0f };
 static int nw_ground_coco_top; /* the run_top Coco runs at, 0 her own */
-static short nw_ground_spin = 16;
+static short nw_ground_spin;
 static float nw_ground_slide_speed = 1.0f;
 static short nw_ground_slide = 25;
 static short nw_ground_slide_retail = 25; /* LoadCharacterModels' */
@@ -91,7 +91,10 @@ void nw_ground_apply(void)
         CocoMoveInfo.SPRINTSPEED = nw_ground_coco_speed(top, true);
     }
     nw_ground_coco_top = top;
-    short spin = 16;
+    short spin = NW_HZ(16, 20);
+    if (!nw_ground_spin) {
+        nw_ground_spin = spin;
+    }
     if (c->long_spin) {
         NW_DEVIATION(movement.crash.long_spin);
         spin = nw_ground_frames(c->spin_ms);

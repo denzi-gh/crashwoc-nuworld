@@ -38,7 +38,6 @@ static NwAirShape nw_air_shapes[2]; /* Crash's, Coco's */
 
 static bool nw_air_arc, nw_air_cut, nw_air_dash;
 static u32 nw_air_frame; /* GameTimer's frame at the last MoveCRASH */
-static short nw_air_jump2 = 15, nw_air_star = 20, nw_air_coco_jump2 = 15;
 
 static float nw_air_fall;
 static signed char nw_air_jump;
@@ -106,34 +105,16 @@ static const NwAirShape *nw_air_shape(const NwCrashMovement *c)
 
 void nw_air_apply(void)
 {
-    /* NTSC data keeps the pin's 50 Hz frame counts; bounces and the star jump still use the pin. */
     const NwCrashMovement *c = &nw_profile.movement.crash;
-    short jump2 = 15, star = 20;
     if (c->jump_fall) {
         NW_DEVIATION(movement.crash.jump_fall);
-        jump2 = NW_HZ(15, 18);
-        star = NW_HZ(20, 24);
         nw_air_shape_set(&nw_air_shapes[0], c->jump_float, c->jump_weight, c->jump_height);
     }
     const NwCocoMovement *coco = &nw_profile.movement.coco;
-    short coco_jump2 = 15;
     if (coco->jump_fall) {
         NW_DEVIATION(movement.coco.jump_fall);
-        coco_jump2 = NW_HZ(15, 18);
         nw_air_shape_set(&nw_air_shapes[1], coco->jump_float, coco->jump_weight, coco->jump_height);
     }
-    if (CrashMoveInfo.JUMPFRAMES2 == nw_air_jump2) {
-        CrashMoveInfo.JUMPFRAMES2 = jump2;
-    }
-    if (CrashMoveInfo.STARJUMPFRAMES == nw_air_star) {
-        CrashMoveInfo.STARJUMPFRAMES = star;
-    }
-    if (CocoMoveInfo.JUMPFRAMES2 == nw_air_coco_jump2) {
-        CocoMoveInfo.JUMPFRAMES2 = coco_jump2;
-    }
-    nw_air_jump2 = jump2;
-    nw_air_star = star;
-    nw_air_coco_jump2 = coco_jump2;
 }
 
 static bool nw_air_continued(void)

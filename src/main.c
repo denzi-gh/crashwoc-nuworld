@@ -512,7 +512,7 @@ static char *nw_game_argv[] = { nw_game_arg0, NULL };
 
 static const char *nw_run_level;  /* --level */
 static const char *nw_pad_script; /* --pad-script */
-static int nw_run_hz;             /* --hz, else the window's setting; 0: PAL's */
+static int nw_run_hz;             /* --hz, else the disc's rate */
 static const char *nw_overlays[NW_VFS_OVERLAYS]; /* --overlay, in the order given: the later wins */
 static int nw_overlay_count;
 
@@ -562,14 +562,16 @@ static int nw_boot_prepare(const char *data_dir, NwClockMode mode, bool hardware
         SDL_Log(NW_APP_NAME ": data image: %s", err);
         return 1;
     }
-    SDL_Log("disc: %s", vfs.manifest->name);
     if (vfs.manifest->flags & NW_DISC_ENGLISH) {
         LANGUAGEOPTION = 0;
     }
-    if (nw_run_hz == 60 && nw_pad_script && nw_pad_script_is_recording(nw_pad_script)) {
+    bool recording = nw_pad_script && nw_pad_script_is_recording(nw_pad_script);
+    if (nw_run_hz == 60 && recording) {
         SDL_Log(NW_APP_NAME ": --pad-script %s replays 50 Hz ticks: 50 Hz", nw_pad_script);
     }
-    int hz = nw_hz_set(nw_pad_script && nw_pad_script_is_recording(nw_pad_script) ? 50 : nw_run_hz);
+    int disc_hz = SDL_strcmp(vfs.manifest->vmode, "NTSC") == 0 ? 60 : 50;
+    int hz = nw_hz_set(recording ? 50 : nw_run_hz ? nw_run_hz : disc_hz);
+    SDL_Log("disc: %s at %d Hz", vfs.manifest->name, hz);
     int kept = hz == 60 ? nw_hz_patch() : 0;
     if (kept) {
         SDL_Log(NW_APP_NAME ": 60 Hz: %d data values are not retail's and stay", kept);
@@ -765,18 +767,6 @@ static void nw_boot_audio(void *user)
         nw_options_set_volume(false, sfx);
     }
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
-}
-
-static void nw_boot_speed(void *user)
-{
-    static const char *const rates[] = { "60 Hz (NTSC)", "50 Hz (PAL, the original's)" };
-    NwSettings *s = user;
-    int i = s->hz == 50;
-
-    if (nw_debug_combo("Speed", &i, rates, 2)) {
-        s->hz = i ? 50 : 60;
-    }
-    nw_debug_text("running at %d Hz; a change takes effect at the next start", nw_run_hz);
 }
 
 static const char *const nw_movement_profiles[] = { "Retail", "N. Hanced", "Custom" };
@@ -1042,13 +1032,10 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     if (aspect >= 0.0f) {
         settings.aspect = aspect;
     }
-    if (!nw_run_hz) {
-        nw_run_hz = settings.hz;
-    }
     char aspect_name[32];
-    SDL_Log("settings: %d Hz, hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s, "
+    SDL_Log("settings: hardware speed %s, aspect %s, interpolation %s, movement %s, air indicator %s, "
             "boss health %s, camera stability %d%%",
-            nw_run_hz, settings.hardware_speed ? "on" : "off",
+            settings.hardware_speed ? "on" : "off",
             nw_settings_aspect_name(settings.aspect, aspect_name, sizeof(aspect_name)),
             settings.interpolation ? "on" : "off", nw_movement_profiles[nw_movement_profile(&settings.movement)],
             settings.air_indicator ? "on" : "off", settings.boss_health ? "on" : "off", settings.camera_stability);
@@ -1081,7 +1068,6 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
     nw_debug_panel("Settings", "Audio", nw_boot_audio, &settings, false);
     nw_control_panel_start(&settings.controls);
-    nw_debug_panel("Settings", "Game Speed", nw_boot_speed, &settings, false);
     if (presence) {
         nw_debug_toggle("Settings", "Discord Rich Presence", &settings.discord);
         nw_debug_toggle("Settings", "Check for updates", &settings.updates);
@@ -1728,7 +1714,7 @@ int main(int argc, char *argv[])
     /* PCSX2 comparison runs keep its load times, the window takes settings.toml's and the checks load at once;
        --hardware-speed overrides all of them. */
     int speed = hardware_speed >= 0 ? hardware_speed : trace_sound || capture || dump ? 1 : -1;
-    /* The checks and comparisons keep the PS2's 4:3 and PAL's 50 Hz unless --aspect or --hz names another. */
+    /* The checks and comparisons keep the PS2's 4:3 and the disc's rate unless --aspect or --hz names another. */
     float aspect = -1.0f;
     if (aspect_arg && !nw_settings_aspect(aspect_arg, &aspect)) {
         fprintf(stderr, NW_APP_NAME ": --aspect takes auto, W:H or a ratio\n");

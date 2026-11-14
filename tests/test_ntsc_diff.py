@@ -96,14 +96,35 @@ class Compare(unittest.TestCase):
         self.assertFalse(tool.compare(a, b).sites)
 
 
+class Targets:
+    """An Elf's target(): the symbol each address points into."""
+
+    def __init__(self, targets: dict[int, tuple[str, int]]):
+        self.targets = targets
+
+    def target(self, addr: int):
+        return self.targets.get(addr)
+
+
 class Data(unittest.TestCase):
     def fields(self, a: bytes, b: bytes):
-        return [(f.off, f.size, f.kind, f.cls) for f in tool.data_fields("x", a, b, 0x700000, 0x710000)]
+        pal, us = Targets({0x00600000: ("Foo", 0)}), Targets({0x00610000: ("Foo", 0)})
+        return [(f.off, f.size, f.kind, f.cls) for f in tool.data_fields("x", a, b, pal, us)]
 
     def test_float_and_pointer(self):
         a = struct.pack("<fI", 0.02, 0x00600000)
         b = struct.pack("<fI", 1 / 60, 0x00610000)
         self.assertEqual(self.fields(a, b), [(0, 4, "f32", "rate")])
+
+    def test_packed_shorts_that_look_like_an_address(self):
+        a, b = struct.pack("<hh", 15, 20), struct.pack("<hh", 18, 24)  # 0x0014000F -> 0x00180012
+        self.assertEqual(self.fields(a, b), [(0, 4, "int", "rate")])
+
+    def test_sound_id_and_path_moved(self):
+        a = b"Jump".ljust(16, b"\0") + struct.pack("<HHBBBBIhHbBH12x", 0, 0, 0, 0, 25, 0, 0x00600000, 0, 0, 0, 0, 20)
+        b = b"Jump".ljust(16, b"\0") + struct.pack("<HHBBBBIhHbBH12x", 0, 0, 0, 0, 30, 0, 0x00610010, 0, 0, 0, 0, 16)
+        (off, ea, eb), = tool.sound_pairs(a, b)
+        self.assertEqual(self.fields(ea, eb), [(0x14, 4, "int", "rate")])  # the delay's word; the id stays out
 
     def test_bytes_side_by_side(self):
         a, b = struct.pack("<I", 0x00000605), struct.pack("<I", 0x00000706)
