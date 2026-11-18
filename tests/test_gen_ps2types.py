@@ -14,8 +14,7 @@ import gen_ps2types  # noqa: E402
 import typedb  # noqa: E402
 
 DECOMP = REPO / "tests" / "fixtures" / "mini" / "decomp"
-FLAGS = ["-std=gnu11", "-Wall", "-Wextra", "-Werror"] + (
-    ["-mno-ms-bitfields"] if sys.platform == "win32" else [])
+FLAGS = ["-std=gnu11", "-Wall", "-Wextra", "-Werror"]
 
 
 def find_cc():
@@ -58,6 +57,14 @@ class Names(unittest.TestCase):
         self.assertEqual(self.errors({"struct p_s": record("struct", 4, 2, [s32("a", 0)])}),
                          ["x.h:1: struct p_s is aligned below its members (packed records are "
                           "not mirrored)"])
+
+    def test_shared_unit_without_fit(self):
+        half = {"offset": 0, "size": 2}
+        bits = {"offset": 2, "size": 4, "bit": 16, "bits": 20, "unit": 0}
+        fields = [{"name": "a", "type": "short", "kind": "int", "signed": True, "size": 2, "ps2": half, "host": half},
+                  {"name": "b", "type": "int", "kind": "int", "signed": True, "size": 4, "ps2": bits, "host": bits}]
+        self.assertEqual(self.errors({"struct b_s": record("struct", 8, 4, fields)}),
+                         ["x.h:1: struct b_s.b shares its storage unit and fits no narrower one"])
 
     def test_schema(self):
         with self.assertRaisesRegex(gen_ps2types.GenError, "schema 1, expected 2"):
@@ -106,9 +113,9 @@ class Fixture(unittest.TestCase):
             "    } named;",
             "    uint64_t tag : 48;",
             "    uint64_t kind : 16;",
-            "    uint32_t x : 3;",
-            "    uint32_t : 2;",
-            "    uint32_t y : 4;",
+            "    uint16_t x : 3;",
+            "    uint16_t : 2;",
+            "    uint16_t y : 4;",
             "    int8_t name[2][3];",
             "    uint32_t cb; /* fixcb_t */",
             "};"])

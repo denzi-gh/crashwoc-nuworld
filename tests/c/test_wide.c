@@ -36,7 +36,7 @@ static int near(float a, float b)
 int main(void)
 {
     CHECK(nw_wide.k == 1.0f && nw_wide.aspect == 0.75f && nw_wide.width == 640 && !nw_wide.pvs_all);
-    CHECK(nw_wide.hud == 1.0f && nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f);
+    CHECK(nw_wide.hud == 1.0f && nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f && nw_wide.distance == 1.0f);
 
     nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 640 && nw_wide.k == 1.0f && nw_wide.aspect == 0.75f && nw_wide.hud == 1.0f);
@@ -44,7 +44,7 @@ int main(void)
     nw_wide_set(16.0f / 9.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 854 && near(nw_wide.k, 854.0f / 640.0f) && near(nw_wide.aspect, 0.75f * 640.0f / 854.0f));
     CHECK(near(nw_wide.hud, nw_wide.k) && fabsf(nw_wide.draw - 1.08f) < 0.01f && nw_wide.pvs_all);
-    CHECK(near(nw_wide.draw2, nw_wide.draw * nw_wide.draw));
+    CHECK(near(nw_wide.draw2, nw_wide.draw * nw_wide.draw) && nw_wide.distance == 1.0f);
     nw_wide_set(21.0f / 9.0f, 16.0f / 9.0f);
     CHECK(nw_wide.width == 1120);
     nw_wide_set(3440.0f / 1440.0f, 16.0f / 9.0f);
@@ -152,14 +152,15 @@ int main(void)
     bgload_complete = 0;
     nw_wide_draw_distance(200);
     nw_wide_poll();
-    CHECK(nw_wide.draw == 2.0f && nw_wide.draw2 == 4.0f && nw_wide.width == 640);
+    CHECK(nw_wide.draw == 2.0f && nw_wide.draw2 == 4.0f && nw_wide.width == 640 && nw_wide.distance == 2.0f);
     nw_wide_set(16.0f / 9.0f, 16.0f / 9.0f);
     CHECK(fabsf(nw_wide.draw - 2.16f) < 0.02f && near(nw_wide.draw2, nw_wide.draw * nw_wide.draw));
+    CHECK(nw_wide.distance == 2.0f);
     nw_wide_draw_distance(100);
     nw_wide_poll();
-    CHECK(fabsf(nw_wide.draw - 1.08f) < 0.01f);
+    CHECK(fabsf(nw_wide.draw - 1.08f) < 0.01f && nw_wide.distance == 1.0f);
     nw_wide_set(4.0f / 3.0f, 16.0f / 9.0f);
-    CHECK(nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f);
+    CHECK(nw_wide.draw == 1.0f && nw_wide.draw2 == 1.0f && nw_wide.distance == 1.0f);
 
     if (failures) {
         fprintf(stderr, "wide: %d checks failed\n", failures);

@@ -122,9 +122,6 @@ set(nw_decomp_flags
   -Werror=implicit-function-declaration -Werror=implicit-int -Werror=int-conversion -Werror=pointer-to-int-cast
   -Werror=int-to-pointer-cast -Werror=incompatible-pointer-types -Werror=incompatible-function-pointer-types
   -Werror=return-type)
-if(MINGW)
-  list(APPEND nw_decomp_flags -mno-ms-bitfields)
-endif()
 
 list(APPEND nw_decomp_flags -ffp-exception-behavior=maytrap)
 # The decomp's libm, not values clang folds with the build machine's libm (glibc and UCRT differ).
@@ -222,9 +219,6 @@ if(NUWORLD_TESTS)
   add_dependencies(nuworld_test_ps2types nuworld_types)
   target_include_directories(nuworld_test_ps2types PRIVATE ${nw_gen})
   target_compile_options(nuworld_test_ps2types PRIVATE -Wall -Wextra)
-  if(MINGW)
-    target_compile_options(nuworld_test_ps2types PRIVATE -mno-ms-bitfields)
-  endif()
   add_test(NAME ps2types COMMAND nuworld_test_ps2types)
 
   # Local only: the data image from the imported disc of NUWORLD_TEST_DATA (skipped without it).
@@ -549,10 +543,13 @@ if(NUWORLD_TESTS)
   get_filename_component(nw_cc_dir ${CMAKE_C_COMPILER} DIRECTORY)
   find_program(NW_LLVM_NM llvm-nm HINTS ${nw_cc_dir})
   if(NW_LLVM_NM)
-    add_test(NAME decomp-globals
-      COMMAND ${CMAKE_COMMAND} -DNM=${NW_LLVM_NM}
-        "-DOBJECTS=$<JOIN:$<TARGET_OBJECTS:nuworld_decomp>;$<TARGET_OBJECTS:nuworld_game>,|>"
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_globals.cmake)
+    if(NOT NW_MSVC_ABI)
+      file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/globals-objects.rsp
+        CONTENT "\"$<JOIN:$<TARGET_OBJECTS:nuworld_decomp>;$<TARGET_OBJECTS:nuworld_game>,\"\n\">\"\n")
+      add_test(NAME decomp-globals
+        COMMAND ${CMAKE_COMMAND} -DNM=${NW_LLVM_NM} -DOBJECTS=${CMAKE_CURRENT_BINARY_DIR}/globals-objects.rsp
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_globals.cmake)
+    endif()
     # Everything the executable links for the game, listed in a file (the command line would be too long).
     file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/closure-objects.txt
       CONTENT "$<JOIN:$<TARGET_OBJECTS:nuworld_decomp>;$<TARGET_OBJECTS:nuworld_game>;$<TARGET_OBJECTS:nuworld_data>;$<TARGET_OBJECTS:nuworld_port>,\n>\n")

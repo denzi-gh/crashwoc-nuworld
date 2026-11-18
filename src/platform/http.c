@@ -7,10 +7,24 @@
 typedef struct NwHttpBody {
     char *data;
     size_t size, cap;
+    SDL_IOStream *file;
+    uint64_t done, total, max;
+    NwHttpProgress progress;
+    void *user;
 } NwHttpBody;
 
 static bool nw_http_append(NwHttpBody *b, const void *p, size_t n)
 {
+    if (b->file) {
+        b->done += n;
+        if (b->done > b->max) {
+            return SDL_SetError("the download is over %llu bytes", (unsigned long long)b->max);
+        }
+        if (SDL_WriteIO(b->file, p, n) != n) {
+            return false;
+        }
+        return !b->progress || b->progress(b->user, b->done, b->total) || SDL_SetError("cancelled");
+    }
     if (n > NW_HTTP_MAX - b->size) {
         return SDL_SetError("the answer is over %d bytes", NW_HTTP_MAX);
     }
@@ -89,6 +103,15 @@ static bool nw_http_request(NwWinHttp *h, const wchar_t *url, const wchar_t *age
         return nw_http_fail("WinHttpQueryHeaders");
     }
     *status = (int)code;
+    DWORD size = 0;
+    len = sizeof(size);
+    if (WinHttpQueryHeaders(h->request, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
+                            WINHTTP_HEADER_NAME_BY_INDEX, &size, &len, WINHTTP_NO_HEADER_INDEX)) {
+        body->total = size;
+    }
+    if (body->file && code != 200) {
+        return true;
+    }
     for (;;) {
         char buf[16384];
         DWORD got = 0;
@@ -130,9 +153,19 @@ enum {
     NW_CURLOPT_URL = 10002,
     NW_CURLOPT_USERAGENT = 10018,
     NW_CURLOPT_WRITEFUNCTION = 20011,
+    NW_CURLOPT_XFERINFOFUNCTION = 20219,
+    NW_CURLOPT_XFERINFODATA = 10057,
+    NW_CURLOPT_LOW_SPEED_LIMIT = 19,
+    NW_CURLOPT_LOW_SPEED_TIME = 20,
+    NW_CURLOPT_NOPROGRESS = 43,
+    NW_CURLOPT_FAILONERROR = 45,
     NW_CURLOPT_FOLLOWLOCATION = 52,
     NW_CURLOPT_NOSIGNAL = 99,
     NW_CURLOPT_TIMEOUT_MS = 155,
+    NW_CURLOPT_CONNECTTIMEOUT_MS = 156,
+    NW_CURLOPT_PROTOCOLS = 181,
+    NW_CURLOPT_REDIR_PROTOCOLS = 182,
+    NW_CURLPROTO_HTTPS = 2,
     NW_CURLINFO_RESPONSE_CODE = 0x200002,
 };
 
@@ -150,6 +183,15 @@ static size_t nw_http_write(char *p, size_t size, size_t n, void *user)
     return nw_http_append(user, p, size * n) ? size * n : 0;
 }
 
+static int nw_http_total(void *user, int64_t total, int64_t now, int64_t up_total, int64_t up_now)
+{
+    (void)now;
+    (void)up_total;
+    (void)up_now;
+    ((NwHttpBody *)user)->total = total > 0 ? (uint64_t)total : 0;
+    return 0;
+}
+
 static bool nw_http_curl(const NwCurl *c, const char *url, const char *agent, int timeout_ms, NwHttpBody *body,
                          int *status)
 {
@@ -160,18 +202,30 @@ static bool nw_http_curl(const NwCurl *c, const char *url, const char *agent, in
     c->setopt(curl, NW_CURLOPT_URL, url);
     c->setopt(curl, NW_CURLOPT_USERAGENT, agent);
     c->setopt(curl, NW_CURLOPT_FOLLOWLOCATION, 1L);
+    c->setopt(curl, NW_CURLOPT_PROTOCOLS, (long)NW_CURLPROTO_HTTPS);
+    c->setopt(curl, NW_CURLOPT_REDIR_PROTOCOLS, (long)NW_CURLPROTO_HTTPS);
     c->setopt(curl, NW_CURLOPT_NOSIGNAL, 1L);
-    c->setopt(curl, NW_CURLOPT_TIMEOUT_MS, (long)timeout_ms);
+    if (body->file) {
+        c->setopt(curl, NW_CURLOPT_CONNECTTIMEOUT_MS, (long)timeout_ms);
+        c->setopt(curl, NW_CURLOPT_LOW_SPEED_LIMIT, 1L);
+        c->setopt(curl, NW_CURLOPT_LOW_SPEED_TIME, (long)(timeout_ms / 1000));
+        c->setopt(curl, NW_CURLOPT_FAILONERROR, 1L);
+        c->setopt(curl, NW_CURLOPT_NOPROGRESS, 0L);
+        c->setopt(curl, NW_CURLOPT_XFERINFOFUNCTION, nw_http_total);
+        c->setopt(curl, NW_CURLOPT_XFERINFODATA, body);
+    } else {
+        c->setopt(curl, NW_CURLOPT_TIMEOUT_MS, (long)timeout_ms);
+    }
     c->setopt(curl, NW_CURLOPT_WRITEFUNCTION, nw_http_write);
     c->setopt(curl, NW_CURLOPT_WRITEDATA, body);
     int result = c->perform(curl);
     long code = 0;
-    if (result == 0) {
-        c->getinfo(curl, NW_CURLINFO_RESPONSE_CODE, &code);
-        *status = (int)code;
-    } else {
+    c->getinfo(curl, NW_CURLINFO_RESPONSE_CODE, &code);
+    *status = (int)code;
+    if (result != 0 && !(body->file && code >= 400)) {
         SDL_SetError("libcurl: %s", c->strerror(result));
     }
+    result = body->file && code >= 400 ? 0 : result;
     c->cleanup(curl);
     return result == 0;
 }
@@ -210,5 +264,27 @@ bool nw_http_get(const char *url, const char *agent, int timeout_ms, char **body
         b.data = NULL;
     }
     *body = b.data;
+    return ok;
+}
+
+bool nw_http_download(const char *url, const char *agent, int timeout_ms, const char *path, uint64_t max,
+                      NwHttpProgress progress, void *user)
+{
+    NwHttpBody b = { .file = SDL_IOFromFile(path, "wb"), .max = max, .progress = progress, .user = user };
+    if (!b.file) {
+        return false;
+    }
+    int status = 0;
+    bool ok = nw_http_fetch(url, agent, timeout_ms, &b, &status);
+    if (ok && status != 200) {
+        ok = SDL_SetError("the server answered %d", status);
+    }
+    ok = SDL_CloseIO(b.file) && ok;
+    if (!ok) {
+        char *why = SDL_strdup(SDL_GetError());
+        SDL_RemovePath(path);
+        SDL_SetError("%s", why ? why : "the download failed");
+        SDL_free(why);
+    }
     return ok;
 }

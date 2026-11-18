@@ -1128,6 +1128,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     if (!settings.minidump) {
         nw_crash_dumps(NULL);
     }
+    nw_crash_arm();
+    nw_update_cleanup(SDL_GetBasePath());
     nw_platform_gl_debug(settings.gl_debug || nw_gl_debug_arg);
     if (SDL_strcmp(settings.gpu, "auto") != 0) {
         nw_gpu_prefer(settings.gpu);
@@ -1309,7 +1311,9 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
             nw_discord_set(&activity);
             presented = SDL_GetTicks();
         }
-        nw_update_poll(platform.window);
+        if (nw_update_poll(platform.window)) {
+            running = false;
+        }
         int width, height;
         nw_display_size(platform.window, &width, &height);
         nw_backend_frame(width, height, settings.interpolation ? nw_game_edge_time() : -1.0);
@@ -1675,6 +1679,7 @@ int main(int argc, char *argv[])
     const char *crash_test = NULL;
 
     nw_log_init(argc, argv);
+    nw_update_args(argc, argv);
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--version") == 0) {
             printf(NW_APP_NAME " %s\n", nw_build_id);
@@ -1813,6 +1818,7 @@ int main(int argc, char *argv[])
             nw_log_open(root);
         }
         SDL_free(root);
+        nw_crash_arm();
         nw_crash_test(crash_test);
     }
     /* The checks, tests and comparisons read the retail disc. */

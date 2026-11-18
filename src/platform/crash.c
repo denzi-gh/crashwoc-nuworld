@@ -15,7 +15,10 @@
 #ifdef _WIN32
 #include <wchar.h>
 #include <windows.h>
-#include <dbghelp.h>
+#ifdef NW_CRASHPAD
+#include "platform/buildid.h"
+#include "platform/crashpad.h"
+#endif
 #else
 #include <dlfcn.h>
 #include <execinfo.h>
@@ -31,11 +34,6 @@ typedef struct NwCrashSymbol {
     uintptr_t at;
     uint32_t name;
 } NwCrashSymbol;
-
-#ifdef _WIN32
-typedef BOOL(WINAPI *NwWriteDump)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
-                                  PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
-#endif
 
 static struct {
     NwCrashSymbol *syms;
@@ -58,9 +56,11 @@ static struct {
 #ifdef _WIN32
     LPTOP_LEVEL_EXCEPTION_FILTER next;
     void (*next_abort)(int);
-    NwWriteDump write_dump;
+#ifdef NW_CRASHPAD
     WCHAR dump_dir[MAX_PATH];
     char dump_shown[MAX_PATH];
+    bool dump_on, handler_tried, handler;
+#endif
 #else
     struct sigaction next[5];
 #endif
@@ -329,6 +329,37 @@ static bool nw_crash_symbols(SDL_IOStream *io, NwCrashTable *t)
     return ok;
 }
 
+static bool nw_crash_sym_file(const char *exe, NwCrashTable *t)
+{
+    char path[MAX_PATH * 3];
+    size_t n = SDL_strlen(exe);
+    if (n < 4 || SDL_strcasecmp(exe + n - 4, ".exe") != 0) {
+        return false;
+    }
+    SDL_snprintf(path, sizeof(path), "%.*s.sym", (int)(n - 4), exe);
+    char *text = SDL_LoadFile(path, NULL);
+    if (!text) {
+        return false;
+    }
+    const IMAGE_DOS_HEADER *dos = (const IMAGE_DOS_HEADER *)GetModuleHandleW(NULL);
+    const IMAGE_NT_HEADERS *nt = (const IMAGE_NT_HEADERS *)((const char *)dos + dos->e_lfanew);
+    unsigned stamp = 0, size = 0;
+    bool ok = SDL_sscanf(text, "nwsym %x %x", &stamp, &size) == 2 && stamp == nt->FileHeader.TimeDateStamp &&
+              size == nt->OptionalHeader.SizeOfImage;
+    t->n = 0;
+    t->len = 0;
+    for (char *line = ok ? SDL_strchr(text, '\n') : NULL; ok && line && line[1];) {
+        char *name = NULL;
+        unsigned long at = SDL_strtoul(++line, &name, 16);
+        char *end = SDL_strchr(name, '\n');
+        size_t len = end ? (size_t)(end - name) : SDL_strlen(name);
+        ok = name != line && *name == ' ' && len > 1 && nw_crash_add(t, at, name + 1, len - 1);
+        line = end;
+    }
+    SDL_free(text);
+    return ok && t->n;
+}
+
 static void nw_crash_load_symbols(NwCrashTable *t)
 {
     WCHAR wide[MAX_PATH];
@@ -338,7 +369,7 @@ static void nw_crash_load_symbols(NwCrashTable *t)
         return;
     }
     SDL_IOStream *io = SDL_IOFromFile(path, "rb");
-    if (io && nw_crash_symbols(io, t)) {
+    if ((io && nw_crash_symbols(io, t)) || nw_crash_sym_file(path, t)) {
         nw_crash.exe = GetModuleHandleW(NULL);
         nw_crash.base = (uintptr_t)nw_crash.exe;
     }
@@ -459,40 +490,6 @@ static void nw_crash_here(void)
 #endif
 
 #ifdef _WIN32
-static void nw_crash_minidump(EXCEPTION_POINTERS *e, char *shown, size_t size)
-{
-    if (!nw_crash.write_dump || !nw_crash.dump_dir[0]) {
-        return;
-    }
-    SYSTEMTIME t;
-    GetLocalTime(&t);
-    char name[64];
-    SDL_snprintf(name, sizeof(name), "nuworld-%04u%02u%02u-%02u%02u%02u.dmp", t.wYear, t.wMonth, t.wDay, t.wHour,
-                 t.wMinute, t.wSecond);
-    WCHAR path[MAX_PATH];
-    size_t dir = wcslen(nw_crash.dump_dir);
-    SDL_memcpy(path, nw_crash.dump_dir, dir * sizeof(WCHAR));
-    if (!MultiByteToWideChar(CP_UTF8, 0, name, -1, path + dir, (int)(MAX_PATH - dir))) {
-        return;
-    }
-    HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (f == INVALID_HANDLE_VALUE) {
-        return;
-    }
-    MINIDUMP_EXCEPTION_INFORMATION info = { GetCurrentThreadId(), e, FALSE };
-    BOOL ok = nw_crash.write_dump(GetCurrentProcess(), GetCurrentProcessId(), f,
-                                  (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithThreadInfo |
-                                                  MiniDumpWithIndirectlyReferencedMemory |
-                                                  MiniDumpWithUnloadedModules),
-                                  &info, NULL, NULL);
-    CloseHandle(f);
-    if (ok) {
-        SDL_snprintf(shown, size, "%s%s", nw_crash.dump_shown, name);
-    } else {
-        DeleteFileW(path);
-    }
-}
-
 static LONG WINAPI nw_crash_exception(EXCEPTION_POINTERS *e)
 {
     EXCEPTION_RECORD *r = e->ExceptionRecord;
@@ -521,15 +518,24 @@ static LONG WINAPI nw_crash_exception(EXCEPTION_POINTERS *e)
     }
     nw_crash_line("CRASH: %s at %s on thread %s", what, nw_crash_where(r->ExceptionAddress, false),
                   nw_log_thread_name());
-    char dump[MAX_PATH * 3] = "";
+    const char *dump = NULL;
     if (r->ExceptionCode != EXCEPTION_STACK_OVERFLOW) {
 #if defined(_M_X64) || defined(__x86_64__)
         CONTEXT c = *e->ContextRecord;
         nw_crash_stack(&c);
 #endif
-        nw_crash_minidump(e, dump, sizeof(dump));
+#ifdef NW_CRASHPAD
+        if (nw_crash.handler && nw_crash.dump_on) {
+            dump = nw_crash.dump_shown;
+        }
+#endif
     }
     nw_crash_tail(dump);
+#ifdef NW_CRASHPAD
+    if (dump) {
+        nw_crashpad_dump(e);
+    }
+#endif
     if (nw_crash.test) {
         TerminateProcess(GetCurrentProcess(), 3);
     }
@@ -560,11 +566,6 @@ static void nw_crash_invalid_parameter(const wchar_t *expr, const wchar_t *fn, c
         nw_crash_tail(NULL);
     }
     TerminateProcess(GetCurrentProcess(), 3);
-}
-
-static int nw_crash_strcmp(const void *a, const void *b)
-{
-    return SDL_strcmp(*(char *const *)a, *(char *const *)b);
 }
 #else
 static const int nw_crash_signals[] = { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT };
@@ -644,10 +645,6 @@ void nw_crash_install(void)
         SDL_free(t.names);
     }
 #ifdef _WIN32
-    HMODULE dbghelp = LoadLibraryW(L"dbghelp.dll");
-    if (dbghelp) {
-        nw_crash.write_dump = (NwWriteDump)(void *)GetProcAddress(dbghelp, "MiniDumpWriteDump");
-    }
     nw_crash.next = SetUnhandledExceptionFilter(nw_crash_exception);
     nw_crash.next_abort = signal(SIGABRT, nw_crash_abort);
     _set_invalid_parameter_handler(nw_crash_invalid_parameter);
@@ -671,14 +668,12 @@ void nw_crash_sink(intptr_t file, bool to_stderr)
 
 void nw_crash_dumps(const char *dir)
 {
-#ifdef _WIN32
-    nw_crash.dump_dir[0] = 0;
-    nw_crash.dump_shown[0] = '\0';
+#ifdef NW_CRASHPAD
+    nw_crash.dump_on = false;
     char *full = NULL;
     char sep = dir && SDL_strchr(dir, '\\') ? '\\' : '/';
-    if (!dir || !nw_crash.write_dump || !SDL_CreateDirectory(dir) || SDL_asprintf(&full, "%s%c", dir, sep) < 0 ||
-        !MultiByteToWideChar(CP_UTF8, 0, full, -1, nw_crash.dump_dir, MAX_PATH)) {
-        nw_crash.dump_dir[0] = 0;
+    if (!dir || !SDL_CreateDirectory(dir) || SDL_asprintf(&full, "%s%creports", dir, sep) < 0 ||
+        !MultiByteToWideChar(CP_UTF8, 0, dir, -1, nw_crash.dump_dir, MAX_PATH)) {
         SDL_free(full);
         return;
     }
@@ -686,21 +681,40 @@ void nw_crash_dumps(const char *dir)
     SDL_strlcpy(nw_crash.dump_shown, shown ? shown : full, sizeof(nw_crash.dump_shown));
     SDL_free(shown);
     SDL_free(full);
-    int count = 0;
-    char **found = SDL_GlobDirectory(dir, "nuworld-*.dmp", 0, &count);
-    if (found) {
-        SDL_qsort(found, (size_t)count, sizeof(*found), nw_crash_strcmp);
-        for (int i = 0; i + 2 < count; i++) {
-            char *path = NULL;
-            if (SDL_asprintf(&path, "%s%c%s", dir, sep, found[i]) >= 0) {
-                SDL_RemovePath(path);
-            }
-            SDL_free(path);
-        }
-        SDL_free(found);
-    }
+    nw_crash.dump_on = true;
 #else
     (void)dir;
+#endif
+}
+
+void nw_crash_arm(void)
+{
+#ifdef NW_CRASHPAD
+    if (!nw_crash.dump_on || nw_crash.handler_tried) {
+        return;
+    }
+    nw_crash.handler_tried = true;
+    static const WCHAR name[] = L"crashpad_handler.exe";
+    WCHAR handler[MAX_PATH];
+    DWORD n = GetModuleFileNameW(NULL, handler, MAX_PATH);
+    WCHAR *slash = n && n < MAX_PATH ? wcsrchr(handler, L'\\') : NULL;
+    bool found = slash && (size_t)(slash + 1 - handler) + SDL_arraysize(name) <= MAX_PATH;
+    if (found) {
+        SDL_memcpy(slash + 1, name, sizeof(name));
+        found = GetFileAttributesW(handler) != INVALID_FILE_ATTRIBUTES;
+    }
+    if (!found) {
+        nw_log_warn(NW_LOG_APP, "no minidumps: crashpad_handler.exe is not next to the game");
+        return;
+    }
+    nw_crashpad_prune(nw_crash.dump_dir, 2);
+    if (!nw_crashpad_start(handler, nw_crash.dump_dir, nw_build_version, nw_build_commit)) {
+        nw_log_warn(NW_LOG_APP, "no minidumps: crashpad_handler.exe did not start");
+        return;
+    }
+    SetUnhandledExceptionFilter(nw_crash_exception);
+    signal(SIGABRT, nw_crash_abort);
+    nw_crash.handler = true;
 #endif
 }
 

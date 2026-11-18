@@ -22,6 +22,7 @@ INLINE_WORDS = frozenset(("inline", "__inline", "__inline__"))
 PRELUDE = "port/nw_prelude.h"
 NEWLIB = "port/nw_newlib.h"
 DIRECTIVE = re.compile(rb"^[ \t]*#", re.M)
+INLINE = re.compile(rb"\b(?:" + "|".join(sorted(INLINE_WORDS)).encode() + rb")\b")
 
 
 class FilterError(Exception):
@@ -228,7 +229,11 @@ def filter_source(data: bytes, unit: nwunits.Unit, defs: dict, source: str,
             if data[line_start:c.extent.start.offset].strip():
                 raise FilterError(f"{unit.name}: {f.name}: the definition does not start a line")
             edits.append((off, len(f.name), retail_name(f.name).encode()))
-            edits.append((line_start, 0, prototype(c, f.name, f.name in unit.expose).encode() + newline
+            emitted = b""
+            if INLINE.search(data, c.extent.start.offset, off):
+                emitted = (b"extern " + prototype(c, retail_name(f.name), f.name in unit.expose).encode()
+                           + newline)
+            edits.append((line_start, 0, prototype(c, f.name, f.name in unit.expose).encode() + newline + emitted
                           + _line_directive(c.extent.start.line, source).encode() + newline))
             changes.append(f"{f.name} wrapped, the decomp's is {retail_name(f.name)}")
         else:

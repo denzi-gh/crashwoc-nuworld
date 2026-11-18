@@ -23,7 +23,7 @@ struct fixnode_s {
     } named;
     fixu64 tag : 48;
     fixu64 kind : 16;
-    unsigned int x : 3, : 2, y : 4;
+    NW_HOST_BITS(unsigned int, unsigned short) x : 3, : 2, y : 4;
     char name[2][3];
     fixcb_t cb;
 };

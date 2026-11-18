@@ -28,4 +28,4 @@ body:
       label: Log, crash dump, screenshots or save file
       description: >-
         Drag files in here: `nuworld.log` from the NuWorld data folder (`nuworld.previous.log` if you started the game
-        again after the crash) and the newest `.dmp` in its `crashes` folder.
+        again after the crash) and the newest `.dmp` in its `crashes` folder or in `crashes/reports`.

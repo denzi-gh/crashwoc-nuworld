@@ -17,7 +17,7 @@ FIXTURE = REPO / "tests" / "fixtures" / "mini"
 DECOMP = FIXTURE / "decomp"
 ANNOTATIONS = FIXTURE / "port" / "convert.toml"
 FLAGS = ["-std=gnu11", "-fgnu89-inline", "-fno-strict-aliasing", "-fwrapv", "-fsigned-char", "-DNW_HOST",
-         "-Wall", "-Wextra", "-Werror"] + (["-mno-ms-bitfields"] if sys.platform == "win32" else [])
+         "-Wall", "-Wextra", "-Werror"]
 
 
 def annotations(text):

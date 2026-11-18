@@ -1,0 +1,19 @@
+--- a/include/nu3d/nuhgobj.h
++++ b/include/nu3d/nuhgobj.h
+@@ -2,6 +2,7 @@
+ #define NU3D_NUHGOBJ_H
+ 
+ #include "nu_types.h"
++#include "nu_port.h"
+ #include "numath/numathtypes.h"
+ 
+ struct numtl_s;
+@@ -15,7 +16,7 @@ union NUGOBJEX_s {
+     struct {
+         float dist;
+         float dist2;
+-        unsigned short centre_at_origin : 1;
++        NW_HOST_BITS(unsigned short, unsigned char) centre_at_origin : 1;
+         char pad[2];
+     } lod;                              /* 0x00 */
+ }; /* 0x0C */

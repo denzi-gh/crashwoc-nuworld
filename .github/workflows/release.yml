@@ -41,6 +41,29 @@ jobs:
         run: |
           version="$(python3 tools/package.py version)"
           python3 tools/package.py archive "CrashWOC-NuWorld-v$version" out dist/crashwoc-nuworld-*
+      - name: Sign the checksums
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          key="$(mktemp)"
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          public="$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | xxd -p -c 32)"
+          tr -d ' ,\r\n' < src/updater/pubkey.h | sed 's/0x//g' | grep -q "$public"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in out/SHA256SUMS -out out/SHA256SUMS.sig
+          rm "$key"
+      - name: List the programs to check before publishing
+        run: |
+          {
+            echo "Upload these programs to https://www.virustotal.com/gui/home/upload before publishing."
+            echo "If Microsoft flags one there, submit it at https://www.microsoft.com/en-us/wdsi/filesubmission first."
+            echo
+            echo "| Program | SHA-256 |"
+            echo "| --- | --- |"
+            for program in dist/crashwoc-nuworld-windows-x64/*.exe; do
+              hash="$(sha256sum "$program" | cut -d' ' -f1)"
+              echo "| $(basename "$program") | [$hash](https://www.virustotal.com/gui/file/$hash) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
       - if: github.ref_type == 'tag'
         uses: actions/attest-build-provenance@v2
         with:

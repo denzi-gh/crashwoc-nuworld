@@ -1,0 +1,20 @@
+--- a/include/nu3d/nutexanm.h
++++ b/include/nu3d/nutexanm.h
+@@ -1,6 +1,8 @@
+ #ifndef NU3D_NUTEXANM_H
+ #define NU3D_NUTEXANM_H
+ 
++#include "nu_port.h"
++
+ struct numtl_s;
+ struct nutexanimprog_s;
+ union variptr_u;
+@@ -11,7 +13,7 @@ struct nutexanim_s {
+     struct nutexanim_s *prev;         /* 0x04 */
+     short *tids;                      /* 0x08 */
+     short numtids;                    /* 0x0C */
+-    int dynalloc : 1;                 /* 0x0E */
++    NW_HOST_BITS(int, short) dynalloc : 1; /* 0x0E */
+     struct numtl_s *mtl;              /* 0x10 */
+     struct nutexanimenv_s *env;       /* 0x14 */
+     char *ntaname;                    /* 0x18 */

@@ -22,8 +22,8 @@ DECOMP = FIXTURE / "decomp"
 UNITS = FIXTURE / "port" / "units.toml"
 PORT_SRC = FIXTURE / "port" / "src"
 FLAGS = ["-std=gnu11", "-fgnu89-inline", "-fno-strict-aliasing", "-fwrapv", "-ffp-contract=off",
-         "-fsigned-char", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-DNW_HOST"] + \
-        (["-mno-ms-bitfields"] if sys.platform == "win32" else [])
+         "-fsigned-char", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-DNW_HOST",
+         "-D_CRT_SECURE_NO_WARNINGS"]
 
 
 def find_cc():

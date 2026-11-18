@@ -1,0 +1,29 @@
+--- a/include/nu3d/numtl.h
++++ b/include/nu3d/numtl.h
+@@ -2,6 +2,7 @@
+ #define NU3D_NUMTL_H
+ 
+ #include "nu_types.h"
++#include "nu_port.h"
+ #include "nucore/nucoretypes.h"
+ #include "numath/numathtypes.h"
+ #include "nu3d/nustream.h"
+@@ -45,12 +46,12 @@ union nufx_u {
+ 
+ struct numtl_s {
+     u64 sbdata[36];                         /* 0x000 GS state block */
+-    int used : 1;                           /* 0x120 */
+-    int fromblock : 1;
+-    int intalloc : 1;
+-    int zupd : 1;
+-    int sbexists : 1;
+-    int renderplane_id : 8;
++    NW_HOST_BITS(int, short) used : 1;      /* 0x120 */
++    NW_HOST_BITS(int, short) fromblock : 1;
++    NW_HOST_BITS(int, short) intalloc : 1;
++    NW_HOST_BITS(int, short) zupd : 1;
++    NW_HOST_BITS(int, short) sbexists : 1;
++    NW_HOST_BITS(int, short) renderplane_id : 8;
+     char accesscount;                       /* 0x122 */
+     char curr_rp;                           /* 0x123 */
+     struct rndrstream_s rs;               /* 0x124 */

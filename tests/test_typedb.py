@@ -38,7 +38,7 @@ class TypeDB(unittest.TestCase):
             ("x", 24, 4), ("", 24, 4), ("y", 24, 4), ("name", 26, 6), ("cb", 32, 4)])
         self.assertEqual(self.layout("host"), [
             ("next", 0, 8), ("", 8, 4), ("named", 12, 4), ("tag", 16, 8), ("kind", 22, 8),
-            ("x", 24, 4), ("", 24, 4), ("y", 24, 4), ("name", 26, 6), ("cb", 32, 8)])
+            ("x", 24, 2), ("", 24, 2), ("y", 24, 2), ("name", 26, 6), ("cb", 32, 8)])
         bits = [(f["name"], f["ps2"]["bit"], f["ps2"]["bits"], f["ps2"]["unit"])
                 for f in self.node if "bit" in f["ps2"]]
         self.assertEqual(bits, [("tag", 128, 48, 16), ("kind", 176, 16, 16), ("x", 192, 3, 24),

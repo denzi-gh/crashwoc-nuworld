@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(crashwoc-nuworld VERSION 0.9.0 LANGUAGES C CXX)
+project(crashwoc-nuworld VERSION 0.9.1 LANGUAGES C CXX)
 
 if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   message(WARNING "${PROJECT_NAME} is built and tested with Clang (clang on Linux, CLANG64 on Windows).")
@@ -20,8 +20,32 @@ option(NUWORLD_FUZZ "Build the libFuzzer targets for the VFS readers and the loa
 option(NUWORLD_SANITIZE "Build the port, the decomp and the tests with ASan and UBSan (clang)" OFF)
 set(NUWORLD_TAG "BETA" CACHE STRING "Release tag in the build ID (empty for a release without one)")
 
+if(CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+  set(NW_MSVC_ABI ON)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS _USE_MATH_DEFINES)
+  add_link_options(LINKER:/DEBUG LINKER:/INCREMENTAL:NO LINKER:/OPT:NOREF LINKER:/OPT:NOICF
+    LINKER:/PDBALTPATH:%_PDB%)
+  cmake_path(GET CMAKE_C_COMPILER PARENT_PATH nw_llvm_bin)
+  find_program(NW_LLVM_LIB llvm-lib HINTS ${nw_llvm_bin} REQUIRED)
+  foreach(lang C CXX)
+    set(CMAKE_${lang}_ARCHIVE_CREATE "\"${NW_LLVM_LIB}\" /nologo /out:<TARGET> <OBJECTS>")
+  endforeach()
+  set(Python3_FIND_REGISTRY LAST)
+  find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+endif()
+
 if(NUWORLD_SYSTEM_SDL3)
   find_package(SDL3 REQUIRED CONFIG)
+elseif(NW_MSVC_ABI)
+  include(FetchContent)
+  FetchContent_Declare(SDL3
+    URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.16/SDL3-devel-3.4.16-VC.zip
+    URL_HASH SHA256=1a784cb2a5c64d56fe7a62090fe9d242d9865f235e4ea9678f1a6ba4e693e7de)
+  FetchContent_MakeAvailable(SDL3)
+  find_package(SDL3 REQUIRED CONFIG PATHS ${sdl3_SOURCE_DIR}/cmake NO_DEFAULT_PATH)
+  get_target_property(nw_sdl_dll SDL3::SDL3-shared IMPORTED_LOCATION)
+  configure_file(${nw_sdl_dll} ${CMAKE_CURRENT_BINARY_DIR}/SDL3.dll COPYONLY)
 else()
   include(FetchContent)
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -38,6 +62,9 @@ endif()
 # After SDL: everything from here on, the decomp included; with libFuzzer's coverage for the fuzz targets.
 if(NUWORLD_FUZZ)
   add_compile_options(-fsanitize=fuzzer-no-link)
+endif()
+if(NW_MSVC_ABI)
+  add_compile_options(-gcodeview -gline-tables-only)
 endif()
 if(NUWORLD_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
@@ -85,6 +112,17 @@ function(nw_embed_dir target name dir)
     VERBATIM)
   target_sources(${target} PRIVATE ${out})
 endfunction()
+function(nw_symbols target)
+  if(NOT NW_MSVC_ABI)
+    return()
+  endif()
+  set(stem $<TARGET_FILE_DIR:${target}>/$<TARGET_FILE_BASE_NAME:${target}>)
+  target_link_options(${target} PRIVATE LINKER:/MAP:${stem}.map)
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/symtab.py ${stem}.map $<TARGET_FILE:${target}>
+      ${stem}.sym
+    VERBATIM)
+endfunction()
 
 add_executable(crashwoc-nuworld
   src/main.c
@@ -104,14 +142,17 @@ add_executable(crashwoc-nuworld
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
 set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
-nw_embed(crashwoc-nuworld nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
-nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
+add_library(nuworld_fonts STATIC)
+nw_embed(nuworld_fonts nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
+nw_embed(nuworld_fonts nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
 nw_embed(crashwoc-nuworld nw_beta_menu_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/wizard/beta-menu.png)
 # Window icon: the exe's icon resource on Windows (SDL takes the first one), a PNG set at runtime elsewhere.
 if(WIN32)
   # Plus the version in the exe's properties (FILEOS VOS_NT_WINDOWS32, FILETYPE VFT_APP).
   set(NW_RC_ICON ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld.ico)
   string(STRIP "${PROJECT_VERSION} ${NUWORLD_TAG}" NW_RC_VERSION)
+  set(NW_RC_NAME NuWorld)
+  set(NW_RC_DESCRIPTION "CrashWOC: NuWorld")
   configure_file(assets/branding/nuworld.rc.in ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc @ONLY)
   target_sources(crashwoc-nuworld PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc)
   # No console window; --console opens one (src/platform/log.c).
@@ -123,11 +164,17 @@ endif()
 
 target_include_directories(crashwoc-nuworld PRIVATE src)
 target_compile_options(crashwoc-nuworld PRIVATE -Wall -Wextra $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
-target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_gfx nuworld_imgui nuworld_port SDL3::SDL3)
+target_link_libraries(crashwoc-nuworld PRIVATE nuworld_frontend nuworld_gfx nuworld_imgui nuworld_port nuworld_fonts
+  SDL3::SDL3)
 if(MINGW)
   # Keep the release a single .exe: libc++ (Dear ImGui) linked in, not libc++.dll.
   target_link_options(crashwoc-nuworld PRIVATE -static-libstdc++)
 endif()
+if(NW_MSVC_ABI)
+  include(cmake/crashpad.cmake)
+  target_link_libraries(crashwoc-nuworld PRIVATE nuworld_crashpad)
+endif()
+nw_symbols(crashwoc-nuworld)
 
 # Checked at every build.
 set(nw_buildid ${CMAKE_CURRENT_BINARY_DIR}/gen/buildid.c)
@@ -225,6 +272,54 @@ target_include_directories(nuworld_save PUBLIC src)
 target_compile_options(nuworld_save PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_save PUBLIC SDL3::SDL3)
 
+FetchContent_Declare(miniz
+  GIT_REPOSITORY https://github.com/richgel999/miniz.git
+  GIT_TAG 3.1.2
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR none)
+FetchContent_Declare(monocypher
+  GIT_REPOSITORY https://github.com/LoupVaillant/Monocypher.git
+  GIT_TAG 4.0.3
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR none)
+FetchContent_MakeAvailable(miniz monocypher)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/miniz/miniz_export.h "#define MINIZ_EXPORT\n")
+add_library(nuworld_updater_deps STATIC
+  ${miniz_SOURCE_DIR}/miniz.c
+  ${miniz_SOURCE_DIR}/miniz_tdef.c
+  ${miniz_SOURCE_DIR}/miniz_tinfl.c
+  ${miniz_SOURCE_DIR}/miniz_zip.c
+  ${monocypher_SOURCE_DIR}/src/monocypher.c
+  ${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c)
+target_include_directories(nuworld_updater_deps SYSTEM PUBLIC ${miniz_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR}/gen/miniz ${monocypher_SOURCE_DIR}/src ${monocypher_SOURCE_DIR}/src/optional)
+target_compile_definitions(nuworld_updater_deps PUBLIC MINIZ_NO_STDIO MINIZ_NO_TIME MINIZ_NO_ZLIB_COMPATIBLE_NAMES)
+
+add_library(nuworld_updater STATIC
+  src/updater/apply.c
+  src/updater/archive.c
+  src/updater/job.c)
+target_include_directories(nuworld_updater PUBLIC src)
+target_compile_options(nuworld_updater PRIVATE -Wall -Wextra)
+target_link_libraries(nuworld_updater PUBLIC nuworld_updater_deps nuworld_port nuworld_save nuworld_vfs)
+
+add_executable(nuworld-updater src/updater/main.cpp src/frontend/ui.cpp src/gfx/gl.c)
+set_target_properties(nuworld-updater PROPERTIES OUTPUT_NAME NuWorldUpdater)
+target_include_directories(nuworld-updater PRIVATE src)
+target_compile_options(nuworld-updater PRIVATE -Wall -Wextra $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions -fno-rtti>)
+target_link_libraries(nuworld-updater PRIVATE nuworld_updater nuworld_imgui nuworld_fonts SDL3::SDL3)
+if(WIN32)
+  set(NW_RC_NAME NuWorldUpdater)
+  set(NW_RC_DESCRIPTION "CrashWOC: NuWorld Updater")
+  configure_file(assets/branding/nuworld.rc.in ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld-updater.rc @ONLY)
+  target_sources(nuworld-updater PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld-updater.rc)
+  set_target_properties(nuworld-updater PROPERTIES WIN32_EXECUTABLE ON)
+endif()
+if(MINGW)
+  target_link_options(nuworld-updater PRIVATE -static-libstdc++)
+endif()
+add_dependencies(crashwoc-nuworld nuworld-updater)
+
 if(NUWORLD_TESTS)
   enable_testing()
   # Hidden-window image checks through the production renderer, with no game data or decomp dependency.
@@ -278,21 +373,32 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_update PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_update PRIVATE nuworld_port)
   add_test(NAME update COMMAND nuworld_test_update)
+  add_executable(nuworld_test_updater tests/c/test_updater.c)
+  target_compile_options(nuworld_test_updater PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_updater PRIVATE nuworld_updater)
+  add_test(NAME updater COMMAND nuworld_test_updater ${CMAKE_CURRENT_BINARY_DIR}/test-updater)
   add_executable(nuworld_test_log tests/c/test_log.c src/platform/crash.c src/platform/log.c)
   target_compile_options(nuworld_test_log PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_log PRIVATE nuworld_port ${CMAKE_DL_LIBS})
+  nw_symbols(nuworld_test_log)
   add_test(NAME log COMMAND nuworld_test_log)
   if(NUWORLD_DECOMP)
     set(nw_crash_state "state: no frame drawn yet.*game thread: not started.*")
     set(nw_crash_last "last log lines:.*the report's last lines hold")
-    if(WIN32)
-      set(nw_crash_dump "minidump: [^\n]*nuworld-[0-9]+-[0-9]+\\.dmp.*")
-    endif()
     set(nw_crash_segv "CRASH: [^\n]* at nw_crash_test_fault\\+0x[0-9a-f]+ .*stack:.*nw_crash_test\\+.*")
-    add_test(NAME crash-segv
-      COMMAND crashwoc-nuworld --crash-test segv --data-dir ${CMAKE_CURRENT_BINARY_DIR}/test-crash)
-    set_tests_properties(crash-segv PROPERTIES PASS_REGULAR_EXPRESSION
-      "${nw_crash_segv}${nw_crash_state}${nw_crash_dump}${nw_crash_last}")
+    if(NW_MSVC_ABI)
+      set(nw_crash_dump "minidump: [^\n]*crashes[^\n]*reports.*")
+      add_test(NAME crash-segv
+        COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:crashwoc-nuworld> -DDIR=${CMAKE_CURRENT_BINARY_DIR}/test-crash
+          -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_crash.cmake)
+      set_tests_properties(crash-segv PROPERTIES PASS_REGULAR_EXPRESSION
+        "${nw_crash_segv}${nw_crash_state}${nw_crash_dump}${nw_crash_last}.*minidump file: [0-9]+ bytes")
+    else()
+      add_test(NAME crash-segv
+        COMMAND crashwoc-nuworld --crash-test segv --data-dir ${CMAKE_CURRENT_BINARY_DIR}/test-crash)
+      set_tests_properties(crash-segv PROPERTIES PASS_REGULAR_EXPRESSION
+        "${nw_crash_segv}${nw_crash_state}${nw_crash_last}")
+    endif()
     add_test(NAME crash-abort COMMAND crashwoc-nuworld --crash-test abort)
     set_tests_properties(crash-abort PROPERTIES PASS_REGULAR_EXPRESSION
       "CRASH: abort[^\n]* on thread main.*stack:.*nw_crash_test\\+.*${nw_crash_state}${nw_crash_last}")

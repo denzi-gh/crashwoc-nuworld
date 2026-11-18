@@ -10,6 +10,7 @@
 void nw_crash_install(void);
 void nw_crash_sink(intptr_t file, bool to_stderr);
 void nw_crash_dumps(const char *dir);
+void nw_crash_arm(void);
 void nw_crash_on_state(size_t (*fn)(char *out, size_t size));
 void nw_crash_phase(const char *what, unsigned i, unsigned n);
 

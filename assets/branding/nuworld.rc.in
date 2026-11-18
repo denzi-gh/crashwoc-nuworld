@@ -10,11 +10,12 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "CrashWOC: NuWorld"
+      VALUE "CompanyName", "NuWorld"
+      VALUE "FileDescription", "@NW_RC_DESCRIPTION@"
       VALUE "FileVersion", "@PROJECT_VERSION@"
-      VALUE "InternalName", "NuWorld"
+      VALUE "InternalName", "@NW_RC_NAME@"
       VALUE "LegalCopyright", "GPL-3.0"
-      VALUE "OriginalFilename", "NuWorld.exe"
+      VALUE "OriginalFilename", "@NW_RC_NAME@.exe"
       VALUE "ProductName", "CrashWOC: NuWorld"
       VALUE "ProductVersion", "@NW_RC_VERSION@"
     END

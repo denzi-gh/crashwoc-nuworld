@@ -6,9 +6,11 @@ The link proves it resolves; this catches a missing rename binding a host librar
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -35,7 +37,12 @@ def retail_names(decomp: Path) -> set[str]:
 
 
 def symbols(nm: str, objects: list[str]) -> tuple[set[str], set[str]]:
-    run = subprocess.run([nm, "--format=posix", *objects], capture_output=True, text=True)
+    with tempfile.NamedTemporaryFile("w", suffix=".rsp", delete=False) as rsp:
+        rsp.write("\n".join(f'"{o}"' for o in objects))
+    try:
+        run = subprocess.run([nm, "--format=posix", f"@{rsp.name}"], capture_output=True, text=True)
+    finally:
+        os.unlink(rsp.name)
     if run.returncode != 0:
         raise SystemExit(f"{nm} failed: {run.stderr.strip()}")
     defined, undefined = set(), set()

@@ -236,15 +236,74 @@ jobs:
             ./build/release/NuWorld.exe --data-dir "$(mktemp -d)" $mode || status=$?
             test "$status" = 2
           done
-      - run: '"$(cygpath -u "$pythonLocation")/python.exe" tools/package.py stage build/release windows-x64 dist'
+
+  windows-msvc:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install dependencies
+        run: |
+          pushd "$(cygpath -u "$RUNNER_TEMP")"
+          curl -fsSLO https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+          echo "16e5709785fef73c854646241c4a92c5cd574318d1b33c63330dd7721903e55c *LLVM-22.1.8-win64.exe" | sha256sum -c -
+          ./LLVM-22.1.8-win64.exe //S
+          popd
+          clang --version
+          python -m pip install -r tools/requirements.txt
+      - run: cmake --preset msvc-release -DPython3_EXECUTABLE="$(cygpath -m "$pythonLocation")/python.exe"
+      - run: cmake --build --preset msvc-release
+      - run: ctest --test-dir build/msvc-release --output-on-failure
+      - run: |
+          version="$(python tools/package.py version --full)"
+          [[ "$(./build/msvc-release/NuWorld.exe --version)" =~ ^"CrashWOC: NuWorld $version "[0-9a-f]{7}$ ]]
+      - name: Check the data image, the scenes and the boot without data
+        run: |
+          for mode in --check-data --check-scenes "--scene LEVELS/B/HUB/HUB.GSC" --boot-check; do
+            status=0
+            ./build/msvc-release/NuWorld.exe --data-dir "$(mktemp -d)" $mode || status=$?
+            test "$status" = 2
+          done
+      - run: python tools/package.py stage build/msvc-release windows-x64 dist
       - uses: actions/upload-artifact@v4
         with:
           name: crashwoc-nuworld-windows-x64
           path: dist/crashwoc-nuworld-windows-x64/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crashwoc-nuworld-windows-x64-symbols
+          path: dist/crashwoc-nuworld-windows-x64-symbols/
+      - name: Scan the package with Microsoft Defender
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $defender = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          $excluded = (Get-MpPreference).ExclusionPath
+          if ($excluded) { Remove-MpPreference -ExclusionPath $excluded }
+          Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent SendSafeSamples
+          & $defender -SignatureUpdate
+          if ($LASTEXITCODE) { Write-Output "::warning::the Defender signatures were not updated" }
+          Get-MpComputerStatus | Format-List AMRunningMode, AntivirusSignatureVersion, AntivirusSignatureLastUpdated
+          $control = New-Item -ItemType Directory "$env:RUNNER_TEMP\defender-control"
+          Set-Content -NoNewline -LiteralPath "$control\control.com" -Value ('X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD' + '-ANTIVIRUS-TEST-FILE!$H+H*')
+          $report = & $defender -Scan -ScanType 3 -File $control.FullName -DisableRemediation
+          $report
+          if (-not ($report -match 'EICAR')) { throw "Defender did not detect the control file" }
+          $report = & $defender -Scan -ScanType 3 -File (Resolve-Path dist\crashwoc-nuworld-windows-x64).Path -DisableRemediation
+          $report
+          if (-not ($report -match 'found no threats')) { throw "Defender did not report the package clean" }
 
 
   archive:
-    needs: [linux, windows]
+    needs: [linux, windows-msvc]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:

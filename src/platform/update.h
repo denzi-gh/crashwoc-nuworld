@@ -7,6 +7,16 @@
 
 #include <SDL3/SDL.h>
 
+#define NW_UPDATE_REPO "denzi-gh/crashwoc-nuworld"
+#define NW_UPDATE_STAGE ".update"
+#define NW_UPDATE_JOURNAL "replaced.txt"
+#define NW_UPDATE_OLD ".old"
+#ifdef _WIN32
+#define NW_UPDATE_UPDATER "NuWorldUpdater.exe"
+#else
+#define NW_UPDATE_UPDATER "NuWorldUpdater"
+#endif
+
 /* Main thread. The first on starts the check against version, the build's x.y.z; off hides what it found. */
 void nw_update_enable(bool on, const char *version);
 /* Any thread: a newer release is out and the check is on. */
@@ -14,7 +24,12 @@ bool nw_update_available(void);
 /* Any thread: the release's page opens in the browser on the next nw_update_poll. */
 void nw_update_open(void);
 /* Main thread: opens a requested page and minimizes a fullscreen window for it. */
-void nw_update_poll(SDL_Window *window);
+bool nw_update_poll(SDL_Window *window);
+
+void nw_update_args(int argc, char **argv);
+bool nw_update_installs(void);
+void nw_update_install(void);
+void nw_update_cleanup(const char *base);
 
 /* The release's tag in GitHub's JSON, false unless it is a version as nw_update_compare reads it. */
 bool nw_update_tag(const char *json, char *out, size_t cap);

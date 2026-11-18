@@ -68,6 +68,14 @@ class Rewrite(unittest.TestCase):
         self.assertIn("@powf2(float %0)", out)
         self.assertIn("declare float @nw_host_powf(", out)
 
+    def test_wrapped_runtime_declarations_are_not_imported(self):
+        ir = "\n".join([fn("  %3 = tail call float @powf(float %0, float 2.0) #9", "  ret float %3"),
+                        "declare dllimport float @powf(float noundef, float noundef) local_unnamed_addr #1",
+                        "declare dllimport i32 @puts(ptr noundef) local_unnamed_addr #1"])
+        out = tool.rewrite(ir)
+        self.assertIn("declare float @nw_host_powf(float noundef, float noundef)", out)
+        self.assertIn("declare dllimport i32 @puts(ptr noundef)", out)
+
     def test_a_unit_defining_a_runtime_name_keeps_it(self):
         ir = fn("  ret float %0", name="atof") + "\n" + fn("  %3 = call double @atof(ptr null)", "  ret float %0")
         self.assertNotIn("nw_host_atof", tool.rewrite(ir))

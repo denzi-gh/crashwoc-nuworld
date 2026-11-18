@@ -101,8 +101,10 @@ def rewrite(ir: str) -> str:
             if "@llvm.experimental.constrained." in line:
                 lines[i] = line = rewrite_line(line, fn, used)
         if "@" in line:
-            lines[i] = HOST_REF.sub(lambda h: h.group(0) if h.group(1) in defined else "@nw_host_" + h.group(1),
-                                    line)
+            host = HOST_REF.sub(lambda h: h.group(0) if h.group(1) in defined else "@nw_host_" + h.group(1), line)
+            if host != line and line.startswith("declare dllimport "):
+                host = "declare " + host[len("declare dllimport "):]
+            lines[i] = host
     declared = {m.group(1) for line in lines if (m := re.match(r"declare\b[^@]*@([\w.$]+)\(", line))}
     lines += [f"declare {HELPER_DECLS[n]}" for n in sorted(used - declared)]
     return "\n".join(lines)

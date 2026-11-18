@@ -134,8 +134,7 @@ class Gen:
         if "bit" in p:
             if not name:
                 return []
-            if (p["bits"], p["size"], p["bit"] - p["unit"] * 8) != \
-                    (h["bits"], h["size"], h["bit"] - h["unit"] * 8):
+            if (p["bits"], p["bit"] % 8) != (h["bits"], h["bit"] % 8):
                 self.error(where, "the bitfield is packed differently on the host")
             return [Item("bit", path, ps2_base * 8 + p["bit"], host_base * 8 + h["bit"],
                          p["bits"], h["bits"])]

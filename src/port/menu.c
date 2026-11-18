@@ -83,7 +83,11 @@ static bool nw_menu_update_proc(struct cursor_s *cursor, int confirm, int cancel
         return false;
     }
     if (confirm && cursor->y == 0) {
-        nw_update_open();
+        if (nw_update_installs()) {
+            nw_update_install();
+        } else {
+            nw_update_open();
+        }
     }
     if (confirm || cancel) {
         NewMenu(cursor, 0, -1, -1);
@@ -333,11 +337,26 @@ static void nw_menu_update_draw(struct cursor_s *cursor)
     static char *open[6] = {
         "OPEN BROWSER", "OUVRIR LE NAVIGATEUR", "BROWSER OEFFNEN", "APRI IL BROWSER", "ABRIR EL NAVEGADOR", "BROWSER OPENEN",
     };
+    static char *install_title[6] = {
+        "UPDATE NOW?", "METTRE A JOUR?", "JETZT AKTUALISIEREN?", "AGGIORNARE ORA?", "ACTUALIZAR AHORA?", "NU BIJWERKEN?",
+    };
+    static char *install_text[6][3] = {
+        { "NUWORLD CLOSES, DOWNLOADS THE NEW", "VERSION AND STARTS AGAIN.", "YOUR SAVES AND SETTINGS STAY." },
+        { "NUWORLD SE FERME, TELECHARGE LA", "NOUVELLE VERSION ET REDEMARRE.", "TES SAUVEGARDES ET REGLAGES RESTENT." },
+        { "NUWORLD SCHLIESST SICH, LAEDT DIE NEUE", "VERSION UND STARTET ERNEUT.", "SPIELSTAENDE UND EINSTELLUNGEN BLEIBEN." },
+        { "NUWORLD SI CHIUDE, SCARICA LA NUOVA", "VERSIONE E SI RIAVVIA.", "SALVATAGGI E IMPOSTAZIONI RESTANO." },
+        { "NUWORLD SE CIERRA, DESCARGA LA NUEVA", "VERSION Y SE REINICIA.", "TUS PARTIDAS Y AJUSTES SE CONSERVAN." },
+        { "NUWORLD SLUIT, DOWNLOADT DE NIEUWE", "VERSIE EN START OPNIEUW.", "JE SAVES EN INSTELLINGEN BLIJVEN." },
+    };
+    static char *install[6] = { "UPDATE", "METTRE A JOUR", "AKTUALISIEREN", "AGGIORNA", "ACTUALIZAR", "BIJWERKEN" };
+    bool installs = nw_update_installs();
     f32 x = 0.0f, y = -0.36f;
     s32 i = 0;
-    nw_menu_confirm_text(title[lang], 0, 0.65f, 0.6f, 28);
-    for (int row = 0; row < 3; row++) nw_menu_confirm_text(text[lang][row], 0, 0.28f - row * 0.15f, 0.4f, 39);
-    nw_menu_dialog_entry(cursor, open[lang], &x, &y, &i);
+    nw_menu_confirm_text(installs ? install_title[lang] : title[lang], 0, 0.65f, 0.6f, 28);
+    for (int row = 0; row < 3; row++) {
+        nw_menu_confirm_text(installs ? install_text[lang][row] : text[lang][row], 0, 0.28f - row * 0.15f, 0.4f, 39);
+    }
+    nw_menu_dialog_entry(cursor, installs ? install[lang] : open[lang], &x, &y, &i);
     nw_menu_dialog_entry(cursor, nw_menu_back[lang], &x, &y, &i);
 }
 

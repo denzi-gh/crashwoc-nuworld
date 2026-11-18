@@ -1,6 +1,6 @@
 --- a/src/game/creature.c
 +++ b/src/game/creature.c
-@@ -4836,6 +4836,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -4837,6 +4837,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
      r2 = r2 * r2;
  
      for (i = 0; i < count; i++, c++) {
@@ -8,7 +8,7 @@
          vflag = c->obj.flags & 1;
          if (vflag == 0) {
              goto novehicle;
-@@ -5409,6 +5410,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -5410,6 +5411,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
          NW_WIDE_ONLY(if (wide_far) c->obj.draw_frame = 0;)
          c->anim_processed = 1;
      }

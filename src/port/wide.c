@@ -26,7 +26,9 @@ extern float PANEL3DMULX;
 extern volatile s32 bgload_complete;
 extern char vu_load_glass_mpg[], vu_load_water_mpg[], vu_load_wateruv_mpg[];
 
-struct nw_wide_s nw_wide = { .k = 1.0f, .aspect = 0.75f, .width = 640, .hud = 1.0f, .draw = 1.0f, .draw2 = 1.0f };
+struct nw_wide_s nw_wide = {
+    .k = 1.0f, .aspect = 0.75f, .width = 640, .hud = 1.0f, .draw = 1.0f, .draw2 = 1.0f, .distance = 1.0f
+};
 
 static SDL_AtomicInt nw_wide_shown = { 640 }; /* nw_wide.width for other threads */
 static SDL_AtomicInt nw_wide_asked;           /* a request waits */
@@ -37,7 +39,8 @@ static float nw_wide_side = 1.0f; /* the widening's share of the draw radii */
 
 static void nw_wide_draw(void)
 {
-    float draw = nw_wide_side * (float)nw_wide_distance / 100.0f;
+    nw_wide.distance = (float)nw_wide_distance / 100.0f;
+    float draw = nw_wide_side * nw_wide.distance;
     nw_wide.draw = draw;
     nw_wide.draw2 = draw * draw;
 }

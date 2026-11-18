@@ -1,6 +1,16 @@
 --- a/src/game/creature.c
 +++ b/src/game/creature.c
-@@ -4807,6 +4807,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -1895,7 +1895,8 @@ void ManageCreatures(void)
+     if ((Level == 0x25) || ((LDATA->flags & 0x202) != 0)) {
+         d = (f32)LDATA->farclip;
+     } else {
+-        d = AIVISRANGE;
++        /* attract demos replay PS2 input, so they keep the PS2's radius */
++        d = NW_WIDE_SCALE(AIVISRANGE, Demo != 0 ? 1.0f : nw_wide.distance);
+     }
+     range2 = d;
+     if ((f32)LDATA->farclip < range2) {
+@@ -4807,6 +4808,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
      s32 shflag;
      s32 reflect;
      s32 old_frame;
@@ -8,7 +18,7 @@
      s32 VEHICLE;
      s32 use_vehicle_matrix; /* mV was supplied by the vehicle renderer. */
      u32 action;
-@@ -4857,6 +4858,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -4857,6 +4859,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
  
          old_frame = c->obj.draw_frame;
          c->obj.draw_frame = 0;
@@ -16,7 +26,7 @@
          if (c->used == 0) {
              goto next;
          }
-@@ -4901,9 +4903,10 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -4901,9 +4904,10 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
              dist = (pCam->pos.x - c->obj.pos.x) * (pCam->pos.x - c->obj.pos.x) +
                     (pCam->pos.z - c->obj.pos.z) * (pCam->pos.z - c->obj.pos.z);
              if ((LDATA->flags & 0x200) == 0) {
@@ -28,7 +38,7 @@
              }
          }
  
-@@ -5403,6 +5406,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
+@@ -5403,6 +5407,7 @@ void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
          c->obj.draw_frame = old_frame + 1;
  
      next:

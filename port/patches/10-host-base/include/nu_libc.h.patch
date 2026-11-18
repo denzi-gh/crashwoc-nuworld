@@ -1,6 +1,6 @@
 --- a/include/nu_libc.h
 +++ b/include/nu_libc.h
-@@ -3,6 +3,16 @@
+@@ -3,6 +3,21 @@
  
  #include "nu_stdarg.h"
  
@@ -10,14 +10,19 @@
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
++#ifdef _MSC_VER
++#define strcasecmp _stricmp
++#define strncasecmp _strnicmp
++#else
 +#include <strings.h>
++#endif
 +
 +#else
 +
  /* The subset of the SDK's newlib that the game calls, with newlib's own
   * signatures. */
  typedef unsigned int size_t;
-@@ -52,4 +62,6 @@ double cos(double x);
+@@ -52,4 +67,6 @@ double cos(double x);
  double tan(double x);
  double atan2(double y, double x);
  
