@@ -17,6 +17,13 @@ int nw_level_current(void);
 int nw_level_pending(void);
 void nw_level_load(int level);
 
+int nw_cutscene_count(void);
+const char *nw_cutscene_name(int i, const char **group);
+int nw_cutscene_current(void);
+int nw_cutscene_pending(void);
+void nw_cutscene_play(int i);
+bool nw_cutscene_route(int next);
+
 /* --level: LData indices or file names ("farm"), comma-separated as a route ("intro" first is NEW GAME), each asked for
    once the one before runs; false when the disc lacks one. The trace numbers vblanks from the last. */
 bool nw_level_start(const char *names);
@@ -33,11 +40,6 @@ typedef struct NwLevelArrival {
 } NwLevelArrival;
 /* The route's levels that ran so far, in order. */
 int nw_level_arrivals(const NwLevelArrival **out);
-
-/* A route's NEW GAME or an asked level is on its way. */
-bool nw_level_routing(void);
-/* Game thread: ends the running title cut, still black, into TITLES' own level (gameplay/title.c). */
-void nw_level_titles(void);
 
 /* The game thread, at each swap. */
 void nw_level_poll(void);

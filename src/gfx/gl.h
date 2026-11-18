@@ -30,7 +30,9 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TRUE 1
 #define GL_ZERO 0
 #define GL_ONE 1
+#define GL_NO_ERROR 0
 #define GL_TRIANGLES 0x0004
+#define GL_TRIANGLE_STRIP 0x0005
 #define GL_NEVER 0x0200
 #define GL_LESS 0x0201
 #define GL_SRC_ALPHA 0x0302
@@ -50,6 +52,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_TEST 0x0B71
 #define GL_SCISSOR_TEST 0x0C11
+#define GL_VIEWPORT 0x0BA2
 #define GL_STENCIL_TEST 0x0B90
 #define GL_KEEP 0x1E00
 #define GL_INCR_WRAP 0x8507
@@ -69,6 +72,14 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_VENDOR 0x1F00
 #define GL_RENDERER 0x1F01
 #define GL_VERSION 0x1F02
+#define GL_SHADING_LANGUAGE_VERSION 0x8B8C
+#define GL_DEBUG_OUTPUT 0x92E0
+#define GL_DEBUG_OUTPUT_SYNCHRONOUS 0x8242
+#define GL_DEBUG_TYPE_ERROR 0x824C
+#define GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR 0x824E
+#define GL_DEBUG_SEVERITY_HIGH 0x9146
+#define GL_DEBUG_SEVERITY_MEDIUM 0x9147
+#define GL_DEBUG_SEVERITY_NOTIFICATION 0x826B
 #define GL_NEAREST 0x2600
 #define GL_LINEAR 0x2601
 #define GL_NEAREST_MIPMAP_NEAREST 0x2700
@@ -77,6 +88,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_FUNC_ADD 0x8006
 #define GL_FUNC_SUBTRACT 0x800A
 #define GL_FUNC_REVERSE_SUBTRACT 0x800B
+#define GL_SAMPLES 0x80A9
 #define GL_TEXTURE_MAX_LEVEL 0x813D
 #define GL_R8UI 0x8232
 #define GL_TEXTURE0 0x84C0
@@ -123,6 +135,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glScissor, (GLint x, GLint y, GLsizei w, GLsizei h)) \
     X(void, glClearDepth, (GLdouble depth)) \
     X(const GLubyte *, glGetString, (GLenum name)) \
+    X(GLenum, glGetError, (void)) \
     X(void, glGetIntegerv, (GLenum pname, GLint *data)) \
     X(void, glEnable, (GLenum cap)) \
     X(void, glDisable, (GLenum cap)) \
@@ -183,6 +196,10 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glUniform4uiv, (GLint location, GLsizei count, const GLuint *value)) \
     X(void, glUniform4ui, (GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3)) \
     X(void, glUniform3ui, (GLint location, GLuint v0, GLuint v1, GLuint v2)) \
+    X(void, glUniform3fv, (GLint location, GLsizei count, const GLfloat *value)) \
+    X(void, glUniformMatrix3fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
+    X(void, glUniform3i, (GLint location, GLint v0, GLint v1, GLint v2)) \
+    X(void, glUniform4f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)) \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *indices)) \
     X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count)) \
     X(void, glDrawArraysInstanced, (GLenum mode, GLint first, GLsizei count, GLsizei instances)) \
@@ -217,6 +234,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glScissor nw_glScissor
 #define glClearDepth nw_glClearDepth
 #define glGetString nw_glGetString
+#define glGetError nw_glGetError
 #define glGetIntegerv nw_glGetIntegerv
 #define glEnable nw_glEnable
 #define glDisable nw_glDisable
@@ -274,6 +292,10 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glUniform4uiv nw_glUniform4uiv
 #define glUniform4ui nw_glUniform4ui
 #define glUniform3ui nw_glUniform3ui
+#define glUniform3fv nw_glUniform3fv
+#define glUniformMatrix3fv nw_glUniformMatrix3fv
+#define glUniform3i nw_glUniform3i
+#define glUniform4f nw_glUniform4f
 #define glDrawElements nw_glDrawElements
 #define glDrawArrays nw_glDrawArrays
 #define glDrawArraysInstanced nw_glDrawArraysInstanced

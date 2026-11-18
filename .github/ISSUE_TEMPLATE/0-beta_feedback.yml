@@ -1,7 +1,6 @@
 name: Beta Feedback
 description: Feedback on N. Hanced Movement in the beta - something that does not work, feels wrong, or a parameter you would like to have.
-title: "[Beta]: "
-labels: ["beta feedback"]
+labels: ["beta", "needs-triage"]
 body:
   - type: markdown
     attributes:

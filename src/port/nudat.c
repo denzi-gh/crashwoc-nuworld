@@ -14,6 +14,7 @@
 #include "nu_types.h"
 #include "nucore/nuerror.h"
 #include "nucore/nufile.h"
+#include "platform/log.h"
 #include "port/heap.h"
 #include "shim/shim.h"
 #include "vfs/dat.h"
@@ -89,7 +90,7 @@ static void nw_nudat_overlay_entry(void *user, const char *rest, const char *pat
         return; /* nw_vfs_overlay checked them when it mounted the overlay */
     }
     if (info.size > INT_MAX) { /* NuFile sizes are ints */
-        SDL_Log("overlay: %s: too large, the archive's entry stays", path);
+        nw_log_warn(NW_LOG_LOAD, "overlay: %s: too large, the archive's entry stays", path);
         return;
     }
     NwDatLoose *loose = SDL_realloc(o->slot->loose, (size_t)(o->slot->loose_count + 1) * sizeof(*loose));
@@ -160,8 +161,8 @@ struct nudathdr_s *NuDatOpenEx(char *fname, char **mem, int *used, short mode)
     bool fits = got == (int)sizeof(hdr) && hdr[0] >= (int)sizeof(hdr) && hdr[0] <= total && hdr[1] > 0 &&
                 hdr[1] <= total - hdr[0] && (unsigned)hdr[1] <= NW_DAT_DIR_MAX;
     if (!fits) {
-        fprintf(stderr, "NuDatOpenEx: %s: not an archive (header %d bytes, directory at %d of %d)\n", fname, got,
-                got >= 4 ? hdr[0] : -1, total);
+        nw_log_warn(NW_LOG_LOAD, "NuDatOpenEx: %s: not an archive (header %d bytes, directory at %d of %d)", fname,
+                    got, got >= 4 ? hdr[0] : -1, total);
     }
     while (fits && NuFileSeek(fh, hdr[0], 0) < 0) {
     }
@@ -176,7 +177,7 @@ struct nudathdr_s *NuDatOpenEx(char *fname, char **mem, int *used, short mode)
         }
         nw_nudat_wait(fh, mode);
         if (!nw_dat_parse(&slot->dat, dir, (size_t)hdr[1], (uint64_t)NuFileOpenSize(fh))) {
-            fprintf(stderr, "NuDatOpenEx: %s: %s\n", fname, SDL_GetError());
+            nw_log_warn(NW_LOG_LOAD, "NuDatOpenEx: %s: %s", fname, SDL_GetError());
         } else {
             /* header | data[0..1] = { directory magic, nfiles } | finfo[nfiles]: finfo[-1].uplen is the
                magic (-1), which NuFileSize returns for a miss */
@@ -428,7 +429,8 @@ int NuDatFileLoadBuffer(struct nudathdr_s *ndh, char *fname, void *dest, int max
             NuFileClose(fh);
             return size;
         }
-        SDL_Log("NuDatFileLoadBuffer: %s: %d bytes do not fit its buffer of %d", fname, size, maxsize);
+        nw_log_warn(NW_LOG_LOAD, "NuDatFileLoadBuffer: %s: %d bytes do not fit its buffer of %d", fname, size,
+                    maxsize);
     } else {
         int size = df->len;
         if (maxsize >= size && size > 0) {
@@ -441,7 +443,8 @@ int NuDatFileLoadBuffer(struct nudathdr_s *ndh, char *fname, void *dest, int max
             return size;
         }
         if (size > maxsize) {
-            SDL_Log("NuDatFileLoadBuffer: %s: %d bytes do not fit its buffer of %d", fname, size, maxsize);
+            nw_log_warn(NW_LOG_LOAD, "NuDatFileLoadBuffer: %s: %d bytes do not fit its buffer of %d", fname, size,
+                        maxsize);
         }
     }
     NuFileClose(fh);

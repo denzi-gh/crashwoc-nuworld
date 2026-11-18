@@ -4,8 +4,10 @@
 
 #include <SDL3/SDL.h>
 
+#include "game/gametypes.h"
 #include "nups2/ps2ctl.h"
 #include "platform/input.h"
+#include "port/nameentry.h"
 #include "port/padscript.h"
 
 static int failures;
@@ -334,12 +336,79 @@ static void test_prompts(void)
     SDL_Quit();
 }
 
+extern struct game_s Game;
+
+/* A name entry open: the device used last decides the letter table when it opens; using the controller then
+   brings the table back (the keyboard's typing hides it, port/nameentry.h). */
+static void test_name_entry(void)
+{
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        fprintf(stderr, "test_pad: SDL_Init: %s\n", SDL_GetError());
+        failures++;
+        return;
+    }
+    SDL_VirtualJoystickDesc desc;
+    SDL_INIT_INTERFACE(&desc);
+    desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    desc.name = "nuworld test pad";
+    SDL_JoystickID id = SDL_AttachVirtualJoystick(&desc);
+    SDL_Event e = { .gdevice = { .type = SDL_EVENT_GAMEPAD_ADDED, .which = id } };
+    nw_input_event(&e);
+    SDL_Joystick *joystick = SDL_GetJoystickFromID(id);
+    CHECK(nw_input_pad_name() != NULL && joystick != NULL);
+    NwControls c;
+    nw_controls_defaults(&c);
+    nw_input_set_controls(&c);
+    nw_input_poll(true);
+
+    static struct cursor_s cursor;
+    static struct nupad_s pad;
+    uint32_t taken = 0;
+    Game.language = 0;
+    cursor.menu = 2;
+    cursor.item_frame = 1;
+    nw_nameentry_proc(&cursor, &pad, &taken);
+    CHECK(nw_nameentry_wanted());
+    nw_input_poll(true);
+    CHECK(!nw_nameentry_keyboard()); /* the gamepad was used last (no key): the table */
+
+    nw_nameentry_set_keyboard(true); /* typed: the table hides */
+    nw_input_poll(true);
+    CHECK(nw_nameentry_keyboard());   /* nothing pressed: it stays hidden */
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    SDL_UpdateJoysticks();
+    nw_input_poll(true);
+    CHECK(!nw_nameentry_keyboard()); /* a button: the table is back */
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    SDL_UpdateJoysticks();
+    nw_nameentry_set_keyboard(true);
+    nw_input_poll(true);
+    CHECK(nw_nameentry_keyboard());
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, SDL_JOYSTICK_AXIS_MAX);
+    SDL_UpdateJoysticks();
+    nw_input_poll(true);
+    CHECK(!nw_nameentry_keyboard()); /* the stick too */
+    SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    SDL_UpdateJoysticks();
+
+    cursor.menu = 0;
+    nw_nameentry_proc(&cursor, &pad, &taken);
+    nw_input_poll(true);
+    CHECK(!nw_nameentry_wanted());
+    nw_input_shutdown();
+    SDL_DetachVirtualJoystick(id);
+    SDL_Quit();
+}
+
 int main(void)
 {
     test_shim();
     test_gamepad();
     test_keyboard();
     test_prompts();
+    test_name_entry();
     test_script();
     if (failures) {
         fprintf(stderr, "test_pad: %d check(s) failed\n", failures);

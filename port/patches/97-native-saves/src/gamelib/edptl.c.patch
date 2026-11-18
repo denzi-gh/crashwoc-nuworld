@@ -1,0 +1,86 @@
+--- a/src/gamelib/edptl.c
++++ b/src/gamelib/edptl.c
+@@ -253,7 +253,9 @@ static signed char levelfilenametype = 0;
+ static int mctype;
+ static int mcfree;
+ static int mcformat;
++#ifndef NW_HOST
+ static int mcresult;
++#endif
+ static struct nuvec_s entry_position;
+ 
+ extern struct edppptl_s edpp_ptls[256];
+@@ -278,7 +280,9 @@ extern struct eduimenu_s *ptlvarstartmenu;
+ extern struct eduimenu_s *emittimemenu;
+ extern struct eduimenu_s *ptlemitvelmenu;
+ extern struct eduimenu_s *ptlgravmenu;
++#ifndef NW_HOST
+ extern struct eduimenu_s *memcardmenu;
++#endif
+ extern struct eduimenu_s *ptlclipmenu;
+ extern struct eduimenu_s *ptldatamenu;
+ extern struct eduimenu_s *ptlemitmenu;
+@@ -385,8 +389,12 @@ extern void edptlcbSetDpadMode(void *menu, struct eduiitem_s *item);
+ extern void edptlcbCancelBounceMenu(void);
+ extern void edptlcbApplyBounceOffset(void *menu, struct eduiitem_s *item);
+ extern void edptlcbApplyBounceFactor(void *menu, struct eduiitem_s *item);
++#ifndef NW_HOST
+ extern int sceMcDelete(int port, int slot, char *name);
++#endif
++#ifndef NW_HOST
+ extern int sceMcSync(int mode, int *cmd, int *result);
++#endif
+ 
+ extern void cbChangeFileName(void *menu, struct eduiitem_s *item);
+ extern void cbPtlCancelDataMenu(void);
+@@ -470,10 +478,18 @@ extern void edptlcbCutClipboard(struct eduimenu_s *menu);
+ 
+ extern void cbPtlCancelGSortMenu(void);
+ 
++#ifndef NW_HOST
+ extern int sceMcGetInfo(int port, int slot, int *type, int *free, int *format);
++#endif
++#ifndef NW_HOST
+ extern int sceMcFormat(int port, int slot);
++#endif
++#ifndef NW_HOST
+ extern int sceMcChdir(int port, int slot, char *newdir, char *curdir);
++#endif
++#ifndef NW_HOST
+ extern int sceMcMkdir(int port, int slot, char *name);
++#endif
+ extern void cbCancelMemCardMenu(void);
+ static void cbMemCardDeleteEffectsMenu(struct eduimenu_s *menu);
+ static void cbMemCardEraseConfirm(struct eduimenu_s *menu);
+@@ -534,9 +550,11 @@ extern void DebrisSetTrigger(int key, int type, int id, float var);
+ extern void cbCancelMessageMenu(void);
+ extern void ParticleReset(void);
+ 
++#ifndef NW_HOST
+ extern struct mcdirent_s mcdir[];
+ extern int sceMcGetDir(int port, int slot, char *name, unsigned int mode, int maxent,
+                        struct mcdirent_s *table);
++#endif
+ 
+ extern int freeDmaDebType;
+ extern int EdFileReadInt(void);
+@@ -3792,7 +3810,9 @@ struct eduimenu_s *ptlvaremitmenu = 0;
+ struct eduimenu_s *ptlvarstartmenu = 0;
+ struct eduimenu_s *ptlcutoffmenu = 0;
+ struct eduimenu_s *ptldatamenu = 0;
++#ifndef NW_HOST
+ struct eduimenu_s *memcardmenu = 0;
++#endif
+ struct eduimenu_s *messagemenu = 0;
+ struct eduimenu_s *loadeffectsmenu = 0;
+ struct eduimenu_s *mergeeffectsmenu = 0;
+@@ -3819,7 +3839,9 @@ struct edmainreg_s edptldesc = {
+ struct edppptl_s edpp_ptls[256] = {{{0}}};
+ struct nuvec_s edpp_cam_pos = {0.0f, 0.0f, 0.0f};
+ /* sceMcGetDir needs a 64-byte aligned table */
++#ifndef NW_HOST
+ struct mcdirent_s mcdir[10] __attribute__((aligned(64))) = {{{0}}};
++#endif
+ 
+ 
+ void ParticleReset(void) {

@@ -11,16 +11,20 @@
 #include "game/vehicle.h"
 #include "gameplay/air.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/bosscut.h"
 #include "gameplay/bosshealth.h"
+#include "gameplay/cheats.h"
 #include "gameplay/edges.h"
 #include "gameplay/firefly.h"
 #include "gameplay/gameplay.h"
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
+#include "gameplay/hubgem.h"
 #include "gameplay/line2d.h"
 #include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/plane.h"
+#include "gameplay/slidespin.h"
 #include "gameplay/steadycam.h"
 #include "gameplay/submarine.h"
 #include "nu3d/nugscn.h"
@@ -69,6 +73,10 @@ extern struct ldata_s LData[44];
 extern struct cursor_s Cursor;
 extern char *LevelName[44][6], *HubName[6][6], *tWARPROOM[6];
 extern s32 Hub;
+extern s32 TimeTrial;
+extern struct wumpa_s Wumpa[320];
+extern struct gdeb_s GDeb[];
+s32 HitWumpa(struct obj_s *obj, s32 destroy);
 void MoveLoopXZ(struct obj_s *obj, u16 *hdg);
 u16 SeekRot(u16 a, u16 b, s32 shift);
 u16 SeekRot__retail(u16 a, u16 b, s32 shift);
@@ -96,9 +104,9 @@ static void monkey_bars(int hz, float retail)
     nw_profile_apply(&(NwProfile){ 0 });
     CHECK(dangle(retail));
     nw_profile_apply(&(NwProfile){ .movement = NW_MOVEMENT_NHANCED });
-    CHECK(dangle(retail * 3.5f));
+    CHECK(dangle(retail * 3.35f));
     nw_profile_request(&(NwProfile){ .movement = { .monkey_bar_speed = 150 } });
-    CHECK(dangle(retail * 3.5f));
+    CHECK(dangle(retail * 3.35f));
     nw_gameplay_swap();
     CHECK(dangle(retail * 1.5f));
     /* A value someone else wrote stays. */
@@ -309,11 +317,16 @@ static void crash_at(int hz, const NwProfile *p)
     nw_profile_apply(&(NwProfile){ 0 });
     CrashMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
     CrashMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CrashMoveInfo.JUMPFRAMES2 = NW_HZ(15, 18);
+    CrashMoveInfo.STARJUMPFRAMES = NW_HZ(20, 24);
+    CrashMoveInfo.SPINFRAMES = NW_HZ(16, 20);
+    CrashMoveInfo.SPINRESETFRAMES = NW_HZ(12, 15);
     CrashMoveInfo.RUNSPEED = NW_HZ(0.072f, 0.060000002f);
     CrashMoveInfo.SPRINTSPEED = NW_HZ(0.096f, 0.080000006f);
     CrashMoveInfo.SLIDESPEED = NW_HZ(0.096f, 0.080000006f);
     CocoMoveInfo.JUMPFRAMES0 = NW_HZ(5, 6);
     CocoMoveInfo.JUMPFRAMES1 = NW_HZ(10, 12);
+    CocoMoveInfo.JUMPFRAMES2 = NW_HZ(15, 18);
     CocoMoveInfo.RUNSPEED = NW_HZ(0.06f, 0.050000004f);
     CocoMoveInfo.SPRINTSPEED = NW_HZ(0.089999996f, 0.075f);
     GRAVITY = NW_HZ(-0.0072000003f, -0.005f);
@@ -337,6 +350,7 @@ typedef struct Arc {
 static struct nupad_s pad;
 static short jump_character; /* who jump() takes off, Crash or Coco */
 static signed char jump_type = 1;
+static u8 jump_boing;
 
 static struct MoveInfo *jump_info(void)
 {
@@ -346,18 +360,23 @@ static struct MoveInfo *jump_info(void)
 /* MoveCRASH's and MoveCOCO's jump steps. */
 static void retail_jump(struct creature_s *c, bool held)
 {
+    float speed = jump_info()->JUMPHEIGHT / jump_info()->JUMPFRAMES2;
     if (c->jump && c->jump_frame < c->jump_frames) {
-        c->obj.mom.y = jump_info()->JUMPHEIGHT / jump_info()->JUMPFRAMES2;
+        c->obj.mom.y = c->jump_type == 3 ? speed * 1.5f : speed;
     }
-    if (!c->obj.ground) {
+    if (!(c->obj.ground & 1)) {
         c->obj.mom.y += GRAVITY;
     }
     if (c->jump && c->jump_frame < c->jump_frames) {
         c->jump_frame++;
     }
-    if (c->jump == 1 && held && c->jump_frames < jump_info()->JUMPFRAMES2) {
-        c->jump_frames++;
-    } else if (c->jump == 1 && !held) {
+    if (held || c->obj.boing) {
+        if (c->jump == 1 && c->jump_type != 0 && c->jump_frames < jump_info()->JUMPFRAMES2) {
+            c->jump_frames++;
+        } else if (c->jump == 1) {
+            c->jump = 2;
+        }
+    } else if (c->jump == 1 || c->jump == 2) {
         c->jump = 3;
     }
 }
@@ -371,15 +390,30 @@ static Arc jump(int hz, const NwProfile *p, int hold)
     float run = jump_info()->RUNSPEED, friction = NW_HZ(0.0072f, 0.005f), dt = 1.0f / hz;
     c->obj.mom.z = run;
     GameTimer.frame++;
-    pad.paddata = pad.paddata_db = 0x40;
-    c->obj.ground = 1;
-    nw_air_before(c, &pad);
-    c->jump = 1;
-    c->jump_type = jump_type;
-    c->jump_frames = jump_info()->JUMPFRAMES0;
-    c->jump_frame = 0;
-    c->obj.ground = 0;
-    nw_air_move(c, &pad);
+    if (jump_boing) {
+        pad.paddata = hold > 0 ? 0x40 : 0;
+        pad.paddata_db = 0;
+        c->obj.ground = 2;
+        c->obj.boing = jump_boing;
+        c->jump = 1;
+        c->jump_type = jump_boing & 2 ? 3 : 1;
+        c->jump_frames = jump_info()->JUMPFRAMES1 + 1;
+        c->jump_frame = 0;
+        nw_air_before(c, &pad);
+        retail_jump(c, hold > 0);
+        nw_air_move(c, &pad);
+        c->obj.boing = 0;
+    } else {
+        pad.paddata = pad.paddata_db = 0x40;
+        c->obj.ground = 1;
+        nw_air_before(c, &pad);
+        c->jump = 1;
+        c->jump_type = jump_type;
+        c->jump_frames = jump_type == 0 ? jump_info()->STARJUMPFRAMES : jump_info()->JUMPFRAMES0;
+        c->jump_frame = 0;
+        c->obj.ground = 0;
+        nw_air_move(c, &pad);
+    }
     Arc arc = { 0 };
     float was = c->obj.mom.y;
     for (int tick = 1; tick < 500; tick++) {
@@ -432,7 +466,7 @@ static void jump_fall(void)
         CHECK(fabsf(ntsc.time - arc.time) <= 0.03f);
     }
     CHECK(jump(50, &on, 5).apex > jump(50, &on, 1).apex && jump(50, &on, 100).apex > jump(50, &on, 5).apex);
-    CHECK(jump(60, &retail, 100).apex > jump(50, &retail, 100).apex * 1.1f);
+    CHECK(near(jump(60, &retail, 120).apex, jump(50, &retail, 100).apex, 0.03f)); /* the US data: PAL's in seconds */
 
     /* The sliders keep the height asked for and at least retail's reach. */
     Arc pal = jump(50, &retail, 100);
@@ -452,7 +486,7 @@ static void jump_fall(void)
     crash_at(50, &on);
     CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
     crash_at(60, &retail);
-    CHECK(CrashMoveInfo.JUMPFRAMES2 == 15 && CrashMoveInfo.STARJUMPFRAMES == 20);
+    CHECK(CrashMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.STARJUMPFRAMES == 24); /* the US data's own */
 
     /* Switched off mid-air: retail's gravity from the next frame. */
     struct creature_s *c = &Character[0];
@@ -473,6 +507,64 @@ static void jump_fall(void)
     float fall = c->obj.mom.y;
     nw_air_move(c, &pad);
     CHECK(c->obj.mom.y == fall);
+}
+
+static void jump_fall_moves(void)
+{
+    NwProfile retail = { 0 }, on = neutral_arc(ONLY(jump_fall)), heavy = ONLY(jump_fall);
+    heavy.movement.crash.jump_float = 0;
+    heavy.movement.crash.jump_weight = 162;
+    heavy.movement.crash.jump_height = 113;
+    jump_type = 0;
+    Arc pal = jump(50, &retail, 100), arc = jump(50, &on, 100), tap = jump(50, &on, 1), ntsc = jump(60, &on, 120);
+    CHECK(near(arc.apex, pal.apex, 0.03f) && near(arc.reach, pal.reach, 0.05f) && arc.early > pal.early);
+    CHECK(near(tap.apex, arc.apex, 0.001f) && near(ntsc.apex, arc.apex, 0.03f) && fabsf(ntsc.time - arc.time) <= 0.03f);
+    Arc tuned = jump(50, &heavy, 100);
+    CHECK(near(tuned.apex, pal.apex * 1.13f, 0.03f) && tuned.time < arc.time && tuned.reach >= pal.reach * 0.995f);
+    jump_type = 1;
+
+    for (jump_boing = 1; jump_boing <= 2; jump_boing++) {
+        Arc held = jump(50, &retail, 100), off = jump(50, &retail, 0);
+        arc = jump(50, &on, 100);
+        Arc let = jump(50, &on, 0);
+        CHECK(near(arc.apex, held.apex, 0.03f) && near(arc.reach, held.reach, 0.05f) && arc.early > held.early);
+        CHECK(let.apex >= off.apex * 0.995f && let.apex < arc.apex && jump(50, &on, 3).apex >= let.apex);
+        tuned = jump(50, &heavy, 100);
+        Arc tuned_let = jump(50, &heavy, 0);
+        CHECK(near(tuned.apex, held.apex * 1.13f, 0.03f) && tuned.reach >= held.reach * 0.995f);
+        CHECK(tuned_let.apex >= off.apex * 1.13f * 0.995f && tuned.pull <= 61.0f);
+        ntsc = jump(60, &on, 120);
+        CHECK(near(ntsc.apex, arc.apex, 0.03f) && fabsf(ntsc.time - arc.time) <= 0.03f);
+    }
+    jump_boing = 0;
+
+    static const float want[4] = { 18.0f, 27.0f, 27.0f * 1.62f, 54.0f };
+    struct creature_s *c = &Character[0];
+    for (int hz = 50; hz <= 60; hz += 10) {
+        float dt = 1.0f / hz;
+        for (int i = 0; i < 4; i++) {
+            const NwProfile *p = i == 0 ? &retail : i == 1 ? &on : &heavy;
+            crash_at(hz, p);
+            c->jump = 3;
+            c->slam = i == 3 ? 2 : 1;
+            c->obj.mom.y = -0.05f;
+            GameTimer.frame++;
+            nw_air_before(c, &pad);
+            c->obj.mom.y += GRAVITY * (i == 3 ? 3.0f : 1.0f);
+            nw_air_move(c, &pad);
+            CHECK(near((-0.05f - c->obj.mom.y) / (dt * dt), want[i], 0.01f));
+        }
+        crash_at(hz, &heavy);
+        c->jump = 3;
+        c->slam = 1;
+        c->obj.mom.y = 0.1f;
+        GameTimer.frame++;
+        nw_air_before(c, &pad);
+        c->obj.mom.y += GRAVITY * 2.0f;
+        float rise = c->obj.mom.y;
+        nw_air_move(c, &pad);
+        CHECK(c->obj.mom.y == rise);
+    }
 }
 
 /* MoveCRASH's case 3. */
@@ -695,9 +787,9 @@ static void grip(void)
     float step = 0.0072f;
     crash_at(50, &on);
     Character[0].obj.ground = 1;
-    CHECK(near(loop_side(0.05f), 0.05f - 2.5f * step, 1e-5f));
-    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - 1.2f * step, 1e-5f));
-    CHECK(near(loop_forward(-0.05f, 0.072f), -0.05f + 1.2f * step, 1e-5f));
+    CHECK(near(loop_side(0.05f), 0.05f - 1.75f * step, 1e-5f));
+    CHECK(near(loop_forward(0.05f, 0.0f), 0.05f - step, 1e-5f));
+    CHECK(near(loop_forward(-0.05f, 0.072f), -0.05f + step, 1e-5f));
     CHECK(near(loop_forward(0.0f, 0.072f), step, 1e-5f));
     Character[0].obj.surface_type = 1;
     CHECK(near(loop_side(0.05f), 0.05f - step, 1e-5f));
@@ -726,11 +818,11 @@ static void long_spin(void)
     crash_at(60, &on);
     CHECK(CrashMoveInfo.SPINFRAMES == 36);
     crash_at(60, &retail);
-    CHECK(CrashMoveInfo.SPINFRAMES == 16);
+    CHECK(CrashMoveInfo.SPINFRAMES == 20);
     CrashMoveInfo.SPINFRAMES = 30;
     nw_profile_apply(&on);
     CHECK(CrashMoveInfo.SPINFRAMES == 30);
-    CrashMoveInfo.SPINFRAMES = 16;
+    CrashMoveInfo.SPINFRAMES = 20;
 }
 
 /* MoveCRASH's slide timer, crouch held or let go; his speed after the frame. */
@@ -750,6 +842,10 @@ static float slide_frame(bool crouch)
 static void slide(void)
 {
     NwProfile retail = { 0 }, on = ONLY(slide);
+    on.movement.crash.slide_speed = 140;
+    on.movement.crash.slide_ms = 400;
+    on.movement.crash.slide_keep = true;
+    on.movement.crash.slide_cancel = true;
     struct creature_s *c = &Character[0];
     crash_at(60, &on);
     CHECK(CrashMoveInfo.SLIDEFRAMES == 24 && CrashMoveInfo.SLIDESPEED == 0.080000006f * 1.4f);
@@ -798,6 +894,174 @@ static void slide(void)
     CrashMoveInfo.SLIDEFRAMES = 25;
     nw_ground_loaded();
     CHECK(CrashMoveInfo.SLIDEFRAMES == 25);
+
+    static const struct {
+        int kept;
+        bool slid;
+        float slow, fast;
+    } jumps[] = {
+        { 50, true, 0.0972f, 0.1128f },
+        { 100, true, 0.0972f, 0.1272f },
+        { 100, false, 0.0828f, 0.1128f },
+        { 0, true, 0.0828f, 0.1128f },
+    };
+    for (size_t i = 0; i < sizeof(jumps) / sizeof(jumps[0]); i++) {
+        NwProfile p = ONLY(slide);
+        p.movement.crash.slide_jump = jumps[i].kept;
+        crash_at(50, &p);
+        c->obj.ground = 1;
+        c->slide = jumps[i].slid ? 10 : 0;
+        c->crawl = !jumps[i].slid;
+        c->obj.mom.z = 0.13f;
+        nw_air_move(c, &pad);
+        GameTimer.frame++;
+        nw_air_before(c, &pad);
+        c->slide = c->crawl = 0;
+        c->jump = 1;
+        c->jump_type = 0;
+        c->jump_frame = 0;
+        c->obj.ground = 0;
+        nw_air_move(c, &pad);
+        CHECK(near(loop_forward(0.09f, 0.072f), jumps[i].slow, 1e-4f));
+        c->jump = 3;
+        nw_air_move(c, &pad);
+        CHECK(near(loop_forward(0.12f, 0.072f), jumps[i].fast, 1e-4f));
+        c->obj.ground = 1;
+        nw_air_move(c, &pad);
+        CHECK(near(loop_forward(0.12f, 0.072f), 0.1128f, 1e-4f));
+    }
+}
+
+static void spin_move(void)
+{
+    struct creature_s *c = &Character[0];
+    nw_slide_spin_before(c, &pad);
+    if (c->spin && c->spin_frame < c->spin_frames) {
+        c->spin_frame++;
+    }
+    if (!c->spin && (pad.paddata & 0x80) && !c->slide && !c->crawl) {
+        c->spin = 1;
+        c->spin_frame = 0;
+        c->spin_frames = CrashMoveInfo.SPINFRAMES + CrashMoveInfo.SPINRESETFRAMES;
+    }
+    nw_slide_spin_after(c);
+}
+
+static void spin_slide(const NwProfile *p)
+{
+    struct creature_s *c = &Character[0];
+    crash_at(50, p);
+    c->obj.ground = 1;
+    c->slide = 10;
+    c->obj.mom.z = 0.11f;
+    pad.paddata = 0;
+    GameTimer.frame++;
+    spin_move();
+}
+
+static void slide_spin(void)
+{
+    NwProfile retail = { 0 }, on = ONLY(slide_spin);
+    struct creature_s *c = &Character[0];
+    on.movement.crash.slide_spin_kept = 100;
+    on.movement.crash.slide_spin_late_ms = 150;
+    on.movement.crash.slide_spin_steer = 0;
+    on.movement.crash.slide_spin_lean = 25;
+    spin_slide(&on);
+    pad.paddata = 0x80;
+    GameTimer.frame++;
+    spin_move();
+    CHECK(c->slide == 0 && c->spin == 1 && c->spin_frame == 0);
+    CHECK(near(loop_forward(0.11f, 0.072f), 0.11f, 1e-5f));
+    spin_move();
+    CHECK(near(loop_forward(0.08f, 0.072f), 0.1016f, 1e-5f));
+    spin_move();
+    c->obj.thdg = 0x4000;
+    loop_forward(0.11f, 0.072f);
+    CHECK(c->obj.thdg == 0);
+    spin_move();
+    for (int i = 0; i < 4; i++) {
+        loop_forward(0.11f, 0.072f);
+        spin_move();
+    }
+    nw_slide_spin_lean(c, 1);
+    CHECK(c->obj.xrot == 4551 && c->obj.zrot == 0);
+    nw_slide_spin_unlean();
+    CHECK(c->obj.xrot == 0 && c->obj.zrot == 0);
+    while (c->spin_frame < CrashMoveInfo.SPINFRAMES) {
+        loop_forward(0.11f, 0.072f);
+        spin_move();
+    }
+    nw_slide_spin_lean(c, 1);
+    CHECK(c->obj.xrot == 0);
+    CHECK(near(loop_forward(0.11f, 0.072f), 0.11f - 0.0072f, 1e-5f));
+
+    on.movement.crash.slide_spin_steer = 50;
+    on.movement.crash.slide_spin_lean = 0;
+    on.movement.crash.slide_spin_bank = 15;
+    spin_slide(&on);
+    c->slide = 0;
+    c->crawl = 1;
+    for (int i = 0; i < 3; i++) {
+        GameTimer.frame++;
+        spin_move();
+    }
+    pad.paddata = 0x80;
+    GameTimer.frame++;
+    spin_move();
+    CHECK(c->spin == 1 && c->crawl == 0);
+    c->obj.thdg = 0x4000;
+    loop_forward(0.11f, 0.072f);
+    CHECK(c->obj.thdg > 0x800 && c->obj.thdg < 0x1000);
+    spin_move();
+    for (int i = 0; i < 4; i++) {
+        c->obj.thdg = 0x4000;
+        loop_forward(0.11f, 0.072f);
+        spin_move();
+    }
+    u16 turned = c->obj.thdg;
+    nw_slide_spin_lean(c, 1);
+    CHECK(turned > 0x1000 && turned < 0x4000 && c->obj.zrot > 0xF000 && c->obj.zrot < 0xFF00);
+    nw_slide_spin_unlean();
+
+    spin_slide(&on);
+    c->slide = 0;
+    c->crawl = 1;
+    for (int i = 0; i < 9; i++) {
+        GameTimer.frame++;
+        spin_move();
+    }
+    pad.paddata = 0x80;
+    GameTimer.frame++;
+    spin_move();
+    CHECK(c->spin == 0 && c->crawl == 1);
+
+    on.movement.crash.slide_spin_jump = 100;
+    spin_slide(&on);
+    pad.paddata = 0x80;
+    GameTimer.frame++;
+    spin_move();
+    loop_forward(0.11f, 0.072f);
+    c->jump = 1;
+    c->jump_frame = 0;
+    spin_move();
+    c->obj.ground = 0;
+    c->jump_frame = 1;
+    CHECK(near(loop_forward(0.09f, 0.072f), 0.0972f, 1e-5f));
+    spin_move();
+    CHECK(near(loop_forward(0.0f, 0.0f), 0.0f, 1e-5f));
+    spin_move();
+    c->obj.ground = 1;
+    spin_move();
+    c->obj.ground = 0;
+    CHECK(near(loop_forward(0.09f, 0.072f), 0.0828f, 1e-5f));
+
+    spin_slide(&retail);
+    pad.paddata = 0x80;
+    GameTimer.frame++;
+    spin_move();
+    CHECK(c->slide == 10 && c->spin == 0);
+    pad.paddata = 0;
 }
 
 static void coco_jump(void)
@@ -822,9 +1086,7 @@ static void coco_jump(void)
     CHECK(coco.apex == crash.apex && coco.time == crash.time);
     CHECK(off.apex == pal.apex && off.reach == pal.reach && off.time == pal.time);
     crash_at(60, &on);
-    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 15);
-    crash_at(60, &retail);
-    CHECK(CocoMoveInfo.JUMPFRAMES2 == 15);
+    CHECK(CocoMoveInfo.JUMPFRAMES2 == 18 && CrashMoveInfo.JUMPFRAMES2 == 18); /* the arc leaves the US frames */
 
     /* Her run speed in the air, her dash in a dash jump. */
     float step = 0.0072f;
@@ -918,6 +1180,7 @@ static bool held(short type, float y, bool below, const unsigned char *flags)
 static void edge_grip(void)
 {
     NwProfile retail = { 0 }, on = ONLY(edge_grip);
+    on.movement.crash.edge_reach = 75;
     NwTerI *was = TerI;
     unsigned char *own = Character[0].obj.gndflags.chrs, other[2] = { 0 };
     TerI = &contact;
@@ -1665,6 +1928,32 @@ static void sub_weapons(void)
     plr->fire = 0x19;
     nw_sub_fire_after(plr);
     CHECK(plr->fire == 0x19);
+}
+
+/* A torpedo on a resting fruit; no level loaded, so retail's burst (GDeb[130] -1) only clears the fruit. */
+static void sub_fruit(void)
+{
+    NwProfile on = SUB_ONLY(pass_fruit), retail = { .movement = NW_MOVEMENT_RETAIL };
+    struct obj_s shot = { .pos = { 1.0f, 2.0f, 3.0f }, .RADIUS = 0.1f, .SCALE = 0.6f, .bot = -0.1f, .top = 0.1f };
+    struct wumpa_s fruit = Wumpa[0];
+
+    CHECK(GDeb[130].i == -1);
+    TimeTrial = 0;
+    Wumpa[0].pos = shot.pos;
+    /* It flies through only inside UpdateProjectiles: elsewhere (a fired fruit in UpdateWumpa) retail's. */
+    sub_at(50, &on);
+    Wumpa[0].active = 2;
+    nw_sub_shots(true);
+    CHECK(HitWumpa(&shot, 1) == 0 && Wumpa[0].active == 2);
+    nw_sub_shots(false);
+    CHECK(HitWumpa(&shot, 1) == 1 && Wumpa[0].active == 0);
+    /* The switch off: retail's. */
+    sub_at(50, &retail);
+    Wumpa[0].active = 2;
+    nw_sub_shots(true);
+    CHECK(HitWumpa(&shot, 1) == 1 && Wumpa[0].active == 0);
+    nw_sub_shots(false);
+    Wumpa[0] = fruit;
 }
 
 static RailPosition jeep_rail;
@@ -2777,6 +3066,284 @@ static void presence_snapshot(void)
     Game.percent = 0;
 }
 
+extern const unsigned char nw_hubgem_toml[];
+extern const size_t nw_hubgem_toml_size;
+extern s32 cutmovie, Demo, GameMode, Paused, new_level, new_mode, editor_active, PLAYERCOUNT, last_level;
+extern u16 new_lev_flags;
+extern f32 tumble_time, tumble_duration;
+
+static bool hub_gem_variant(const char *from, const char *to)
+{
+    static char text[4096], out[4096];
+    size_t n = nw_hubgem_toml_size < sizeof(text) - 1 ? nw_hubgem_toml_size : sizeof(text) - 1;
+    memcpy(text, nw_hubgem_toml, n);
+    text[n] = '\0';
+    char *at = strstr(text, from);
+    CHECK(at != NULL);
+    if (!at) {
+        return true;
+    }
+    snprintf(out, sizeof(out), "%.*s%s%s", (int)(at - text), text, to, at + strlen(from));
+    NwHubGemData d;
+    return nw_hubgem_parse(&d, out, strlen(out));
+}
+
+static void hub_gem(void)
+{
+    const NwHubGemData *d = nw_hubgem_data();
+    CHECK(d != NULL);
+    if (!d) {
+        return;
+    }
+    CHECK(d->level == 7 && d->flag == 0x100 && d->place_level == 0x25 && d->seen_bit == 0);
+    CHECK(d->file[0] && d->object[0] && d->buffer_kb >= 9216);
+    float dx = d->cam_pos[0] - d->pos[0], dy = d->cam_pos[1] - d->pos[1], dz = d->cam_pos[2] - d->pos[2];
+    CHECK(dx * dx + dy * dy + dz * dz < 13.0f * 13.0f);
+    CHECK(d->appear >= d->blend_in && d->hold > 0.0f);
+    CHECK(d->text[0] && d->text_range > 0.0f && d->text_scale > 0.0f);
+    CHECK(hub_gem_variant("seen_bit = 0", "seen_bit = 7"));
+    CHECK(!hub_gem_variant("seen_bit = 0", "seen_bit = 8"));
+    CHECK(!hub_gem_variant("buffer_kb = 12288", "buffer_kb = 'x'"));
+    CHECK(!hub_gem_variant("level = 7", "level = 40"));
+    CHECK(!hub_gem_variant("hide_hud = true", ""));
+
+    s32 level = Level, mode = GameMode, menu = Cursor.menu, count = PLAYERCOUNT, fade = fadeval, last = last_level;
+    u32 frame = GameTimer.frame;
+    struct creature_s *was = player;
+    char pad = Game.level[d->level].pad1;
+    u32 cutbits = Game.cutbits;
+    u16 flags = Game.level[d->level].flags;
+    static struct creature_s crash;
+    memset(&crash, 0, sizeof(crash));
+    crash.obj.pos.y = d->pos[1];
+    crash.obj.pos.z = 2.0f;
+    crash.obj.ground = 1;
+    player = &crash;
+    nw_profile_apply(&(NwProfile){ .hub_gem = true });
+    Level = d->place_level;
+    cutmovie = new_level = new_mode = -1;
+    Demo = GameMode = Paused = editor_active = fadeval = 0;
+    Cursor.menu = -1;
+    new_lev_flags = 0;
+    tumble_time = tumble_duration = 0.0f;
+    PLAYERCOUNT = 1;
+    GameTimer.frame = 100;
+    last_level = -1;
+    CHECK(nw_hubgem_idle(d));
+    Game.level[d->level].flags = 0;
+    Game.level[d->level].pad1 = 0;
+    CHECK(!nw_hubgem_due(d));
+    last_level = d->level;
+    new_lev_flags = (u16)d->flag;
+    CHECK(nw_hubgem_due(d) && nw_hubgem_idle(d));
+    new_lev_flags = 0;
+    last_level = -1;
+    Game.level[d->level].flags = (u16)d->flag;
+    CHECK(nw_hubgem_owned(d) && !nw_hubgem_seen(d) && nw_hubgem_due(d));
+    Game.cutbits = 0xFFFFFFFFu;
+    CHECK(!nw_hubgem_seen(d));
+    Game.level[d->level].pad1 = (char)(1 << d->seen_bit);
+    CHECK(nw_hubgem_seen(d) && !nw_hubgem_due(d));
+    Paused = 1;
+    CHECK(!nw_hubgem_idle(d));
+    Paused = 0;
+    Cursor.menu = 3;
+    CHECK(!nw_hubgem_idle(d));
+    Cursor.menu = -1;
+    GameTimer.frame = 10;
+    CHECK(!nw_hubgem_idle(d));
+    GameTimer.frame = 100;
+    tumble_duration = 1.0f;
+    CHECK(!nw_hubgem_idle(d));
+    tumble_duration = 0.0f;
+    crash.obj.pos.x = d->pos[0];
+    crash.obj.pos.z = d->pos[2];
+    CHECK(!nw_hubgem_idle(d));
+    crash.obj.pos.x = 0.0f;
+    crash.obj.pos.z = 2.0f;
+    crash.obj.ground = 0;
+    CHECK(!nw_hubgem_idle(d));
+    crash.obj.ground = 1;
+    Level = 0;
+    CHECK(!nw_hubgem_idle(d));
+    Level = d->place_level;
+    CHECK(nw_hubgem_idle(d));
+    nw_profile_apply(&(NwProfile){ 0 });
+    CHECK(!nw_hubgem_idle(d));
+
+    int x, y;
+    nw_hubgem_aim((const float[3]){ 0.0f, 0.0f, 0.0f }, (const float[3]){ 1.0f, 0.0f, 1.0f }, &x, &y);
+    CHECK(x == 0 && y == (NuAtan2D(1.0f, 1.0f) & 0xFFFF) && abs(y - 0x2000) <= 2);
+    nw_hubgem_aim((const float[3]){ 0.0f, 1.0f, 0.0f }, (const float[3]){ 0.0f, 0.0f, 1.0f }, &x, &y);
+    CHECK(x == (-NuAtan2D(-1.0f, 1.0f) & 0xFFFF) && x != 0 && y == 0);
+
+    Level = level;
+    GameMode = mode;
+    Cursor.menu = (signed char)menu;
+    PLAYERCOUNT = count;
+    fadeval = fade;
+    last_level = last;
+    GameTimer.frame = frame;
+    player = was;
+    Game.level[d->level].pad1 = pad;
+    Game.cutbits = cutbits;
+    Game.level[d->level].flags = flags;
+}
+
+extern s32 InvincibilityCHEAT;
+extern u16 plr_items;
+s32 HubFromLevel(s32 level);
+
+static void cheats(void)
+{
+    struct game_s game = Game;
+    s32 level = Level, last = last_level;
+    int rooms[5], n = 0, boss = -1, secret = -1;
+    for (int l = 0; l < NW_CHEATS_LEVELS; l++) {
+        int room = HubFromLevel(l);
+        if (room == 0 && (LData[l].flags & 2)) {
+            boss = l;
+        } else if (room == 0 && n < 5) {
+            rooms[n++] = l;
+        } else if (room == 5) {
+            secret = l;
+        }
+    }
+    CHECK(n == 5 && boss >= 0 && secret >= 0);
+
+    NwCheatsView v;
+    memset(&Game, 0, sizeof(Game));
+    Game.hub[0].flags = 1;
+    Level = 0x25;
+    last_level = -1;
+    new_lev_flags = 0;
+    plr_items = 0;
+    nw_cheats_swap();
+    nw_cheats_view(&v);
+    CHECK(v.valid && v.level == -1 && !v.invincible && v.powers == 0);
+    CHECK(v.items[boss] == NW_CHEAT_BOSS &&
+          v.items[secret] == (NW_CHEAT_RELIC | NW_CHEAT_CRATE_GEM | NW_CHEAT_BONUS_GEM));
+    CHECK(v.items[7] == (NW_CHEAT_RELIC | NW_CHEAT_CRYSTAL | NW_CHEAT_CRATE_GEM | NW_CHEAT_BLUE_GEM));
+    int crystals = 0, gems = 0, relics = 0, bosses = 0;
+    for (int l = 0; l < NW_CHEATS_LEVELS; l++) {
+        crystals += (v.items[l] & NW_CHEAT_CRYSTAL) != 0;
+        relics += (v.items[l] & NW_CHEAT_RELIC) != 0;
+        bosses += (v.items[l] & NW_CHEAT_BOSS) != 0;
+        for (unsigned bit = NW_CHEAT_CRATE_GEM; bit <= NW_CHEAT_PURPLE_GEM; bit <<= 1) {
+            gems += (v.items[l] & bit) != 0;
+        }
+    }
+    CHECK(crystals == 25 && gems == 46 && relics == 30 && bosses == 5);
+
+    nw_cheats_invincible(true);
+    nw_cheats_powers(0x3F, 0x22);
+    nw_cheats_swap();
+    CHECK(InvincibilityCHEAT == 1 && Game.powerbits == 0x22);
+    nw_cheats_powers(0x20, 0);
+    nw_cheats_swap();
+    nw_cheats_view(&v);
+    CHECK(Game.powerbits == 2 && v.powers == 2 && v.invincible);
+
+    for (int i = 0; i < 5; i++) {
+        nw_cheats_level(rooms[i], NW_CHEAT_CRYSTAL, NW_CHEAT_CRYSTAL);
+    }
+    nw_cheats_swap();
+    CHECK(Game.crystals == 5 && Game.hub[0].crystals == 5 && Game.hub[0].flags == 3 && Game.percent == 5);
+    nw_cheats_level(rooms[2], NW_CHEAT_CRYSTAL | NW_CHEAT_RELIC, NW_CHEAT_GOLD);
+    nw_cheats_swap();
+    CHECK(Game.hub[0].crystals == 4 && Game.hub[0].flags == 1 && Game.relics == 1);
+    CHECK(Game.level[rooms[2]].flags == NW_CHEAT_GOLD);
+    nw_cheats_level(rooms[1], NW_CHEAT_BOSS, NW_CHEAT_BOSS);
+    nw_cheats_swap();
+    CHECK(!(Game.level[rooms[1]].flags & NW_CHEAT_BOSS));
+
+    nw_cheats_level(boss, NW_CHEAT_BOSS, NW_CHEAT_BOSS);
+    nw_cheats_swap();
+    CHECK(Game.hub[0].flags == 7 && (Game.hub[1].flags & 1) && Game.level[boss].flags == NW_CHEAT_BOSS);
+    nw_cheats_level(boss, NW_CHEAT_BOSS, 0);
+    nw_cheats_swap();
+    CHECK(Game.hub[0].flags == 1 && (Game.hub[1].flags & 1) && Game.level[boss].flags == 0);
+
+    Level = rooms[2];
+    new_lev_flags = NW_CHEAT_CRYSTAL;
+    Game.hub[0].crystals = 5;
+    Game.hub[0].flags |= 2;
+    nw_cheats_swap();
+    nw_cheats_view(&v);
+    CHECK(v.level == rooms[2] && v.flags[rooms[2]] == (NW_CHEAT_CRYSTAL | NW_CHEAT_GOLD));
+    nw_cheats_level(rooms[3], NW_CHEAT_CRATE_GEM, NW_CHEAT_CRATE_GEM);
+    nw_cheats_swap();
+    CHECK(Game.hub[0].crystals == 5 && (Game.hub[0].flags & 2) && Game.gems == 1);
+    nw_cheats_level(rooms[2], NW_CHEAT_CRYSTAL, 0);
+    nw_cheats_swap();
+    CHECK(new_lev_flags == 0 && Game.hub[0].crystals == 4 && !(Game.hub[0].flags & 2));
+
+    plr_items = 0x11;
+    nw_cheats_level(rooms[2], NW_CHEAT_CRYSTAL, NW_CHEAT_CRYSTAL);
+    nw_cheats_swap();
+    CHECK(plr_items == 0x10 && Game.hub[0].crystals == 5 && (Game.hub[0].flags & 2));
+
+    Demo = 1;
+    nw_cheats_powers(0x3F, 0x3F);
+    nw_cheats_swap();
+    nw_cheats_view(&v);
+    CHECK(!v.valid && Game.powerbits == 2);
+    Demo = 0;
+    nw_cheats_swap();
+    CHECK(Game.powerbits == 2);
+
+    Game = game;
+    Level = level;
+    last_level = last;
+    new_lev_flags = 0;
+    plr_items = 0;
+    InvincibilityCHEAT = 0;
+}
+
+extern s32 gamecut, gamecut_newlevel;
+void GetSpaceCut(s32 last, s32 next);
+
+static bool boss_cut_plays(u16 before, u16 after, s32 last)
+{
+    Level = 0x15;
+    new_level = 0x25;
+    new_lev_flags = after;
+    nw_boss_cut_finish(before);
+    new_lev_flags = 0;
+    GetSpaceCut(last, 0x25);
+    CHECK(new_lev_flags == 0);
+    return gamecut == 5 && new_level == 0x28 && gamecut_newlevel == 0x25;
+}
+
+static void boss_cut(void)
+{
+    struct game_s game = Game;
+    NwProfile profile = nw_profile;
+    s32 level = Level, demo = Demo, next = new_level, cut = gamecut, cut_next = gamecut_newlevel;
+
+    Demo = 0;
+    Game.cutbits = 0;
+    nw_profile.first_boss_cut = false;
+    CHECK(!boss_cut_plays(0x800, 0, 0x15) && gamecut == -1 && new_level == 0x25 && Game.cutbits == 0);
+    nw_profile.first_boss_cut = true;
+    CHECK(boss_cut_plays(0x800, 0, 0x15) && Game.cutbits == 0x20);
+    CHECK(!boss_cut_plays(0x800, 0, 0x15) && gamecut == -1);
+    Game.cutbits = 0;
+    CHECK(!boss_cut_plays(0, 0, 0x15));
+    CHECK(!boss_cut_plays(0x800, 0x800, 0x15));
+    CHECK(!boss_cut_plays(0x800, 0, 0x28));
+    GetSpaceCut(0x15, 0x25);
+    CHECK(gamecut == -1 && Game.cutbits == 0);
+
+    Game = game;
+    nw_profile = profile;
+    Level = level;
+    Demo = demo;
+    new_level = next;
+    gamecut = cut;
+    gamecut_newlevel = cut_next;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -2787,6 +3354,7 @@ int main(void)
     boss_health();
     steadycam();
     jump_fall();
+    jump_fall_moves();
     jump_distance();
     air_momentum();
     dash_jump();
@@ -2794,6 +3362,7 @@ int main(void)
     grip();
     long_spin();
     slide();
+    slide_spin();
     edge_grip();
     line_2d();
     hazard_hitboxes();
@@ -2810,6 +3379,7 @@ int main(void)
     sub_speed();
     sub_hitbox();
     sub_weapons();
+    sub_fruit();
     jeep_steer();
     jeep_speed();
     jeep_grip();
@@ -2824,6 +3394,9 @@ int main(void)
     space_sweep();
     space_assist();
     presence_snapshot();
+    hub_gem();
+    cheats();
+    boss_cut();
 
     NwMovement m = NW_MOVEMENT_RETAIL;
     CHECK(nw_movement_profile(&(NwMovement){ 0 }) == NW_MOVEMENT_PROFILE_RETAIL);

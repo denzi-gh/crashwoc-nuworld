@@ -15,6 +15,7 @@ typedef struct NwRenderOptions {
     bool clouds; /* the geoms marked as clouds drawn as volumes (gfx/cloudvol.h) instead of their flat cards */
     bool water;  /* the PS2's water (fxid 4) drawn as gfx/water.h's instead of its two passes */
     bool silhouettes; /* control.cut's heroes as their models against a light, not the picture (port/silhouette.h) */
+    bool gems; /* gfx/gem.h's materials as cut stone and metal */
 } NwRenderOptions;
 
 bool nw_backend_init(void);

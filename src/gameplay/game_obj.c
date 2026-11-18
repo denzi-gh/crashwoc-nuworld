@@ -6,8 +6,10 @@
 #include "gameplay/crash.h"
 #include "gameplay/ground.h"
 #include "gameplay/hazards.h"
+#include "gameplay/hubgem.h"
 #include "gameplay/line2d.h"
 #include "gameplay/mech.h"
+#include "gameplay/slidespin.h"
 #include "gameplay/submarine.h"
 
 /* Declared by no header. */
@@ -31,6 +33,9 @@ void MoveLoopXZ(struct obj_s *obj, u16 *hdg)
         MoveLoopXZ__retail(obj, hdg);
         return;
     }
+    if (crash) {
+        nw_slide_spin_loop(&Character[0], hdg);
+    }
     struct nuvec_s v;
     NuVecRotateY(&v, &obj->mom, -(hdg ? *hdg : obj->hdg));
     nw_ground_loop(&Character[0], v.z);
@@ -51,6 +56,7 @@ void PlayerCreatureCollisions(struct obj_s *obj)
     PlayerCreatureCollisions__retail(obj);
     nw_sub_restore();
     nw_hazards_restore();
+    nw_hubgem_collide(obj);
 }
 
 void ObjectRotation(struct obj_s *obj, s32 mode, s32 blend)
@@ -63,7 +69,9 @@ void ObjectRotation(struct obj_s *obj, s32 mode, s32 blend)
 void UpdateProjectiles(void)
 {
     nw_sub_shrink();
+    nw_sub_shots(true);
     UpdateProjectiles__retail();
+    nw_sub_shots(false);
     nw_sub_restore();
 }
 

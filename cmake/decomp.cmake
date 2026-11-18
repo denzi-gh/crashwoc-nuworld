@@ -158,33 +158,48 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/hle/nuvecvu0.c src/port/fptrap.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c
   src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c src/port/presence.c
-  src/port/capture.c src/port/dump.c src/port/ps2video.c src/port/saveload.c src/port/scene.c src/port/shadcom.c src/port/silhouette.c
-  src/port/cloudfx.c src/port/cloudscn.c src/port/crate.c src/port/cutstart.c src/port/font3d.c src/port/menu.c src/port/nubridge.c src/port/terrain.c
+  src/port/capture.c src/port/disc.c src/port/dump.c src/port/edptl.c src/port/ps2video.c src/port/saves.c src/port/scene.c src/port/shadcom.c
+  src/port/silhouette.c src/port/autosave.c src/port/cloudfx.c src/port/cloudscn.c src/port/crate.c src/port/cutstart.c src/port/font3d.c
+  src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
-  src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosshealth.c
-  src/gameplay/camera.c src/gameplay/chase.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/debris.c
-  src/gameplay/edges.c src/gameplay/firefly.c
-  src/gameplay/game.c src/gameplay/game_obj.c src/gameplay/gameplay.c src/gameplay/ground.c src/gameplay/hazards.c
-  src/gameplay/hitboxes.c src/gameplay/hubcrunch.c src/gameplay/jeep.c src/gameplay/line2d.c src/gameplay/mech.c src/gameplay/minigame.c src/gameplay/monkeybars.c
-  src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c src/gameplay/plane.c src/gameplay/spacefighter.c
+  src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosscut.c src/gameplay/bosshealth.c
+  src/gameplay/camera.c src/gameplay/chase.c src/gameplay/cheats.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/cut.c src/gameplay/debris.c
+  src/gameplay/edbits.c src/gameplay/edges.c src/gameplay/firefly.c
+  src/gameplay/game.c src/gameplay/game_obj.c src/gameplay/gems.c src/gameplay/gameplay.c src/gameplay/gcutscn.c src/gameplay/ground.c src/gameplay/hazards.c
+  src/gameplay/hitboxes.c src/gameplay/hubcrunch.c src/gameplay/hubgem.c src/gameplay/jeep.c src/gameplay/line2d.c src/gameplay/mech.c src/gameplay/minigame.c src/gameplay/monkeybars.c
+  src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c src/gameplay/plane.c src/gameplay/slidespin.c src/gameplay/spacefighter.c
   src/gameplay/steadycam.c src/gameplay/submarine.c
-  src/gameplay/terrain.c src/gameplay/title.c src/gameplay/vehicle.c
+  src/gameplay/terrain.c src/gameplay/titlemenu.c src/gameplay/vehicle.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c
-  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/mc.c src/shim/pad.c src/shim/sif.c)
+  src/shim/file.c src/shim/gs.c src/shim/libc.c src/shim/pad.c src/shim/sif.c)
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 nw_embed_dir(nuworld_game nw_prompt_icons ${CMAKE_CURRENT_SOURCE_DIR}/assets/prompts)
+nw_embed(nuworld_game nw_hubgem_toml ${CMAKE_CURRENT_SOURCE_DIR}/assets/hubgem.toml)
+# The title menu's NuWorld mark.
+set(nw_title_logo ${nw_gen}/nw_title_logo.ghg)
+add_custom_command(OUTPUT ${nw_title_logo}
+  COMMAND ${Python3_EXECUTABLE} ${nw_tools}/title_logo.py ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon.svg
+    ${nw_title_logo}
+  DEPENDS ${nw_tools}/title_logo.py ${nw_tools}/nughg.py ${nw_tools}/nuvif.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon.svg
+  VERBATIM)
+nw_embed(nuworld_game nw_title_logo_ghg ${nw_title_logo})
 add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+# The EE's double rounding.
+set_target_properties(nuworld_decomp nuworld_game PROPERTIES
+  C_COMPILER_LAUNCHER "${Python3_EXECUTABLE};${nw_tools}/softdouble.py")
+set_property(SOURCE ${nw_sources} ${nw_game_sources} APPEND PROPERTY OBJECT_DEPENDS ${nw_tools}/softdouble.py)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
 target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audio nuworld_gfx nuworld_port nuworld_save
   nuworld_vfs)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
-target_sources(crashwoc-nuworld PRIVATE src/frontend/controlpanel.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
+target_sources(crashwoc-nuworld PRIVATE src/frontend/cheatpanel.c src/frontend/controlpanel.c src/frontend/profiles.c src/frontend/saveexport.c src/frontend/saveimport.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
 target_compile_definitions(crashwoc-nuworld PRIVATE NW_WITH_GAME)
 
 if(NUWORLD_FUZZ)
@@ -329,12 +344,25 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_hz PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_hz PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME hz COMMAND nuworld_test_hz)
+  # The disc's region and its level files' sound numbers in PAL's numbering.
+  add_executable(nuworld_test_disc tests/c/test_disc.c)
+  target_include_directories(nuworld_test_disc PRIVATE ${nw_decomp_includes})
+  target_compile_definitions(nuworld_test_disc PRIVATE NW_HOST)
+  target_compile_options(nuworld_test_disc PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_disc PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME disc COMMAND nuworld_test_disc)
   # The game layer's switches: off leaves retail's values, on changes them once.
   add_executable(nuworld_test_gameplay tests/c/test_gameplay.c)
   target_include_directories(nuworld_test_gameplay PRIVATE ${nw_decomp_includes})
   target_compile_options(nuworld_test_gameplay PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_gameplay PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME gameplay COMMAND nuworld_test_gameplay)
+  # Desktop exit: title/pause row bounds, navigation and retail's confirmation guards.
+  add_executable(nuworld_test_menu tests/c/test_menu.c)
+  target_include_directories(nuworld_test_menu PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_menu PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_menu PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME menu COMMAND nuworld_test_menu)
   # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
   add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
   target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)
@@ -483,19 +511,27 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_pad PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME pad COMMAND nuworld_test_pad)
 
-  # The port's gamelib/saveload under the decomp's UpdateSaveSlots; saveload-card needs NUWORLD_TEST_CARD.
-  add_executable(nuworld_test_saveload tests/c/test_saveload.c)
-  add_dependencies(nuworld_test_saveload nuworld_types)
-  target_include_directories(nuworld_test_saveload PRIVATE ${nw_decomp_includes})
-  target_compile_options(nuworld_test_saveload PRIVATE ${nw_decomp_flags} -Wall -Wextra)
-  target_link_libraries(nuworld_test_saveload PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
-  add_test(NAME saveload COMMAND nuworld_test_saveload ${CMAKE_CURRENT_BINARY_DIR}/test-saveload)
-  add_test(NAME saveload-card COMMAND nuworld_test_saveload ${CMAKE_CURRENT_BINARY_DIR}/test-saveload-card card)
-  set_tests_properties(saveload-card PROPERTIES SKIP_RETURN_CODE 77)
-  add_test(NAME saveload-toml COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/save_toml.py
-    ${CMAKE_CURRENT_BINARY_DIR}/test-savefile ${CMAKE_CURRENT_BINARY_DIR}/test-saveload)
-  set_tests_properties(savefile saveload PROPERTIES FIXTURES_SETUP save_files)
-  set_tests_properties(saveload-toml PROPERTIES FIXTURES_REQUIRED save_files)
+  # NEW GAME's name typed on the keyboard, as game/game's name entry runs it.
+  add_executable(nuworld_test_nameentry tests/c/test_nameentry.c)
+  add_dependencies(nuworld_test_nameentry nuworld_types)
+  target_include_directories(nuworld_test_nameentry PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_nameentry PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_nameentry PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME nameentry COMMAND nuworld_test_nameentry)
+
+  # The port's saves as the save menus use them; saves-ps2 converts NUWORLD_TEST_CARD (a .ps2 card image).
+  add_executable(nuworld_test_saves tests/c/test_saves.c)
+  add_dependencies(nuworld_test_saves nuworld_types)
+  target_include_directories(nuworld_test_saves PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_saves PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_saves PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME saves COMMAND nuworld_test_saves ${CMAKE_CURRENT_BINARY_DIR}/test-saves)
+  add_test(NAME saves-ps2 COMMAND nuworld_test_saves ${CMAKE_CURRENT_BINARY_DIR}/test-saves-ps2 ps2)
+  set_tests_properties(saves-ps2 PROPERTIES SKIP_RETURN_CODE 77)
+  add_test(NAME saves-toml COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/save_toml.py
+    ${CMAKE_CURRENT_BINARY_DIR}/test-savefile ${CMAKE_CURRENT_BINARY_DIR}/test-saves)
+  set_tests_properties(savefile saves PROPERTIES FIXTURES_SETUP save_files)
+  set_tests_properties(saves-toml PROPERTIES FIXTURES_REQUIRED save_files)
 
   add_executable(nuworld_test_hle tests/c/test_hle.c)
   target_include_directories(nuworld_test_hle PRIVATE ${nw_decomp_includes})

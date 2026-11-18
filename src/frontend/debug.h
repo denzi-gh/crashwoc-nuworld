@@ -33,6 +33,10 @@ void nw_debug_toggle(const char *menu, const char *label, bool *value);
 /* key (or SDL_SCANCODE_UNKNOWN) also works while the overlay is hidden. */
 void nw_debug_action(const char *menu, const char *label, SDL_Scancode key, NwDebugFn run, void *user);
 
+typedef bool (*NwDebugPromptFn)(void *user);
+
+void nw_debug_prompt(const char *title, NwDebugPromptFn draw, void *user);
+
 /* <data root><folder>/<date-time>.<ext>; SDL_free it. */
 char *nw_debug_file(const char *folder, const char *ext);
 
@@ -43,6 +47,8 @@ void nw_debug_tooltip(const char *text);
 /* Text level with the buttons on its line. */
 void nw_debug_label(const char *text);
 bool nw_debug_button(const char *label);
+void nw_debug_enable_begin(bool enabled);
+void nw_debug_enable_end(void);
 bool nw_debug_checkbox(const char *label, bool *value);
 void nw_debug_indent(bool in);
 /* The next item on this line, column font sizes from the window's left edge. */
@@ -51,12 +57,17 @@ bool nw_debug_slider(const char *label, float *value, float lo, float hi, bool l
 bool nw_debug_slider_int(const char *label, int *value, int lo, int hi);
 bool nw_debug_combo(const char *label, int *index, const char *const *items, int count);
 bool nw_debug_filter(const char *hint, char *buf, size_t size);
+bool nw_debug_input(const char *label, char *buf, size_t size);
 /* A scrolling list rows lines high; always closed with nw_debug_list_end. */
 void nw_debug_list_begin(const char *id, int rows);
+void nw_debug_list_sized(const char *id, int rows, float width);
 void nw_debug_list_end(void);
 /* A labelled separator heading the items after it. */
 void nw_debug_heading(const char *text);
 bool nw_debug_selectable(const char *label, bool selected);
+bool nw_debug_tree(const char *label, const char *note, bool highlight, bool open);
+void nw_debug_tree_end(void);
+void nw_debug_warning(const char *text);
 
 #ifdef __cplusplus
 }

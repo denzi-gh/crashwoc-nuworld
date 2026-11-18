@@ -1,0 +1,15 @@
+--- a/include/nups2/nups2types.h
++++ b/include/nups2/nups2types.h
+@@ -46,10 +46,12 @@ struct NuPs2GsReg {
+     u64 addr;                 /* 0x08 */
+ }; /* 0x10 */
+ 
++#ifndef NW_HOST
+ /* Memory card directory entry as sceMcGetDir fills it (libmc sceMcTblGetDir). */
+ struct mcdirent_s {
+     u8 pad00[0x20];           /* 0x00 */
+     char name[32];            /* 0x20 */
+ }; /* 0x40 */
++#endif
+ 
+ #endif /* NUPS2_NUPS2TYPES_H */

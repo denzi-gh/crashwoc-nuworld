@@ -55,6 +55,9 @@ float NuAnimCurve2CalcVal(union nuanimcurve2_u *curve, struct nuanimtime_s *atim
     int nkey = nw_anim_nkey(mask, atime);
     struct nuanimcurvedata2_s *curvedata = curve->curvedata;
     int ix = curvedata->key_ixs[atime->chunk];
+    if (ix + nkey == 0 && keytype != NUANIMKEYTYPE_SMALL) {
+        return 0.0f;
+    }
     switch (keytype) {
     case NUANIMKEYTYPE_HERMITE: {
         struct nuanimkey2_s *key = &curvedata->keys[ix + nkey - 1];

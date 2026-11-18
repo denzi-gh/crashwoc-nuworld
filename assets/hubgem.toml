@@ -1,0 +1,50 @@
+[model]
+file = 'levels\a\tsunami\toonarmy.gsc'
+object = 'gem_solid'
+buffer_kb = 12288
+
+[unlock]
+level = 7
+flag = 0x100
+seen_bit = 0
+
+[place]
+level = 37
+position_milli = [-6000, 8450, 0]
+yaw_deg = 0
+scale_milli = 1000
+radius_milli = 760
+height_milli = 630
+
+[start]
+settle_ms = 0
+floor_range_milli = 3000
+clear_milli = 1300
+
+[camera]
+position_milli = [-2800, 10400, -500]
+look_milli = [-6000, 8400, 0]
+blend_in_ms = 1500
+appear_ms = 3000
+hold_ms = 2500
+blend_out_ms = 1500
+
+[appear]
+debris = 77
+sfx = 0x1E
+volume = 0x7FFE
+effect_height_milli = -200
+hide_hud = true
+
+[message]
+text = "NEEDS AN N.SANE POWER SOURCE..."
+range_milli = 1600
+y_milli = -850
+drop_milli = -300
+slide_ms = 333
+scale_milli = 600
+colour = 3
+
+[walls]
+open_milli = [-4500, -800, -3500, 800]
+add_milli = [-4579, -912, -6800, -912, -6800, 912, -4579, 912]

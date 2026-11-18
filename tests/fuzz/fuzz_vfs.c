@@ -171,7 +171,7 @@ static void fuzz_vif(const uint8_t *data, size_t size)
 
 static void fuzz_save_doc(const uint8_t *data, size_t size)
 {
-    static uint8_t games[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE], again[NW_SAVE_RECORDS * NW_SAVE_GAME_SIZE];
+    static uint8_t games[NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE], again[NW_SAVE_PS2_GAMES * NW_SAVE_GAME_SIZE];
     NwDoc doc, back;
     size_t n1 = 0, n2 = 0;
     if (!nw_doc_init(&doc)) {
@@ -190,9 +190,9 @@ static void fuzz_save_doc(const uint8_t *data, size_t size)
         nw_doc_free(&back);
         SDL_free(t2);
         SDL_free(t1);
-        if (nw_save_decode(&doc, &save_reg, games, NW_SAVE_RECORDS) &&
-            nw_save_merge(&doc, &save_reg, games, NW_SAVE_RECORDS) &&
-            (!nw_save_decode(&doc, &save_reg, again, NW_SAVE_RECORDS) || memcmp(games, again, sizeof(games)) != 0)) {
+        if (nw_save_decode(&doc, &save_reg, games, NW_SAVE_PS2_GAMES) &&
+            nw_save_merge(&doc, &save_reg, games, NW_SAVE_PS2_GAMES) &&
+            (!nw_save_decode(&doc, &save_reg, again, NW_SAVE_PS2_GAMES) || memcmp(games, again, sizeof(games)) != 0)) {
             SDL_Log("fuzz_vfs: merged records do not decode the same: %s", SDL_GetError());
             abort();
         }
@@ -204,7 +204,7 @@ static void fuzz_card(const uint8_t *data, size_t size)
 {
     size_t len = 0;
     bool missing = false;
-    SDL_free(nw_ps2card_file(data, size, NW_SAVE_CARD_NAME, NW_SAVE_CARD_NAME "slot00", &len, &missing));
+    SDL_free(nw_ps2card_file(data, size, NW_SAVE_PS2_NAME, NW_SAVE_PS2_NAME "slot00", &len, &missing));
 }
 
 /* An RNC file unpacked into exactly its header's size: whatever the bytes, nothing outside the two ranges. */

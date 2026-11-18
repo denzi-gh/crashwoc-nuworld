@@ -4,7 +4,10 @@
 
 #include "app.h"
 #include "frontend/debug.h"
+#include "gfx/fog.h"
+#include "gfx/gl.h"
 #include "gfx/interp.h"
+#include "platform/log.h"
 #include "port/wide.h"
 
 #define NW_VIDEO_SIZES 32  /* resolutions the panel lists */
@@ -17,6 +20,9 @@ static struct {
     NwResolution asked;      /* the window size the port set last, which no drag made */
     NwVsync vsync;           /* in effect */
     float aspect, hud;       /* the game's view, as last asked for */
+    char gpu[NW_GPU_NAME];
+    char gpus[NW_GPU_CARDS][NW_GPU_NAME];
+    int ngpus;
 } nw_video;
 
 static bool nw_video_near(NwResolution a, NwResolution b)
@@ -79,15 +85,15 @@ static void nw_video_set(const NwSettings *s)
         nw_video.asked = s->resolution;
     }
     if (!nw_display_set_mode(nw_video.platform->window, s->window, s->resolution)) {
-        fprintf(stderr, NW_APP_NAME ": window mode: %s\n", SDL_GetError());
+        nw_log_warn(NW_LOG_APP, "window mode: %s", SDL_GetError());
     }
 }
 
 static void nw_video_render(const NwSettings *s)
 {
     nw_backend_set_options(
-        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .clouds = s->clouds,
-                                               .water = s->water, .silhouettes = s->silhouettes });
+        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .gems = s->gems,
+                            .clouds = s->clouds, .water = s->water, .silhouettes = s->silhouettes });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -95,7 +101,7 @@ static void nw_video_vsync(NwVsync vsync)
     static const char *const names[NW_VSYNC_MODES] = { "off", "on", "adaptive" };
     nw_video.vsync = nw_display_set_vsync(vsync);
     if (nw_video.vsync != vsync) {
-        fprintf(stderr, NW_APP_NAME ": vsync %s is not supported, it is %s\n", names[vsync], names[nw_video.vsync]);
+        nw_log_warn(NW_LOG_APP, "vsync %s is not supported, it is %s", names[vsync], names[nw_video.vsync]);
     }
 }
 
@@ -206,6 +212,24 @@ static void nw_video_panel(void *user)
     if (nw_debug_combo("Texture filter", &filter, filters, NW_FILTERS)) {
         s->filter = filter;
     }
+    static const char *const looks[] = { "Retail", "Enhanced" };
+    int gems = s->gems;
+    if (nw_debug_combo("Gems and relics", &gems, looks, 2)) {
+        s->gems = gems;
+    }
+    nw_debug_slider_int("Draw distance %", &s->draw_distance, 100, NW_DRAW_DISTANCE_MAX);
+    nw_debug_tooltip("How far objects are drawn; 100 is the PS2's");
+    nw_debug_slider_int("Fog %", &s->fog, 0, 100);
+    nw_debug_tooltip("How strong the levels' fog is");
+    int blur = s->blur, haze = s->haze;
+    if (nw_debug_combo("Distance blur", &blur, offon, 2)) {
+        s->blur = blur;
+    }
+    nw_debug_tooltip("The PS2 blurs what the fog covers");
+    if (nw_debug_combo("Heat haze", &haze, offon, 2)) {
+        s->haze = haze;
+    }
+    nw_debug_tooltip("The shimmer in the fire and underwater levels and over candle flames");
     static const char *const clouds_names[] = { "Retail", "Volumetric" };
     int clouds = s->clouds;
     if (nw_debug_combo("Clouds", &clouds, clouds_names, 2)) {
@@ -228,6 +252,40 @@ static void nw_video_panel(void *user)
         s->hud = huds[hud];
     }
     nw_debug_text("frame %d px wide", nw_wide_width());
+#ifdef _WIN32
+    const char *gpus[NW_GPU_CARDS + 2] = { "Auto" };
+    int n = 1, current = 0;
+    for (int i = 0; i < nw_video.ngpus; i++) {
+        gpus[n++] = nw_video.gpus[i];
+    }
+    for (int i = 1; i < n && !current; i++) {
+        current = SDL_strcmp(s->gpu, gpus[i]) == 0 ? i : 0;
+    }
+    if (!current && SDL_strcmp(s->gpu, "auto") != 0) {
+        gpus[n] = s->gpu;
+        current = n++;
+    }
+    int pick = current;
+    if (nw_debug_combo("Graphics card", &pick, gpus, n) && pick != current) {
+        SDL_zero(s->gpu);
+        SDL_strlcpy(s->gpu, pick ? gpus[pick] : "auto", sizeof(s->gpu));
+    }
+    nw_debug_tooltip("Auto lets Windows and the graphics driver choose; NuWorld asks for the faster card.");
+    if (SDL_strcmp(s->gpu, nw_video.gpu) != 0) {
+        nw_debug_text("takes effect at the next start");
+    }
+#endif
+    const GLubyte *renderer = glGetString(GL_RENDERER);
+    nw_debug_text("drawn by %s", renderer ? (const char *)renderer : "?");
+}
+
+static void nw_video_gpus(const char *gpu)
+{
+    SDL_strlcpy(nw_video.gpu, gpu, sizeof(nw_video.gpu));
+    nw_video.ngpus = nw_gpu_list(nw_video.gpus);
+    for (int i = 0; i < nw_video.ngpus; i++) {
+        nw_log_info(NW_LOG_GL, "graphics card: %s", nw_video.gpus[i]);
+    }
 }
 
 unsigned nw_video_fps(const NwSettings *s)
@@ -253,6 +311,7 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     nw_video.platform = p;
     nw_video.settings = s;
     nw_video.fullscreen = s->window == NW_WINDOW_WINDOWED ? NW_WINDOW_BORDERLESS : s->window;
+    nw_video_gpus(s->gpu);
     nw_debug_panel("Settings", "Video", nw_video_panel, s, false);
     nw_debug_action("Settings", "Fullscreen", SDL_SCANCODE_F11, nw_video_toggle, s);
     float aspect = nw_video_aspect(s);
@@ -266,6 +325,8 @@ float nw_video_start(NwPlatform *p, NwSettings *s)
     }
     nw_video_vsync(s->vsync);
     nw_video_render(s);
+    nw_wide_draw_distance(s->draw_distance);
+    nw_fog_options(s->fog, s->blur, s->haze);
     return aspect;
 }
 
@@ -295,9 +356,18 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->clouds != was->clouds ||
-        s->water != was->water || s->silhouettes != was->silhouettes) {
+    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->gems != was->gems ||
+        s->clouds != was->clouds || s->water != was->water || s->silhouettes != was->silhouettes) {
         nw_video_render(s);
+    }
+    if (s->draw_distance != was->draw_distance) {
+        nw_wide_draw_distance(s->draw_distance);
+    }
+    if (s->fog != was->fog || s->blur != was->blur || s->haze != was->haze) {
+        nw_fog_options(s->fog, s->blur, s->haze);
+    }
+    if (SDL_strcmp(s->gpu, was->gpu) != 0) {
+        nw_gpu_prefer(s->gpu);
     }
     int w, h;
     nw_display_size(nw_video.platform->window, &w, &h);

@@ -13,5 +13,6 @@ typedef struct NwPlatform {
 
 bool nw_platform_init(NwPlatform *p, const char *title, int width, int height);
 void nw_platform_shutdown(NwPlatform *p);
+void nw_platform_gl_debug(bool on);
 
 #endif

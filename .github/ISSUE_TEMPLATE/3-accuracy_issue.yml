@@ -1,7 +1,7 @@
 name: Accuracy issue
 description: NuWorld looks, sounds or plays different from the original PS2 game.
-title: "[Accuracy]: "
-labels: ["accuracy"]
+type: Accuracy
+labels: ["needs-triage"]
 body:
   - type: markdown
     attributes:

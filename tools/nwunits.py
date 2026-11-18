@@ -19,7 +19,7 @@ DEFAULT_PORT_SRC = REPO / "src"
 VERSION = "pal103"
 
 TREATMENTS = ("compile", "editor", "hle", "replace", "dead", "shim")
-UNIT_KEYS = {"treatment", "override", "keep", "rename", "wrap", "expose", "runtime", "called"}
+UNIT_KEYS = {"treatment", "override", "keep", "rename", "wrap", "expose", "runtime", "called", "drop"}
 HOST_DEFINES = frozenset({"NW_HOST"})
 
 STATE_PROVENANCE = {"matching": "matching", "equivalent": "equivalent", "asm": "near"}
@@ -50,7 +50,7 @@ class Function:
     address: int
     state: str | None = None
     host: str = ""
-    provider: str = ""              # decomp | port | stub | shim
+    provider: str = ""              # decomp | port | stub | shim | dropped (neither C nor a stub)
     provenance: str = ""
     overridden: bool = False
     wrapped: bool = False           # the decomp C compiles as <name>__retail, the port's <name> takes the calls
@@ -76,6 +76,7 @@ class Unit:
     runtime: tuple[str, ...] = ()   # editor unit: compiled in every build, the rest only with the editor
     editor_dropped: bool = False    # the functions outside runtime are dropped (no editor build)
     called: tuple[str, ...] = ()    # editor/dead unit: stubs compiled code may call (guarded or unreachable)
+    drop: tuple[str, ...] = ()      # functions the host has neither as C nor as a stub: a call is a link error
     functions: list[Function] = field(default_factory=list)
     source: str | None = None
     kind: str = ""                  # wrapper | standalone | none
@@ -92,6 +93,9 @@ class Unit:
 
     def is_wrapped(self, name: str) -> bool:
         return name in self.wrap
+
+    def is_dropped(self, name: str) -> bool:
+        return any(fnmatch.fnmatchcase(name, p) for p in self.drop)
 
 
 def load_registries(decomp: Path, version: str) -> list[Unit]:
@@ -476,11 +480,12 @@ def load_units_toml(path: Path, units: list[Unit], errors: list[str]) -> None:
         unit.called = tuple(entry.get("called", ()))
         if unit.called and unit.treatment not in ("editor", "dead"):
             errors.append(f"unit {unit.name}: called on a {unit.treatment} unit (editor and dead only)")
+        unit.drop = tuple(entry.get("drop", ()))
         if unit.keep and not unit.override:
             errors.append(f"unit {unit.name}: keep without override")
         fnames = [f.name for f in unit.functions]
         for kind, patterns in (("override", unit.override), ("keep", unit.keep), ("runtime", unit.runtime),
-                               ("called", unit.called)):
+                               ("called", unit.called), ("drop", unit.drop)):
             for p in patterns:
                 if not any(fnmatch.fnmatchcase(n, p) for n in fnames):
                     errors.append(f"unit {unit.name}: {kind} {p!r} matches no function")
@@ -570,6 +575,15 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
             defs = [d for d in tu_decls.get(f.name, ()) if d.is_def]
             f.definition = defs[0] if defs else None
             f.wrapped = unit.is_wrapped(f.name)
+            if unit.is_dropped(f.name):
+                why = ("it is also wrapped" if f.wrapped
+                       else "the decomp compiles it (keep it from the host: #ifndef NW_HOST)"
+                       if f.definition is not None and not f.overridden
+                       else "the port defines it" if f.host in port_defs else None)
+                if why:
+                    model.errors.append(f"unit {unit.name}: drop {f.name}: {why}")
+                f.provider, f.provenance = "dropped", "stub"
+                continue
             if f.wrapped:
                 why = ("it is also overridden" if f.overridden
                        else "the decomp has no C for it" if f.definition is None
@@ -604,6 +618,9 @@ def load(decomp: Path = DEFAULT_DECOMP, units_toml: Path = DEFAULT_UNITS,
             if f.provider == "port" and f.static:
                 model.warnings.append(f"{unit.name}: the port defines {f.name}, static in the "
                                       f"decomp; expose it in port/units.toml")
+
+        if unit.kind == "standalone" and unit.functions and all(f.provider == "dropped" for f in unit.functions):
+            unit.kind = "none"  # nothing of it on the host: no stubs, no function map
 
     _check_globals(model, units, port_defs)
     _check_calls(model, units, files)
@@ -649,6 +666,7 @@ def _check_calls(model: Model, units: list[Unit], files: dict[str, CFile]) -> No
     """Compiled decomp code calls a stub of an editor or dead unit only where that unit lists it under called."""
     stubs = {f.name: f for u in units if u.treatment in ("editor", "dead")
              for f in u.functions if f.provider == "stub"}
+    dropped = {f.name: f for u in units for f in u.functions if f.provider == "dropped"}
     used = set()
     for unit in units:
         if unit.kind != "wrapper":
@@ -665,6 +683,10 @@ def _check_calls(model: Model, units: list[Unit], files: dict[str, CFile]) -> No
             for c in sorted(defs[name].calls):
                 if c in defs and c not in registry:
                     todo.append(c)
+                    continue
+                if c in dropped:
+                    model.errors.append(f"{defs[name].where}: {name} calls {c}, which {dropped[c].unit.name} drops "
+                                        "(port/units.toml)")
                     continue
                 f = stubs.get(c)
                 if f is None:

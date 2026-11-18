@@ -5,15 +5,18 @@
 #include "gameplay/ground.h"
 #include "gameplay/mech.h"
 #include "gameplay/monkeybars.h"
+#include "gameplay/slidespin.h"
 #include "gameplay/submarine.h"
 
 void MoveCRASH(struct creature_s *plr, struct nupad_s *pad)
 {
     nw_ground_before(plr, pad);
     nw_air_before(plr, pad);
+    nw_slide_spin_before(plr, pad);
     MoveCRASH__retail(plr, pad);
     nw_air_move(plr, pad);
     nw_ground_after(plr);
+    nw_slide_spin_after(plr);
 }
 
 void MoveCOCO(struct creature_s *plr, struct nupad_s *pad)

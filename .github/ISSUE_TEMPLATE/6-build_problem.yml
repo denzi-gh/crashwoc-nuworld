@@ -1,7 +1,7 @@
 name: Build problem
 description: The port fails to configure, compile or link from source.
-title: "[Build]: "
-labels: ["build"]
+type: Bug
+labels: ["build", "needs-triage"]
 body:
   - type: markdown
     attributes:

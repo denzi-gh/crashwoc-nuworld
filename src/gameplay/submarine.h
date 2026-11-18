@@ -2,6 +2,8 @@
 #ifndef NUWORLD_GAMEPLAY_SUBMARINE_H
 #define NUWORLD_GAMEPLAY_SUBMARINE_H
 
+#include <stdbool.h>
+
 struct creature_s;
 struct nuvec_s;
 struct obj_s;
@@ -23,6 +25,9 @@ void nw_sub_accel(struct nuvec_s *vvel);
 /* PlayerCreatureCollisions, MoveCreature and UpdateProjectiles around retail. */
 void nw_sub_shrink(void);
 void nw_sub_restore(void);
+/* UpdateProjectiles around retail; HitWumpa, before retail: true skips it. */
+void nw_sub_shots(bool on);
+bool nw_sub_fruit(void);
 /* DebrisCollisionCheck's radius. */
 float nw_sub_particle(float radius);
 

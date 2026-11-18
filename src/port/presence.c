@@ -72,3 +72,8 @@ void nw_presence_poll(NwPresenceSnap *out)
     *out = nw_presence_snap;
     SDL_UnlockSpinlock(&nw_presence_lock);
 }
+
+const NwPresenceSnap *nw_presence_peek(void)
+{
+    return &nw_presence_snap;
+}

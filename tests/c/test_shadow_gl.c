@@ -10,7 +10,7 @@
 #include "gfx/backend.h"
 #include "gfx/gl.h"
 
-/* Only the debug UI is replaced; the rendering, uploads, shaders and packet exchange are production code. */
+/* Only the debug UI and the crash report's phase are replaced; the rendering, uploads, shaders and packet exchange are production code. */
 static bool *disabled;
 void nw_debug_toggle(const char *menu, const char *label, bool *value)
 {
@@ -23,6 +23,7 @@ void nw_debug_action(const char *m, const char *l, SDL_Scancode k, NwDebugFn f, 
 { (void)m; (void)l; (void)k; (void)f; (void)u; }
 void nw_debug_text(const char *fmt, ...) { (void)fmt; }
 char *nw_debug_file(const char *f, const char *e) { (void)f; (void)e; return NULL; }
+void nw_crash_phase(const char *what, unsigned i, unsigned n) { (void)what; (void)i; (void)n; }
 
 static int failures;
 static float receiver_slope;

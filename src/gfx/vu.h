@@ -35,6 +35,8 @@ typedef enum NwVuProgram {
     NW_VU_TRIGLASS,
     NW_VU_SKNGLASS,
     NW_VU_PTL_GENERAL, /* general particle filtering; PTL specializes power-of-two bilinear textures without mipmaps */
+    NW_VU_GEM,         /* [video] gems (gfx/gem.h): a tric geom in world space, shaded as cut stone or metal */
+    NW_VU_SKNGEM,      /* the same for a skin geom */
     NW_VU_PROGRAMS
 } NwVuProgram;
 
@@ -127,6 +129,15 @@ void nw_vu1init_lights(NwVuObject *o, const float local[16], const NwLights *l);
 /* The UV matrix of a specular or fx stream (mode 4) the same way: its first three rows into the object's space, the
    offset as it is. */
 void nw_vu1init_uv(NwVuObject *o, const float local[16], const NwLights *l);
+/* The gem programs' world: local to world and world to clip (row-major, as lv), the eye, the camera's right, up and
+   forward, the gem's tint, kind and role (gfx/gem.h), whether a menu or the HUD draws it, the target's viewport. */
+typedef struct NwVuGem {
+    float world[16], vp[16];
+    float eye[3], cam[9], tint[3];
+    int kind, role, panel;
+    int viewport[4];
+} NwVuGem;
+void nw_vu_gem(NwVuProgram program, const NwVuGem *g);
 /* Sets the program and the material's state; returns the passes its alpha test draws the triangles in. */
 uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, NwMtlPass pass[2]);
 /* Whether the target keeps the alpha the passes write (a PSMCT24 frame does not). */

@@ -8,5 +8,6 @@
 void nw_presence_swap(void);
 /* Any thread: the newest copy; valid is false before the first swap. */
 void nw_presence_poll(NwPresenceSnap *out);
+const NwPresenceSnap *nw_presence_peek(void);
 
 #endif

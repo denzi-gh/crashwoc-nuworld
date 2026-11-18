@@ -140,18 +140,58 @@ static int read_speed(const char *text)
     return read_text(text, &s) ? s.hardware_speed : -1;
 }
 
-/* hz as root's settings.toml with text reads it; -1 when it does not load. */
-static int read_hz(const char *text)
-{
-    NwSettings s;
-    return read_text(text, &s) ? s.hz : -1;
-}
-
 /* master_volume * 1000 + voice_volume; -1 when it does not load. */
 static int read_volumes(const char *text)
 {
     NwSettings s;
     return read_text(text, &s) ? s.master_volume * 1000 + s.voice_volume : -1;
+}
+
+static void profiles(void)
+{
+    const NwMovement nhanced = NW_MOVEMENT_NHANCED, retail = NW_MOVEMENT_RETAIL;
+    NwMovement m = retail;
+    char name[NW_PROFILE_NAME];
+    size_t size = 0;
+    char *text = nw_settings_profile_text(&nhanced, NW_PARTS_ALL, "Mine", &size);
+    CHECK(text && SDL_strstr(text, "name = \"Mine\"") && SDL_strstr(text, "[game.movement.spacefighter]"));
+    CHECK(text && nw_settings_profile_read(text, size, &m, name, sizeof(name)) == NW_PARTS_ALL);
+    CHECK(SDL_strcmp(name, "Mine") == 0 && m.monkey_bar_speed == nhanced.monkey_bar_speed && m.crash.jump_fall &&
+          m.crash.slide_ms == nhanced.crash.slide_ms && m.coco.grip && m.spacefighter.aim_assist);
+    SDL_free(text);
+
+    NwMovement coco = nhanced;
+    coco.coco.run_top = 130;
+    text = nw_settings_profile_text(&coco, 1u << NW_PART_COCO, "Coco", &size);
+    CHECK(text && !SDL_strstr(text, "[game.movement.crash]") && !SDL_strstr(text, "monkey_bar_speed"));
+    m = retail;
+    CHECK(text && nw_settings_profile_read(text, size, &m, name, sizeof(name)) == 1u << NW_PART_COCO);
+    CHECK(m.coco.run_top == 130 && m.coco.run_speed && !m.crash.jump_fall && m.monkey_bar_speed == 100);
+    SDL_free(text);
+
+    const char *bars = "[game.movement]\nmonkey_bar_speed = 200\n";
+    m = retail;
+    CHECK(nw_settings_profile_read(bars, SDL_strlen(bars), &m, name, sizeof(name)) == 1u << NW_PART_CRASH);
+    CHECK(m.monkey_bar_speed == 200 && m.crash.jump_fall && !name[0]);
+
+    const char *one = "[profile]\nname = \" a/b:c?. \"\n[game.movement.crash]\njump_height = 999\ngrip = false\n";
+    m = retail;
+    CHECK(nw_settings_profile_read(one, SDL_strlen(one), &m, name, sizeof(name)) == 1u << NW_PART_CRASH);
+    CHECK(m.crash.jump_height == 130 && !m.crash.grip && m.crash.slide && SDL_strcmp(name, "abc") == 0 &&
+          m.monkey_bar_speed == nhanced.monkey_bar_speed && !m.jeep.steering);
+
+    const char *none = "[game]\nwombat = true\n", *bad = "not toml [";
+    m = retail;
+    CHECK(nw_settings_profile_read(none, SDL_strlen(none), &m, name, sizeof(name)) == 0);
+    CHECK(nw_settings_profile_read(bad, SDL_strlen(bad), &m, name, sizeof(name)) == 0 && m.monkey_bar_speed == 100);
+
+    m = retail;
+    nw_settings_profile_apply(&m, &nhanced, (1u << NW_PART_CRASH) | (1u << NW_PART_JEEP));
+    CHECK(m.monkey_bar_speed == nhanced.monkey_bar_speed && m.crash.jump_fall && m.jeep.steering && !m.coco.run_speed);
+
+    char messy[] = "  Fast\tRun..  ";
+    nw_settings_profile_name(messy);
+    CHECK(SDL_strcmp(messy, "FastRun") == 0);
 }
 
 int main(int argc, char *argv[])
@@ -207,8 +247,8 @@ int main(int argc, char *argv[])
     CHECK(read_volumes("[game]\nmaster_volume = 5\n") == 100100);
 
     nw_settings_defaults(&s);
-    CHECK(s.unused_title);
-    CHECK(read_text("[game]\nunused_title = false\n", &s) && !s.unused_title);
+    CHECK(!s.retail_menu);
+    CHECK(read_text("[game]\nretail_menu = true\n", &s) && s.retail_menu);
     nw_settings_defaults(&s);
     CHECK(s.air_indicator);
     CHECK(read_text("[game]\nair_indicator = false\n", &s) && !s.air_indicator);
@@ -233,6 +273,10 @@ int main(int argc, char *argv[])
     nw_settings_defaults(&s);
     CHECK(s.hub_minigame);
     CHECK(read_text("[game]\nhub_minigame = false\n", &s) && !s.hub_minigame);
+    CHECK(s.first_boss_cut);
+    CHECK(read_text("[game]\nfirst_boss_cut = false\n", &s) && !s.first_boss_cut);
+    CHECK(!s.long_time_names); /* the original's 3 letters unless asked */
+    CHECK(read_text("[game]\nlong_time_names = true\n", &s) && s.long_time_names);
     nw_settings_defaults(&s);
     CHECK(s.discord);
     CHECK(read_text("[discord]\nenabled = false\n", &s) && !s.discord);
@@ -241,14 +285,51 @@ int main(int argc, char *argv[])
     CHECK(discord && SDL_strstr(discord, "\n[discord]\nenabled = false\n") && SDL_strstr(discord, "# discord.enabled: "));
     SDL_free(discord);
     nw_settings_defaults(&s);
-    CHECK(s.camera_stability == 100);
+    CHECK(s.updates);
+    CHECK(read_text("[updates]\ncheck = false\n", &s) && !s.updates);
+    nw_settings_defaults(&s);
+    CHECK(SDL_strcmp(s.log, "info") == 0 && !s.gl_debug && s.minidump);
+    CHECK(read_text("[log]\nlevel = \"info,gfx=debug\"\ngl_debug = true\nminidump = false\n", &s) &&
+          SDL_strcmp(s.log, "info,gfx=debug") == 0 && s.gl_debug && !s.minidump);
+    CHECK(nw_settings_save(&s, root));
+    char *log = file_text();
+    CHECK(log && SDL_strstr(log, "\n[log]\nlevel = \"info,gfx=debug\"\ngl_debug = true\nminidump = false\n") &&
+          SDL_strstr(log, "# log.level: "));
+    SDL_free(log);
+    nw_settings_defaults(&s);
+    CHECK(s.camera_stability == 50);
     CHECK(read_text("[game]\ncamera_stability = 40\n", &s) && s.camera_stability == 40);
-    CHECK(read_text("[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);
+    CHECK(read_text("version = 2\n[game]\ncamera_stability = 300\n", &s) && s.camera_stability == 100);
+    nw_settings_defaults(&s);
+    CHECK(s.draw_distance == 400);
+    CHECK(read_text("[video]\ndraw_distance = 250\n", &s) && s.draw_distance == 250);
+    CHECK(read_text("[video]\ndraw_distance = 50\n", &s) && s.draw_distance == 100);
+    CHECK(read_text("[video]\ndraw_distance = 900\n", &s) && s.draw_distance == NW_DRAW_DISTANCE_MAX);
+    nw_settings_defaults(&s);
+    CHECK(s.fog == 40 && !s.blur && !s.haze);
+    CHECK(read_text("version = 2\n[video]\nfog = 100\nblur = true\nhaze = true\n", &s) && s.fog == 100 && s.blur &&
+          s.haze);
+    CHECK(read_text("[video]\nfog = -5\n", &s) && s.fog == 0);
+    CHECK(read_text("version = 2\n[video]\nfog = 250\n", &s) && s.fog == 100);
+    /* A file from before version 2 on the old defaults takes the new ones; other values stay. */
+    CHECK(read_text("[game]\ncamera_stability = 100\n[video]\nfog = 100\nblur = true\nhaze = true\n", &s) &&
+          s.camera_stability == 50 && s.fog == 40 && !s.blur && !s.haze);
+    CHECK(read_text("[game]\ncamera_stability = 0\n[video]\nfog = 70\n", &s) && s.camera_stability == 0 &&
+          s.fog == 70);
+    s.camera_stability = 100;
+    s.fog = 100;
+    s.blur = true;
+    CHECK(nw_settings_save(&s, root));
+    char *versioned = file_text();
+    CHECK(versioned && SDL_strstr(versioned, "\nversion = 2\n") && SDL_strstr(versioned, "# version: "));
+    SDL_free(versioned);
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && s.camera_stability == 100 && s.fog == 100 && s.blur);
     nw_settings_defaults(&s);
     CHECK(s.movement.monkey_bar_speed == ((NwMovement)NW_MOVEMENT_NHANCED).monkey_bar_speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 150);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 900\n", &s) && s.movement.monkey_bar_speed == 500);
-    CHECK(read_text("[game]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 350);
+    CHECK(read_text("[game]\nmonkey_bar_speed = 150\n", &s) && s.movement.monkey_bar_speed == 335);
     s.movement.monkey_bar_speed = 100;
     CHECK(nw_settings_save(&s, root));
     char *movement = file_text();
@@ -266,9 +347,9 @@ int main(int argc, char *argv[])
     CHECK(!s.movement.mech.stand_jump && !s.movement.mech.hitbox && s.movement.mech.shot_tap &&
           s.movement.mech.shot_stop_ms == 25);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
-          s.movement.crash.grip && s.movement.crash.run_speed && s.movement.mech.stand_jump);
+          s.movement.crash.grip && s.movement.crash.air_jump && s.movement.mech.stand_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.mech]\naim_fast = true\n", &s) &&
-          !s.movement.crash.run_speed && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
+          !s.movement.crash.air_jump && s.movement.mech.aim_fast && s.movement.mech.stand_jump);
     NW_COCO_MOVEMENT(COCO_SWITCH, COCO_FLAG, COCO_VALUE)
     /* The same for Coco's. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.coco.run_speed &&
@@ -276,10 +357,10 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.coco.jump_fall);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.coco]\ngrip = false\n", &s) &&
-          !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.run_speed);
+          !s.movement.coco.grip && s.movement.coco.run_speed && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.coco.grip);
-    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.run_speed &&
-          !s.movement.crash.jump_fall);
+    CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.crash.jump_fall &&
+          !s.movement.crash.run_speed);
     NW_SUB_MOVEMENT(SUB_SWITCH, SUB_SWITCH, SUB_VALUE)
     /* The same for the submarine's: a retail file from before them stays retail, any other takes the defaults. */
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n", &s) && !s.movement.submarine.turning &&
@@ -287,7 +368,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.submarine.speed);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.submarine]\nhitbox = true\n", &s) &&
-          s.movement.submarine.hitbox && !s.movement.crash.run_speed);
+          s.movement.submarine.hitbox && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.submarine.turning);
     NW_JEEP_MOVEMENT(JEEP_SWITCH, JEEP_FLAG, JEEP_VALUE)
     /* The same for the jeep's: a retail file from before them stays retail, any other takes the defaults. */
@@ -296,7 +377,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.jeep.steering);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.jeep]\nspeed = false\n", &s) &&
-          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.run_speed);
+          !s.movement.jeep.speed && s.movement.jeep.steering && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.jeep.steering);
     NW_ATLAS_MOVEMENT(ATLAS_SWITCH, ATLAS_FLAG, ATLAS_VALUE)
     /* The same for the atlasphere's: a retail file from before them stays retail, any other takes the defaults. */
@@ -306,7 +387,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.atlasphere.brake && !s.movement.atlasphere.edge_guard);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.atlasphere]\nedge_guard = true\n", &s) &&
-          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard && !s.movement.crash.run_speed);
+          s.movement.atlasphere.brake && s.movement.atlasphere.edge_guard && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && !s.movement.atlasphere.edge_guard &&
           s.movement.atlasphere.brake && s.movement.atlasphere.steer_turn == 250);
     NW_FIREFLY_MOVEMENT(FIREFLY_SWITCH, FIREFLY_FLAG, FIREFLY_VALUE)
@@ -316,7 +397,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.firefly.lock_on && s.movement.firefly.steering);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.firefly]\nsteering = false\n", &s) &&
-          s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.run_speed);
+          s.movement.firefly.lock_on && !s.movement.firefly.steering && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.firefly.steering);
     NW_PLANE_MOVEMENT(PLANE_SWITCH, PLANE_FLAG, PLANE_VALUE)
     /* The same for the plane's: a retail file from before them stays retail, any other takes the defaults. */
@@ -325,7 +406,7 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.plane.steering && s.movement.plane.aim);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.plane]\naim = false\n", &s) &&
-          s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.run_speed);
+          s.movement.plane.steering && !s.movement.plane.aim && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.plane.steering);
     NW_SPACE_MOVEMENT(SPACE_SWITCH, SPACE_FLAG, SPACE_VALUE)
     /* The same for the space fighter's. */
@@ -335,20 +416,13 @@ int main(int argc, char *argv[])
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.crash]\ngrip = true\n", &s) &&
           s.movement.spacefighter.steering && s.movement.spacefighter.aim);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 100\n[game.movement.spacefighter]\nroll = false\n", &s) &&
-          !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.run_speed);
+          !s.movement.spacefighter.roll && s.movement.spacefighter.aim && !s.movement.crash.air_jump);
     CHECK(read_text("[game.movement]\nmonkey_bar_speed = 350\n", &s) && s.movement.spacefighter.aim_assist);
 
-    nw_settings_defaults(&s);
-    CHECK(s.hz == 60);
-    s.hz = 50;
-    CHECK(nw_settings_save(&s, root));
-    nw_settings_defaults(&s);
-    CHECK(nw_settings_load(&s, root) && s.hz == 50);
-    CHECK(read_hz("[game]\nhz = 50\n") == 50);
-    CHECK(read_hz("[game]\nhz = 55\n") == 60); /* off the step: the default stays */
-    CHECK(read_hz("[game]\nhz = 240\n") == 60);
-    CHECK(read_hz("[game]\nhz = 0\n") == 50);
-    CHECK(read_hz("[game]\nhz = \"60\"\n") == 60);
+    /* The rate is the disc's now: an older file's hz is kept but changes nothing; PAL at 60 Hz is asked for. */
+    CHECK(read_speed("[game]\nhz = 60\nhardware_speed = true\n") == 1);
+    CHECK(read_text("[game]\nhz = 60\n", &s) && !s.pal_60hz);
+    CHECK(read_text("[game]\npal_60hz = true\n", &s) && s.pal_60hz);
 
     float a = -1.0f;
     char name[16];
@@ -416,6 +490,18 @@ int main(int argc, char *argv[])
     CHECK(read_text("[video]\nmsaa = -2\n", &s) && s.msaa == 0);
 
     CHECK(read_text("[video]\nfilter = \"bilinear\"\n", &s) && s.filter == NW_FILTER_BILINEAR);
+    CHECK(read_text("[video]\n", &s) && SDL_strcmp(s.gpu, "auto") == 0);
+    CHECK(read_text("[video]\ngpu = \"Intel(R) UHD Graphics 620\"\n", &s) &&
+          SDL_strcmp(s.gpu, "Intel(R) UHD Graphics 620") == 0);
+    CHECK(read_text("[video]\ngpu = \"\"\n", &s) && SDL_strcmp(s.gpu, "auto") == 0);
+    SDL_zero(s.gpu);
+    SDL_strlcpy(s.gpu, "NVIDIA GeForce RTX 4060 Laptop GPU", sizeof(s.gpu));
+    CHECK(nw_settings_save(&s, root));
+    nw_settings_defaults(&s);
+    CHECK(nw_settings_load(&s, root) && SDL_strcmp(s.gpu, "NVIDIA GeForce RTX 4060 Laptop GPU") == 0);
+    nw_settings_defaults(&s);
+    CHECK(s.gems);
+    CHECK(read_text("[video]\ngems = false\n", &s) && !s.gems);
 
     /* The intro's clouds: volumes unless the file asks for the PS2's cards. */
     nw_settings_defaults(&s);
@@ -505,6 +591,29 @@ int main(int argc, char *argv[])
           SDL_strstr(text, "[video]\nfov = 90\naspect = \"auto\"\n") &&
           SDL_strstr(text, "[mods.example]\nenabled = true\n") && SDL_strstr(text, "[audio]\n"));
     SDL_free(text);
+
+    NwSettings h;
+    nw_settings_defaults(&h);
+    CHECK(h.hub_gem && nw_settings_save(&h, root));
+    text = file_text();
+    CHECK(text && !SDL_strstr(text, "hub_gem"));
+    SDL_free(text);
+    h.hub_gem = false;
+    CHECK(nw_settings_save(&h, root));
+    text = file_text();
+    CHECK(text && SDL_strstr(text, "hub_gem = false\n") && !SDL_strstr(text, "game.hub_gem"));
+    SDL_free(text);
+    NwSettings back;
+    nw_settings_defaults(&back);
+    CHECK(nw_settings_load(&back, root) && !back.hub_gem && nw_settings_equal(&h, &back));
+    h.hub_gem = true;
+    CHECK(nw_settings_save(&h, root));
+    text = file_text();
+    CHECK(text && !SDL_strstr(text, "hub_gem"));
+    SDL_free(text);
+    CHECK(read_text("[game]\nhub_gem = false\n", &back) && !back.hub_gem);
+
+    profiles();
 
     if (failures) {
         fprintf(stderr, "settings: %d checks failed\n", failures);

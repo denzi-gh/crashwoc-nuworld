@@ -1,11 +1,15 @@
-/* Wraps of game/creature: the air indicator's, the hitbox view's, the vehicles', the slide's and the hub Crunch's hooks. */
+/* Wraps of game/creature: the air indicator's, the hitbox view's, the vehicles', the slide's, the hub Crunch's and the
+   gems' hooks. */
 #include "game/creature.h"
 #include "game/creature.retail.h"
 #include "gameplay/airindicator.h"
+#include "gameplay/gems.h"
 #include "gameplay/ground.h"
 #include "gameplay/hubcrunch.h"
+#include "gameplay/hubgem.h"
 #include "gameplay/hitboxes.h"
 #include "gameplay/mech.h"
+#include "gameplay/slidespin.h"
 #include "gameplay/submarine.h"
 #include "nups2/ps2ctl.h"
 #include "port/shadows.h"
@@ -33,6 +37,7 @@ void MovePlayer(struct creature_s *c, struct nupad_s *pad)
 void CloseCreatures(void)
 {
     nw_crunch_close();
+    nw_hubgem_close();
     CloseCreatures__retail();
 }
 
@@ -40,11 +45,14 @@ void LoadCharacterModels(void)
 {
     LoadCharacterModels__retail();
     nw_ground_loaded();
+    nw_gems_models();
 }
 
 void DrawCreatures(struct creature_s *c, s32 count, s32 render, s32 shadow)
 {
+    nw_slide_spin_lean(c, count);
     DrawCreatures__retail(c, count, render, shadow);
+    nw_slide_spin_unlean();
     if (c == &Character[0] && count == 1 && render && shadow) {
         nw_air_indicator_draw(c);
         nw_crunch_draw();

@@ -3,6 +3,9 @@
 #include <math.h>
 #include <string.h>
 
+#include <SDL3/SDL.h>
+
+#include "gfx/fog.h"
 #include "gfx/rndr.h"
 #include "nu3d/nucamera.h"
 #include "nu3d/nulight.h"
@@ -106,6 +109,17 @@ extern struct nulgtpolyhaze_s NuLgtPolyHazeData[32];
 /* This frame's fog depth CLUT (NuLgtHSurf[4]'s alpha), which the haze composite reads unless haze polys masked it. */
 static NwZClut nw_lgt_fog;
 static bool nw_lgt_polyhaze;
+
+static SDL_AtomicInt nw_lgt_fog_percent = { 100 };
+static SDL_AtomicInt nw_lgt_blur = { 1 };
+static SDL_AtomicInt nw_lgt_haze = { 1 };
+
+void nw_fog_options(int fog, bool blur, bool haze)
+{
+    SDL_SetAtomicInt(&nw_lgt_fog_percent, fog);
+    SDL_SetAtomicInt(&nw_lgt_blur, blur);
+    SDL_SetAtomicInt(&nw_lgt_haze, haze);
+}
 
 /* rndrstream_3d_u with mtl, as retail starts each pass's packets. */
 static void nw_lgt_stream(struct numtl_s *mtl)
@@ -410,17 +424,19 @@ static void nw_lgt_spot_vertex(NwVuSpriteVertex *v, float x, float y, float z, u
 static void nw_lgt_spot_edge(int i, NwVuSpriteVertex *v)
 {
     int o = (i + 16) & 0x3F;
+    float right = (float)(0x8000 + (nurndr_pixel_width << 3) + 0x400);
+    float left = (float)(0x8000 - (nurndr_pixel_width << 3) - 0x400);
     if ((o <= 8 || o >= 56) && v->pos[1] > 28672.0f) {
         v->pos[1] = 28672.0f;
     }
-    if (o >= 8 && o <= 24 && v->pos[0] < 38912.0f) {
-        v->pos[0] = 38912.0f;
+    if (o >= 8 && o <= 24 && v->pos[0] < right) {
+        v->pos[0] = right;
     }
     if (o >= 24 && o <= 40 && v->pos[1] < 36864.0f) {
         v->pos[1] = 36864.0f;
     }
-    if (o >= 40 && o <= 56 && v->pos[0] > 26624.0f) {
-        v->pos[0] = 26624.0f;
+    if (o >= 40 && o <= 56 && v->pos[0] > left) {
+        v->pos[0] = left;
     }
 }
 
@@ -733,7 +749,8 @@ void NuLightPolyHaze(int paused)
 
 /* The fog as a depth CLUT from fog-near to fog-far, a cosine ramp to the fog colour, instead of retail's byte passes
    (FogMat[0], [2]) and NuLgtFogMat[1]'s CLUT into NuLgtSurf[9]; Seashell's NuLightFogClear masks its alpha to a band
-   of Z. The composite (As past 0x80 in the x-ray room) and the two-pixel blur by the alpha it left are retail's. */
+   of Z. The composite (As past 0x80 in the x-ray room) and the two-pixel blur by the alpha it left are retail's;
+   gfx/fog.h's options weaken or drop them and the hazes. */
 void NuLightFogDraw(int paused)
 {
     u32 clut[256];
@@ -799,7 +816,9 @@ void NuLightFogDraw(int paused)
     nw_lgt_fog.alpha = true;
     znear = (float)((((int)znear >> shift) - 1) << shift);
     if (NuRndrFogCol || NuRndrFogBlur) {
-        if (NuRndrBeginSceneEx(-1, -2, 0)) {
+        const int percent = SDL_GetAtomicInt(&nw_lgt_fog_percent);
+        const u32 fogalpha = (((u32)NuRndrFogCol & 0xFE000000u) >> 25) * (u32)percent / 100u;
+        if (percent > 0 && NuRndrBeginSceneEx(-1, -2, 0)) {
             NwVuSpriteVertex *v;
             nw_lgt_stream(NuLgtSurf[9]);
             const int cols = (PS2_REZ_W + 63) >> 6;
@@ -811,7 +830,7 @@ void NuLightFogDraw(int paused)
                 const float uv[4] = { (float)i * 64.0f / p2w, 0.0f, ((float)i * 64.0f + 64.0f) / p2w,
                                       ((float)PS2_REZ_H - 0.5f) / NuPower2(PS2_REZ_H) };
                 v = nw_rndr_rect3d_quad(v, (i << 10) - 8, (ys << 4) - 8, 0x400, ye << 4, uv,
-                                        (int)(((NuRndrFogCol & 0xFE000000) >> 1) | 0x808080), (int)znear);
+                                        (int)(fogalpha << 24 | 0x808080), (int)znear);
             }
             NwZClut *z = nw_rndr_zclut(c);
             *z = nw_lgt_fog;
@@ -821,7 +840,7 @@ void NuLightFogDraw(int paused)
         }
         /* The frame two pixels on, blended in by the alpha the composite left (Ad, from the fog's CLUT as it may pass
            0x80). One record, as each rect reads only pixels the rects before it left. */
-        if (NuRndrFogBlur && NuRndrBeginSceneEx(-1, -2, 0)) {
+        if (NuRndrFogBlur && percent > 0 && SDL_GetAtomicInt(&nw_lgt_blur) && NuRndrBeginSceneEx(-1, -2, 0)) {
             NwVuSpriteVertex *v;
             nw_lgt_stream(NuLgtBackAlphaBuff);
             float v1 = (float)PS2_REZ_H / NuPower2(PS2_REZ_H);
@@ -833,7 +852,7 @@ void NuLightFogDraw(int paused)
             NwZClut *z = nw_rndr_zclut(c);
             *z = nw_lgt_fog;
             z->alpha = false;
-            z->ad = (uint8_t)((((u32)NuRndrFogCol & 0xFE000000u) >> 25) + 1);
+            z->ad = (uint8_t)(fogalpha + 1);
             for (i = 0; i < cols; i++) {
                 const float a[4] = { ((float)i * 64.0f + 2.0f) / p2w, 0.0f,
                                      ((float)i * 64.0f + 62.0f + 2.0f) / p2w, v1 };
@@ -850,7 +869,11 @@ void NuLightFogDraw(int paused)
             NuRndrEndSceneEx(0);
         }
     }
-    NuLightPolyHaze(paused);
-    NuLightHaze((int)znear, paused);
+    if (SDL_GetAtomicInt(&nw_lgt_haze)) {
+        NuLightPolyHaze(paused);
+        NuLightHaze((int)znear, paused);
+    } else if (!paused) {
+        NuLightHazePolyCnt = 0;
+    }
     txupload_on = 1;
 }

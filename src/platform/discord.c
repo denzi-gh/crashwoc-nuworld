@@ -11,6 +11,8 @@
 #include <unistd.h>
 #endif
 
+#include "platform/log.h"
+
 #define NW_DISCORD_MAX (64 * 1024)
 #define NW_DISCORD_JSON 4096
 #define NW_DISCORD_SHAKE_MS 5000
@@ -425,7 +427,7 @@ static void nw_link_tell(NwLink *l, const char *message)
 {
     if (SDL_strcmp(l->told, message) != 0) {
         SDL_strlcpy(l->told, message, sizeof(l->told));
-        SDL_Log("discord: %s", message);
+        nw_log_info(NW_LOG_NET, "discord: %s", message);
     }
 }
 
@@ -456,7 +458,8 @@ static void nw_link_connect(NwDiscordWorker *w, NwLink *l)
     l->ipc = nw_ipc_connect(w->endpoint);
     if (l->ipc == NW_IPC_NONE) {
         if (!l->missing_told) {
-            SDL_Log("discord: no Discord client running; looking again every %u s", (unsigned)(w->retry_ms / 1000));
+            nw_log_info(NW_LOG_NET, "discord: no Discord client running; looking again every %u s",
+                        (unsigned)(w->retry_ms / 1000));
             l->missing_told = true;
         }
         l->retry_at = SDL_GetTicks() + w->retry_ms;
@@ -484,7 +487,7 @@ static void nw_link_frame(NwDiscordWorker *w, NwLink *l, uint32_t op, const char
             l->missing_told = false;
             l->told[0] = '\0';
             SDL_SetAtomicInt(&w->ready, 1);
-            SDL_Log("discord: connected");
+            nw_log_info(NW_LOG_NET, "discord: connected");
         } else if (SDL_strcmp(evt, "ERROR") == 0) {
             nw_link_tell(l, nw_discord_field(json, "message", message, sizeof(message)) ? message : "error");
         }

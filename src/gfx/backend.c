@@ -10,10 +10,13 @@
 #include "data/image_tables.h"
 #include "frontend/debug.h"
 #include "gfx/cloudvol.h"
+#include "gfx/gem.h"
 #include "gfx/gl.h"
 #include "gfx/interp.h"
 #include "gfx/shadow.h"
 #include "gfx/vu.h"
+#include "platform/crash.h"
+#include "platform/log.h"
 #include "platform/paths.h"
 
 #define NW_BE_SURFS 16
@@ -60,11 +63,19 @@ static struct {
     uint32_t rect_cap;
     bool wireframe;
     NwRenderOptions opts;
+    uint64_t runs;           /* packets run */
+    const NwBeSurf *copy_of; /* the target copy holds */
+    uint64_t copy_run;       /* in that run */
+    uint32_t held[512];      /* the world's [video] gems draws, in NwPacket.cmds, till the scene behind them is drawn */
+    uint32_t nheld;
+    bool flushing; /* drawing those */
     int scale;          /* the frame's */
     int samples;        /* the frame's MSAA, 0 off */
     GLint max_tex;      /* GL_MAX_TEXTURE_SIZE */
     GLint max_samples;  /* GL_MAX_SAMPLES */
-    GLuint present_fbo; /* a mip level of the back buffer, to shrink it from */
+    GLuint present_prog, present_vao;
+    GLint present_rect, present_level;
+    bool checked; /* glGetError after the first packet run */
 } nw_be;
 
 /* A command with no material: GS defaults, untextured. */
@@ -100,9 +111,9 @@ static void nw_be_screenshot(void *user)
     (void)user;
     char *path = nw_debug_file(NW_PATHS_SCREENSHOTS, "png");
     if (path && nw_backend_save(path)) {
-        printf("screenshot: %s\n", path);
+        nw_log_info(NW_LOG_GFX, "screenshot: %s", path);
     } else {
-        fprintf(stderr, "screenshot: %s\n", SDL_GetError());
+        nw_log_warn(NW_LOG_GFX, "screenshot: %s", SDL_GetError());
     }
     SDL_free(path);
 }
@@ -112,6 +123,73 @@ static void nw_be_shadow_panel(void *user)
     (void)user;
     nw_debug_text("casters %u, draws %u, triangles %u (each drawn twice)", nw_be.shadow_casters, nw_be.shadow_draws,
                   nw_be.shadow_tris);
+}
+
+static const char nw_be_present_vs[] =
+    "#version 330 core\n"
+    "uniform vec4 u_rect;\n"
+    "out vec2 v_pos;\n"
+    "void main()\n"
+    "{\n"
+    "    vec2 c = vec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
+    "    v_pos = mix(u_rect.xy, u_rect.zw, c);\n"
+    "    gl_Position = vec4(c * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char nw_be_present_fs[] =
+    "#version 330 core\n"
+    "uniform sampler2D u_surf;\n"
+    "uniform vec4 u_rect;\n"
+    "uniform int u_level;\n"
+    "in vec2 v_pos;\n"
+    "out vec4 o_col;\n"
+    "vec3 texel(ivec2 p)\n"
+    "{\n"
+    "    return texelFetch(u_surf, clamp(p, ivec2(u_rect.xy), ivec2(u_rect.zw) - 1), u_level).rgb;\n"
+    "}\n"
+    "void main()\n"
+    "{\n"
+    "    vec2 p = v_pos - 0.5;\n"
+    "    ivec2 i = ivec2(floor(p));\n"
+    "    vec2 f = p - vec2(i);\n"
+    "    o_col = vec4(mix(mix(texel(i), texel(i + ivec2(1, 0)), f.x),\n"
+    "                     mix(texel(i + ivec2(0, 1)), texel(i + ivec2(1, 1)), f.x), f.y), 1.0);\n"
+    "}\n";
+
+static bool nw_be_present_init(void)
+{
+    static const char *const src[2] = { nw_be_present_vs, nw_be_present_fs };
+    static const GLenum type[2] = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER };
+    char log[1024] = "";
+    GLint ok = 1;
+    GLuint p = nw_be.present_prog = glCreateProgram();
+    for (int i = 0; i < 2 && ok; i++) {
+        GLuint s = glCreateShader(type[i]);
+        glShaderSource(s, 1, &src[i], NULL);
+        glCompileShader(s);
+        glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+        if (!ok) {
+            glGetShaderInfoLog(s, sizeof(log), NULL, log);
+        }
+        glAttachShader(p, s);
+        glDeleteShader(s);
+    }
+    if (ok) {
+        glLinkProgram(p);
+        glGetProgramiv(p, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            glGetProgramInfoLog(p, sizeof(log), NULL, log);
+        }
+    }
+    if (!ok) {
+        return SDL_SetError("present: %s", log);
+    }
+    nw_be.present_rect = glGetUniformLocation(p, "u_rect");
+    nw_be.present_level = glGetUniformLocation(p, "u_level");
+    glUseProgram(p);
+    glUniform1i(glGetUniformLocation(p, "u_surf"), 2);
+    glGenVertexArrays(1, &nw_be.present_vao);
+    return true;
 }
 
 bool nw_backend_init(void)
@@ -125,7 +203,7 @@ bool nw_backend_init(void)
     }
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &nw_be.max_tex);
     glGetIntegerv(GL_MAX_SAMPLES, &nw_be.max_samples);
-    return nw_vu_init();
+    return nw_vu_init() && nw_be_present_init();
 }
 
 void nw_backend_debug_menu(void)
@@ -224,7 +302,8 @@ void nw_backend_shutdown(void)
     glDeleteBuffers(1, &nw_be.verts_vbo);
     glDeleteVertexArrays(1, &nw_be.ptl_vao);
     glDeleteBuffers(1, &nw_be.ptl_vbo);
-    glDeleteFramebuffers(1, &nw_be.present_fbo);
+    glDeleteProgram(nw_be.present_prog);
+    glDeleteVertexArrays(1, &nw_be.present_vao);
     nw_cloudvol_shutdown();
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
@@ -293,6 +372,15 @@ static void nw_be_skin_upload(NwGpuSkin *s)
         glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, s->deltas);
     }
 }
+
+static const char *const nw_be_job_names[] = { "upload mesh",  "upload texture", "upload sprites",
+                                               "upload skin",  "free mesh",      "free texture",
+                                               "free sprites", "free skin",      "free host memory" };
+_Static_assert(SDL_arraysize(nw_be_job_names) == NW_GPU_FREE_HOST + 1, "a name per NwGpuOp");
+static const char *const nw_be_cmd_names[] = { "draw",  "draw ordering table", "clear",     "rect",
+                                               "sprites", "target",            "skin",      "verts",
+                                               "particles", "volumes",         "waves" };
+_Static_assert(SDL_arraysize(nw_be_cmd_names) == NW_CMD_WAVES + 1, "a name per NwCmdOp");
 
 static void nw_be_job(const NwGpuJob *job)
 {
@@ -452,7 +540,7 @@ static void nw_be_target(const NwCmd *c)
     if (s) {
         bool shared =
             c->target.zback && back && back != s && back->tw == s->tw && back->th == s->th && back->n == s->n;
-        bool ms = shared && back->ms && s->addr != NW_SURF_FRONT;
+        bool ms = s == back ? nw_be.samples > 1 : shared && back->ms && s->addr != NW_SURF_FRONT;
         if (!ms) {
             nw_be_resolve(s);
             if (!nw_be.samples) {
@@ -465,7 +553,7 @@ static void nw_be_target(const NwCmd *c)
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D,
                                    shared ? back->depth : s->depth, 0);
         } else {
-            nw_be_ms(s, back);
+            nw_be_ms(s, shared ? back : NULL);
         }
         s->ms = ms;
         nw_be_bind(s, c->target.width, c->target.height);
@@ -491,6 +579,8 @@ static const NwVuTexture *nw_be_surf_tex(const NwSurf *surf, bool tcc)
         glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
                           GL_NEAREST);
         glBindFramebuffer(GL_FRAMEBUFFER, nw_be_fbo(s));
+        nw_be.copy_of = s;
+        nw_be.copy_run = nw_be.runs;
         s = &nw_be.copy;
     } else {
         nw_be_resolve(s);
@@ -509,6 +599,8 @@ static const NwVuTexture *nw_be_dst(void)
     glBlitFramebuffer(0, 0, s->tw * s->n, s->th * s->n, 0, 0, s->tw * s->n, s->th * s->n, GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, nw_be_fbo(s));
+    nw_be.copy_of = s;
+    nw_be.copy_run = nw_be.runs;
     tex = (NwVuTexture){ .index = nw_be.copy.tex, .tcc = true, .surface = true };
     return &tex;
 }
@@ -716,8 +808,8 @@ static void nw_be_undrawn(const NwVuProg *mpg, bool skin)
     for (int i = 0; i < 16 && seen[skin][i] != mpg; i++) {
         if (!seen[skin][i]) {
             seen[skin][i] = mpg;
-            fprintf(stderr, NW_APP_NAME ": %s: its %s program is not drawn\n", mpg ? mpg->name : "no package",
-                    skin ? "skin" : "triangle");
+            nw_log_warn(NW_LOG_GFX, "%s: its %s program is not drawn", mpg ? mpg->name : "no package",
+                        skin ? "skin" : "triangle");
             break;
         }
     }
@@ -856,6 +948,215 @@ static void nw_be_particles(const NwPacket *p, const NwCmd *c)
     }
 }
 
+static bool nw_be_inverse(const float m[16], float out[16])
+{
+    float inv[16];
+    inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] +
+             m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+    inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] -
+             m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+    inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] +
+             m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+    inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] -
+              m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+    inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] -
+             m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+    inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] +
+             m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+    inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] -
+             m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+    inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] +
+              m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+    inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] +
+             m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+    inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] -
+             m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+    inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] +
+              m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+    inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] -
+              m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+    inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] -
+             m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+    inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] +
+             m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+    inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] -
+              m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+    inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] +
+              m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+    float det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+    if (det == 0.0f) {
+        return false;
+    }
+    for (int i = 0; i < 16; i++) {
+        out[i] = inv[i] / det;
+    }
+    return true;
+}
+
+/* A clip-space point (row vector) back into the world. */
+static void nw_be_unproject(const float inv[16], float x, float y, float z, float w, float out[4])
+{
+    for (int c = 0; c < 4; c++) {
+        out[c] = x * inv[c] + y * inv[4 + c] + z * inv[8 + c] + w * inv[12 + c];
+    }
+}
+
+static void nw_be_unit(float v[3])
+{
+    float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    for (int i = 0; l > 0.0f && i < 3; i++) {
+        v[i] /= l;
+    }
+}
+
+/* Menus and the HUD draw under the identity camera (DrawPanel's pNuCam). */
+static bool nw_be_panel_view(const NwView *v)
+{
+    for (int i = 0; i < 16; i++) {
+        if (SDL_fabsf(v->cam[i] - (i % 5 == 0 ? 1.0f : 0.0f)) > 1e-4f) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* What the gems see behind them: the target as the first of them since the last flush found it. */
+static GLuint nw_be_gem_backdrop(void)
+{
+    if (nw_be.copy_of != nw_be.target || nw_be.copy_run != nw_be.runs) {
+        nw_be_dst();
+    }
+    return nw_be.copy.tex;
+}
+
+/* A [video] gems material in the gem programs, opaque; false when the view gives no eye (draw it as the PS2). */
+static bool nw_be_gem(const NwPacket *p, const NwCmd *c, NwVuProgram program, const NwGemInfo *gem, GLsizei count,
+                      const void *first)
+{
+    NwVuGem g;
+    memset(&g, 0, sizeof(g));
+    nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, g.vp);
+    float inv[16], e[4], a[4], b[4];
+    if (!nw_be_inverse(g.vp, inv)) {
+        return false;
+    }
+    /* The eye maps to w 0 on the axis; right and up from the screen's centre at some depth. */
+    nw_be_unproject(inv, 0.0f, 0.0f, 1.0f, 0.0f, e);
+    nw_be_unproject(inv, 0.0f, 0.0f, 0.5f, 1.0f, a);
+    if (SDL_fabsf(e[3]) < 1e-12f || SDL_fabsf(a[3]) < 1e-12f) {
+        return false;
+    }
+    float centre[3];
+    for (int i = 0; i < 3; i++) {
+        g.eye[i] = e[i] / e[3];
+        centre[i] = a[i] / a[3];
+        g.cam[6 + i] = centre[i] - g.eye[i];
+    }
+    for (int axis = 0; axis < 2; axis++) {
+        nw_be_unproject(inv, axis ? 0.0f : 0.5f, axis ? 0.5f : 0.0f, 0.5f, 1.0f, b);
+        for (int i = 0; i < 3; i++) {
+            g.cam[axis * 3 + i] = b[i] / b[3] - centre[i];
+        }
+    }
+    for (int axis = 0; axis < 3; axis++) {
+        nw_be_unit(g.cam + axis * 3);
+    }
+    memcpy(g.world, c->local, sizeof(g.world));
+    memcpy(g.tint, gem->tint, sizeof(g.tint));
+    g.kind = gem->kind;
+    g.role = gem->role;
+    g.panel = nw_be_panel_view(&p->views[c->view]);
+    glGetIntegerv(GL_VIEWPORT, g.viewport);
+
+    GLuint backdrop = nw_be_gem_backdrop();
+    NwVuObject o;
+    nw_be_object(p, c, program, &o);
+    NwVuMaterial m = nw_be_material(p, c, false);
+    m.state.abe = false;
+    NwMtlPass pass[2];
+    nw_vu_use(program, &o, &m, pass);
+    nw_vu_gem(program, &g);
+    glDepthFunc(GL_LEQUAL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    glActiveTexture(GL_TEXTURE0 + 8);
+    glBindTexture(GL_TEXTURE_2D, backdrop);
+    glActiveTexture(GL_TEXTURE0);
+    if (program == NW_VU_SKNGEM) {
+        const NwGpuSkin *s = c->skin;
+        nw_vu_skin(program, c->first, c->weights, s->delta_tex ? c->nweights : 0);
+        if (s->delta_tex) {
+            glActiveTexture(GL_TEXTURE0 + 5);
+            glBindTexture(GL_TEXTURE_BUFFER, s->delta_tex);
+            glActiveTexture(GL_TEXTURE0);
+        }
+    }
+    glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, first);
+    return true;
+}
+
+/* The draw's [video] gems role, NW_GEM_KEEP when it draws as the PS2. */
+static NwGemRole nw_be_gem_of(const NwPacket *p, const NwCmd *c, NwGemInfo *gem)
+{
+    if (!nw_be.opts.gems || c->mtl == NW_MTL_NONE) {
+        return NW_GEM_KEEP;
+    }
+    *gem = p->mtls[c->mtl].gem;
+    return gem->kind == NW_GEM_NONE ? NW_GEM_KEEP : (NwGemRole)gem->role;
+}
+
+/* Whether a draw waits for the rest of the scene: the PS2 sorts the world's gems ahead of what lies behind them, which
+   their stone then would not see. Menus and the HUD keep their order. */
+static bool nw_be_gem_hold(const NwPacket *p, const NwCmd *c)
+{
+    if (nw_be.flushing || !nw_be.opts.gems || c->mtl == NW_MTL_NONE || p->mtls[c->mtl].gem.kind == NW_GEM_NONE ||
+        nw_be.nheld == SDL_arraysize(nw_be.held) || nw_be_panel_view(&p->views[c->view])) {
+        return false;
+    }
+    nw_be.held[nw_be.nheld++] = (uint32_t)(c - p->cmds);
+    return true;
+}
+
+static void nw_be_draw(const NwPacket *p, const NwCmd *c);
+static void nw_be_skin(const NwPacket *p, const NwCmd *c);
+
+/* The held gems over one copy of the scene, before c: a target change, a clear, the shadows' Z, the HUD, or anything
+   under the identity camera; NULL at the run's end. */
+static void nw_be_gems_flush(const NwPacket *p, const NwCmd *c)
+{
+    if (!nw_be.nheld) {
+        return;
+    }
+    if (c) {
+        switch (c->op) {
+        case NW_CMD_TARGET:
+        case NW_CMD_CLEAR:
+        case NW_CMD_RECT:
+        case NW_CMD_VOLUMES:
+            break;
+        case NW_CMD_WAVES:
+            return;
+        default:
+            if (!nw_be_panel_view(&p->views[c->view])) {
+                return;
+            }
+        }
+    }
+    nw_be.copy_of = NULL;
+    nw_be.flushing = true;
+    for (uint32_t i = 0; i < nw_be.nheld; i++) {
+        const NwCmd *h = &p->cmds[nw_be.held[i]];
+        if (h->op == NW_CMD_SKIN) {
+            nw_be_skin(p, h);
+        } else {
+            nw_be_draw(p, h);
+        }
+    }
+    nw_be.flushing = false;
+    nw_be.nheld = 0;
+    nw_be.copy_of = NULL;
+}
+
 /* A geom's mesh; an OT batch draws its triangles in the packet's order through the packet's index buffer. */
 static void nw_be_draw(const NwPacket *p, const NwCmd *c)
 {
@@ -874,6 +1175,26 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     }
     if (c->silhouette && !nw_be.opts.silhouettes) {
         return; /* out of sight, as on the PS2 */
+    }
+    NwGemInfo gem;
+    NwGemRole role = nw_be_gem_of(p, c, &gem);
+    if (role == NW_GEM_HIDE || nw_be_gem_hold(p, c)) {
+        return;
+    }
+    if (role != NW_GEM_KEEP) {
+        bool ot = c->op == NW_CMD_DRAW_OT;
+        glBindVertexArray(mesh->vao);
+        if (ot) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
+        }
+        bool drawn = nw_be_gem(p, c, NW_VU_GEM, &gem, ot ? (GLsizei)c->count : (GLsizei)(mesh->mesh.ntris * 3),
+                               ot ? (const void *)(uintptr_t)(c->first * sizeof(uint32_t)) : NULL);
+        if (ot) {
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
+        }
+        if (drawn) {
+            return;
+        }
     }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
@@ -951,6 +1272,17 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     }
     if (c->silhouette && !nw_be.opts.silhouettes) {
         return; /* out of sight, as on the PS2 */
+    }
+    NwGemInfo gem;
+    NwGemRole role = nw_be_gem_of(p, c, &gem);
+    if (role == NW_GEM_HIDE || nw_be_gem_hold(p, c)) {
+        return;
+    }
+    if (role != NW_GEM_KEEP) {
+        glBindVertexArray(s->vao);
+        if (nw_be_gem(p, c, NW_VU_SKNGEM, &gem, (GLsizei)(s->skin.ntris * 3), NULL)) {
+            return;
+        }
     }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
@@ -1173,6 +1505,7 @@ static uint32_t nw_be_shadow(const NwPacket *p, uint32_t begin, uint32_t *caster
 /* Runs once into GS memory, which keeps what it drew; the front buffer is the back buffer as it ends. */
 static void nw_be_run(const NwPacket *p, NwBeSurf *back)
 {
+    nw_be.runs++;
     back->ms = nw_be.samples > 1;
     if (back->ms) {
         nw_be_ms(back, NULL);
@@ -1185,6 +1518,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     nw_vu_alpha_writes(true);
     glEnable(GL_DEPTH_TEST);
     glPolygonMode(GL_FRONT_AND_BACK, nw_be.wireframe ? GL_LINE : GL_FILL);
+    nw_crash_phase("upload the frame's rects, verts, particles and palettes", 0, 0);
     nw_be_rects(p);
     nw_be_verts(p);
     nw_be_ptls(p);
@@ -1201,8 +1535,11 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     }
     uint32_t rects = 0, casters = 0;
     nw_be.shadow_draws = nw_be.shadow_tris = 0;
+    nw_be.nheld = 0;
     for (uint32_t i = 0; i < p->ncmds; i++) {
         const NwCmd *c = &p->cmds[i];
+        nw_crash_phase(c->op <= NW_CMD_WAVES ? nw_be_cmd_names[c->op] : "command", i, p->ncmds);
+        nw_be_gems_flush(p, c);
         switch (c->op) {
         case NW_CMD_SHADOW_BEGIN:
             i = nw_be_shadow(p, i, &casters);
@@ -1242,6 +1579,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         }
     }
+    nw_be_gems_flush(p, NULL);
     nw_be.shadow_casters = casters;
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     nw_be_resolve(back);
@@ -1300,29 +1638,30 @@ static int nw_be_scale(int h, int bh, int tw, int th)
     return n;
 }
 
-/* Shrinking more than 2x blits from a mip level at least the window's size, as glGenerateMipmap averages. */
+/* Shrinking more than 2x reads a mip level at least the window's size, as glGenerateMipmap averages.*/
 static void nw_be_present(NwBeSurf *back, int bw, int bh, int x, int y, int w, int h)
 {
     int n = back->n, level = 0;
     nw_be_resolve(back);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
     while (level < 12 && (bw * n) >> (level + 1) >= w && (bh * n) >> (level + 1) >= h) {
         level++;
     }
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, back->tex);
     if (level) {
-        glActiveTexture(GL_TEXTURE0 + 2);
-        glBindTexture(GL_TEXTURE_2D, back->tex);
         glGenerateMipmap(GL_TEXTURE_2D);
-        glActiveTexture(GL_TEXTURE0);
-        if (!nw_be.present_fbo) {
-            glGenFramebuffers(1, &nw_be.present_fbo);
-        }
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, nw_be.present_fbo);
-        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, back->tex, level);
     }
-    glBlitFramebuffer(0, ((back->th - bh) * n) >> level, (bw * n) >> level, (back->th * n) >> level, x, y, x + w,
-                      y + h, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    glActiveTexture(GL_TEXTURE0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(x, y, w, h);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glUseProgram(nw_be.present_prog);
+    glUniform4f(nw_be.present_rect, 0.0f, (float)(((back->th - bh) * n) >> level), (float)((bw * n) >> level),
+                (float)((back->th * n) >> level));
+    glUniform1i(nw_be.present_level, level);
+    glBindVertexArray(nw_be.present_vao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
 const NwPacket *nw_backend_frame(int width, int height, double now)
@@ -1346,6 +1685,8 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
     }
     uint32_t njobs = nw_gpu_take(p ? p->seq : 0, &nw_be.jobs, &nw_be.jobcap);
     for (uint32_t i = 0; i < njobs; i++) {
+        NwGpuOp op = nw_be.jobs[i].op;
+        nw_crash_phase(op <= NW_GPU_FREE_HOST ? nw_be_job_names[op] : "job", i, njobs);
         nw_be_job(&nw_be.jobs[i]);
     }
     /* The back buffer at the size of the packet's first back-buffer target, 640 x 512 before one. */
@@ -1383,6 +1724,7 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);
     }
+    nw_crash_phase("present", 0, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1391,5 +1733,13 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
         nw_be_present(back, bw, bh, (width - w) / 2, (height - h) / 2, w, h);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (nw_be.runs && !nw_be.checked) {
+        GLenum e = glGetError();
+        if (e != GL_NO_ERROR) {
+            nw_log_error(NW_LOG_GL, "OpenGL error 0x%04X by the first frame", e);
+        }
+        nw_be.checked = true;
+    }
+    nw_crash_phase("between frames", 0, 0);
     return p;
 }

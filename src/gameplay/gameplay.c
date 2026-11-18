@@ -5,12 +5,14 @@
 #include <SDL3/SDL.h>
 
 #include "gameplay/air.h"
+#include "gameplay/cheats.h"
 #include "gameplay/ground.h"
 #include "gameplay/jeep.h"
 #include "gameplay/monkeybars.h"
 #include "gameplay/submarine.h"
-#include "gameplay/title.h"
 #include "port/game.h"
+#include "port/autosave.h"
+#include "port/saves.h"
 
 NwProfile nw_profile;
 
@@ -119,7 +121,10 @@ static void nw_profile_poll(void)
         nw_profile.boss_health = p.boss_health;
         nw_profile.wombat = p.wombat;
         nw_profile.hub_minigame = p.hub_minigame;
+        nw_profile.long_time_names = p.long_time_names;
         nw_profile.camera_stability = p.camera_stability;
+        nw_profile.hub_gem = p.hub_gem;
+        nw_profile.first_boss_cut = p.first_boss_cut;
         nw_profile.hitboxes = p.hitboxes;
         nw_monkey_bars_apply();
         nw_air_apply();
@@ -139,5 +144,7 @@ void nw_deviation_off(const char *sw)
 void nw_gameplay_swap(void)
 {
     nw_profile_poll();
-    nw_title_poll();
+    nw_cheats_swap();
+    nw_autosave_poll();
+    nw_saves_import_poll();
 }

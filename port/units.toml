@@ -91,7 +91,8 @@ schema = 1
 
 # nups2
 "nups2/ps2txtr" = { treatment = "replace" }
-"nups2/ps2video" = { treatment = "replace" }
+# No memory card (port/saves.h): NuMc* has neither C nor a stub
+"nups2/ps2video" = { treatment = "replace", drop = ["NuMc*"] }
 "nups2/vu1man" = { treatment = "replace" }
 "nups2/ps2dma" = { treatment = "replace" }
 "nups2/ps2ctl" = { treatment = "compile" }
@@ -100,11 +101,12 @@ schema = 1
 "nups2/clipping" = { treatment = "compile" }
 
 # gamelib
-"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"], wrap = ["NewTerrainScaleY", "TerrainImpact"] }
+"gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"], wrap = ["NewTerrainScaleY", "TerrainImpact",
+    "HitWallSpline"] }
 "gamelib/debris" = { treatment = "compile", wrap = ["DebrisCollisionCheck"] }
-"gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
+"gamelib/edptl" = { treatment = "editor", wrap = ["FileLoadSingleEffectType"], runtime = ["ParticleReset", "edppDestroyAll*",
     "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
-    "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"] }
+    "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"], drop = ["*MemCard*"] }
 "gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
     "edobjDetermineNearestObject", "edobjConvertPathToAnim", "edobjSoundDestroy", "edobjParticleDestroy",
     "edobjFileLoadObjects", "edobjResetAnimsToZero", "edobjRegisterBaseScene", "edobjObjectReset", "edobjLookupInstance*",
@@ -112,13 +114,15 @@ schema = 1
 "gamelib/glutils" = { treatment = "compile" }
 "gamelib/edanim" = { treatment = "editor", runtime = ["edanimUpdateObjects", "edanimDetermineNearestAnim",
     "edanimSoundDestroy", "edanimParticleDestroy", "edanimFileLoad", "edanimLookupInstanceIndex",
-    "edanimRegisterBaseScene", "edanimLookupSpecial", "edanimParamReset"] }
-"gamelib/edbits" = { treatment = "compile" }
-"gamelib/edfile" = { treatment = "compile" }
+    "edanimRegisterBaseScene", "edanimLookupSpecial", "edanimParamReset"], drop = ["edanimcb*MCTB*"] }
+"gamelib/edbits" = { treatment = "compile", wrap = ["edbitsSoundPlay"] }
+"gamelib/edfile" = { treatment = "compile", drop = ["EdFile*MemCard"] }
 "gamelib/specterr" = { treatment = "compile" }
-"gamelib/saveload" = { treatment = "replace" }
+# The memory card: NuWorld saves natively (port/saves.h, port/patches/97-native-saves)
+"gamelib/saveload" = { treatment = "dead", drop = ["*"] }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
-"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs", "StateAnimFixPtrs"] }
+"gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs",
+                      "StateAnimFixPtrs"], wrap = ["NuGCutSceneFixUp"] }
 # dead: NuTriggerSysLoad, called only by sceneman's NuSceneDataLoad; the disc has no .trg
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
 # called: from the trigger systems, which only sceneman creates
@@ -140,14 +144,15 @@ schema = 1
 
 # game
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" }, wrap = ["MiniGameReset", "MiniGame",
-    "MiniGameRender", "MiniGameRenderScore"] }
+    "MiniGameRender", "MiniGameRenderScore", "DoInput"] }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
 "game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
     "MovePlayer", "DrawCharacterModel"] }
 "game/inst" = { treatment = "compile", override = ["InstShadDataLoad", "InstShadDataDestroy"] }
 "game/camera" = { treatment = "compile", wrap = ["MoveGameCamera"] }
-"game/game" = { treatment = "compile", wrap = ["DrawMenu", "ProcMenu", "SeekRot"] }
+"game/game" = { treatment = "compile", wrap = ["CheckFinish", "DefaultTimeTrialNames", "DrawMenu", "DrawTransporters",
+    "GetMenuInfo", "HitWumpa", "InitObjectTable", "NewGame", "NewLevelTime", "ProcMenu", "SeekRot"], expose = ["dme_sx"] }
 "game/crate" = { treatment = "compile", override = ["AddQuad3DrotXYZ"] }
 "game/game_obj" = { treatment = "compile", wrap = ["MoveLoopXZ", "PlayerCreatureCollisions", "ObjectRotation",
     "UpdateProjectiles", "AddProjectile"] }
@@ -157,7 +162,7 @@ schema = 1
 "game/vehsupp" = { treatment = "compile" }
 "game/vehterr" = { treatment = "compile" }
 "game/jeep" = { treatment = "compile" }
-"game/edcrate" = { treatment = "editor" }
+"game/edcrate" = { treatment = "editor", drop = ["edcrtcb*MemCard*"] }
 "game/ai" = { treatment = "compile", wrap = ["MoveCreature"], expose = ["crunchtime_attack_phase"] }
 "game/edwumpa" = { treatment = "editor" }
 "game/edai" = { treatment = "editor" }
@@ -176,9 +181,11 @@ schema = 1
 "game/move" = { treatment = "compile", wrap = ["AnimateCOCO", "AnimateCRASH", "MoveCOCO", "MoveCRASH", "MoveMECH",
     "MoveSUBMARINE"] }
 "game/chase" = { treatment = "compile", wrap = ["UpdateChase"] }
-"game/loadsave" = { treatment = "compile" }
+# NuWorld's saves draw the slots (port/savemenu.c); the card's load and save requests are gone
+"game/loadsave" = { treatment = "replace", drop = ["UpdateSaveSlots", "loadsaveCallEachFrame", "LoadGameSlots", "SaveGameSlots"] }
 "game/bgload" = { treatment = "compile" }
-"game/cut" = { treatment = "compile", wrap = ["StartCutMovie", "AppCutSceneCharacterRender"], expose = ["cutworldix", "CutInst"] }
+"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst", "ghg_insts", "ghg_inst_count"], wrap = [
+               "StartCutMovie", "SetCutMovieRate", "AppCutSceneCharacterRender", "GetSpaceCut"] }
 "game/bug" = { treatment = "compile" }
 "game/game_deb" = { treatment = "compile" }
 "game/credits" = { treatment = "compile" }
@@ -186,5 +193,6 @@ schema = 1
 
 # sdk: fdlibm and rand are built for the host (same libm everywhere, PS2 RAND_MAX)
 "sdk/*" = { treatment = "shim" }
+"sdk/sce/libmc" = { treatment = "dead", drop = ["*"] }
 "sdk/newlib/libm/*" = { treatment = "compile" }
 "sdk/newlib/libc/stdlib/rand" = { treatment = "compile" }

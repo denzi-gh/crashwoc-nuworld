@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(crashwoc-nuworld VERSION 0.7.0 LANGUAGES C CXX)
+project(crashwoc-nuworld VERSION 0.9.0 LANGUAGES C CXX)
 
 if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   message(WARNING "${PROJECT_NAME} is built and tested with Clang (clang on Linux, CLANG64 on Windows).")
@@ -89,7 +89,10 @@ endfunction()
 add_executable(crashwoc-nuworld
   src/main.c
   src/platform/audio.c
+  src/platform/crash.c
   src/platform/display.c
+  src/platform/droptarget.c
+  src/platform/gpu.c
   src/platform/log.c
   src/platform/platform.c
   src/gfx/cloudvol.c
@@ -97,6 +100,7 @@ add_executable(crashwoc-nuworld
   src/gfx/vu.c
   src/gfx/water.c
   src/frontend/debug.cpp
+  src/frontend/help.c
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
 set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
@@ -105,9 +109,14 @@ nw_embed(crashwoc-nuworld nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/
 nw_embed(crashwoc-nuworld nw_beta_menu_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/wizard/beta-menu.png)
 # Window icon: the exe's icon resource on Windows (SDL takes the first one), a PNG set at runtime elsewhere.
 if(WIN32)
-  target_sources(crashwoc-nuworld PRIVATE assets/branding/nuworld.rc)
+  # Plus the version in the exe's properties (FILEOS VOS_NT_WINDOWS32, FILETYPE VFT_APP).
+  set(NW_RC_ICON ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld.ico)
+  string(STRIP "${PROJECT_VERSION} ${NUWORLD_TAG}" NW_RC_VERSION)
+  configure_file(assets/branding/nuworld.rc.in ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc @ONLY)
+  target_sources(crashwoc-nuworld PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/gen/nuworld.rc)
   # No console window; --console opens one (src/platform/log.c).
   set_target_properties(crashwoc-nuworld PROPERTIES WIN32_EXECUTABLE ON)
+  target_link_libraries(crashwoc-nuworld PRIVATE ole32 shell32)
 else()
   nw_embed(crashwoc-nuworld nw_icon_png ${CMAKE_CURRENT_SOURCE_DIR}/assets/branding/nuworld-icon-256.png)
 endif()
@@ -128,9 +137,13 @@ add_custom_target(nuworld_buildid
   BYPRODUCTS ${nw_buildid}
   VERBATIM)
 
-# Runtime for the generated stubs and function map, the vblank clock the game thread runs on, and the build ID.
+# Runtime for the generated stubs and function map, the vblank clock the game thread runs on, the build ID, the
+# check for a newer release and the game's doubles.
 add_library(nuworld_port STATIC
+  src/hle/eedouble.c
   src/platform/clock.c
+  src/platform/http.c
+  src/platform/update.c
   src/port/stub.c
   src/port/funcmap.c
   ${nw_buildid})
@@ -138,6 +151,9 @@ add_dependencies(nuworld_port nuworld_buildid)
 target_include_directories(nuworld_port PUBLIC src)
 target_compile_options(nuworld_port PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_port PUBLIC SDL3::SDL3)
+if(WIN32)
+  target_link_libraries(nuworld_port PUBLIC winhttp)
+endif()
 
 # Disc images, the data folder and the game file system.
 set(NW_VFS_SOURCES
@@ -156,8 +172,10 @@ target_include_directories(nuworld_vfs PUBLIC src)
 target_compile_options(nuworld_vfs PRIVATE -Wall -Wextra)
 target_link_libraries(nuworld_vfs PUBLIC SDL3::SDL3)
 
-# Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state, the frame packets.
+# Scenes without the decomp: the NU20 reader, the VIF and texture decoders, the material state, the frame packets, the
+# gem materials.
 add_library(nuworld_gfx STATIC
+  src/gfx/gem.c
   src/gfx/gsc.c
   src/gfx/interp.c
   src/gfx/mtl.c
@@ -196,6 +214,8 @@ target_link_libraries(nuworld_frontend PUBLIC nuworld_vfs nuworld_save)
 
 # Saves: the TOML document, the save records in it, the saves folder and PS2 card images (no decomp).
 set(NW_SAVE_SOURCES
+  src/save/saveio.c
+  src/save/saveworker.c
   src/save/ps2card.c
   src/save/savecodec.c
   src/save/savedoc.c
@@ -254,14 +274,51 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_prompts PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_prompts PRIVATE nuworld_frontend)
   add_test(NAME prompts COMMAND nuworld_test_prompts)
+  add_executable(nuworld_test_update tests/c/test_update.c)
+  target_compile_options(nuworld_test_update PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_update PRIVATE nuworld_port)
+  add_test(NAME update COMMAND nuworld_test_update)
+  add_executable(nuworld_test_log tests/c/test_log.c src/platform/crash.c src/platform/log.c)
+  target_compile_options(nuworld_test_log PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_log PRIVATE nuworld_port ${CMAKE_DL_LIBS})
+  add_test(NAME log COMMAND nuworld_test_log)
+  if(NUWORLD_DECOMP)
+    set(nw_crash_state "state: no frame drawn yet.*game thread: not started.*")
+    set(nw_crash_last "last log lines:.*the report's last lines hold")
+    if(WIN32)
+      set(nw_crash_dump "minidump: [^\n]*nuworld-[0-9]+-[0-9]+\\.dmp.*")
+    endif()
+    set(nw_crash_segv "CRASH: [^\n]* at nw_crash_test_fault\\+0x[0-9a-f]+ .*stack:.*nw_crash_test\\+.*")
+    add_test(NAME crash-segv
+      COMMAND crashwoc-nuworld --crash-test segv --data-dir ${CMAKE_CURRENT_BINARY_DIR}/test-crash)
+    set_tests_properties(crash-segv PROPERTIES PASS_REGULAR_EXPRESSION
+      "${nw_crash_segv}${nw_crash_state}${nw_crash_dump}${nw_crash_last}")
+    add_test(NAME crash-abort COMMAND crashwoc-nuworld --crash-test abort)
+    set_tests_properties(crash-abort PROPERTIES PASS_REGULAR_EXPRESSION
+      "CRASH: abort[^\n]* on thread main.*stack:.*nw_crash_test\\+.*${nw_crash_state}${nw_crash_last}")
+    set(nw_crash_fatal "FATAL: crash test on thread main.*stack:.*nw_crash_fatal\\+.*nw_crash_test\\+.*")
+    add_test(NAME crash-fatal COMMAND crashwoc-nuworld --crash-test fatal)
+    set_tests_properties(crash-fatal PROPERTIES PASS_REGULAR_EXPRESSION
+      "${nw_crash_fatal}${nw_crash_state}${nw_crash_last}")
+  endif()
   add_executable(nuworld_test_display tests/c/test_display.c src/platform/display.c)
   target_include_directories(nuworld_test_display PRIVATE src)
   target_compile_options(nuworld_test_display PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_display PRIVATE SDL3::SDL3)
   add_test(NAME display COMMAND nuworld_test_display)
+  add_executable(nuworld_test_gpu tests/c/test_gpu.c src/platform/gpu.c)
+  target_include_directories(nuworld_test_gpu PRIVATE src)
+  target_compile_options(nuworld_test_gpu PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_test_gpu PRIVATE SDL3::SDL3)
+  add_test(NAME gpu COMMAND nuworld_test_gpu)
   add_executable(nuworld_test_savefile tests/c/test_savefile.c)
+  add_library(nuworld_save_test STATIC ${NW_SAVE_SOURCES})
+  target_include_directories(nuworld_save_test PUBLIC src)
+  target_compile_definitions(nuworld_save_test PUBLIC NW_SAVE_TESTING)
+  target_compile_options(nuworld_save_test PRIVATE -Wall -Wextra)
+  target_link_libraries(nuworld_save_test PUBLIC SDL3::SDL3)
   target_compile_options(nuworld_test_savefile PRIVATE -Wall -Wextra)
-  target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save nuworld_vfs)
+  target_link_libraries(nuworld_test_savefile PRIVATE nuworld_save_test nuworld_vfs)
   add_test(NAME savefile COMMAND nuworld_test_savefile ${CMAKE_CURRENT_BINARY_DIR}/test-savefile)
 endif()
 

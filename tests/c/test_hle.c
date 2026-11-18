@@ -13,7 +13,11 @@
 #include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "numath/nuvec4.h"
+#include "port/game.h"
 
+double nw_atan2(double y, double x);
+double nw_sd_add(double a, double b);
+float nw_sd_to_f32(double a);
 void NuMemCopy128(void *dst, void *src, int count);
 float NuFsqrt(float x);
 void NuMtxScaleVU0(struct numtx_s *m, struct nuvec_s *scale);
@@ -307,6 +311,29 @@ static void test_eefloat(void)
     CHECK(nw_ee_mul(FLT_MIN, 0.5) == 0.0 && nw_ee_in(0x1p-130f) == 0.0);
 }
 
+/* Floats toward zero, doubles to nearest, as on the EE. */
+static void test_ee_rounding(void)
+{
+    volatile float step = 0.02f;
+    float t = 0.0f;
+    int frames = 0;
+    while (t < 10.0f) { /* the bonus ride */
+        t += step;
+        frames++;
+    }
+    CHECK(frames == 501);
+    CHECK(nw_sd_add(1.0, 0x1.8p-53) == 1.0 + 0x1p-52);
+    CHECK(nw_sd_to_f32(1.0 + 0x1.8p-24) == 1.0f + 0x1p-23f);
+    int nearest = 0;
+    for (int i = 1; i < 64; i++) {
+        float y = i * 0.37f, x = 3.0f - i * 0.11f;
+        double d = nw_atan2(y, x);
+        CHECK(NuAtan2(y, x) == nw_sd_to_f32(d));
+        nearest += (float)d != nw_sd_to_f32(d);
+    }
+    CHECK(nearest > 0);
+}
+
 /* The CRC of retail's table, read from a PCSX2 state. */
 static void test_trig(void)
 {
@@ -325,7 +352,9 @@ static void test_anim_curve(void)
 
 int main(void)
 {
+    nw_game_host_enter();
     NuTrigInit();
+    test_ee_rounding();
     test_mtx();
     test_vec();
     test_tri_z();

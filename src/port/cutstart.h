@@ -6,5 +6,7 @@
 /* The shot the next cut movie that has it starts at: a .cut file's name with or without ".cut" ("sunny", "storm.cut"),
    matched without case. Once only: the movie after it starts at its first shot again. */
 void nw_cut_start(const char *name);
+/* game/cut's StartCutMovie, at that shot if the movie has it. Called by gameplay/cut.c's wrap. */
+void nw_cut_start_movie(void);
 
 #endif

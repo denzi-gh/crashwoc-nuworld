@@ -1,7 +1,7 @@
 name: Crash / freeze / won't start
 description: The port crashes, freezes, hangs or does not start.
-title: "[Crash]: "
-labels: ["bug", "crash"]
+type: Bug
+labels: ["crash", "needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -25,5 +25,7 @@ body:
   - type: textarea
     id: media
     attributes:
-      label: Log, screenshots or save file
-      description: Drag files in here. The log is `nuworld.log` in the NuWorld data folder.
+      label: Log, crash dump, screenshots or save file
+      description: >-
+        Drag files in here: `nuworld.log` from the NuWorld data folder (`nuworld.previous.log` if you started the game
+        again after the crash) and the newest `.dmp` in its `crashes` folder.

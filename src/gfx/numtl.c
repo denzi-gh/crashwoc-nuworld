@@ -44,12 +44,11 @@ const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl)
     return (const NwStateBlock *)mtl->sbdata;
 }
 
-/* Retail's order: the materials as NuMtlInsert sorted them (sort_pri, then tid), each one's stream after mtl_sort's
-   records; a record carries its state block, texture and microcode, which retail calls before the stream. */
 void NuMtlBuildRenderList(void)
 {
     for (struct numtl_s *mtl = NuMtlIterate(1); mtl; mtl = mtl->snext) {
         nw_rndr_splice(rndrstream_mtl_sort, &mtl->rs);
         NuRndrStreamResetStream(&mtl->rs, 1);
+        mtl->rs.mtl = mtl;
     }
 }

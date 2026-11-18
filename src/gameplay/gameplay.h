@@ -5,45 +5,51 @@
 
 #include <stdbool.h>
 
-/* Crash's options ([game.movement.crash]) in panel order: SW(field, label, default, help) a switch, off is retail
-   and default N. Hanced's; FLAG(field, label, default, help) and VAL(field, label, default, lo, hi, help) tune the
-   switch above them. */
+/* Crash movement */
 #define NW_CRASH_MOVEMENT(SW, FLAG, VAL) \
-    SW(jump_fall, "Crash 4 jump arc", false, "a Crash 4 style jump: quick launch, soft top, a fall that builds up") \
-    VAL(jump_float, "Apex float %", 0, 0, 200, "how long the jump floats at the top") \
-    VAL(jump_weight, "Fall weight %", 162, 100, 200, "how hard the fall builds up") \
-    VAL(jump_height, "Jump height %", 113, 100, 130, "percent of the PS2's jump height") \
-    SW(jump_distance, "Predictable jump distance", false, "in a jump any stick tilt is a full run") \
-    VAL(air_accel, "Air acceleration %", 200, 100, 400, "percent of the PS2's") \
-    SW(air_momentum, "Air momentum", true, "mid-air with the stick let go he keeps some momentum") \
-    VAL(air_drift, "Momentum kept %", 75, 0, 100, "how much of the PS2's slow-down he skips") \
-    SW(dash_jump, "Crash Dash jump momentum", true, "a jump out of a Crash Dash keeps its speed") \
-    VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of the dash's extra speed kept to the ground") \
-    SW(run_speed, "Faster run", true, "a faster run and Crash Dash, quicker to speed") \
-    VAL(run_top, "Top speed %", 120, 100, 150, "percent of the PS2's") \
-    VAL(run_accel, "Acceleration %", 150, 100, 300, "percent of the PS2's") \
-    SW(grip, "Grip", true, "less slippery stops and turns; ice stays slippery") \
-    VAL(grip_turn, "Turn grip %", 250, 100, 500, "percent of the PS2's") \
-    VAL(grip_brake, "Braking %", 120, 100, 400, "percent of the PS2's") \
-    SW(long_spin, "Longer spin", true, "the spin attack lasts longer") \
-    VAL(spin_ms, "Spin length ms", 400, 320, 600, "the PS2's is 320") \
-    SW(slide, "Crash 2 slide", true, "a faster slide he comes out of running") \
-    VAL(slide_speed, "Slide speed %", 140, 100, 150, "percent of the PS2's") \
-    VAL(slide_ms, "Slide length ms", 400, 300, 600, "the PS2's is 467") \
-    FLAG(slide_keep, "Keep speed after it", true, "the slide's speed carries on instead of stopping dead") \
-    FLAG(slide_cancel, "Let go to stand up", true, "letting go of crouch ends the slide") \
-    VAL(slide_min_ms, "Shortest slide ms", 300, 0, 400, "how long it lasts at least when let go") \
-    SW(edge_grip, "Edge grip", true, "a beveled platform edge holds him instead of sliding him off") \
-    VAL(edge_reach, "Edge reach %", 75, 45, 90, "how far past an edge he stands, percent of his radius; the PS2's 45") \
-    SW(line_2d, "Hold 2D line", false, "in side-on sections he stays on the line he came in on") \
-    VAL(line_pull, "Line pull %", 100, 0, 100, "how hard he is pulled back to the line") \
-    SW(hazard_hitboxes, "Fair hazard hitboxes", false, "what can kill him reaches about as far as it is drawn") \
-    VAL(hazard_enemy, "Enemy reach %", 80, 50, 100, "percent of the PS2's") \
-    VAL(hazard_fire, "Fire and steam reach %", 50, 25, 100, "share of his radius that counts against them") \
-    SW(air_jump, "Double jump at any height", true, "the double jump at any fall speed") \
-    FLAG(air_jump_ledge, "Off ledges and bars", true, "also after walking off a ledge or dropping off the bars") \
+    SW(jump_fall, "Crash 4 jump arc", true, "Crash 4 jump: quick launch, soft apex, fall speeds up") \
+    VAL(jump_float, "Apex float %", 65, 0, 200, "hang time at the apex") \
+    VAL(jump_weight, "Fall weight %", 100, 100, 200, "how fast the fall speeds up") \
+    VAL(jump_height, "Jump height %", 110, 100, 130, "jump height, % of PS2") \
+    SW(jump_distance, "Predictable jump distance", false, "any stick tilt in the air is full speed") \
+    VAL(air_accel, "Air acceleration %", 200, 100, 400, "% of PS2") \
+    SW(air_momentum, "Air momentum", false, "keeps some speed in the air with the stick released") \
+    VAL(air_drift, "Momentum kept %", 75, 0, 100, "share of the PS2 air slowdown skipped") \
+    SW(dash_jump, "Crash Dash jump momentum", false, "jump out of a Crash Dash keeps its speed") \
+    VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of dash speed kept until landing") \
+    SW(run_speed, "Faster run", false, "faster run and Crash Dash, quicker acceleration") \
+    VAL(run_top, "Top speed %", 120, 100, 150, "% of PS2") \
+    VAL(run_accel, "Acceleration %", 150, 100, 300, "% of PS2") \
+    SW(grip, "Grip", true, "less sliding on stops and turns, except on ice") \
+    VAL(grip_turn, "Turn grip %", 175, 100, 500, "% of PS2") \
+    VAL(grip_brake, "Braking %", 100, 100, 400, "% of PS2") \
+    SW(long_spin, "Longer spin", true, "longer spin attack") \
+    VAL(spin_ms, "Spin length ms", 400, 320, 600, "PS2: 320") \
+    SW(slide, "Crash slide", true, "faster slide when out of running") \
+    VAL(slide_speed, "Slide speed %", 115, 100, 150, "% of PS2") \
+    VAL(slide_ms, "Slide length ms", 310, 300, 600, "PS2: 467") \
+    FLAG(slide_keep, "Keep speed after it", false, "slide speed carries on instead of stopping") \
+    FLAG(slide_cancel, "Let go to stand up", false, "releasing crouch ends the slide") \
+    VAL(slide_min_ms, "Shortest slide ms", 300, 0, 400, "minimum length when crouch is released") \
+    VAL(slide_jump, "Slide jump speed kept %", 0, 0, 100, "share of slide speed kept when jumping out of it") \
+    SW(slide_spin, "Crash slide spin", true, "a spin out of a slide keeps its speed and leans forward") \
+    VAL(slide_spin_kept, "Spin speed %", 110, 50, 150, "% of the slide's speed, held while the spin lasts") \
+    VAL(slide_spin_late_ms, "Late spin ms", 10, 0, 300, "how long after the slide a spin still counts") \
+    VAL(slide_spin_steer, "Steering %", 2, 0, 100, "turn speed, % of his normal turning") \
+    VAL(slide_spin_jump, "Jump speed kept %", 0, 0, 100, "share of its speed kept when jumping out of it") \
+    VAL(slide_spin_lean, "Lean deg", 35, 0, 45, "forward tilt while spinning") \
+    VAL(slide_spin_bank, "Bank deg", 10, 0, 45, "sideways tilt into a turn while steering") \
+    SW(edge_grip, "Edge grip", true, "no sliding off beveled platform edges") \
+    VAL(edge_reach, "Edge reach %", 55, 45, 90, "how far past an edge he can stand, % of his radius; PS2: 45") \
+    SW(line_2d, "Hold 2D line", false, "stays on the entry line in side-on sections") \
+    VAL(line_pull, "Line pull %", 100, 0, 100, "pull back to the line") \
+    SW(hazard_hitboxes, "Fair hazard hitboxes", false, "deadly hitboxes match their models") \
+    VAL(hazard_enemy, "Enemy reach %", 80, 50, 100, "% of PS2") \
+    VAL(hazard_fire, "Fire and steam reach %", 50, 25, 100, "share of his radius that counts against fire and steam") \
+    SW(air_jump, "Double jump at any height", true, "double jump at any fall speed") \
+    FLAG(air_jump_ledge, "Off ledges and bars", true, "also after walking off a ledge or dropping off bars") \
     FLAG(air_jump_free, "Before it is earned", false, "also before the power is earned") \
-    VAL(air_jump_fall, "Max fall speed", 12, 5, 12, "units a second it still works at; 5 is the PS2's, 12 any")
+    VAL(air_jump_fall, "Max fall speed", 12, 5, 12, "max fall speed, units/s; PS2: 5, 12: any")
 
 #define NW_CRASH_BOOL(f, ...) bool f;
 #define NW_CRASH_INT(f, ...) int f;
@@ -51,156 +57,154 @@ typedef struct NwCrashMovement {
     NW_CRASH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCrashMovement;
 
-/* Coco's options ([game.movement.coco]), the same scheme, under Crash's names. */
+/* Coco movement */
 #define NW_COCO_MOVEMENT(SW, FLAG, VAL) \
-    SW(jump_fall, "Crash 4 jump arc", false,"a Crash 4 style jump: quick launch, soft top, a fall that builds up") \
-    VAL(jump_float, "Apex float %", 100, 0, 200, "how long the jump floats at the top") \
-    VAL(jump_weight, "Fall weight %", 100, 100, 200, "how hard the fall builds up") \
-    VAL(jump_height, "Jump height %", 100, 100, 130, "percent of the PS2's jump height") \
-    SW(jump_distance, "Predictable jump distance", true, "in a jump any stick tilt is a full run") \
-    VAL(air_accel, "Air acceleration %", 115, 100, 400, "percent of the PS2's") \
-    SW(air_momentum, "Air momentum", false, "mid-air with the stick let go she keeps some momentum") \
-    VAL(air_drift, "Momentum kept %", 100, 0, 100, "how much of the PS2's slow-down she skips") \
-    SW(dash_jump, "Dash jump momentum", true, "a jump out of a dash keeps its speed") \
-    VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of the dash's extra speed kept to the ground") \
-    SW(run_speed, "Faster run", true, "a faster run and dash, quicker to speed") \
-    VAL(run_top, "Top speed % of Crash's", 110, 100, 150, "percent of Crash's PS2 run and dash; hers are 83 and 94") \
-    VAL(run_accel, "Acceleration %", 150, 100, 300, "percent of the PS2's") \
-    SW(grip, "Grip", true, "less slippery stops and turns; ice stays slippery") \
-    VAL(grip_turn, "Turn grip %", 300, 100, 500, "percent of the PS2's") \
-    VAL(grip_brake, "Braking %", 200, 100, 400, "percent of the PS2's")
+    SW(jump_fall, "Crash 4 jump arc", false,"Crash 4 jump: quick launch, soft apex, fall speeds up") \
+    VAL(jump_float, "Apex float %", 100, 0, 200, "hang time at the apex") \
+    VAL(jump_weight, "Fall weight %", 100, 100, 200, "how fast the fall speeds up") \
+    VAL(jump_height, "Jump height %", 100, 100, 130, "jump height, % of PS2") \
+    SW(jump_distance, "Predictable jump distance", true, "any stick tilt in the air is full speed") \
+    VAL(air_accel, "Air acceleration %", 115, 100, 400, "% of PS2") \
+    SW(air_momentum, "Air momentum", false, "keeps some speed in the air with the stick released") \
+    VAL(air_drift, "Momentum kept %", 100, 0, 100, "share of the PS2 air slowdown skipped") \
+    SW(dash_jump, "Dash jump momentum", true, "jump out of a dash keeps its speed") \
+    VAL(dash_kept, "Dash speed kept %", 100, 0, 100, "share of dash speed kept until landing") \
+    SW(run_speed, "Faster run", true, "faster run and dash, quicker acceleration") \
+    VAL(run_top, "Top speed % of Crash's", 110, 100, 150, "% of Crash's PS2 run and dash; Coco's PS2: 83 and 94") \
+    VAL(run_accel, "Acceleration %", 150, 100, 300, "% of PS2") \
+    SW(grip, "Grip", true, "less sliding on stops and turns, except on ice") \
+    VAL(grip_turn, "Turn grip %", 300, 100, 500, "% of PS2") \
+    VAL(grip_brake, "Braking %", 200, 100, 400, "% of PS2")
 
 typedef struct NwCocoMovement {
     NW_COCO_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwCocoMovement;
 
-/* The mech's options ([game.movement.mech]), the same scheme. */
+/* Mech movement */
 #define NW_MECH_MOVEMENT(SW, FLAG, VAL) \
-    SW(stand_jump, "Running jump from a standstill", true, "it jumps off at once and steers like a running jump") \
-    SW(shot_stop, "Shorter stop after a shot", true, "steering or jumping ends the stop after a shot early") \
-    VAL(shot_stop_ms, "Stop ms", 25, 0, 600, "the least it stands after a shot") \
-    FLAG(shot_tap, "Quick tap fires", true, "a short press still fires; the PS2's drops it") \
-    SW(aim_walk, "Walk while aiming", true, "while aiming the right stick or the d-pad aims and the left stick walks") \
-    VAL(aim_walk_speed, "Walk speed %", 150, 50, 400, "percent of its walk; its run is 444") \
-    SW(aim_fast, "Faster aiming", true, "the aim follows the stick sooner") \
-    VAL(aim_speed, "Aim speed %", 200, 100, 500, "percent of the PS2's") \
-    SW(aim_assist, "Aim assist", false, "the aim bends toward the nearest enemy in front") \
-    VAL(assist_cone, "Assist cone deg", 20, 5, 45, "how far off the aim an enemy still pulls it") \
-    VAL(assist_pull, "Assist pull %", 50, 0, 100, "how hard it pulls") \
-    SW(hitbox, "Fitting hitbox", true, "what can kill it reaches about as far as it is drawn") \
-    VAL(hitbox_size, "Hitbox %", 70, 50, 100, "percent of the PS2's radius")
+    SW(stand_jump, "Running jump from a standstill", true, "jumps at once, steers like a running jump") \
+    SW(shot_stop, "Shorter stop after a shot", true, "steering or jumping ends the post-shot stop early") \
+    VAL(shot_stop_ms, "Stop ms", 25, 0, 600, "minimum stop after a shot") \
+    FLAG(shot_tap, "Quick tap fires", true, "short press fires; PS2 drops it") \
+    SW(aim_walk, "Walk while aiming", true, "left stick walks while the right stick or d-pad aims") \
+    VAL(aim_walk_speed, "Walk speed %", 150, 50, 400, "% of walk speed; run is 444") \
+    SW(aim_fast, "Faster aiming", true, "aim follows the stick faster") \
+    VAL(aim_speed, "Aim speed %", 200, 100, 500, "% of PS2") \
+    SW(aim_assist, "Aim assist", false, "aim bends toward the nearest enemy ahead") \
+    VAL(assist_cone, "Assist cone deg", 20, 5, 45, "max angle off the aim for the pull") \
+    VAL(assist_pull, "Assist pull %", 50, 0, 100, "pull strength") \
+    SW(hitbox, "Fitting hitbox", true, "deadly hitboxes match their models") \
+    VAL(hitbox_size, "Hitbox %", 70, 50, 100, "% of PS2 radius")
 
 typedef struct NwMechMovement {
     NW_MECH_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwMechMovement;
 
-/* The submarine's options ([game.movement.submarine]), the same scheme. */
+/* Submarine movement */
 #define NW_SUB_MOVEMENT(SW, FLAG, VAL) \
-    SW(turning, "Free turning", true, \
-       "any push to the side turns it that way, also mid-turn; no stop facing the screen") \
-    VAL(turn_speed, "Turn speed %", 200, 100, 400, "percent of the PS2's") \
-    VAL(pitch_speed, "Climb and dive turn %", 250, 100, 400, "how fast it noses up and down, percent of the PS2's") \
-    SW(speed, "Faster sub", true, "a faster sub, quicker to speed and to stop") \
-    VAL(speed_top, "Top speed %", 110, 100, 200, "percent of the PS2's") \
-    VAL(speed_accel, "Acceleration %", 250, 100, 400, "percent of the PS2's") \
-    VAL(speed_brake, "Braking %", 200, 100, 400, "percent of the PS2's") \
-    SW(hitbox, "Fitting hitbox", true, "fish, mines and shots reach about as far as it is drawn") \
-    VAL(hitbox_size, "Hitbox %", 90, 50, 100, "percent of the PS2's; walls, crates and fruit keep the PS2's") \
-    SW(weapons, "Weapon tuning", true, "the torpedo's and the bomb's reload and speed as set below") \
-    VAL(torpedo_rate, "Torpedo rate % (2/s)", 135, 100, 400, "how often it fires, percent of the PS2's 2 a second") \
-    VAL(torpedo_speed, "Torpedo speed %", 120, 100, 300, "percent of the PS2's; it flies as long, so farther") \
-    VAL(bomb_rate, "Bomb rate % (1/s)", 250, 100, 400, "how often it drops one, percent of the PS2's 1 a second") \
-    VAL(bomb_speed, "Bomb speed %", 100, 100, 300, "how fast it sinks, percent of the PS2's")
+    SW(turning, "Free turning", true, "turns toward any side push, also mid-turn; no stop facing the screen") \
+    VAL(turn_speed, "Turn speed %", 200, 100, 400, "% of PS2") \
+    VAL(pitch_speed, "Climb and dive turn %", 250, 100, 400, "pitch speed, % of PS2") \
+    SW(speed, "Faster sub", true, "faster sub, quicker acceleration and braking") \
+    VAL(speed_top, "Top speed %", 110, 100, 200, "% of PS2") \
+    VAL(speed_accel, "Acceleration %", 250, 100, 400, "% of PS2") \
+    VAL(speed_brake, "Braking %", 200, 100, 400, "% of PS2") \
+    SW(hitbox, "Fitting hitbox", true, "fish, mine and shot hitboxes match their models") \
+    VAL(hitbox_size, "Hitbox %", 90, 50, 100, "% of PS2; walls, crates and fruit unchanged") \
+    SW(weapons, "Weapon tuning", true, "torpedo and bomb reload and speed as set below") \
+    VAL(torpedo_rate, "Torpedo rate % (2/s)", 135, 100, 400, "fire rate, % of PS2 (2/s)") \
+    VAL(torpedo_speed, "Torpedo speed %", 120, 100, 300, "% of PS2; same flight time, so longer range") \
+    VAL(bomb_rate, "Bomb rate % (1/s)", 250, 100, 400, "drop rate, % of PS2 (1/s)") \
+    VAL(bomb_speed, "Bomb speed %", 100, 100, 300, "sink speed, % of PS2") \
+    SW(pass_fruit, "Shots pass fruit", true, "torpedoes and bombs pass through wumpa fruit")
 
 typedef struct NwSubMovement {
     NW_SUB_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwSubMovement;
 
-/* The jeep's options ([game.movement.jeep]), the same scheme. */
+/* Jeep movement */
 #define NW_JEEP_MOVEMENT(SW, FLAG, VAL) \
-    SW(steering, "Sharper steering", true, "it turns in quicker, the same at 60 Hz as at 50") \
-    VAL(steer_response, "Steering response %", 120, 100, 400, "how fast it turns where the stick points") \
-    VAL(steer_angle, "Steering angle %", 115, 50, 150, "how far it turns off the track, percent of the PS2's") \
+    SW(steering, "Sharper steering", true, "quicker turn-in, same at 50 and 60 Hz") \
+    VAL(steer_response, "Steering response %", 120, 100, 400, "how fast it turns toward the stick") \
+    VAL(steer_angle, "Steering angle %", 115, 50, 150, "max turn off the track, % of PS2") \
     SW(grip, "Grip", true, "less drift at speed in Smokey and the Bandicoot") \
-    VAL(grip_speed, "Grip at speed %", 200, 100, 1000, "percent of the PS2's") \
-    SW(speed, "Faster jeep", true, "a higher top speed, reached sooner") \
-    VAL(speed_top, "Top speed %", 100, 100, 150, "percent of the PS2's") \
-    VAL(speed_accel, "Acceleration %", 100, 100, 300, "Smokey and the Bandicoot's run-up, percent of the PS2's")
+    VAL(grip_speed, "Grip at speed %", 200, 100, 1000, "% of PS2") \
+    SW(speed, "Faster jeep", true, "higher top speed, reached sooner") \
+    VAL(speed_top, "Top speed %", 100, 100, 150, "% of PS2") \
+    VAL(speed_accel, "Acceleration %", 100, 100, 300, "Smokey and the Bandicoot run-up, % of PS2")
 
 typedef struct NwJeepMovement {
     NW_JEEP_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwJeepMovement;
 
-/* The atlasphere's options ([game.movement.atlasphere]), the same scheme. None touches acceleration or coasting. */
+/* Atlasphere movement */
 #define NW_ATLAS_MOVEMENT(SW, FLAG, VAL) \
-    SW(steer, "Sharper steering", true, "the ball turns tighter toward the stick and keeps its speed through the turn") \
-    VAL(steer_turn, "Turn sharpness %", 250, 100, 400, "percent of the PS2's push across the roll") \
-    SW(brake, "Faster braking", true, "the stick against the roll stops the ball sooner; speeding up stays the PS2's") \
-    VAL(brake_force, "Braking %", 250, 100, 400, "percent of the PS2's push against the roll") \
-    VAL(coast_brake, "Let-go braking %", 0, 0, 100, "with the stick let go it slows too, percent of the PS2's push") \
-    SW(edge_guard, "Edge guard", false, "rolling slowly at a pit, the ball stops at its edge") \
-    VAL(guard_reach, "Look-ahead ms", 300, 100, 600, "how far ahead it looks for a pit, as time at its speed") \
-    VAL(guard_speed, "Up to speed", 6, 2, 13, "units a second it still stops from; its top is 11, a boost 13") \
-    VAL(guard_brake, "Edge braking %", 300, 100, 500, "percent of the PS2's push") \
-    FLAG(guard_push, "Push to roll in", true, "pushing the stick at the pit rolls in as on the PS2")
+    SW(steer, "Sharper steering", true, "tighter turns that keep speed") \
+    VAL(steer_turn, "Turn sharpness %", 250, 100, 400, "sideways push, % of PS2") \
+    SW(brake, "Faster braking", true, "stick against the roll stops sooner; acceleration unchanged") \
+    VAL(brake_force, "Braking %", 250, 100, 400, "push against the roll, % of PS2") \
+    VAL(coast_brake, "Let-go braking %", 0, 0, 100, "slowdown with the stick released, % of PS2 push") \
+    SW(edge_guard, "Edge guard", false, "stops at pit edges when rolling slowly") \
+    VAL(guard_reach, "Look-ahead ms", 300, 100, 600, "pit look-ahead, as time at current speed") \
+    VAL(guard_speed, "Up to speed", 6, 2, 13, "max speed it still stops from, units/s; top 11, boost 13") \
+    VAL(guard_brake, "Edge braking %", 300, 100, 500, "% of PS2 push") \
+    FLAG(guard_push, "Push to roll in", true, "pushing toward the pit rolls in, as on PS2")
 
 typedef struct NwAtlasMovement {
     NW_ATLAS_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwAtlasMovement;
 
-/* The firefly's options ([game.movement.firefly]) in That Sinking Feeling, the same scheme. */
+/* Firefly movement */
 #define NW_FIREFLY_MOVEMENT(SW, FLAG, VAL) \
-    SW(lock_on, "Clear lock-on", true, \
-       "a marker shows what X locks, the lock building up, locked, lost and the reload") \
-    VAL(lock_ms, "Lock time ms", 1000, 300, 1300, "how long X is held before it is locked; the PS2's is 1300") \
-    FLAG(lock_tap, "Quick tap fires", true, "letting go before it is locked fires once it is; the PS2's drops it") \
-    SW(steering, "Sharper steering", true, \
-       "it banks, levels out, climbs and dives quicker, the same at 60 Hz as at 50") \
-    VAL(steer_response, "Steering response %", 200, 100, 400, "how fast it banks into and out of a turn") \
-    VAL(steer_turn, "Turn rate %", 125, 100, 200, "how fast a bank turns it, percent of the PS2's") \
-    VAL(pitch_response, "Climb and dive response %", 250, 100, 400, "how fast it noses up and down")
+    SW(lock_on, "Clear lock-on", true, "marker shows the X target, lock progress, lock, loss and reload") \
+    VAL(lock_ms, "Lock time ms", 1000, 300, 1300, "X hold time to lock; PS2: 1300") \
+    FLAG(lock_tap, "Quick tap fires", true, "releasing X early fires once locked; PS2 drops it") \
+    SW(steering, "Sharper steering", true, "quicker bank, level out, climb and dive, same at 50 and 60 Hz") \
+    VAL(steer_response, "Steering response %", 200, 100, 400, "bank in and out speed") \
+    VAL(steer_turn, "Turn rate %", 125, 100, 200, "turn rate while banked, % of PS2") \
+    VAL(pitch_response, "Climb and dive response %", 250, 100, 400, "pitch speed")
 
 typedef struct NwFireflyMovement {
     NW_FIREFLY_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwFireflyMovement;
 
-/* The plane's options ([game.movement.plane]), the same scheme: Tornado Alley and Atmospheric Pressure. */
+/* Plane movement */
 #define NW_PLANE_MOVEMENT(SW, FLAG, VAL) \
-    SW(steering, "Sharper steering", true, "it noses up and down and banks sooner, the same at 60 Hz as at 50") \
-    VAL(deadzone, "Stick deadzone %", 5, 5, 30, "how far the stick counts as centred; the PS2's 25") \
-    VAL(pitch_response, "Pitch response %", 200, 100, 500, "how fast it noses up and down, percent of the PS2's") \
-    VAL(bank_response, "Bank response %", 230, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
-    FLAG(push_dive, "Push to dive", true, "the stick forward noses down as on the PS2; off, forward climbs") \
-    SW(aim, "Shots on the reticle", true, "in Tornado Alley the shots fly where the reticle points") \
-    VAL(aim_assist, "Assist cone deg", 3, 0, 10, "an enemy this close to the reticle draws the shots; 0 none")
+    SW(steering, "Sharper steering", true, "quicker pitch and bank, same at 50 and 60 Hz") \
+    VAL(deadzone, "Stick deadzone %", 5, 5, 30, "stick deadzone; PS2: 25") \
+    VAL(pitch_response, "Pitch response %", 200, 100, 500, "pitch speed, % of PS2") \
+    VAL(bank_response, "Bank response %", 230, 100, 400, "bank speed, % of PS2") \
+    FLAG(push_dive, "Push to dive", true, "stick forward dives, as on PS2; off: forward climbs") \
+    SW(aim, "Shots on the reticle", true, "shots fly to the reticle in Tornado Alley") \
+    VAL(aim_assist, "Assist cone deg", 3, 0, 10, "shots pull to enemies this close to the reticle; 0: off")
 
 typedef struct NwPlaneMovement {
     NW_PLANE_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwPlaneMovement;
 
-/* The space fighter's options ([game.movement.spacefighter]), the same scheme. */
+/* Space fighter movement */
 #define NW_SPACE_MOVEMENT(SW, FLAG, VAL) \
-    SW(steering, "Sharper steering", true, "the nose follows the stick sooner and a lighter push steers") \
-    VAL(pitch_speed, "Climb and dive response %", 250, 100, 500, "how fast the nose moves, percent of the PS2's") \
-    VAL(bank_speed, "Bank response %", 150, 100, 400, "how fast it banks into a turn, percent of the PS2's") \
-    VAL(turn_rate, "Turn rate %", 125, 100, 200, "its turn at a full bank, percent of the PS2's 120 degrees a second") \
-    VAL(deadzone, "Stick deadzone %", 10, 0, 25, "how far the stick moves before it steers; the PS2's is 25") \
-    SW(roll, "Barrel roll keeps speed", true, "a barrel roll does not slow it down") \
-    VAL(roll_kept, "Speed kept %", 100, 0, 100, "share of its speed a roll keeps; the PS2's slows to an eighth") \
-    SW(aim, "True aim", true, "the reticle sits on the shots' path") \
-    VAL(aim_range, "Reticle distance", 60, 20, 88, "how far ahead on the path; the shots reach 88") \
-    FLAG(aim_sweep, "Shots cannot skip targets", true, "a shot hits what it passes through between two frames") \
-    SW(aim_assist, "Aim assist", true, "the shots bend toward the nearest target in front") \
-    VAL(assist_cone, "Assist cone deg", 6, 2, 20, "how far off the shots a target still pulls them") \
-    VAL(assist_pull, "Assist pull %", 75, 0, 100, "how far they bend toward it")
+    SW(steering, "Sharper steering", true, "nose follows the stick sooner, lighter push steers") \
+    VAL(pitch_speed, "Climb and dive response %", 250, 100, 500, "nose speed, % of PS2") \
+    VAL(bank_speed, "Bank response %", 150, 100, 400, "bank speed, % of PS2") \
+    VAL(turn_rate, "Turn rate %", 125, 100, 200, "turn rate at full bank, % of PS2 (120 deg/s)") \
+    VAL(deadzone, "Stick deadzone %", 10, 0, 25, "stick deadzone; PS2: 25") \
+    SW(roll, "Barrel roll keeps speed", true, "barrel roll keeps speed") \
+    VAL(roll_kept, "Speed kept %", 100, 0, 100, "speed kept in a roll; PS2 slows to 1/8") \
+    SW(aim, "True aim", true, "reticle on the shot path") \
+    VAL(aim_range, "Reticle distance", 60, 20, 88, "reticle distance on the path; shots reach 88") \
+    FLAG(aim_sweep, "Shots cannot skip targets", true, "shots hit anything passed between frames") \
+    SW(aim_assist, "Aim assist", true, "shots bend toward the nearest target ahead") \
+    VAL(assist_cone, "Assist cone deg", 6, 2, 20, "max angle off the shots for the pull") \
+    VAL(assist_pull, "Assist pull %", 75, 0, 100, "bend strength")
 
 typedef struct NwSpaceMovement {
     NW_SPACE_MOVEMENT(NW_CRASH_BOOL, NW_CRASH_BOOL, NW_CRASH_INT)
 } NwSpaceMovement;
 
-/* N. Hanced Movement ([game.movement]), speeds in percent of retail's; 0, the zeroed profile's, is retail's too. */
+/* N. Hanced Movement */
 typedef struct NwMovement {
-    int monkey_bar_speed; /* Crash on the monkey bars */
+    int monkey_bar_speed;
     NwCrashMovement crash;
     NwCocoMovement coco;
     NwMechMovement mech;
@@ -225,7 +229,7 @@ typedef struct NwMovement {
       .plane = { NW_PLANE_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .spacefighter = { NW_SPACE_MOVEMENT(NW_CRASH_NONE, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 #define NW_MOVEMENT_NHANCED \
-    { .monkey_bar_speed = 350, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
+    { .monkey_bar_speed = 335, .crash = { NW_CRASH_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .coco = { NW_COCO_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .mech = { NW_MECH_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .submarine = { NW_SUB_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
@@ -235,7 +239,6 @@ typedef struct NwMovement {
       .plane = { NW_PLANE_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) }, \
       .spacefighter = { NW_SPACE_MOVEMENT(NW_CRASH_DEFAULT, NW_CRASH_DEFAULT, NW_CRASH_DEFAULT) } }
 
-/* Every value at retail's is the retail profile, every one at N. Hanced's the N. Hanced profile, anything else Custom. */
 typedef enum NwMovementProfile {
     NW_MOVEMENT_PROFILE_RETAIL,
     NW_MOVEMENT_PROFILE_NHANCED,
@@ -245,13 +248,16 @@ typedef enum NwMovementProfile {
 NwMovementProfile nw_movement_profile(const NwMovement *m);
 
 typedef struct NwProfile {
-    bool unused_title; /* the unused title menu (TITLES' own level) instead of the logos and the title cut */
+    bool title_menu;   /* NuWorld's title menu instead of the logos and the title cut */
     NwMovement movement;
     bool air_indicator; /* a ring on the floor under Crash while he is in the air */
     bool boss_health;   /* phase lines on the boss bar */
     bool wombat;        /* a new game named WOMBAT starts with everything open, as on the GameCube and Xbox */
     bool hub_minigame;  /* Crunch on the warp room's top floor starts the loading minigame */
+    bool long_time_names; /* a time trial record's name takes up to 8 letters, not 3 (port/names.h) */
     int camera_stability; /* percent of a jump the game camera ignores, 0 retail */
+    bool hub_gem;
+    bool first_boss_cut;
     bool hitboxes;      /* the debug menu's view of every collision shape, not saved */
 } NwProfile;
 

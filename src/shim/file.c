@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "audio/nusound.h"
+#include "platform/log.h"
 #include "shim/shim.h"
 #include "vfs/vfs.h"
 
@@ -41,7 +42,7 @@ static int nw_shim_bad_fd(const char *call, int fd)
 {
     static unsigned reported;
     if (!reported++) {
-        fprintf(stderr, "%s: no open file %d\n", call, fd);
+        nw_log_warn(NW_LOG_PORT, "%s: no open file %d", call, fd);
     }
     return 0;
 }

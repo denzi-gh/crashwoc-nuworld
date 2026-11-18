@@ -146,6 +146,34 @@ static void test_keys(void)
     SDL_free(b.cmds);
 }
 
+/* A slot pairs different objects at one place; after it, keys go by object again. */
+static void test_slot(void)
+{
+    NwPacket p[2] = { 0 };
+    static int owner, glyph[2], mtx[2];
+    uint32_t frame = nw_interp_frame();
+    for (int k = 0; k < 2; k++) {
+        nw_interp_slot(&owner, 7);
+        NwInterpScope s = nw_interp_begin(&mtx[k], &glyph[k]);
+        NwCmd *c = nw_packet_cmd(&p[k]);
+        c->op = NW_CMD_DRAW;
+        c->key = nw_interp_cmd(NW_CMD_DRAW);
+        nw_interp_end(s);
+        nw_interp_slot(NULL, 0);
+        s = nw_interp_begin(&mtx[0], &glyph[k]);
+        c = nw_packet_cmd(&p[k]);
+        c->op = NW_CMD_DRAW;
+        c->key = nw_interp_cmd(NW_CMD_DRAW);
+        nw_interp_end(s);
+        nw_interp_publish(&p[k]);
+    }
+    CHECK(nw_interp_frame() == frame + 2);
+    CHECK(p[0].cmds[0].key && p[0].cmds[0].key == p[1].cmds[0].key);
+    CHECK(p[0].cmds[1].key != p[1].cmds[1].key && p[0].cmds[1].key != p[0].cmds[0].key);
+    SDL_free(p[0].cmds);
+    SDL_free(p[1].cmds);
+}
+
 /* Cuts, gaps and jumps are drawn as the newer packet. */
 static void test_snaps(void)
 {
@@ -255,6 +283,7 @@ int main(void)
 {
     test_mtx();
     test_keys();
+    test_slot();
     test_snaps();
     test_skin();
     test_uv();

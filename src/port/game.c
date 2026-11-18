@@ -7,6 +7,7 @@
 #endif
 
 #include "app.h"
+#include "platform/log.h"
 #include "port/fptrap.h"
 #include "port/ps2video.h"
 
@@ -75,8 +76,8 @@ _Noreturn static void nw_game_park(NwGameState state)
 void nw_game_host_enter(void)
 {
 #if defined(__x86_64__) || defined(_M_X64)
-    /* The EE FPU has no denormals: flush them to zero (FTZ) and read them as zero (DAZ). */
-    _mm_setcsr(_mm_getcsr() | 0x8040);
+    /* The EE FPU rounds toward zero and has no denormals (FTZ, DAZ); doubles: tools/softdouble.py. */
+    _mm_setcsr(_mm_getcsr() | 0xE040);
 #endif
     nw_fp_traps_enter();
 }
@@ -226,8 +227,8 @@ uint64_t nw_game_yield(bool wait_edge)
             static bool reported;
             if (!reported) {
                 reported = true;
-                SDL_Log(NW_APP_NAME ": the game fell %llu vblanks behind; it gets %d of them (reported once)",
-                        (unsigned long long)n, NW_GAME_MAX_CATCHUP);
+                nw_log_warn(NW_LOG_GAME, "the game fell %llu vblanks behind; it gets %d of them (reported once)",
+                            (unsigned long long)n, NW_GAME_MAX_CATCHUP);
             }
             n = NW_GAME_MAX_CATCHUP;
         }

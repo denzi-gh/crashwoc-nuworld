@@ -1,0 +1,585 @@
+--- a/src/game/game.c
++++ b/src/game/game.c
+@@ -247,7 +247,32 @@ extern u8 temp_sfx_volume;
+ extern u8 temp_music_volume;
+ extern char temp_screen_x;
+ extern char temp_screen_y;
++#ifdef NW_HOST
++/* NuWorld's saves (src/port/saves.h): SaveSlot shows a page of them; a result screen stays its frames */
++void nw_saves_write(struct game_s *slot);
++void nw_saves_delete(struct game_s *slot);
++void nw_saves_loaded(void);
++s32 nw_saves_shown(void);
++s32 nw_saves_ok(void);
++s32 nw_saves_any(void);
++#else
+ extern s32 memcard_loadattempted;
++extern s32 saveload_cardtype;
++extern s32 saveload_cardformatted;
++extern s32 saveload_freespace;
++extern s32 saveload_cardchanged;
++extern s32 memcard_loadresult_delay;
++extern s32 memcard_formatme;
++extern s32 memcard_formatting;
++extern s32 memcard_formatmessage_delay;
++extern s32 memcard_saveneeded;
++extern s32 memcard_savestarted;
++extern s32 memcard_deleteneeded;
++extern s32 memcard_deletestarted;
++extern s32 memcard_savemessage_delay;
++extern s32 memcard_saveresult_delay;
++extern s32 memcard_formatfailed;
++#endif
+ 
+ extern s32 ForceRestart;
+ extern s32 fadeval;
+@@ -284,9 +309,6 @@ extern s32 Hub;
+ extern s32 logos_played;
+ extern struct ldata_s *LDATA;
+ extern struct nucamera_s *pNuCam;
+-extern s32 saveload_cardtype;
+-extern s32 saveload_cardformatted;
+-extern s32 saveload_freespace;
+ extern s32 force_menu;
+ extern s32 next_cut_movie;
+ extern s32 input_alphabet;
+@@ -301,21 +323,9 @@ extern s32 tumble_action;
+ extern float tumble_duration;
+ extern s32 last_level;
+ extern s32 last_hub;
+-extern s32 saveload_cardchanged;
+ extern struct game_s SaveSlot[];
+ extern struct game_s *game;
+-extern s32 memcard_loadresult_delay;
+ extern struct panelcount_s plr_lives;
+-extern s32 memcard_formatme;
+-extern s32 memcard_formatting;
+-extern s32 memcard_formatmessage_delay;
+-extern s32 memcard_saveneeded;
+-extern s32 memcard_savestarted;
+-extern s32 memcard_deleteneeded;
+-extern s32 memcard_deletestarted;
+-extern s32 memcard_savemessage_delay;
+-extern s32 memcard_saveresult_delay;
+-extern s32 memcard_formatfailed;
+ extern s32 boss_dead;
+ 
+ /* --- InitLevel support --- */
+@@ -389,8 +399,10 @@ void ResetProjectiles(void);
+ void ResumeGame(void);
+ void edobjResetAnimsToZero(void);
+ s32 GotoCheckpoint(struct nuvec_s *pos, s32 dir);
++#ifndef NW_HOST
+ void loadsaveCallEachFrame(void);
+ void UpdateSaveSlots();
++#endif
+ int NuSoundStopStream(s32 ch);
+ void ResetMaskFeathers(void);
+ 
+@@ -926,7 +938,9 @@ void NewMenu(struct cursor_s *cur, s32 menu, s32 y, s32 level) {
+             temp_screen_y = Game.screen_y;
+             break;
+         case 19:
++#ifndef NW_HOST
+             memcard_loadattempted = 0;
++#endif
+             break;
+         case 31:
+             lock = 0x96;
+@@ -1588,14 +1602,19 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 0:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
+         if (CROSS != 0) {
+             switch (y) {
+             case 0:
++#ifndef NW_HOST
+                 if (saveload_cardtype != 2 ||
+                     (saveload_cardformatted != 0 && saveload_freespace < 0x42)) {
+                     NewMenu(cursor, 1, 0, -1);
+-                } else {
++                } else
++#endif
++                {
+                     NewMenu(cursor, 2, 0, -1);
+                 }
+                 sfx = 0x36;
+@@ -1624,8 +1643,11 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+             }
+         }
+         break;
++#ifndef NW_HOST
+     case 1:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
+         if (CROSS != 0) {
+             NewMenu(cursor, 2, 0, -1);
+             sfx = 0x36;
+@@ -1634,6 +1656,7 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+             sfx = 0x36;
+         }
+         break;
++#endif
+     case 2:
+         if (CROSS != 0) {
+             if (y == cursor->y_max - 1) {
+@@ -1799,7 +1822,9 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 19:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
+         if (CROSS != 0) {
+             switch (y) {
+             case 0:
+@@ -1831,11 +1856,17 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 20:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
++#endif
+         if (CROSS != 0) {
+             if (cursor->y < cursor->y_max) {
+                 game = SaveSlot + cursor->y * 2 + cursor->x;
+@@ -1852,10 +1883,14 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 21:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
+         if (CROSS != 0) {
+             if (cursor->y == 1) {
+                 NewMenu(cursor, 0x14, -1, -1);
+@@ -1865,16 +1900,29 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+                 NewLanguage(Game.language);
+                 NewMenu(cursor, 0x16, 0, -1);
+                 plr_lives.count = plr_lives.draw = Game.lives;
++#ifdef NW_HOST
++                nw_saves_loaded();
++#else
+                 memcard_loadresult_delay = 0x28;
++#endif
+                 NuPs2VideoSetPos(Game.screen_x << 2, Game.screen_y << 1);
+                 sfx = 0x36;
+             }
+         }
+         break;
+     case 22:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
+-        if (memcard_loadresult_delay == 0) {
++#endif
++#ifdef NW_HOST
++        if (nw_saves_shown())
++#else
++        if (memcard_loadresult_delay == 0)
++#endif
++        {
+             NewMenu(cursor, -1, -1, -1);
+             sfx = 0x3C;
+             tumble_action = -1;
+@@ -1889,17 +1937,28 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 23:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardtype == 2 && saveload_cardformatted == 0 && memcard_formatme == 0 &&
+             memcard_formatting == 0) {
+             NewMenu(cursor, 0x1D, 1, -1);
+         }
++#endif
+         if (CROSS != 0) {
+-            if (memcard_formatting == 0 && memcard_formatme == 0 && memcard_formatmessage_delay == 0) {
++#ifndef NW_HOST
++            if (memcard_formatting == 0 && memcard_formatme == 0 && memcard_formatmessage_delay == 0)
++#endif
++            {
+                 if (cursor->y < cursor->y_max) {
+                     game = SaveSlot + cursor->y * 2 + cursor->x;
+                     NewMenu(cursor, 0x18, 1, -1);
+@@ -1912,17 +1971,25 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 24:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
+         if (CROSS != 0) {
+             if (cursor->y == 1) {
+                 NewMenu(cursor, 0x17, -1, -1);
+                 sfx = 0x3C;
+             } else {
+                 *game = Game;
++#ifdef NW_HOST
++                nw_saves_write(game);
++#else
+                 memcard_saveneeded = 1;
++#endif
+                 NewMenu(cursor, 0x19, 0, -1);
+                 sfx = 0x36;
+             }
+@@ -1930,19 +1997,33 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         break;
+     case 25:
+     case 28:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
++#endif
++#ifdef NW_HOST
++        if (nw_saves_shown())
++#else
+         if (memcard_saveneeded != 0 || memcard_savestarted != 0 || memcard_deleteneeded != 0 ||
+             memcard_deletestarted != 0 || memcard_savemessage_delay != 0) {
+             memcard_saveresult_delay = 0x32;
+         }
+-        if (memcard_saveresult_delay == 0) {
++        if (memcard_saveresult_delay == 0)
++#endif
++        {
+             NewMenu(cursor, 0x13, 3, -1);
+         }
+         break;
++#ifndef NW_HOST
+     case 30:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
++#endif
+         if (memcard_formatting != 0 || memcard_formatme != 0 || memcard_formatmessage_delay != 0) {
+             memcard_saveresult_delay = 0x32;
+         }
+@@ -1954,12 +2035,19 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+             }
+         }
+         break;
++#endif
+     case 26:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
++#ifndef NW_HOST
+         UpdateSaveSlots();
++#endif
+         if (CROSS != 0) {
+             if (cursor->y < cursor->y_max) {
+                 game = SaveSlot + cursor->y * 2 + cursor->x;
+@@ -1976,15 +2064,22 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+         }
+         break;
+     case 27:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
+         if (CROSS != 0) {
+             if (cursor->y == 1) {
+                 NewMenu(cursor, 0x1A, -1, -1);
+                 sfx = 0x3C;
+             } else {
++#ifdef NW_HOST
++                nw_saves_delete(game);
++#else
+                 i = 1;
+                 game->empty = 1;
+                 for (x = 0; x < 2; x++) {
+@@ -1999,16 +2094,22 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+                 } else {
+                     memcard_saveneeded = 1;
+                 }
++#endif
+                 NewMenu(cursor, 0x1C, 0, -1);
+                 sfx = 0x36;
+             }
+         }
+         break;
++#ifndef NW_HOST
+     case 29:
++#ifndef NW_HOST
+         loadsaveCallEachFrame();
++#endif
++#ifndef NW_HOST
+         if (saveload_cardchanged != 0) {
+             NewMenu(cursor, 0x13, -1, -1);
+         }
++#endif
+         if (CROSS != 0) {
+             if (cursor->y == 1) {
+                 NewMenu(cursor, 0x13, 0, -1);
+@@ -2020,6 +2121,7 @@ void ProcMenu(struct cursor_s *cursor, struct nupad_s *pad) {
+             }
+         }
+         break;
++#endif
+     case 31:
+         if (CONFIRM != 0) {
+             if (Level == 0x16 || Level == 0x18) {
+@@ -2238,17 +2340,10 @@ extern char *tSAVEGAME[];
+ extern char *tDELETEGAME[];
+ extern char *tEXIT[];
+ extern char *tNODATAAVAILABLE[];
++#ifndef NW_HOST
+ extern char *tFAILEDTOLOAD[];
+-extern char *tCONFIRMLOAD[];
+-extern char *tCONFIRMSAVE[];
+-extern char *tCONFIRMDELETE[];
+ extern char *tCONFIRMFORMAT[];
+-extern char *tGAMELOADED[];
+-extern char *tGAMESAVED[];
+-extern char *tGAMEDELETED[];
+ extern char *tFORMATTINGCOMPLETE[];
+-extern char *tFAILEDTOSAVE[];
+-extern char *tFAILEDTODELETE[];
+ extern char *tFAILEDTOFORMAT[];
+ extern char *tSAVING[];
+ extern char *tDELETING[];
+@@ -2260,6 +2355,21 @@ extern char *tCHECKINGMEMORYCARD[][2];
+ extern char *tDONOTREMOVEMEMORYCARD[][3];
+ extern char *tNOTENOUGHSPACEONMEMORYCARD[][3];
+ extern char *tMEMORYCARDISNOTFORMATTED[][3];
++extern s32 memcard_loadcompleted;
++extern s32 memcard_loadmessage_delay;
++extern s32 memcard_loadfailed;
++extern s32 memcard_gamesavailable;
++extern s32 memcard_savefailed;
++extern s32 memcard_deletefailed;
++#endif
++extern char *tCONFIRMLOAD[];
++extern char *tCONFIRMSAVE[];
++extern char *tCONFIRMDELETE[];
++extern char *tGAMELOADED[];
++extern char *tGAMESAVED[];
++extern char *tGAMEDELETED[];
++extern char *tFAILEDTOSAVE[];
++extern char *tFAILEDTODELETE[];
+ extern char *tCONFIRMOVERWRITE[][2];
+ extern char *HubName[6][6];
+ extern char *LevelName[44][6];
+@@ -2270,12 +2380,6 @@ extern float TT_INPUTY;
+ extern s32 highallocaddr;
+ extern union variptr_u superbuffer_ptr;
+ extern union variptr_u superbuffer_base;
+-extern s32 memcard_loadcompleted;
+-extern s32 memcard_loadmessage_delay;
+-extern s32 memcard_loadfailed;
+-extern s32 memcard_gamesavailable;
+-extern s32 memcard_savefailed;
+-extern s32 memcard_deletefailed;
+ extern void DrawGameSlot(struct game_s *game, float x, float y, s32 colour);
+ extern void DrawGameSlots();
+ extern s32 DrawPanel3DCharacter(s32 character, float x, float y, float z,
+@@ -2324,6 +2428,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         sprintf(tbuf, "%s: %s", tLANGUAGE[Game.language], LanguageName[Game.language]);
+         DrawMenuEntry(cursor, tbuf, &x, &y, &i);
+         break;
++#ifndef NW_HOST
+     case 1:
+         y = -0.75f;
+         Text3D(tYOUNEEDAMEMORYCARD[Game.language][0], 0.0f, 0.2f, 1.0f, 0.4f, 0.4f, 0.4f, 0, 0);
+@@ -2357,6 +2462,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         Text3D(tbuf, 0.0f, -0.5f, 1.0f, 0.4f, 0.4f, 0.4f, 0, 0);
+         DrawMenuEntry(cursor, tGO[Game.language], &x, &y, &i);
+         break;
++#endif
+     case 2:
+         DrawNameInputTable(cursor, 0.0f, -0.5f);
+         Text3D(MakeEditText(Game.name), 0.0f, GAMENAMEY, 1.0f, 1.0f, 1.0f, 1.0f, 0, 4);
+@@ -2698,6 +2804,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         break;
+     case 20:
+         Text3D(tLOADGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++#ifndef NW_HOST
+         if (saveload_cardtype != 2) {
+             Text3D(tPLEASEINSERTMEMORYCARDSLOT1[Game.language][0], 0.0f, 0.15f, 1.0f, 0.5f,
+                    0.5f, 0.5f, 0, 0);
+@@ -2726,7 +2833,14 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         } else if (memcard_loadfailed != 0) {
+             Text3D(tFAILEDTOLOAD[Game.language], 0.0f, 0.0f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+             cursor->y = cursor->y_max;
+-        } else if (memcard_gamesavailable == 0) {
++        } else
++#endif
++#ifdef NW_HOST
++        if (nw_saves_any() == 0)
++#else
++        if (memcard_gamesavailable == 0)
++#endif
++        {
+             Text3D(tNODATAAVAILABLE[Game.language], 0.0f, 0.0f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+             cursor->y = cursor->y_max;
+         } else {
+@@ -2754,6 +2868,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         break;
+     case 23:
+         Text3D(tSAVEGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++#ifndef NW_HOST
+         if (saveload_cardtype != 2) {
+             Text3D(tPLEASEINSERTMEMORYCARDSLOT1[Game.language][0], 0.0f, 0.15f, 1.0f, 0.5f,
+                    0.5f, 0.5f, 0, 0);
+@@ -2794,15 +2909,21 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+             }
+             cursor->y = cursor->y_max;
+         } else {
++#endif
+             DrawGameSlots(cursor);
++#ifndef NW_HOST
+         }
++#endif
+         if (cursor->y == cursor->y_max) {
+             col = (GlobalTimer.frame % 10 < 5) ? 0 : 3;
+         } else {
+             col = 2;
+         }
+         scale = 0.6f;
+-        if (memcard_formatting == 0 && memcard_formatme == 0 && memcard_formatmessage_delay == 0) {
++#ifndef NW_HOST
++        if (memcard_formatting == 0 && memcard_formatme == 0 && memcard_formatmessage_delay == 0)
++#endif
++        {
+             Text3D(tCANCEL[Game.language], 0.0f, -0.75f, 1.0f, scale, scale, scale, 0, col);
+         }
+         break;
+@@ -2823,6 +2944,9 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         break;
+     case 25:
+         Text3D(tSAVEGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++#ifdef NW_HOST
++        if (nw_saves_ok() == 0)
++#else
+         if (memcard_saveneeded != 0 || memcard_savestarted != 0 ||
+             memcard_savemessage_delay != 0) {
+             size = (Game.language == 'c') ? 0.5f : 0.6f;
+@@ -2833,7 +2957,9 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+                    0.5f, 0, 0);
+             Text3D(tDONOTREMOVEMEMORYCARD[Game.language][2], 0.0f, -0.3f, 1.0f, 0.5f, 0.5f,
+                    0.5f, 0, 0);
+-        } else if (memcard_savefailed != 0) {
++        } else if (memcard_savefailed != 0)
++#endif
++        {
+             Text3D(tFAILEDTOSAVE[Game.language], 0.0f, -0.3f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+         } else {
+             Text3D(tGAMESAVED[Game.language], 0.0f, -0.3f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+@@ -2841,6 +2967,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         break;
+     case 26:
+         Text3D(tDELETEGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++#ifndef NW_HOST
+         if (saveload_cardtype != 2) {
+             Text3D(tPLEASEINSERTMEMORYCARDSLOT1[Game.language][0], 0.0f, 0.15f, 1.0f, 0.5f,
+                    0.5f, 0.5f, 0, 0);
+@@ -2866,7 +2993,14 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+             Text3D(tDONOTREMOVEMEMORYCARD[Game.language][2], 0.0f, -0.3f, 1.0f, 0.5f, 0.5f,
+                    0.5f, 0, 0);
+             cursor->y = cursor->y_max;
+-        } else if (memcard_gamesavailable == 0) {
++        } else
++#endif
++#ifdef NW_HOST
++        if (nw_saves_any() == 0)
++#else
++        if (memcard_gamesavailable == 0)
++#endif
++        {
+             Text3D(tNODATAAVAILABLE[Game.language], 0.0f, 0.0f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+             cursor->y = cursor->y_max;
+         } else {
+@@ -2878,7 +3012,10 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+             col = 2;
+         }
+         scale = 0.6f;
+-        if (memcard_saveneeded == 0 && memcard_savestarted == 0 && memcard_savemessage_delay == 0) {
++#ifndef NW_HOST
++        if (memcard_saveneeded == 0 && memcard_savestarted == 0 && memcard_savemessage_delay == 0)
++#endif
++        {
+             Text3D(tCANCEL[Game.language], 0.0f, -0.75f, 1.0f, scale, scale, scale, 0, col);
+         }
+         break;
+@@ -2892,6 +3029,9 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+         break;
+     case 28:
+         Text3D(tDELETEGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++#ifdef NW_HOST
++        if (nw_saves_ok() == 0)
++#else
+         if (memcard_saveneeded != 0 || memcard_savestarted != 0 || memcard_deleteneeded != 0 ||
+             memcard_deletestarted != 0 || memcard_savemessage_delay != 0) {
+             size = (Game.language == 'c') ? 0.5f : 0.6f;
+@@ -2902,12 +3042,15 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+                    0.5f, 0, 0);
+             Text3D(tDONOTREMOVEMEMORYCARD[Game.language][2], 0.0f, -0.3f, 1.0f, 0.5f, 0.5f,
+                    0.5f, 0, 0);
+-        } else if (memcard_deletefailed != 0 || memcard_savefailed != 0) {
++        } else if (memcard_deletefailed != 0 || memcard_savefailed != 0)
++#endif
++        {
+             Text3D(tFAILEDTODELETE[Game.language], 0.0f, -0.3f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+         } else {
+             Text3D(tGAMEDELETED[Game.language], 0.0f, -0.3f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+         }
+         break;
++#ifndef NW_HOST
+     case 29:
+         Text3D(tSAVEGAME[Game.language], 0.0f, 0.75f, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
+         Text3D(tMEMORYCARDISNOTFORMATTED[Game.language][0], 0.0f, 0.3f, 1.0f, 0.45f, 0.45f,
+@@ -2939,6 +3082,7 @@ void DrawMenu(struct cursor_s *cursor, s32 paused) {
+                    0);
+         }
+         break;
++#endif
+     case 31:
+         pdata = &PData[new_power];
+         scale = 0.6f;

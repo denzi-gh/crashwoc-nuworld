@@ -1,7 +1,7 @@
 name: Quality of Life suggestion
 description: A small change that makes the game more convenient to play (faster menus, skippable intros, better saving).
-title: "[QoL]: "
-labels: ["qol"]
+type: QoL
+labels: ["needs-triage"]
 body:
   - type: markdown
     attributes:

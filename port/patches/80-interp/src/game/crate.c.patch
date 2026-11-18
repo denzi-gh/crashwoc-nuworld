@@ -1,0 +1,18 @@
+--- a/src/game/crate.c
++++ b/src/game/crate.c
+@@ -2878,6 +2878,7 @@ void DrawCrates(void) {
+         NuMtxSetRotationY(&mtx, group->angle);
+         crate = &Crate[group->iCrate];
+         for (j = 0; j < group->nCrates; j++, crate++) {
++            NW_INTERP_KEY(crate);
+             crate->in_range = 0;
+             NW_WIDE_ONLY(wide_far = 0;)
+             if (editor_active != 0) {
+@@ -3008,6 +3009,7 @@ void DrawCrates(void) {
+             }
+         }
+     }
++    NW_INTERP_KEY(0);
+ }
+ 
+ s32 LowestActiveCrate(struct crategroup_s *group, struct cratecube_s *crate) {

@@ -13,4 +13,7 @@
 #define strlwr nw_strlwr
 #define __divdi3 nw_divdi3
 
+int nw_decomp_printf(const char *fmt, ...);
+#define printf nw_decomp_printf
+
 #endif

@@ -1,4 +1,4 @@
-/* game/cut's AppCutSceneCharacterRender (port/units.toml wrap): control.cut's heroes in its first shot. */
+/* control.cut's heroes in its first shot, for game/cut's AppCutSceneCharacterRender (gameplay/cut.c's wrap). */
 #include "port/silhouette.h"
 
 #include <math.h>
@@ -14,8 +14,6 @@
 #include "nu3d/nuhgobj.h"
 #include "nu_types.h"
 #include "numath/numtx.h"
-
-#include "game/cut.retail.h"
 
 /* nu3d/nuhgobj's and the archives', as game/cut and game/creature declare them */
 extern s32 NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *m, s32 nlayers, short *layer,
@@ -121,16 +119,15 @@ static int nw_silhouette_hero(const struct NUGCUTCHAR_s *cutchar)
    its root as the cut holds it there, idling on that root; its draws are
    marked for the renderer: black against the light with the silhouettes option, left out as retail without it. These
    heroes carry no locators. */
-void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGCUTSCENE_s *cutscene,
-                                struct instNUGCUTCHAR_s *icutchar, struct NUGCUTCHAR_s *cutchar, f32 current_frame)
+bool nw_silhouette_render(struct instNUGCUTSCENE_s *icutscene, struct NUGCUTSCENE_s *cutscene,
+                          struct instNUGCUTCHAR_s *icutchar, struct NUGCUTCHAR_s *cutchar, float current_frame)
 {
     struct NUHGOBJ_s *obj = icutchar->data;
     int hero = nw_silhouette_def && cutscene == nw_silhouette_def && current_frame < NW_SILHOUETTE_UNTIL && obj
                    ? nw_silhouette_hero(cutchar)
                    : -1;
     if (hero < 0) {
-        AppCutSceneCharacterRender__retail(icutscene, cutscene, icutchar, cutchar, current_frame);
-        return;
+        return false;
     }
     static struct numtx_s tmtx[256];
     static struct numtx_s pose[256];
@@ -140,7 +137,7 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
     float place = nw_silhouette_heroes[hero].place, beside = nw_silhouette_heroes[hero].beside;
     NuGCutCharAnimProcess(cutchar, place > 0.0f ? place : NW_SILHOUETTE_UNTIL, &mtx, &visible, 0, 0, 0);
     if (!visible || (beside != 0.0f && nw_silhouette_crash.frame != current_frame)) {
-        return;
+        return true;
     }
     if (icutscene->flags & NUGCUTSCENE_MATRIXSET) {
         NuMtxMul(&mtx, &mtx, &icutscene->mtx);
@@ -200,4 +197,5 @@ void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGC
     nw_silhouette_drawing = true;
     NuHGobjRndrMtxDwa(obj, &mtx, obj->num_layers, layertab, tmtx, dwa);
     nw_silhouette_drawing = false;
+    return true;
 }

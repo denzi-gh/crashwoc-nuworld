@@ -1,7 +1,7 @@
 name: Feature request
 description: A bigger addition to the port (widescreen, high framerate, rebinding, mod support).
-title: "[Feature]: "
-labels: ["enhancement"]
+type: Feature
+labels: ["needs-triage"]
 body:
   - type: markdown
     attributes:

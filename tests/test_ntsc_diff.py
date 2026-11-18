@@ -96,14 +96,35 @@ class Compare(unittest.TestCase):
         self.assertFalse(tool.compare(a, b).sites)
 
 
+class Targets:
+    """An Elf's target(): the symbol each address points into."""
+
+    def __init__(self, targets: dict[int, tuple[str, int]]):
+        self.targets = targets
+
+    def target(self, addr: int):
+        return self.targets.get(addr)
+
+
 class Data(unittest.TestCase):
     def fields(self, a: bytes, b: bytes):
-        return [(f.off, f.size, f.kind, f.cls) for f in tool.data_fields("x", a, b, 0x700000, 0x710000)]
+        pal, us = Targets({0x00600000: ("Foo", 0)}), Targets({0x00610000: ("Foo", 0)})
+        return [(f.off, f.size, f.kind, f.cls) for f in tool.data_fields("x", a, b, pal, us)]
 
     def test_float_and_pointer(self):
         a = struct.pack("<fI", 0.02, 0x00600000)
         b = struct.pack("<fI", 1 / 60, 0x00610000)
         self.assertEqual(self.fields(a, b), [(0, 4, "f32", "rate")])
+
+    def test_packed_shorts_that_look_like_an_address(self):
+        a, b = struct.pack("<hh", 15, 20), struct.pack("<hh", 18, 24)  # 0x0014000F -> 0x00180012
+        self.assertEqual(self.fields(a, b), [(0, 4, "int", "rate")])
+
+    def test_sound_id_and_path_moved(self):
+        a = b"Jump".ljust(16, b"\0") + struct.pack("<HHBBBBIhHbBH12x", 0, 0, 0, 0, 25, 0, 0x00600000, 0, 0, 0, 0, 20)
+        b = b"Jump".ljust(16, b"\0") + struct.pack("<HHBBBBIhHbBH12x", 0, 0, 0, 0, 30, 0, 0x00610010, 0, 0, 0, 0, 16)
+        (off, ea, eb), = tool.sound_pairs(a, b)
+        self.assertEqual(self.fields(ea, eb), [(0x14, 4, "int", "rate")])  # the delay's word; the id stays out
 
     def test_bytes_side_by_side(self):
         a, b = struct.pack("<I", 0x00000605), struct.pack("<I", 0x00000706)
@@ -116,6 +137,46 @@ class Data(unittest.TestCase):
         self.assertEqual(self.fields(a, b), [(0, 4, "int", "rate")])
         a, b = struct.pack("<HH", 1500, 7), struct.pack("<HH", 1800, 7)
         self.assertEqual(self.fields(a, b), [(0, 2, "int", "rate")])
+
+
+class Image:
+    """An Elf with sound tables: each a symbol over GameSound rows whose paths follow the tables."""
+
+    BASE = 0x00600000
+
+    def __init__(self, tables: dict[str, list[tuple[str, str]]]):
+        rows = sum(len(t) for t in tables.values())
+        strings, data, self.symbols = bytearray(), bytearray(), []
+        for name, table in tables.items():
+            self.symbols.append({"name": name, "value": self.BASE + len(data), "size": len(table) * tool.SOUND,
+                                 "type": tool.OBJECT})
+            for row, path in table:
+                at = self.BASE + rows * tool.SOUND + len(strings)
+                strings += path.encode() + b"\0"
+                data += row.encode().ljust(16, b"\0") + bytes(8) + struct.pack("<I", at) + bytes(20)
+        self.section = {"addr": self.BASE, "size": len(data) + len(strings), "data": bytes(data + strings)}
+
+    def section_at(self, addr: int):
+        s = self.section
+        return s if s["addr"] <= addr < s["addr"] + s["size"] else None
+
+    def read(self, addr: int, n: int):
+        s = self.section_at(addr)
+        return s["data"][addr - s["addr"]:addr - s["addr"] + n] if s else None
+
+
+class Sounds(unittest.TestCase):
+    def test_runs_around_rows_pal_added(self):
+        music = [("music left", "MUSIC\\L"), ("music right", "MUSIC\\R")]
+        pal = Image({"SfxTabGLOBAL": music + [("intro", "VCE_FRE\\I")],
+                     "SfxTabOIDS": music + [("aku", "VCE_FRE\\A"), ("aku", "VCE_GER\\A"), ("Boom", "LEVSPEC\\B")],
+                     "SfxTabPAL": music})
+        us = Image({"SfxTabGLOBAL": music, "SfxTabOIDS": music + [("Boom", "LEVSPEC\\B"), ("Gone", "LEVSPEC\\G")]})
+        runs, lost = tool.sfx_runs(pal, us)
+        oids = pal.symbols[1]["value"]
+        self.assertEqual(runs, [("SfxTabGLOBAL", Image.BASE, 2, 0, 0, 2), ("SfxTabOIDS", oids, 4, 0, 0, 2),
+                                ("SfxTabOIDS", oids, 4, 2, 4, 1)])
+        self.assertEqual(lost, ["SfxTabOIDS: 1 of 4 US rows"])
 
 
 class Known(unittest.TestCase):

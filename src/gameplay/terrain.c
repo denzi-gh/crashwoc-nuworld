@@ -3,6 +3,7 @@
 #include "numath/numathtypes.h"
 #include "gamelib/terrain.retail.h"
 #include "gameplay/edges.h"
+#include "gameplay/hubgem.h"
 #include "gameplay/submarine.h"
 
 void NewTerrainScaleY(struct nuvec_s *vpos, struct nuvec_s *vvel, u8 *flags, s32 terid, f32 stopflag, f32 size,
@@ -18,4 +19,10 @@ void TerrainImpact(struct nuvec_s *vpos, struct nuvec_s *vvel, u8 *flags)
 {
     nw_edges_impact(flags);
     TerrainImpact__retail(vpos, vvel, flags);
+}
+
+s32 HitWallSpline(void)
+{
+    nw_hubgem_walls();
+    return HitWallSpline__retail();
 }

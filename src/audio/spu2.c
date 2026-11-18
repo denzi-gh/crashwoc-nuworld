@@ -89,6 +89,13 @@ static struct {
 static NwSpu2Presets nw_spu2_presets;
 static SDL_AtomicInt nw_spu2_cut[2 * NW_SPU2_VOICES]; /* NW_SPU2_UNITY less the port's gain */
 
+/* nw_spu2_fade_in's, armed until the voice keys on. */
+typedef struct NwSpu2Fade {
+    bool armed, on;
+    uint32_t quiet, rise, at;
+} NwSpu2Fade;
+static NwSpu2Fade nw_spu2_fade[2 * NW_SPU2_VOICES];
+
 /* How far the SPU ran, the cycle of its last sample and the samples so far (PCSX2's Cycles). */
 static struct {
     uint64_t cycle;
@@ -116,6 +123,7 @@ static unsigned nw_spu2_reg(uint16_t entry)
 void nw_spu2_init(void)
 {
     memset(&spu, 0, sizeof(spu));
+    memset(nw_spu2_fade, 0, sizeof(nw_spu2_fade));
     for (int c = 0; c < 2; c++) {
         uint32_t *sw = spu.core[c].sw;
         sw[nw_spu2_reg(NW_SD_S_VMIXL)] = sw[nw_spu2_reg(NW_SD_S_VMIXR)] = NW_SPU2_ALL_VOICES;
@@ -147,6 +155,27 @@ void nw_spu2_set_gain(unsigned voice, int gain)
     if (voice < 2 * NW_SPU2_VOICES) {
         SDL_SetAtomicInt(&nw_spu2_cut[voice], NW_SPU2_UNITY - SDL_clamp(gain, 0, NW_SPU2_UNITY));
     }
+}
+
+void nw_spu2_fade_in(unsigned voice, uint32_t quiet, uint32_t rise)
+{
+    if (voice < 2 * NW_SPU2_VOICES) {
+        nw_spu2_fade[voice] = (NwSpu2Fade){ .armed = true, .quiet = quiet, .rise = rise };
+    }
+}
+
+static int32_t nw_spu2_faded(NwSpu2Fade *f, int32_t value)
+{
+    uint32_t at = f->at++;
+    if (at < f->quiet) {
+        return 0;
+    }
+    at -= f->quiet;
+    if (at >= f->rise) {
+        f->on = false;
+        return value;
+    }
+    return (int32_t)((int64_t)value * at * at / ((int64_t)f->rise * f->rise));
 }
 
 void nw_spu2_set_tap(NwSpu2Tap tap, void *user)
@@ -369,6 +398,10 @@ static void nw_spu2_keys(NwSpu2Core *c)
             v->counter = 0;
         }
         if (c->key_on >> i & 1) {
+            NwSpu2Fade *f = &nw_spu2_fade[(c - spu.core) * NW_SPU2_VOICES + i];
+            f->on = f->armed;
+            f->armed = false;
+            f->at = 0;
             v->phase = NW_ADSR_ATTACK;
             v->counter = 0;
             v->level = 0;
@@ -562,6 +595,10 @@ static void nw_spu2_voices(int32_t dry[2][2], int32_t wet[2][2], bool mix)
                 int cut = SDL_GetAtomicInt(&nw_spu2_cut[c * NW_SPU2_VOICES + i]);
                 if (cut) {
                     value = (value * (NW_SPU2_UNITY - cut)) >> 15;
+                }
+                NwSpu2Fade *f = &nw_spu2_fade[c * NW_SPU2_VOICES + i];
+                if (f->on) {
+                    value = nw_spu2_faded(f, value);
                 }
                 int32_t l = (value * v->vol[0]) >> 15, r = (value * v->vol[1]) >> 15;
                 dry[c][0] += sw[nw_spu2_reg(NW_SD_S_VMIXL)] >> i & 1 ? l : 0;

@@ -43,12 +43,9 @@ static char ghg_buffer[4 << 20];
         } \
     } while (0)
 
-/* The hermite reads whose value overflows in IEEE float, as the EE's float gives them. */
-static float overflowed[8];
 static unsigned noverflowed;
 
-/* Curve i at frame t, false if the keys it reads leave the image. A frame before the curve's first key reads the
-   16 bytes before its keys, as on the PS2: *before counts those. */
+
 static bool eval2(const char *file, size_t size, struct nuanimdata2_s *data, int i, float t, float *val,
                   unsigned *before)
 {
@@ -75,14 +72,13 @@ static bool eval2(const char *file, size_t size, struct nuanimdata2_s *data, int
         return false;
     }
     *val = NuAnimCurve2CalcVal(&data->curves[i], &at, type);
-    if (type == 1) {
+    if (ix < 0) {
+        CHECK(*val == 0.0f);
+    } else if (type == 1) {
         /* In double, so a sweep with NUWORLD_FP_TRAPS does not stop here: a slope times the keys' interval. */
         const struct nuanimkey2_s *kp = (const struct nuanimkey2_s *)k, *np = kp + 1;
         double dt = (double)np->time - kp->time;
         if (fabs(kp->slope * dt) > FLT_MAX || fabs(np->slope * dt) > FLT_MAX) {
-            if (noverflowed < SDL_arraysize(overflowed)) {
-                overflowed[noverflowed] = *val;
-            }
             noverflowed++;
         }
     }
@@ -440,8 +436,9 @@ static int retail_main(int argc, char **argv)
     return 0;
 }
 
-/* Pinned counts for every .cut; no anim is shared, as retail would relocate it twice. ICEBERG's joint anim reads the
-   exporter's FLT_MAX padding as a slope before its first key (frames 1-5): IEEE float overflows, the EE saturates. */
+/* Pinned counts for every .cut; no anim is shared, as retail would relocate it twice. The reads before a first key
+   are OUTRO2's; ICEBERG's joint anim has the exporter's FLT_MAX pad as key -1's slope there (frames 1-5), which retail
+   turns into an angle that depends on its load address, on joints inside the pod. */
 static int test_retail(void)
 {
     const char *dir = getenv("NUWORLD_TEST_DATA");
@@ -466,9 +463,7 @@ static int test_retail(void)
     CHECK(state == NW_GAME_RETURNED && retail.files == 18 && retail.bad == 0);
     CHECK(retail.cams == 70 && retail.locators == 128 && retail.types == 40 && retail.rigids == 178);
     CHECK(retail.chars == 67 && retail.anims == 385 && retail.keyed == 4284 && retail.states == 107);
-    CHECK(retail.before == 4823 && retail.nonfinite == 0 && retail.joints == 5 && noverflowed == 5);
-    CHECK(overflowed[0] == 0x1.e5cabap+86f && overflowed[1] == 0x1.e5cabap+87f && overflowed[2] == 0x1.6c580ap+88f &&
-          overflowed[3] == 0x1.e5cabap+88f && overflowed[4] == 0x1.2f9eb2p+89f);
+    CHECK(retail.before == 4823 && retail.nonfinite == 0 && retail.joints == 5 && noverflowed == 0);
     return failures ? 1 : 0;
 }
 

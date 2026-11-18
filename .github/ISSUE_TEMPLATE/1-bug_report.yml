@@ -1,7 +1,7 @@
 name: Bug report
 description: Something in the port works wrong (rendering, input, audio, menus, gameplay).
-title: "[Bug]: "
-labels: ["bug"]
+type: Bug
+labels: ["needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -33,4 +33,6 @@ body:
     id: media
     attributes:
       label: Screenshots, video, log or save file
-      description: Drag files in here. The log is `nuworld.log` in the NuWorld data folder.
+      description: >-
+        Drag files in here. The log is `nuworld.log` in the NuWorld data folder (`nuworld.previous.log` holds the run
+        before).

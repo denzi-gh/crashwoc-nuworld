@@ -1,4 +1,4 @@
-/* game/cut's StartCutMovie (port/units.toml wrap): --cut's shot started in place of the movie's first. */
+/* game/cut's StartCutMovie with --cut's shot started in place of the movie's first (gameplay/cut.c's wrap). */
 #include "port/cutstart.h"
 
 #include <string.h>
@@ -49,7 +49,7 @@ static void nw_cutstart_shot(const struct instNUGCUTSCENE_s *inst, char *out, si
 /* The movie's shots are chained, each starting the next as it ends (LoadCutComponents), and StartCutMovie starts the
    first, with the audio stream of the shot cutworldix names: the shot asked for stands in for the first while it
    starts, so it runs with its own stream (a shot that has none, as sunny and storm, runs silent) and its chain. */
-void StartCutMovie(void)
+void nw_cut_start_movie(void)
 {
     int shot = -1;
     for (int i = 1; nw_cutstart_name[0] && i < NW_CUTSTART_SHOTS && CutInst[i]; i++) {

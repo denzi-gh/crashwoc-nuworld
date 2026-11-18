@@ -6,6 +6,7 @@ At 50 Hz a tick's amounts are x6/5 (x36/25 per tick squared) and tick counts x5/
   data                       .data/.sdata/.rodata values per symbol
   check [--decomp DIR]       decomp built with NW_HZ's NTSC values vs the US ELF, its PAL values vs the PAL ELF
   table [--check]            writes the rate fields as src/port/hz_table.inc
+  sfx [--check]              writes where the US sound rows are in PAL's tables as src/port/sfx_table.inc
 ntsc_diff_known.txt names: func:<unit>/<name> (structure), func:<unit>/<name>+0x<off>, data:<symbol>+0x<off>|+size.
 """
 from __future__ import annotations
@@ -284,6 +285,7 @@ class Elf:
         self.funcs = sorted((s for s in self.symbols if s["type"] == FUNC and s["size"]), key=lambda s: s["value"])
         self.objects = sorted((s["value"], s["value"] + s["size"], s["name"]) for s in self.symbols
                               if s["type"] == OBJECT and s["size"])
+        self.func_at = {f["value"]: f["name"] for f in self.funcs}
         refs = code_refs(text["data"], text["addr"], [f["value"] for f in self.funcs], self.gp)
         self.lo = {r.vram: r for r in refs}
         self.hi = {r.hi_vram for r in refs if r.hi_vram is not None}
@@ -296,6 +298,14 @@ class Elf:
     def named(self, addr: int) -> bool:
         i = bisect.bisect_right(self.objects, (addr, 1 << 32, "")) - 1
         return i >= 0 and self.objects[i][0] <= addr < self.objects[i][1]
+
+    def target(self, addr: int) -> tuple[str, int] | None:
+        """The data symbol or function addr points into, and how far."""
+        i = bisect.bisect_right(self.objects, (addr, 1 << 32, "")) - 1
+        if i >= 0 and self.objects[i][0] <= addr < self.objects[i][1]:
+            return self.objects[i][2], addr - self.objects[i][0]
+        f = self.func_at.get(addr)
+        return (f, 0) if f else None
 
     def read(self, addr: int, n: int) -> bytes | None:
         s = self.section_at(addr)
@@ -506,14 +516,15 @@ class Field:
         return f"{f32(v):.9g}" if self.kind == "f32" else str(v)
 
 
-def data_fields(name: str, a: bytes, b: bytes, pal_end: int, us_end: int) -> list[Field]:
+def data_fields(name: str, a: bytes, b: bytes, pal: Elf, us: Elf) -> list[Field]:
     """Per differing word: a float, else the widest aligned unit holding the changed bytes whose values are a rate
     (word, halfword, then each byte), else the narrowest one, for review."""
     out = []
     for off in range(0, len(a) - len(a) % 4, 4):
         x, y = struct.unpack_from("<I", a, off)[0], struct.unpack_from("<I", b, off)[0]
-        if x == y or (0x100000 <= x <= pal_end and 0x100000 <= y <= us_end):
-            continue  # equal, or a pointer in each
+        # A pointer only when both point at the same symbol: packed shorts look like addresses too.
+        if x == y or (pal.target(x) is not None and pal.target(x) == us.target(y)):
+            continue
         if plausible_f32(x) and plausible_f32(y):
             out.append(Field(name, off, 4, "f32", x, y, "rate" if rate_float(f32(x), f32(y)) else "review"))
             continue
@@ -574,7 +585,7 @@ def data_diff(pal: Elf, us: Elf) -> tuple[list[Field], list[str], int]:
                 sized.append(f"{what} ({x['size']} -> {y['size']} bytes)")
                 continue
             for base, ea, eb in pairs:
-                for f in data_fields(what, ea, eb, pal.end, us.end):
+                for f in data_fields(what, ea, eb, pal, us):
                     f.off += base
                     f.addr = x["value"]
                     fields.append(f)
@@ -582,6 +593,7 @@ def data_diff(pal: Elf, us: Elf) -> tuple[list[Field], list[str], int]:
 
 
 SOUND = 0x30  # a GameSound: its name first
+SOUND_KEEP = ((0x18, 4), (0x22, 2))  # its path and id: PAL's extra sounds move both, no rate
 
 
 def sound_pairs(a: bytes, b: bytes) -> list[tuple[int, bytes, bytes]]:
@@ -589,8 +601,16 @@ def sound_pairs(a: bytes, b: bytes) -> list[tuple[int, bytes, bytes]]:
     names = {}
     for off in range(0, len(b), SOUND):
         names.setdefault(b[off:off + 16].split(b"\0")[0], b[off:off + SOUND])
-    return [(off, a[off:off + SOUND], names[a[off:off + 16].split(b"\0")[0]]) for off in range(0, len(a), SOUND)
-            if a[off:off + 16].split(b"\0")[0] in names]
+    out = []
+    for off in range(0, len(a), SOUND):
+        ea = a[off:off + SOUND]
+        eb = names.get(ea[:16].split(b"\0")[0])
+        if eb is not None:
+            eb = bytearray(eb)
+            for at, n in SOUND_KEEP:
+                eb[at:at + n] = ea[at:at + n]
+            out.append((off, ea, bytes(eb)))
+    return out
 
 
 def cmd_data(args) -> int:
@@ -665,6 +685,72 @@ def cmd_table(args) -> int:
     args.out.write_text(text, encoding="utf-8")
     print(f"{args.out}: {len(rate)} entries")
     return 0
+
+
+SFX_TABLE = ROOT / "src" / "port" / "sfx_table.inc"
+
+
+def cstr(elf: Elf, addr: int) -> bytes:
+    s = elf.section_at(addr)
+    if not s:
+        return b""
+    return s["data"][addr - s["addr"]:].split(b"\0")[0]
+
+
+def sound_rows(elf: Elf, sym: dict) -> list[tuple[bytes, bytes]]:
+    """A sound table's rows as (name, path)."""
+    raw = elf.read(sym["value"], sym["size"]) or b""
+    return [(raw[off:off + 16].split(b"\0")[0], cstr(elf, int.from_bytes(raw[off + 0x18:off + 0x1C], "little")))
+            for off in range(0, len(raw) - SOUND + 1, SOUND)]
+
+
+def sfx_runs(pal: Elf, us: Elf) -> tuple[list[tuple[str, int, int, int, int, int]], list[str]]:
+    """Every sound table both ELFs name, its US rows found in PAL's by name and path: runs of (name, PAL address,
+    US rows, first US row, first PAL row, count), and the US rows PAL has not."""
+    def tables(elf: Elf) -> dict[str, list[dict]]:
+        out: dict[str, list[dict]] = {}
+        for s in elf.symbols:
+            if s["type"] == OBJECT and s["size"] and s["name"].startswith("SfxTab"):
+                out.setdefault(s["name"], []).append(s)
+        return out
+    a, b = tables(pal), tables(us)
+    runs, lost = [], []
+    for name in sorted(a, key=lambda n: a[n][0]["value"]):
+        if name not in b:
+            continue
+        if len(a[name]) != 1 or len(b[name]) != 1:
+            lost.append(f"{name}: repeated name")
+            continue
+        ra, rb = sound_rows(pal, a[name][0]), sound_rows(us, b[name][0])
+        found = 0
+        for j, i, n in difflib.SequenceMatcher(None, rb, ra, autojunk=False).get_matching_blocks():
+            if n:
+                runs.append((name, a[name][0]["value"], len(rb), j, i, n))
+                found += n
+        if found != len(rb):
+            lost.append(f"{name}: {len(rb) - found} of {len(rb)} US rows")
+    return runs, lost
+
+
+def cmd_sfx(args) -> int:
+    pal, us = Elf(elf_arg(args.pal, "NUWORLD_PAL_ELF", "PAL")), Elf(elf_arg(args.us, "NUWORLD_US_ELF", "US"))
+    runs, lost = sfx_runs(pal, us)
+    for why in lost:
+        print(f"no PAL row: {why}")
+    text = "\n".join(["/* Generated by tools/ntsc_diff.py sfx: where the US disc's sound rows are in PAL's tables, as "
+                      "runs of a table's",
+                      "   name, its PAL address, its US rows, the first US row, the first PAL row and the count. "
+                      "src/port/disc.c reads",
+                      "   a US level file's sound numbers with them. */",
+                      *(f'NW_SFX_RUN("{n}", 0x{addr:08x}, {rows}, {j}, {i}, {k})' for n, addr, rows, j, i, k in runs),
+                      ""])
+    if args.check:
+        same = args.out.is_file() and args.out.read_text(encoding="utf-8") == text
+        print(f"{args.out}: {'current' if same else 'differs from a fresh table'} ({len(runs)} runs)")
+        return 0 if same and not lost else 1
+    args.out.write_text(text, encoding="utf-8")
+    print(f"{args.out}: {len(runs)} runs")
+    return 0 if not lost else 1
 
 
 # -- check: the decomp built for EE with either value of NW_HZ -------------------------------------------------------
@@ -759,7 +845,7 @@ def cmd_check(args) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("functions", "data", "check", "table"):
+    for name in ("functions", "data", "check", "table", "sfx"):
         p = sub.add_parser(name)
         p.add_argument("--pal", help="the PAL ELF (default $NUWORLD_PAL_ELF)")
         p.add_argument("--us", help="the US ELF (default $NUWORLD_US_ELF)")
@@ -771,6 +857,8 @@ def main() -> int:
     sub.choices["check"].add_argument("--no-compile", action="store_true", help="reuse build/ntsc_diff's objects")
     sub.choices["table"].add_argument("--out", type=Path, default=TABLE, help=f"the table (default {TABLE})")
     sub.choices["table"].add_argument("--check", action="store_true", help="only compare it with a fresh one")
+    sub.choices["sfx"].add_argument("--out", type=Path, default=SFX_TABLE, help=f"the table (default {SFX_TABLE})")
+    sub.choices["sfx"].add_argument("--check", action="store_true", help="only compare it with a fresh one")
     p = sub.add_parser("compile", help=argparse.SUPPRESS)
     p.add_argument("--decomp", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
@@ -778,7 +866,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.cmd != "compile":
         args.decomp = nwunits.decomp_tree(args.decomp)
-    return {"functions": cmd_functions, "data": cmd_data, "check": cmd_check, "table": cmd_table,
+    return {"functions": cmd_functions, "data": cmd_data, "check": cmd_check, "table": cmd_table, "sfx": cmd_sfx,
             "compile": cmd_compile}[args.cmd](args)
 
 

@@ -9,6 +9,7 @@
 #include "gfx/rndr.h"
 #include "nu3d/nutex.h"
 #include "nucore/nuerror.h"
+#include "platform/log.h"
 #include "port/heap.h"
 
 #define ps2txtr_srcfile "..\\nu2crash.ps2\\nups2\\ps2txtr.c"
@@ -144,7 +145,7 @@ static void nw_ps2tx_unsupported(int kind, const char *what)
     static unsigned reported;
     if (!(reported & 1u << kind)) {
         reported |= 1u << kind;
-        fprintf(stderr, NW_APP_NAME ": %s is not drawn\n", what);
+        nw_log_warn(NW_LOG_GFX, "%s is not drawn", what);
     }
 }
 

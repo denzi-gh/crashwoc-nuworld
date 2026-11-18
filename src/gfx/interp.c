@@ -16,9 +16,12 @@ static uint64_t nw_mix(uint64_t h, uint64_t v)
 /* Game thread. */
 static struct {
     const void *tag;
+    const void *owner;
+    uint64_t place;
     uint64_t obj;
     uint32_t at, n;
     uint32_t views;
+    uint32_t frame;
     bool snap;
     uint64_t *seen; /* the frame's object bases, open addressing; 0 free */
     uint32_t *count;
@@ -71,7 +74,8 @@ NwInterpScope nw_interp_begin(const void *src, const void *obj)
     if (nw_ik.obj) {
         key = nw_mix(nw_mix(nw_ik.obj, nw_ik.at), (uintptr_t)obj);
     } else {
-        uint64_t base = nw_mix(nw_mix(nw_mix(1, (uintptr_t)nw_ik.tag), (uintptr_t)src), (uintptr_t)obj);
+        uint64_t base = nw_ik.owner ? nw_mix(nw_mix(2, (uintptr_t)nw_ik.owner), nw_ik.place)
+                                    : nw_mix(nw_mix(nw_mix(1, (uintptr_t)nw_ik.tag), (uintptr_t)src), (uintptr_t)obj);
         base += !base;
         key = nw_mix(base, nw_interp_ordinal(base));
     }
@@ -114,6 +118,7 @@ void nw_interp_publish(NwPacket *p)
     p->snap = nw_ik.snap;
     nw_ik.snap = false;
     nw_ik.views = 0;
+    nw_ik.frame++;
     if (nw_ik.used) {
         memset(nw_ik.seen, 0, nw_ik.cap * sizeof(*nw_ik.seen));
         memset(nw_ik.count, 0, nw_ik.cap * sizeof(*nw_ik.count));
@@ -124,6 +129,17 @@ void nw_interp_publish(NwPacket *p)
 void nw_interp_key(const void *key)
 {
     nw_ik.tag = key;
+}
+
+void nw_interp_slot(const void *owner, unsigned long long place)
+{
+    nw_ik.owner = owner;
+    nw_ik.place = place;
+}
+
+uint32_t nw_interp_frame(void)
+{
+    return nw_ik.frame;
 }
 
 void nw_interp_snap(void)

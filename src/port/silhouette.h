@@ -9,6 +9,9 @@
 
 struct nugscn_s;
 struct NUGCUTSCENE_s;
+struct instNUGCUTSCENE_s;
+struct NUGCUTCHAR_s;
+struct instNUGCUTCHAR_s;
 union variptr_u;
 
 /* As a scene loads: control.gsc's Silhouette card marked (NwGpuMesh.heroes_picture). */
@@ -16,6 +19,10 @@ void nw_silhouette_mark(struct nugscn_s *scene, const char *path);
 /* As a cutscene loads: whether it is control.cut, and if so its heroes' idles loaded after it on the heap. */
 void nw_silhouette_cut(const char *path, const struct NUGCUTSCENE_s *def, union variptr_u *heap,
                        union variptr_u *heapend);
+/* game/cut's AppCutSceneCharacterRender for one of control.cut's heroes in the door's shot: whether it drew it (or
+   kept it out of sight), retail's left to draw the rest. Called by gameplay/cut.c's wrap. */
+bool nw_silhouette_render(struct instNUGCUTSCENE_s *icutscene, struct NUGCUTSCENE_s *cutscene,
+                          struct instNUGCUTCHAR_s *icutchar, struct NUGCUTCHAR_s *cutchar, float current_frame);
 /* While a character draws as a silhouette: its draws are marked (NwCmd.silhouette). Game thread. */
 extern bool nw_silhouette_drawing;
 

@@ -1,0 +1,37 @@
+--- a/src/game/panel.c
++++ b/src/game/panel.c
+@@ -423,7 +423,8 @@ void DrawTimeTrialTimes(s32 level, float x, float y) {
+ 
+     for (j = 0; j < 3; j++) {
+         MakeLevelTimeString(&Game.level[level].time[j], tbuf);
+-        Text3D(tbuf, x, y, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++        Text3D(tbuf, x, y, 1.0f, NW_NAME_SCALE(0.6f, tbuf, 11), NW_NAME_SCALE(0.6f, tbuf, 11),
++               NW_NAME_SCALE(0.6f, tbuf, 11), 0, 0);
+         y += dy;
+     }
+ }
+@@ -1090,7 +1091,8 @@ void DrawPanel(void) {
+             DrawPanel3DObject(98, xs, 0.0f, PAUSEPANELZ, 0.1f, 0.1f, f * 0.1f, 0, 0, 0,
+                               ObjTab[98].obj.scene, ObjTab[98].obj.special, 1);
+             if (paused == 25) {
+-                Text3D(Game.name, PAUSEPANELX, PAUSENAMEY, 1.0f, 0.6f, 0.6f, 0.6f, 0, 0);
++                Text3D(NW_GAME_NAME(&Game), PAUSEPANELX, PAUSENAMEY, 1.0f,
++                       NW_NAME_SCALE(0.6f, NW_GAME_NAME(&Game), 8), 0.6f, 0.6f, 0, 0);
+                 sprintf(tbuf, "%i%%", Game.percent);
+                 if (Game.language == 0x63) {
+                     AddSpacesIntoText(tbuf, 1);
+@@ -1492,10 +1494,11 @@ void DrawPanel(void) {
+                             }
+                             MakeLevelTimeString(&Game.level[Level].time[i], tbuf);
+                             if (i == newleveltime_slot) {
+-                                Text3D(MakeEditText(tbuf), xs, y, 1.0f, scale, scale,
+-                                       scale, 0, 4);
++                                Text3D(MakeEditText(tbuf), xs, y, 1.0f, NW_NAME_SCALE(scale, tbuf, 11),
++                                       NW_NAME_SCALE(scale, tbuf, 11), NW_NAME_SCALE(scale, tbuf, 11), 0, 4);
+                             } else {
+-                                Text3D(tbuf, 0.0f, ys, 1.0f, 0.8f, 0.8f, 0.8f, 0, 0);
++                                Text3D(tbuf, 0.0f, ys, 1.0f, NW_NAME_SCALE(0.8f, tbuf, 11),
++                                       NW_NAME_SCALE(0.8f, tbuf, 11), NW_NAME_SCALE(0.8f, tbuf, 11), 0, 0);
+                             }
+                             if (i == newleveltime_slot) {
+                                 if ((new_lev_flags & 4) != 0) {

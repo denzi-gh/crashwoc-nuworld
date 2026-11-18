@@ -26,7 +26,7 @@ static float nw_sub_top = 1.0f;  /* what WALKSPEED and RUNSPEED hold */
 static float nw_sub_sink = 1.0f; /* what SPRINTSPEED, the bombs' sink speed (terminal_fall_speed), holds */
 static u16 nw_sub_hdg, nw_sub_target, nw_sub_xrot;
 static u32 nw_sub_frame;
-static bool nw_sub_firing;
+static bool nw_sub_firing, nw_sub_shooting;
 static int nw_sub_fire, nw_sub_tap;
 static int nw_sub_depth;
 static struct {
@@ -245,6 +245,20 @@ void nw_sub_restore(void)
     d->min.y = nw_sub_saved.min;
     d->max.y = nw_sub_saved.max;
     nw_sub_saved.on = false;
+}
+
+void nw_sub_shots(bool on)
+{
+    nw_sub_shooting = on;
+}
+
+bool nw_sub_fruit(void)
+{
+    if (!nw_sub_shooting || !nw_profile.movement.submarine.pass_fruit) {
+        return false;
+    }
+    NW_DEVIATION(movement.submarine.pass_fruit);
+    return true;
 }
 
 float nw_sub_particle(float radius)

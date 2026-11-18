@@ -5,6 +5,7 @@
 #include "game/panel.retail.h"
 #include "gameplay/bosshealth.h"
 #include "gameplay/hubcrunch.h"
+#include "gameplay/hubgem.h"
 #include "gameplay/minigame.h"
 
 /* Declared by no header. */
@@ -23,6 +24,7 @@ void DrawPanelDebris(void)
 {
     nw_boss_health_crunch_time();
     nw_crunch_prompt();
+    nw_hubgem_message();
     DrawPanelDebris__retail();
 }
 

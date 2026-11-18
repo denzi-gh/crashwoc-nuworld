@@ -17,6 +17,7 @@
 #include "nu3d/nutex.h"
 #include "nu3d/nuvport.h"
 #include "numath/numtx.h"
+#include "platform/log.h"
 #include "numath/nutrig.h"
 #include "numath/nuvec.h"
 #include "nups2/nups2types.h"
@@ -482,7 +483,7 @@ void NuRndrSetRTarget(struct rndrstream_s *stream, int target)
         static bool reported;
         if (!reported) {
             reported = true;
-            fprintf(stderr, NW_APP_NAME ": the Z buffer as a target is not drawn\n");
+            nw_log_warn(NW_LOG_GFX, "the Z buffer as a target is not drawn");
         }
     } else {
         surf = nw_ps2tx_surf(target == -3 ? NW_SURF_FRONT : NW_SURF_BACK);

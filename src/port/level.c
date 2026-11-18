@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include "game/gametypes.h"
+#include "platform/log.h"
 #include "port/heap.h"
 #include "shim/shim.h"
 #include "vfs/vfs.h"
@@ -26,7 +27,9 @@ extern struct ldata_s LData[44];
 extern struct hdata_s HData[6];
 extern char *LevelName[44][6];
 extern s32 Level, Hub, GameMode, Demo, editor_active, cutmovie, gamecut_newlevel;
-extern s32 new_level, new_mode, next_cut_movie;
+extern s32 new_level, new_mode, next_cut_movie, gamecut, logos_played;
+extern void *SpaceGameCutTab[26][2];
+extern struct game_s Game;
 extern s32 fadeval, fade_rate, fadehack;
 extern volatile s32 bgload_complete;
 s32 HubFromLevel(s32 level);
@@ -231,17 +234,200 @@ static void nw_level_enter(int level)
     nw_level_cut();
 }
 
-bool nw_level_routing(void)
+typedef struct NwCutscene {
+    const char *group, *name;
+    signed char movie, gamecut;
+} NwCutscene;
+
+static const NwCutscene nw_cutscenes[] = {
+    { "Movies", "Logos and title", 0, -1 },
+    { "Movies", "Intro", 1, -1 },
+    { "Movies", "Ending", 3, -1 },
+    { "Movies", "Ending (all gems)", 4, -1 },
+    { "Warp Room 1", "Arrival", -1, 0 },
+    { "Warp Room 1", "First level", -1, 1 },
+    { "Warp Room 1", "2 crystals", -1, 2 },
+    { "Warp Room 1", "4 crystals", -1, 3 },
+    { "Warp Room 1", "Before the boss", -1, 4 },
+    { "Warp Room 1", "Back from the boss", -1, 5 },
+    { "Warp Room 1", "Leaving after the boss", -1, 6 },
+    { "Warp Room 2", "First level", -1, 7 },
+    { "Warp Room 2", "2 crystals", -1, 8 },
+    { "Warp Room 2", "4 crystals", -1, 9 },
+    { "Warp Room 2", "Before the boss", -1, 10 },
+    { "Warp Room 2", "Leaving after the boss", -1, 11 },
+    { "Warp Room 3", "First level", -1, 12 },
+    { "Warp Room 3", "2 crystals", -1, 13 },
+    { "Warp Room 3", "4 crystals", -1, 14 },
+    { "Warp Room 3", "Before the boss", -1, 15 },
+    { "Warp Room 3", "Leaving after the boss", -1, 16 },
+    { "Warp Room 4", "First level", -1, 17 },
+    { "Warp Room 4", "2 crystals", -1, 18 },
+    { "Warp Room 4", "4 crystals", -1, 19 },
+    { "Warp Room 4", "Before the boss", -1, 20 },
+    { "Warp Room 5", "First level", -1, 22 },
+    { "Warp Room 5", "2 crystals", -1, 23 },
+    { "Warp Room 5", "4 crystals", -1, 24 },
+    { "Warp Room 5", "Before the boss", -1, 25 },
+};
+
+static struct {
+    SDL_AtomicInt asked;
+    int next, space, title_movie, hub, ret;
+    bool started;
+} nw_cut = { .next = -1, .space = -1, .title_movie = -1, .hub = -1 };
+
+static bool nw_cutscene_hub(const NwCutscene *c)
 {
-    return nw_level.intro || nw_level_pending() >= 0 || nw_level.entering >= 0;
+    return c->movie < 0 && !SpaceGameCutTab[c->gamecut][0];
 }
 
-void nw_level_titles(void)
+int nw_cutscene_count(void)
 {
-    Level = NW_LEVEL_TITLES;
-    new_level = NW_LEVEL_TITLES;
-    Hub = -1;
-    nw_level_cut();
+    return (int)SDL_arraysize(nw_cutscenes);
+}
+
+const char *nw_cutscene_name(int i, const char **group)
+{
+    if (i < 0 || i >= nw_cutscene_count()) {
+        return NULL;
+    }
+    *group = nw_cutscenes[i].group;
+    return nw_cutscenes[i].name;
+}
+
+int nw_cutscene_current(void)
+{
+    for (int i = 0; i < nw_cutscene_count(); i++) {
+        const NwCutscene *c = &nw_cutscenes[i];
+        if (c->movie >= 0 ? cutmovie == c->movie
+                          : cutmovie < 0 && GameMode == 1 && gamecut == c->gamecut &&
+                                Level == (nw_cutscene_hub(c) ? NW_LEVEL_HUB : NW_LEVEL_SPACE)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int nw_cutscene_pending(void)
+{
+    return SDL_GetAtomicInt(&nw_cut.asked) - 1;
+}
+
+void nw_cutscene_play(int i)
+{
+    const char *group;
+    if (nw_cutscene_name(i, &group)) {
+        SDL_SetAtomicInt(&nw_cut.asked, i + 1);
+    }
+}
+
+bool nw_cutscene_route(int next)
+{
+    int expect = nw_cut.next;
+    nw_cut.next = -1;
+    if (expect != next) {
+        nw_cut.space = -1;
+        return false;
+    }
+    gamecut = nw_cut.space;
+    if (nw_cut.space >= 0) {
+        gamecut_newlevel = next;
+        new_level = NW_LEVEL_SPACE;
+        nw_cut.space = -1;
+        nw_cut.next = next;
+    }
+    return true;
+}
+
+static void nw_cutscene_start(const NwCutscene *c)
+{
+    bool title = cutmovie == 0;
+    int ret = title                    ? NW_LEVEL_TITLES
+              : Level != NW_LEVEL_SPACE ? Level
+              : gamecut_newlevel >= 0   ? gamecut_newlevel
+                                        : NW_LEVEL_HUB;
+    nw_cut.next = nw_cut.space = nw_cut.title_movie = nw_cut.hub = -1;
+    nw_cut.started = false;
+    if (c->movie == 0) {
+        logos_played = 0;
+        if (title) {
+            next_cut_movie = 0;
+            nw_level_cut();
+        } else {
+            nw_cut.next = NW_LEVEL_TITLES;
+            nw_level_enter(NW_LEVEL_TITLES);
+        }
+    } else if (c->movie > 0) {
+        if (title) {
+            logos_played = 1;
+            next_cut_movie = c->movie;
+            nw_cut.title_movie = c->movie;
+            nw_level_cut();
+        } else {
+            cutmovie = c->movie;
+            nw_cut.next = ret;
+            nw_level_enter(ret);
+        }
+    } else if (nw_cutscene_hub(c)) {
+        nw_cut.hub = c->gamecut;
+        nw_cut.ret = ret;
+        if (title) {
+            Game.cutbits |= c->gamecut != 0;
+            nw_level_enter(NW_LEVEL_HUB);
+        } else if (Level != NW_LEVEL_HUB) {
+            nw_cut.next = NW_LEVEL_HUB;
+            nw_level_enter(NW_LEVEL_HUB);
+        }
+    } else if (title) {
+        gamecut = c->gamecut;
+        gamecut_newlevel = NW_LEVEL_TITLES;
+        nw_cut.next = NW_LEVEL_TITLES;
+        nw_level_enter(NW_LEVEL_SPACE);
+    } else {
+        nw_cut.space = c->gamecut;
+        nw_cut.next = ret;
+        nw_level_enter(ret);
+    }
+}
+
+static bool nw_cutscene_poll(bool ready)
+{
+    if (nw_cut.title_movie > 0) {
+        if (cutmovie == nw_cut.title_movie) {
+            nw_cut.started = true;
+            next_cut_movie = 0;
+        } else if (nw_cut.started) {
+            nw_cut.title_movie = -1;
+        }
+    }
+    if (nw_cut.hub < 0) {
+        return false;
+    }
+    if (Level == NW_LEVEL_HUB && cutmovie < 0 && GameMode == 1 && gamecut == nw_cut.hub) {
+        nw_cut.started = true;
+    }
+    if (!ready || cutmovie >= 0 || GameMode != 0) {
+        return false;
+    }
+    if (Level != NW_LEVEL_HUB) {
+        nw_cut.hub = -1;
+        return false;
+    }
+    if (!nw_cut.started) {
+        gamecut = nw_cut.hub;
+        Hub = -1;
+        new_mode = 1;
+        nw_level_cut();
+        return true;
+    }
+    nw_cut.hub = -1;
+    if (nw_cut.ret == NW_LEVEL_HUB) {
+        return false;
+    }
+    nw_cut.next = nw_cut.ret;
+    nw_level_enter(nw_cut.ret);
+    return true;
 }
 
 /* Acts after two steady swaps (loads done, faded in, which BGLoad's loading screen never is, no other level change),
@@ -256,12 +442,13 @@ void nw_level_poll(void)
     if (steady && Level != nw_level.logged) {
         const char *name = nw_level_name(Level);
         nw_level.logged = Level;
-        SDL_Log("level %d: %s", Level, name ? name : "?");
+        nw_log_info(NW_LOG_GAME, "level %d: %s", Level, name ? name : "?");
     }
-    if (!ready) {
+    if (nw_cutscene_poll(ready) || !ready) {
         return;
     }
     int level = nw_level_pending();
+    int cut = nw_cutscene_pending();
     if (nw_level.intro && cutmovie == 0) {
         /* As the name entry's last item (game.c); the hub's arrival cut is skipped as for an entered level. */
         nw_level.intro = false;
@@ -277,6 +464,8 @@ void nw_level_poll(void)
         nw_level.entering = level;
         nw_level.on_way = level == nw_level.arrival;
         nw_level_enter(level);
+    } else if (cut >= 0 && SDL_CompareAndSwapAtomicInt(&nw_cut.asked, cut + 1, 0)) {
+        nw_cutscene_start(&nw_cutscenes[cut]);
     } else if (nw_level.entering >= 0) {
         if (GameMode == 1 && Level == NW_LEVEL_SPACE && gamecut_newlevel == nw_level.entering) {
             nw_level_enter(nw_level.entering);
