@@ -166,7 +166,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/gameplay/hitboxes.c src/gameplay/hubcrunch.c src/gameplay/hubgem.c src/gameplay/jeep.c src/gameplay/line2d.c src/gameplay/mech.c src/gameplay/minigame.c src/gameplay/monkeybars.c
   src/gameplay/move.c src/gameplay/numtl.c src/gameplay/panel.c src/gameplay/plane.c src/gameplay/slidespin.c src/gameplay/spacefighter.c
   src/gameplay/steadycam.c src/gameplay/submarine.c
-  src/gameplay/terrain.c src/gameplay/titlemenu.c src/gameplay/vehicle.c
+  src/gameplay/terrain.c src/gameplay/titlemenu.c src/gameplay/vehicle.c src/gameplay/vehiclehints.c
   src/platform/highheap.c
   src/shim/cdvd.c
   src/shim/ee.c

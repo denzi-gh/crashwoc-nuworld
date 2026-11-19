@@ -260,10 +260,33 @@ static void test_record_name(void)
     nw_profile.long_time_names = false;
 }
 
+static void test_hint(void)
+{
+    char lines[NW_NAMEENTRY_HINT_LINES][NW_NAMEENTRY_HINT_TEXT];
+    open_entry();
+    frame();
+    CHECK(nw_nameentry_hint(lines, false) == 4);
+    CHECK(strcmp(lines[0], "TYPE YOUR NAME") == 0 && strcmp(lines[1], "ENTER: DONE") == 0);
+    CHECK(strcmp(lines[2], "BACKSPACE: DELETE") == 0 && strcmp(lines[3], "ESC: CANCEL") == 0);
+    CHECK(nw_nameentry_hint(lines, true) == 5 && strcmp(lines[4], "OR USE THE CONTROLLER") == 0);
+    Game.language = 2;
+    CHECK(nw_nameentry_hint(lines, false) == 4 && strcmp(lines[2], "R\232CKTASTE: L\224SCHEN") == 0);
+    Game.language = 0;
+
+    open_record(4, 0);
+    frame();
+    CHECK(nw_nameentry_hint(lines, false) == 3 && strcmp(lines[2], "BACKSPACE: DELETE") == 0);
+    CHECK(nw_nameentry_hint(lines, true) == 4 && strcmp(lines[3], "OR USE THE CONTROLLER") == 0);
+
+    leave();
+    CHECK(nw_nameentry_hint(lines, true) == 0);
+}
+
 int main(void)
 {
     test_game_name();
     test_record_name();
+    test_hint();
     if (failures) {
         fprintf(stderr, "nameentry: %d checks failed\n", failures);
         return 1;

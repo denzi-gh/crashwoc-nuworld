@@ -23,6 +23,12 @@ void nw_nameentry_type(int c);
 /* Main thread: whether the keyboard is the device used last, which hides the letter table. */
 void nw_nameentry_set_keyboard(bool keyboard);
 bool nw_nameentry_keyboard(void);
+void nw_nameentry_set_pad(bool pad);
+
+#define NW_NAMEENTRY_HINT_LINES 5
+#define NW_NAMEENTRY_HINT_TEXT 48
+
+int nw_nameentry_hint(char lines[NW_NAMEENTRY_HINT_LINES][NW_NAMEENTRY_HINT_TEXT], bool pad);
 
 /* Game thread, before retail's ProcMenu: opens or closes the entry with the menu; a table letter (retail's CROSS on
    it, which it takes: *taken) and what was typed go into the longer name, the game's own taking its first letters;
@@ -36,7 +42,7 @@ const char *nw_nameentry_name(void);
 void nw_nameentry_finish(void);
 void nw_nameentry_resume_game(const char *name, int position);
 /* Game thread, DrawMenu: NEW GAME's entry with its longer name (the letters only without the keyboard), a record's
-   entry with nothing while the keyboard types; false when retail draws the menu. */
+   entry with the keys alone while the keyboard types; false when retail draws the menu. */
 bool nw_nameentry_draw(struct cursor_s *cursor);
 
 #endif

@@ -258,6 +258,7 @@ typedef struct NwProfile {
     int camera_stability; /* percent of a jump the game camera ignores, 0 retail */
     bool hub_gem;
     bool first_boss_cut;
+    bool vehicle_hints;
     bool hitboxes;      /* the debug menu's view of every collision shape, not saved */
 } NwProfile;
 

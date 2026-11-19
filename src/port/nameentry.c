@@ -22,7 +22,8 @@ extern struct game_s Game;
 extern struct objtab_s ObjTab[];
 extern char NameInputTable[4][7];
 extern s32 i_nameinput, cutmovie, Level, newleveltime_slot;
-extern f32 GAMENAMEY;
+extern f32 GAMENAMEY, TT_INPUTY;
+extern char *tDONE[6], *tCANCEL[6];
 char *MakeEditText(char *txt);
 void GameSfx(s32 sfx, void *p);
 void DrawNameInputTable(struct cursor_s *cursor, f32 x0, f32 y0);
@@ -32,7 +33,7 @@ s32 DrawPanel3DObject(s32 object, f32 x, f32 y, f32 z, f32 scalex, f32 scaley, f
 
 static struct {
     SDL_SpinLock lock;
-    SDL_AtomicInt wanted, keyboard;
+    SDL_AtomicInt wanted, keyboard, pad;
     char queue[NW_NAMEENTRY_QUEUE];
     int head, count;
     /* the entry open (game thread): its menu, the longer name typed into (letters, '_' for the rest), its longest,
@@ -57,6 +58,11 @@ void nw_nameentry_set_keyboard(bool keyboard)
 bool nw_nameentry_keyboard(void)
 {
     return SDL_GetAtomicInt(&nw_nameentry.keyboard) != 0;
+}
+
+void nw_nameentry_set_pad(bool pad)
+{
+    SDL_SetAtomicInt(&nw_nameentry.pad, pad);
 }
 
 void nw_nameentry_type(int c)
@@ -239,6 +245,72 @@ const char *nw_nameentry_name(void)
     return nw_nameentry.name;
 }
 
+int nw_nameentry_hint(char lines[NW_NAMEENTRY_HINT_LINES][NW_NAMEENTRY_HINT_TEXT], bool pad)
+{
+    static const char *const heading[6] = { "TYPE YOUR NAME", "TAPE TON NOM", "NAMEN EINGEBEN",
+                                            "SCRIVI IL TUO NOME", "ESCRIBE TU NOMBRE", "TYP JE NAAM" };
+    static const char *const enter[6] = { "ENTER", "ENTREE", "ENTER", "INVIO", "INTRO", "ENTER" };
+    static const char *const back[6] = { "BACKSPACE", "RETOUR ARRIERE", "R\232CKTASTE",
+                                         "BACKSPACE", "RETROCESO", "BACKSPACE" };
+    static const char *const erase[6] = { "DELETE", "EFFACER", "L\224SCHEN", "CANCELLA", "BORRAR", "WISSEN" };
+    static const char *const escape[6] = { "ESC", "ECHAP", "ESC", "ESC", "ESC", "ESC" };
+    static const char *const controller[6] = { "OR USE THE CONTROLLER", "OU UTILISE LA MANETTE",
+                                               "ODER DEN CONTROLLER NUTZEN", "O USA IL CONTROLLER",
+                                               "O USA EL MANDO", "OF GEBRUIK DE CONTROLLER" };
+    u32 l = (u32)Game.language;
+    if (l >= 6 || !nw_nameentry.menu) {
+        return 0;
+    }
+    int n = 0;
+    SDL_snprintf(lines[n++], NW_NAMEENTRY_HINT_TEXT, "%s", heading[l]);
+    SDL_snprintf(lines[n++], NW_NAMEENTRY_HINT_TEXT, "%s: %s", enter[l], tDONE[l]);
+    SDL_snprintf(lines[n++], NW_NAMEENTRY_HINT_TEXT, "%s: %s", back[l], erase[l]);
+    if (nw_nameentry.menu == NW_NAMEENTRY_GAME) {
+        SDL_snprintf(lines[n++], NW_NAMEENTRY_HINT_TEXT, "%s: %s", escape[l], tCANCEL[l]);
+    }
+    if (pad) {
+        SDL_snprintf(lines[n++], NW_NAMEENTRY_HINT_TEXT, "%s", controller[l]);
+    }
+    return n;
+}
+
+static f32 nw_nameentry_hint_size(f32 size, const char *s)
+{
+    f32 w = 0.0f;
+    for (; *s; s++) {
+        w += *s == ':' || *s == '.' ? 0.5f : 1.0f;
+    }
+    return w > 0.0f ? SDL_min(size, 9.0f / w) : size;
+}
+
+static void nw_nameentry_hint_draw(f32 y0, f32 depth)
+{
+    char lines[NW_NAMEENTRY_HINT_LINES][NW_NAMEENTRY_HINT_TEXT];
+    bool pad = SDL_GetAtomicInt(&nw_nameentry.pad) != 0;
+    int n = nw_nameentry_hint(lines, pad);
+    int keys = pad ? n - 1 : n;
+    f32 size = 0.5f;
+    for (int i = 0; i < keys; i++) {
+        size = nw_nameentry_hint_size(size, lines[i]);
+    }
+    f32 y = y0 + (n - 1) * 0.06f;
+    for (int i = 0; i < n; i++, y -= 0.12f) {
+        f32 s = i < keys ? size : nw_nameentry_hint_size(size, lines[i]);
+        char text[NW_NAMEENTRY_HINT_TEXT + 2];
+        const char *colon = SDL_strchr(lines[i], ':');
+        if (colon) {
+            SDL_snprintf(text, sizeof(text), "%.*s#c%s", (int)(colon - lines[i]) + 1, lines[i], colon + 1);
+        } else {
+            SDL_strlcpy(text, lines[i], sizeof(text));
+        }
+        Text3D(text, 0.0f, y, 1.0f, s, s, s, 0, i == 0 || colon ? 0 : 2);
+    }
+    if (cutmovie == -1) {
+        DrawPanel3DObject(0x81, 0.0f, y0, 1.0f, 0.2f, 0.125f, depth, 0xC000, 0, 0, ObjTab[129].obj.scene,
+                          ObjTab[129].obj.special, 0);
+    }
+}
+
 bool nw_nameentry_draw(struct cursor_s *cursor)
 {
     if ((u32)Game.language >= 6 || cursor->menu != nw_nameentry.menu || !nw_nameentry.name) {
@@ -246,14 +318,20 @@ bool nw_nameentry_draw(struct cursor_s *cursor)
     }
     bool keyboard = nw_nameentry_wanted() && nw_nameentry_keyboard();
     if (cursor->menu == NW_NAMEENTRY_TIME) {
+        if (keyboard) {
+            nw_nameentry_hint_draw(TT_INPUTY, 0.11875f);
+        }
         return keyboard; /* retail draws the table alone; the name is in the times panel (NW_TIME_NAME) */
     }
     /* retail's menu 2 with the longer name, the letters without the keyboard */
     if (!keyboard) {
         DrawNameInputTable(cursor, 0.0f, -0.5f);
-    } else if (cutmovie == -1) {
-        DrawPanel3DObject(0x81, 0.0f, 0.5f, 1.0f, 0.2f, 0.125f, 0.06f, 0xC000, 0, 0, ObjTab[129].obj.scene,
-                          ObjTab[129].obj.special, 0);
+    } else {
+        nw_nameentry_hint_draw(-0.5f, 0.125f);
+        if (cutmovie == -1) {
+            DrawPanel3DObject(0x81, 0.0f, 0.5f, 1.0f, 0.2f, 0.125f, 0.06f, 0xC000, 0, 0, ObjTab[129].obj.scene,
+                              ObjTab[129].obj.special, 0);
+        }
     }
     f32 size = nw_names_scale(1.0f, nw_nameentry.name, NW_NAMES_OWN_GAME + 2);
     Text3D(MakeEditText(nw_nameentry.name), 0.0f, GAMENAMEY, 1.0f, size, size, size, 0, 4);

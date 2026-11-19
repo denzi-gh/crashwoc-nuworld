@@ -125,6 +125,7 @@ static void nw_profile_poll(void)
         nw_profile.camera_stability = p.camera_stability;
         nw_profile.hub_gem = p.hub_gem;
         nw_profile.first_boss_cut = p.first_boss_cut;
+        nw_profile.vehicle_hints = p.vehicle_hints;
         nw_profile.hitboxes = p.hitboxes;
         nw_monkey_bars_apply();
         nw_air_apply();

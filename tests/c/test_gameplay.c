@@ -27,6 +27,7 @@
 #include "gameplay/slidespin.h"
 #include "gameplay/steadycam.h"
 #include "gameplay/submarine.h"
+#include "gameplay/vehiclehints.h"
 #include "nu3d/nugscn.h"
 #include "nu_port.h"
 #include "numath/numtx.h"
@@ -254,6 +255,40 @@ static void boss_health(void)
     CHECK(nw_profile.boss_health);
     nw_gameplay_swap();
     CHECK(!nw_profile.boss_health);
+}
+
+static void vehicle_hints(void)
+{
+    char lines[NW_VEHICLE_HINT_LINES][NW_VEHICLE_HINT_TEXT];
+    Game.language = 0;
+    CHECK(nw_vehicle_hints_lines(0x6B, lines) == 2);
+    CHECK(strcmp(lines[0], "HOLD TO ACCELERATE o") == 0 && strcmp(lines[1], "JUMP x") == 0);
+    CHECK(nw_vehicle_hints_lines(0x3B, lines) == 3 && strcmp(lines[2], "SPIN s") == 0);
+    CHECK(nw_vehicle_hints_lines(0x36, lines) == 2 && strcmp(lines[1], "BARREL ROLL u v") == 0);
+    CHECK(nw_vehicle_hints_lines(NW_VEHICLE_HINT_SWIM, lines) == 2 && strcmp(lines[0], "SWIM FASTER x") == 0);
+    CHECK(nw_vehicle_hints_lines(0xB2, lines) == 3 && strcmp(lines[0], "HOLD TO SPRAY WATER s") == 0);
+    CHECK(strcmp(lines[1], "YOU GO SLOWER WHILE SPRAYING") == 0 && strcmp(lines[2], "JUMP x") == 0);
+    CHECK(nw_vehicle_hints_lines(0x53, lines) == 0);
+    CHECK(nw_vehicle_hints_lines(0xA1, lines) == 0);
+    CHECK(nw_vehicle_hints_lines(-1, lines) == 0);
+    s32 level = Level;
+    Level = 0x24;
+    CHECK(nw_vehicle_hints_lines(0x36, lines) == 0);
+    Level = level;
+    Game.language = 2;
+    CHECK(nw_vehicle_hints_lines(0x3B, lines) == 3 && strcmp(lines[1], "HALTEN: ZUR\232CK o") == 0);
+    Game.language = 'c';
+    CHECK(nw_vehicle_hints_lines(0x6B, lines) == 0);
+    Game.language = 0;
+
+    nw_profile_apply(&(NwProfile){ 0 });
+    nw_vehicle_hints_reset();
+    nw_vehicle_hints_draw();
+    nw_profile_apply(&(NwProfile){ .vehicle_hints = true });
+    nw_vehicle_hints_draw();
+    nw_profile_request(&(NwProfile){ .vehicle_hints = false });
+    nw_gameplay_swap();
+    CHECK(!nw_profile.vehicle_hints);
 }
 
 static void steadycam(void)
@@ -3344,6 +3379,64 @@ static void boss_cut(void)
     gamecut_newlevel = cut_next;
 }
 
+static void vehicle_hints_once(void)
+{
+    struct cursor_s cursor = Cursor;
+    struct creature_s crash = Character[0], *who = player;
+    struct game_s game = Game;
+    NwProfile profile = nw_profile;
+    s32 count = PLAYERCOUNT, control = VEHICLECONTROL;
+    f32 time = vtog_time, duration = vtog_duration;
+    nw_hz_set(50);
+    nw_profile_apply(&(NwProfile){ .vehicle_hints = true });
+    memset(&Game.hub[0], 0, sizeof(Game.hub[0]));
+    memset(&Character[0], 0, sizeof(Character[0]));
+    player = &Character[0];
+    PLAYERCOUNT = 1;
+    VEHICLECONTROL = 1;
+    vtog_time = vtog_duration = 1.0f;
+    Cursor.menu = -1;
+    Game.language = 0;
+
+    Character[0].obj.vehicle = 0x6B;
+    nw_vehicle_hints_reset();
+    for (int i = 1; i < 8 * 50; i++) {
+        nw_vehicle_hints_draw();
+    }
+    CHECK(Game.hub[0].pad1 == 0);
+    nw_vehicle_hints_draw();
+    CHECK(Game.hub[0].pad1 == 1 && Game.hub[0].pad2 == 0);
+
+    Character[0].obj.vehicle = 0x36;
+    nw_vehicle_hints_reset();
+    for (int i = 0; i < 8 * 50; i++) {
+        nw_vehicle_hints_draw();
+    }
+    CHECK(Game.hub[0].pad1 == 1 && Game.hub[0].pad2 == 2);
+    Character[0].obj.vehicle = 0x6B;
+    nw_vehicle_hints_reset();
+    nw_vehicle_hints_draw();
+    CHECK(Game.hub[0].pad1 == 1 && Game.hub[0].pad2 == 2);
+
+    memset(&Game.hub[0], 0, sizeof(Game.hub[0]));
+    nw_profile_apply(&(NwProfile){ 0 });
+    nw_vehicle_hints_reset();
+    for (int i = 0; i < 8 * 50; i++) {
+        nw_vehicle_hints_draw();
+    }
+    CHECK(Game.hub[0].pad1 == 0);
+
+    Cursor = cursor;
+    Character[0] = crash;
+    player = who;
+    Game = game;
+    nw_profile = profile;
+    PLAYERCOUNT = count;
+    VEHICLECONTROL = control;
+    vtog_time = time;
+    vtog_duration = duration;
+}
+
 int main(void)
 {
     NuTrigInit();
@@ -3352,6 +3445,8 @@ int main(void)
     monkey_bar_anim();
     air_indicator();
     boss_health();
+    vehicle_hints();
+    vehicle_hints_once();
     steadycam();
     jump_fall();
     jump_fall_moves();

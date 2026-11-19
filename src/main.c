@@ -998,6 +998,7 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes)
                                      .camera_stability = s->camera_stability,
                                      .hub_gem = s->hub_gem,
                                      .first_boss_cut = s->first_boss_cut,
+                                     .vehicle_hints = s->vehicle_hints,
                                      .hitboxes = hitboxes });
 }
 
@@ -1169,7 +1170,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                                        .long_time_names = settings.long_time_names,
                                        .camera_stability = settings.camera_stability,
                                        .hub_gem = settings.hub_gem,
-                                       .first_boss_cut = settings.first_boss_cut });
+                                       .first_boss_cut = settings.first_boss_cut,
+                                       .vehicle_hints = settings.vehicle_hints });
     }
     nw_wide_set(nw_video_start(&platform, &settings), settings.hud);
     nw_debug_panel("Settings", "Audio", nw_boot_audio, &settings, false);
@@ -1185,6 +1187,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
     nw_debug_toggle("Gameplay", "Loading minigame in the hub", &settings.hub_minigame);
     nw_debug_toggle("Gameplay", "Time trial names of up to 8 letters", &settings.long_time_names);
     nw_debug_toggle("Gameplay", "Aku Aku after the first boss", &settings.first_boss_cut);
+    nw_debug_toggle("Gameplay", "Vehicle controls", &settings.vehicle_hints);
     if (!nw_pad_script) {
         nw_cheat_panel_start();
     }
@@ -1286,7 +1289,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                                    settings.long_time_names != applied.long_time_names ||
                                    settings.camera_stability != applied.camera_stability ||
                                    settings.hub_gem != applied.hub_gem ||
-                                   settings.first_boss_cut != applied.first_boss_cut)) {
+                                   settings.first_boss_cut != applied.first_boss_cut ||
+                                   settings.vehicle_hints != applied.vehicle_hints)) {
                 nw_boot_request(&settings, hitboxes);
                 hitboxes_shown = hitboxes;
             }

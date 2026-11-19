@@ -7,6 +7,7 @@
 #include "gameplay/hubcrunch.h"
 #include "gameplay/hubgem.h"
 #include "gameplay/minigame.h"
+#include "gameplay/vehiclehints.h"
 
 /* Declared by no header. */
 extern struct game_s Game;
@@ -25,7 +26,14 @@ void DrawPanelDebris(void)
     nw_boss_health_crunch_time();
     nw_crunch_prompt();
     nw_hubgem_message();
+    nw_vehicle_hints_draw();
     DrawPanelDebris__retail();
+}
+
+void ResetPanelDebris(void)
+{
+    ResetPanelDebris__retail();
+    nw_vehicle_hints_reset();
 }
 
 s32 DrawPanel3DTempCharacter(u16 xrot, u16 yrot, u16 zrot, s32 rot, f32 x, f32 y, f32 z, f32 scale)

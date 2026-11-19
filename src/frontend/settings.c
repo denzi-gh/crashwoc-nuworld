@@ -347,6 +347,8 @@ static const NwSettingKey nw_settings_keys[] = {
     { .table = "game", .name = "hub_gem", .kind = NW_SETTING_BOOL, NW_FIELD(hub_gem), .hidden = true },
     { .table = "game", .name = "first_boss_cut", .kind = NW_SETTING_BOOL, NW_FIELD(first_boss_cut),
       .help = "true: Aku Aku's cutscene after Warp Room 1's boss is first beaten, never shown on PS2" },
+    { .table = "game", .name = "vehicle_hints", .kind = NW_SETTING_BOOL, NW_FIELD(vehicle_hints),
+      .help = "true: a vehicle's buttons in a corner the first time a save rides it" },
     { .table = "game", .sub = "movement", .name = "monkey_bar_speed", .kind = NW_SETTING_INT,
       NW_FIELD(movement.monkey_bar_speed), .lo = 100, .hi = 500,
       .help = "100-500, Crash's monkey bar speed, % of PS2; N. Hanced: 335" },
@@ -411,6 +413,7 @@ void nw_settings_defaults(NwSettings *s)
     s->camera_stability = 50;
     s->hub_gem = true;
     s->first_boss_cut = true;
+    s->vehicle_hints = true;
     s->master_volume = 100;
     s->voice_volume = 100;
     s->discord = true;

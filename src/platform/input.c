@@ -311,6 +311,7 @@ void nw_input_poll(bool keyboard)
 {
     NwPadInput in = { 0, 0x80, 0x80, 0x80, 0x80, 0, 0 };
     bool naming = nw_nameentry_wanted();
+    nw_nameentry_set_pad(nw_input_pad != NULL);
     nw_input_text(naming && keyboard);
     nw_input_keyboard_on = keyboard;
     if (nw_input_pad && !nw_input_listening) {
