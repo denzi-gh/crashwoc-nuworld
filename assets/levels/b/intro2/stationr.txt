@@ -1,0 +1,14 @@
+;; The intro's first shot, the station (STATIONR.CSP). From game/cut.c's csd_intro1and2[0], LoadCutMovie(1),
+;; StartCutMovie, UpdateCutMovie and PlayCutMovie, and the opening's opening.txt.
+fpsec           30          ;; SetCutMovieRate: 0.6 cut frames a 50 Hz game frame
+skip            on          ;; any of the intro's shots skips the movie
+fade_in         0.51        ;; PlayCutMovie: fadeval 255 down 10 a game frame
+scene           main    levels\b\intro\spacer.gsc
+sfx             173     per_language    ;; the intro's voice and music, a track a language
+holdaudio                   ;; UpdateCutMovie: the cut waits for its track to play
+ptl             levels\b\intro\intror.ptl
+ptl_merge       stuff\general.ptl
+ats             ats\splash\ripples.ats
+render_group    1           ;; csd_intro1and2[0].debgroup
+next_cut_scene  levels\b\intro2\corridor
+on_end          next

@@ -72,6 +72,9 @@ class Package(unittest.TestCase):
         for name in ("NuWorld.sym", "NuWorld.pdb", "NuWorld.map"):
             (self.build / name).write_text(name)
         (self.build / "NuWorld").write_bytes(b"\x7fELF\x02\x01\x01" + bytes(64))
+        (self.build / "shaders").mkdir()
+        for name in package.SHADERS:
+            (self.build / "shaders" / name).write_text(f"// {name}\nvoid main() {{}}\n")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -105,7 +108,9 @@ class Package(unittest.TestCase):
         names = sorted(p.name for p in staged.iterdir())
         self.assertEqual(names, ["LICENSE.txt", "NuWorld.exe", "NuWorld.sym", "NuWorldUpdater.exe", "README.txt",
                                  "SDL3.dll", "THIRD_PARTY_NOTICES.txt", "crashpad_handler.exe", "msvcp140.dll",
-                                 "vcruntime140.dll"])
+                                 "shaders", "vcruntime140.dll"])
+        for name in package.SHADERS:
+            self.assertEqual((staged / "shaders" / name).read_bytes(), (self.build / "shaders" / name).read_bytes())
         symbols = out / "crashwoc-nuworld-windows-x64-symbols"
         self.assertEqual(sorted(p.name for p in symbols.iterdir()), ["NuWorld.map", "NuWorld.pdb"])
         readme = (staged / "README.txt").read_bytes()
@@ -126,7 +131,9 @@ class Package(unittest.TestCase):
         zip_path = self.root / "out" / "CrashWOC-NuWorld-v9.9.9-windows-x64.zip"
         with zipfile.ZipFile(zip_path) as z:
             self.assertIn("CrashWOC-NuWorld/NuWorld.exe", z.namelist())
-            self.assertEqual(len(z.namelist()), 10)
+            for name in package.SHADERS:
+                self.assertIn(f"CrashWOC-NuWorld/shaders/{name}", z.namelist())
+            self.assertEqual(len(z.namelist()), 10 + len(package.SHADERS))
         symbols_path = self.root / "out" / "CrashWOC-NuWorld-v9.9.9-windows-x64-symbols.zip"
         with zipfile.ZipFile(symbols_path) as z:
             self.assertEqual(sorted(z.namelist()), ["CrashWOC-NuWorld/NuWorld.map", "CrashWOC-NuWorld/NuWorld.pdb"])
@@ -147,7 +154,16 @@ class Package(unittest.TestCase):
         self.assertEqual(modes["CrashWOC-NuWorld/NuWorld"], 0o755)
         self.assertEqual(modes["CrashWOC-NuWorld/NuWorldUpdater"], 0o755)
         self.assertEqual(modes["CrashWOC-NuWorld/README.txt"], 0o644)
-        self.assertEqual(len(modes), 7)
+        for name in package.SHADERS:
+            self.assertEqual(modes[f"CrashWOC-NuWorld/shaders/{name}"], 0o644)
+        self.assertEqual(len(modes), 7 + len(package.SHADERS))
+
+    def test_missing_shader_is_refused(self):
+        (self.build / "shaders" / package.SHADERS[0]).unlink()
+        report = io.StringIO()
+        with contextlib.redirect_stderr(report):
+            self.assertFalse(quiet(package.stage, self.build, "linux-x86_64", self.root / "dist"))
+        self.assertIn(package.SHADERS[0], report.getvalue())
 
     def test_game_data_is_refused(self):
         out = self.root / "dist"

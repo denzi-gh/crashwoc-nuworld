@@ -38,12 +38,14 @@
 #include "platform/audio.h"
 #include "platform/input.h"
 #include "port/capture.h"
+#include "port/cutstart.h"
 #include "port/disc.h"
 #include "port/dump.h"
 #include "port/game.h"
 #include "port/hz.h"
 #include "port/rev.h"
 #include "port/level.h"
+#include "port/opening.h"
 #include "port/padscript.h"
 #include "port/options.h"
 #include "port/presence.h"
@@ -1218,7 +1220,7 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
         nw_log_info(NW_LOG_APP, "%s plays the retail game: no [game] switches",
                     nw_pad_script ? "--pad-script" : "--revision 1.03");
     } else {
-        nw_profile_apply(&(NwProfile){ .title_menu = !settings.retail_menu,
+        nw_profile_apply(&(NwProfile){ .title_menu = !settings.retail_menu && !nw_opening_enabled(), /* [prototype] */
                                        .movement = settings.movement,
                                        .air_indicator = settings.air_indicator,
                                        .boss_health = settings.boss_health,
@@ -1733,6 +1735,7 @@ int main(int argc, char *argv[])
     const char *capture = NULL, *capture_dir = NULL;
     const char *dump = NULL, *dump_dir = NULL;
     const char *poke = NULL;
+    const char *cut = NULL; /* --cut <shot>: the intro from that shot (port/cutstart.h) */
     const char *dump_after = NULL;
     bool dump_heap = true;
     bool verify = false, setup = false, check_data = false, check_scenes = false, check_disc = false;
@@ -1757,8 +1760,8 @@ int main(int argc, char *argv[])
              strcmp(argv[i], "--capture-dir") == 0 || strcmp(argv[i], "--hardware-speed") == 0 ||
              strcmp(argv[i], "--dump") == 0 || strcmp(argv[i], "--dump-dir") == 0 ||
              strcmp(argv[i], "--poke") == 0 || strcmp(argv[i], "--dump-after") == 0 ||
-             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--pad-script") == 0 ||
-             strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--revision") == 0 ||
+             strcmp(argv[i], "--level") == 0 || strcmp(argv[i], "--cut") == 0 ||
+             strcmp(argv[i], "--pad-script") == 0 || strcmp(argv[i], "--aspect") == 0 || strcmp(argv[i], "--revision") == 0 ||
              strcmp(argv[i], "--overlay") == 0 || strcmp(argv[i], "--log") == 0 ||
              strcmp(argv[i], "--log-file") == 0 || strcmp(argv[i], "--crash-test") == 0) &&
             i + 1 >= argc) {
@@ -1830,6 +1833,8 @@ int main(int argc, char *argv[])
             dump_after = argv[++i];
         } else if (strcmp(argv[i], "--level") == 0) {
             nw_run_level = argv[++i];
+        } else if (strcmp(argv[i], "--cut") == 0) {
+            cut = argv[++i];
         } else if (strcmp(argv[i], "--pad-script") == 0) {
             nw_pad_script = argv[++i];
         } else if (strcmp(argv[i], "--overlay") == 0) {
@@ -1933,6 +1938,13 @@ int main(int argc, char *argv[])
     }
     if (trace_sound) {
         nw_trace_sound_start();
+    }
+    if (cut) {
+        /* NEW GAME as --level intro,37 has it (the intro, then the hub), unless the run says where to go itself. */
+        nw_cut_start(cut);
+        if (!nw_run_level && !poke) {
+            nw_run_level = "intro,37";
+        }
     }
     if ((poke && !nw_poke_start(poke)) || (dump_after && !nw_dump_after(dump_after))) {
         return 2;

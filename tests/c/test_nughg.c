@@ -20,6 +20,7 @@
 #include "nw_ps2types.h"
 #include "port/game.h"
 #include "port/nuhgobj.h"
+#include "port/nutexanm.h"
 #include "shim/shim.h"
 #include "vfs/dat.h"
 #include "vfs/extract.h"
@@ -126,6 +127,10 @@ static void test_load(const char *scratch)
     CHECK(SDL_SaveFile(path, "", 0));
     SDL_free(path);
     ghg_build(&b, &f);
+    static const char ats[] = "ats 2 script\ntime seconds\nsequence x {\nframes 0..0\nstep 1\n}\n";
+    SDL_asprintf(&path, "%sV2.ATS", disc);
+    CHECK(SDL_SaveFile(path, ats, sizeof(ats) - 1));
+    SDL_free(path);
     SDL_asprintf(&path, "%sTEST.GHG", disc);
     CHECK(SDL_SaveFile(path, b.buf, b.len));
     SDL_free(path);
@@ -168,6 +173,18 @@ static void test_load(const char *scratch)
     CHECK(ops[NW_GPU_UPLOAD_SKIN] == 2 && ops[NW_GPU_FREE_SKIN] == 2 && ops[NW_GPU_FREE_HOST] >= 2);
     /* NuTexDestroy keeps a native texture's slot data, as retail: the second load's texture replaces the first. */
     CHECK(ops[NW_GPU_UPLOAD_TEX] == 2 && ops[NW_GPU_FREE_TEX] == 1);
+
+    NuTexAnimProgSysInit();
+    struct nutexanimprog_s *p = NuTexAnimProgReadScript(NULL, "v2.ats");
+    buf.charptr = ghg_buffer + 3;
+    struct NUHGOBJ_s *h = NuGHGRead(&buf, "test.ghg");
+    CHECK(p && h && h->texanims->env->prog == p && buf.charptr == end);
+    NuTexAnimProgDestroy(p);
+    CHECK(!NuTexAnimProgFind("script") && nw_texanim_time(h->texanims, INT64_MAX));
+    CHECK(h->texanims->mtl->tid == h->tids[0]);
+    NuHGobjDestroy(h); /* Model destruction releases the last reference. */
+    n = nw_gpu_take(UINT64_MAX, &jobs, &cap);
+    for (uint32_t i = 0; i < n; i++) if (jobs[i].op == NW_GPU_FREE_HOST) SDL_free(jobs[i].obj);
     SDL_free(jobs);
 
     nw_shim_file_init(NULL);

@@ -10,6 +10,8 @@
 #include "nw_convert.h"
 #include "port/heap.h"
 #include "port/nuhgobj.h"
+#include "port/nutexanm.h"
+#include "port/opening.h"
 #include "port/xfile.h"
 
 #define nuhgobj_srcfile "..\\nu2crash.ps2\\nu3d\\nuhgobj.c"
@@ -382,6 +384,8 @@ static char *nw_ghg_texanims(NwGhgLoad *ld, const struct nughgheader_s *h, char 
         hobj->texanims[j].succ = &hobj->texanims[j] + 1;
         hobj->texanims[j + 1].prev = &hobj->texanims[j];
     }
+    if (!nw_texanim_own_list(ld->side, &hobj->texanims))
+        NuErrorProlog(nuhgobj_srcfile, 0x622)("%s: %s", ld->file, nw_texanim_error()->message);
     NuTexAnimAddList(hobj->texanims);
     return ptr;
 }
@@ -440,6 +444,7 @@ static struct NUHGOBJ_s *nw_ghg_parse(union variptr_u *buffer, char *base, int s
 
 struct NUHGOBJ_s *NuGHGRead(union variptr_u *buffer, char *file)
 {
+    file = nw_opening_data(file);
     char *base = (char *)(((uintptr_t)buffer->voidptr + 0xF) & ~(uintptr_t)0xF);
     int size = NuFileLoadBuffer(file, base, 0x7FFFFFFF);
     if (size <= 0) {
@@ -470,9 +475,7 @@ void NuHGobjDestroy(struct NUHGOBJ_s *hobj)
         NuHGobjDestroyDynamic(hobj);
         return;
     case 1:
-        if (hobj->texanims) {
-            NuTexAnimRemoveList(hobj->texanims);
-        }
+        nw_texanim_release_list(&hobj->texanims);
         for (int i = 0; i < hobj->nummtl; i++) {
             NuMtlDestroy(hobj->mtls[i]);
         }
@@ -501,4 +504,67 @@ void NuHGobjDestroy(struct NUHGOBJ_s *hobj)
         hobj->num_layers = 0;
         break;
     }
+}
+
+/* The joint's number when its name is PREFIX followed by a number in first..last, else -1. */
+static int nw_joint_number(const char *name, const char *prefix, int first, int last)
+{
+    size_t n = SDL_strlen(prefix);
+    if (!name || SDL_strncmp(name, prefix, n)) {
+        return -1;
+    }
+    char *end;
+    long k = SDL_strtol(name + n, &end, 10);
+    return end != name + n && k >= first && k <= last ? (int)k : -1;
+}
+
+/* A copy of src registered with the material system: everything but its list links and render-state owner. */
+static struct numtl_s *nw_material_copy(const struct numtl_s *src)
+{
+    struct numtl_s *c = NuMtlCreate(1);
+    if (!c) {
+        return NULL;
+    }
+    struct numtl_s keep = *c;
+    *c = *src;
+    c->snext = keep.snext;
+    c->slast = keep.slast;
+    c->rs = keep.rs;
+    c->rs.mtl = c;
+    c->used = keep.used;
+    c->fromblock = keep.fromblock;
+    c->intalloc = keep.intalloc;
+    c->next = NULL;
+    return c;
+}
+
+int nw_hgobj_own_material(struct NUHGOBJ_s *h, int slot, const char *prefix, int first, int last,
+                          struct numtl_s **copies)
+{
+    struct numtl_s *src = slot >= 0 && slot < h->nummtl ? h->mtls[slot] : NULL;
+    SDL_memset(copies, 0, (size_t)(last - first + 1) * sizeof(*copies));
+    if (!src || !h->joints || !h->layers || h->num_layers < 1 || !h->layers[0].gobjs) {
+        return -1;
+    }
+    int made = 0;
+    for (int j = 0; j < h->num_joints; j++) {
+        int k = nw_joint_number(h->joints[j].name, prefix, first, last);
+        if (k < 0) {
+            continue;
+        }
+        struct numtl_s *c = nw_material_copy(src);
+        if (!c) {
+            return -1;
+        }
+        for (struct nugobj_s *g = h->layers[0].gobjs[j]; g; g = g->next_gobj) {
+            for (struct nugeom_s *geom = g->geom; geom; geom = geom->next) {
+                if (geom->mtl == src) {
+                    geom->mtl = c;
+                }
+            }
+        }
+        copies[k - first] = c;
+        made++;
+    }
+    return made;
 }

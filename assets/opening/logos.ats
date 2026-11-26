@@ -1,0 +1,13 @@
+;;
+;; Script ATS V2
+;; Logos
+;; The logos cut's own events, on its frames: from skip.open TRIANGLE or START skips
+;; to opening.txt's skip_to; at station.switch the station's scene takes over.
+;;
+
+ats 2 logos
+
+time        frames 30
+clock       cut
+event       skip.open       frame 300
+event       station.switch  frame 900

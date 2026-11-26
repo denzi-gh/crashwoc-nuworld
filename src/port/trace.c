@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <SDL3/SDL_stdinc.h>
+
 #include "gamelib/gcutscn.h"
 #include "nu3d/nutexanm.h"
 #include "port/level.h"
@@ -38,13 +40,12 @@ static struct {
     char last[96];
 } nw_trace;
 
-/* The frame the title logo's flipbook (title.ats) shows; -1 before it loads. */
+/* The model's logical title slot, irrespective of which ATS version the presentation binds. */
 static int nw_trace_tex(void)
 {
-    struct nutexanimprog_s *title = NuTexAnimProgFind("title");
-    for (struct nw_ntal *list = ntal_first; title && list; list = list->next) {
+    for (struct nw_ntal *list = ntal_first; list; list = list->next) {
         for (struct nutexanim_s *anim = list->anims; anim; anim = anim->succ) {
-            if (anim->env && anim->env->prog == title) {
+            if (anim->env && anim->env->prog && anim->scriptname && !SDL_strcasecmp(anim->scriptname,"title")) {
                 return anim->env->tex_ix;
             }
         }

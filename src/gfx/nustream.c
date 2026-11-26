@@ -18,7 +18,9 @@
 #include "nu_port.h"
 #include "platform/log.h"
 #include "port/capture.h"
+#include "port/cloudscn.h"
 #include "port/game.h"
+#include "port/silhouette.h"
 
 #define nustream_file "..\\nu2crash.ps2\\nu3d\\nustream.c"
 #define NW_STREAMS 32
@@ -102,7 +104,66 @@ static struct nuvec_s spec_light_dir = { 0.0f, 0.0f, 1.0f }; /* retail's data */
 static struct nuvec_s spec_view_dir = { 0.0f, 0.0f, -1.0f };
 static float nw_local[16];
 static uint64_t nw_frame;
-static const struct numtl_s **nw_snap_key; /* nw_rndr_snap's table, by material address */
+static NwMtlBinding nw_mtl_scope, nw_mtl_frame_binding;
+static const NwMtlBinding *nw_mtl_bindings;
+static const uint32_t *nw_mtl_slots;
+static uint32_t nw_mtl_capacity;
+static const NwMtlBinding *nw_frame_binding(const struct numtl_s *material)
+{
+    if (!material || !nw_mtl_bindings) return NULL;
+    if (!nw_mtl_capacity) return nw_mtl_bindings->material==material ? nw_mtl_bindings : NULL;
+    uint32_t slot=(uint32_t)((uintptr_t)material>>4)*2654435761u & (nw_mtl_capacity-1);
+    while (nw_mtl_slots[slot]) {
+        const NwMtlBinding *b=&nw_mtl_bindings[nw_mtl_slots[slot]-1];
+        if (b->material==material) return b;
+        slot=(slot+1)&(nw_mtl_capacity-1);
+    }
+    return NULL;
+}
+NwMtlBinding nw_rndr_mtl_scope(NwMtlBinding binding)
+{
+    NwMtlBinding old = nw_mtl_scope;
+    nw_mtl_scope = binding;
+    return old;
+}
+void nw_rndr_mtl_frame_binding(NwMtlBinding binding)
+{
+    nw_mtl_frame_binding=binding; nw_mtl_bindings=binding.material ? &nw_mtl_frame_binding : NULL;
+    nw_mtl_capacity=0;
+}
+bool nw_rndr_mtl_frame_bindings(const NwMtlBinding *bindings, size_t count)
+{
+    if ((count && !bindings) || count>UINT32_MAX/4) return SDL_SetError("invalid material binding collection");
+    uint32_t cap=2; while (cap<count*2) cap*=2;
+    if (count>(SIZE_MAX-cap*sizeof(uint32_t))/sizeof(*bindings)) return SDL_SetError("material binding budget exceeded");
+    if (!count) { nw_mtl_bindings=NULL; nw_mtl_capacity=0; return true; }
+    NwMtlBinding *copy=nw_rndr_alloc(count*sizeof(*copy)+cap*sizeof(uint32_t));
+    uint32_t *slots=(uint32_t *)(copy+count);
+    memcpy(copy,bindings,count*sizeof(*copy)); memset(slots,0,cap*sizeof(*slots));
+    for (uint32_t n=0; n<count; n++) {
+        if (!copy[n].material) return SDL_SetError("missing material binding target");
+        uint32_t slot=(uint32_t)((uintptr_t)copy[n].material>>4)*2654435761u & (cap-1);
+        while (slots[slot]) {
+            if (copy[slots[slot]-1].material==copy[n].material) return SDL_SetError("duplicate material binding target");
+            slot=(slot+1)&(cap-1);
+        }
+        slots[slot]=n+1;
+    }
+    nw_mtl_bindings=copy; nw_mtl_slots=slots; nw_mtl_capacity=cap;
+    return true;
+}
+static void nw_rndr_binding(NwCmd *c, const NwMtlBinding *binding)
+{
+    if (c->material && binding && binding->material==c->material) {
+        c->texture_override=true;
+        c->texture=binding->texture ? binding->texture : nw_rndr_texture(binding->tid);
+        c->texture_surf=binding->texture ? (NwSurf){0} : nw_ps2tx_surf(binding->tid);
+        c->texture_layer=binding->texture ? binding->layer : 0;
+        c->uv=binding->uv;
+    }
+}
+
+static const struct numtl_s **nw_snap_key; /* Material plus captured texture/surface. */
 static uint32_t *nw_snap_index;
 static uint32_t nw_snap_cap;
 static const struct rndrstream_s *nw_raw[64];
@@ -222,9 +283,14 @@ NwRecord *nw_rndr_record(NwCmdOp op, struct numtl_s *mtl, const void *mpg, int m
         r->cmd.silhouette = nw_model_now;
         nw_model_parts++;
     }
+    if (op == NW_CMD_DRAW || op == NW_CMD_SKIN) {
+        r->cmd.heroes_black = nw_silhouette_drawing;
+    }
     r->cmd.op = (uint8_t)op;
     nw_interp_cmd(&r->cmd);
     r->cmd.material = mtl;
+    const NwMtlBinding *binding = nw_mtl_scope.material == mtl ? &nw_mtl_scope : nw_frame_binding(mtl);
+    nw_rndr_binding(&r->cmd,binding);
     r->cmd.mpg = mpg;
     memcpy(r->cmd.local, nw_local, sizeof(nw_local));
     r->view = nw_view_now();
@@ -462,6 +528,8 @@ void NuRndrInitStreams(void)
     nw_fx_snap = NULL;
     nw_joint_snap = NULL;
     nw_blend = NULL;
+    nw_mtl_scope = nw_mtl_frame_binding = (NwMtlBinding){0};
+    nw_mtl_bindings=NULL; nw_mtl_slots=NULL; nw_mtl_capacity=0;
     nw_packet_reset(nw_packet_building());
     nw_frame++;
     NuRndrStreamResetStreams(1);
@@ -526,6 +594,7 @@ void NuRndrStreamFlush(void)
 /* Each material's state block read once, now, as the frame's DMA reads them after the frame is built. */
 static void nw_rndr_snap(NwPacket *p)
 {
+    nw_rndr_mtl_frame();
     uint32_t cap = 64;
     while (cap < p->ncmds * 2) {
         cap *= 2;
@@ -545,12 +614,21 @@ static void nw_rndr_snap(NwPacket *p)
     for (uint32_t i = 0; i < p->ncmds; i++) {
         NwCmd *c = &p->cmds[i];
         const struct numtl_s *m = c->material;
+        if (!c->texture_override) nw_rndr_binding(c,nw_frame_binding(m));
         c->mtl = NW_MTL_NONE;
         if (!m) {
             continue;
         }
-        uint32_t h = (uint32_t)(((uintptr_t)m >> 4) * 2654435761u) & (cap - 1);
-        while (nw_snap_key[h] && nw_snap_key[h] != m) {
+        const NwGpuTex *texture = c->texture_override ? c->texture : nw_rndr_texture(m->tid);
+        NwSurf surf = c->texture_override ? c->texture_surf : nw_ps2tx_surf(m->tid);
+        int layer = c->texture_override ? c->texture_layer : 0;
+        uint32_t h = (uint32_t)((((uintptr_t)m >> 4) ^ ((uintptr_t)texture >> 4) ^ (uint32_t)surf.addr ^ (uint32_t)layer ^ c->uv.binding) *
+                                2654435761u) & (cap - 1);
+        while (nw_snap_key[h]) {
+            const NwMtlSnap *s = &p->mtls[nw_snap_index[h]];
+            if (nw_snap_key[h] == m && s->tex == texture && s->layer == layer && s->uv.binding==c->uv.binding &&
+                (!s->uv.binding || !memcmp(&s->uv,&c->uv,sizeof(s->uv))) && s->surf.addr == surf.addr &&
+                s->surf.tw == surf.tw && s->surf.th == surf.th && s->surf.tcc == surf.tcc) break;
             h = (h + 1) & (cap - 1);
         }
         if (!nw_snap_key[h]) {
@@ -562,10 +640,13 @@ static void nw_rndr_snap(NwPacket *p)
             nw_snap_key[h] = m;
             s->gs = sb->gs;
             memcpy(s->diffuse, sb->diffuse, sizeof(s->diffuse));
+            nw_rndr_mtl_fx_of(m, s->fx);
             memcpy(s->vu, sb->vuattr, sizeof(s->vu));
             memcpy(s->row, sb->vuattr + 9, sizeof(s->row));
-            s->tex = nw_rndr_texture(m->tid);
-            s->surf = nw_ps2tx_surf(m->tid);
+            s->tex = texture;
+            s->layer = layer;
+            s->uv = c->uv;
+            s->surf = surf;
             s->key = m;
             s->wrap = (uint8_t)((m->uanmmode == 2) | (m->vanmmode == 2) << 1);
             s->gem = nw_gem_find(m);
@@ -579,6 +660,7 @@ void NuRndrVu1Draw(void)
 {
     nw_rndr_snap(nw_packet_building());
     nw_packet_building()->edge = nw_game_edges();
+    nw_packet_building()->storm_on = nw_cloudscn_storm(&nw_packet_building()->storm);
     nw_interp_publish(nw_packet_building());
     nw_capture_published(nw_packet_publish(nuvideo_global_vbcnt), nuvideo_global_vbcnt);
 }

@@ -23,6 +23,8 @@ import deny_gamedata
 REPO = Path(__file__).resolve().parent.parent
 PREFIX = "crashwoc-nuworld-"
 ROOT = "CrashWOC-NuWorld"
+SHADERS = ("vu.vert.glsl", "vu.frag.glsl", "gem.frag.glsl", "sky.frag.glsl", "clouds.frag.glsl", "earth.frag.glsl",
+           "fx.frag.glsl")
 SYMBOLS = "-symbols"
 RUNTIME = "x64/Microsoft.VC*.CRT"
 WINDOWS = frozenset(("advapi32", "gdi32", "imm32", "kernel32", "ole32", "oleaut32", "powrprof", "setupapi",
@@ -172,6 +174,12 @@ def stage(build, platform, out, runtime=None):
             ship += libraries(programs, [build, *runtime])
         for src in ship:
             shutil.copy2(src, dest / src.name)
+        (dest / "shaders").mkdir()
+        for name in SHADERS:
+            shader = build / "shaders" / name
+            if not shader.is_file():
+                raise ValueError(f"missing shader: {shader}")
+            shutil.copy2(shader, dest / "shaders" / name)
         if spec["symbols"]:
             symbols = Path(out) / (PREFIX + platform + SYMBOLS)
             shutil.rmtree(symbols, ignore_errors=True)

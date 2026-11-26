@@ -7,6 +7,7 @@
 #include "platform/update.h"
 #include "port/font3d.h"
 #include "port/menu.h"
+#include "port/opening.h"
 #include "port/nameentry.h"
 #include "port/savemenu.h"
 #include "port/saves.h"
@@ -408,7 +409,8 @@ static void nw_menu_options(struct cursor_s *cursor, s32 paused)
 void nw_menu_autosave_notice(void)
 {
     NwAutosaveStatus status = nw_autosave_status();
-    if (status == NW_AUTOSAVE_IDLE || (u32)Game.language >= 6 || !nw_autosave_notice_visible(SDL_GetTicks())) return;
+    if (status == NW_AUTOSAVE_IDLE || (u32)Game.language >= 6 || nw_opening_quiet() ||
+        !nw_autosave_notice_visible(SDL_GetTicks())) return;
     static char *notice[4][6] = {
         { "AUTOSAVE IN PROGRESS...", "SAUVEGARDE AUTO EN COURS...", "AUTOMATISCHES SPEICHERN...", "AUTOSALVATAGGIO IN CORSO...", "GUARDANDO AUTOMATICAMENTE...", "AUTOMATISCH OPSLAAN..." },
         { "AUTOSAVE COMPLETE", "SAUVEGARDE AUTO TERMINEE", "AUTOMATISCH GESPEICHERT", "AUTOSALVATAGGIO COMPLETATO", "GUARDADO AUTOMATICO COMPLETADO", "AUTOMATISCH OPGESLAGEN" },
@@ -464,6 +466,54 @@ static void nw_menu_draw_quit(struct cursor_s *cursor, f32 *x, f32 *y, s32 *i)
     DrawMenuEntry(cursor, tbuf, x, y, i);
 }
 
+/* The streamlined opening's title (port/opening.h): two rows at a time over the station, scrolling with the cursor;
+   a V under them while more follow, an upturned one over them while some came before. */
+static void nw_menu_title_scrolled(struct cursor_s *cursor, f32 x)
+{
+    enum { NEW, LOAD, MODS, LANG, QUIT } kind[5];
+    s32 entry[5]; /* each row's cursor position, -1 for MODS (SOON) */
+    s32 n = 0, i = 0;
+    kind[n] = NEW, entry[n++] = i++;
+    kind[n] = LOAD, entry[n++] = i++;
+    kind[n] = MODS, entry[n++] = -1;
+    if (LANGUAGEOPTION) {
+        kind[n] = LANG, entry[n++] = i++;
+    }
+    if (nw_menu_has_quit(cursor)) {
+        kind[n] = QUIT, entry[n++] = i++;
+    }
+    s32 at = 0;
+    for (s32 r = 0; r < n; r++) {
+        if (entry[r] == cursor->y) {
+            at = r;
+        }
+    }
+    s32 first = at < 1 ? 0 : at > n - 2 ? n - 2 : at - 1; /* the cursor's row last of the two, or first at the top */
+    f32 y = -0.75f - 2 * NW_MENUDY * 0.5f;
+    if (first > 0) {
+        Text3D("V", x, y - NW_MENUDY * 0.75f, 1.0f, 0.4f, -0.4f, 0.4f, 0, NW_FONT3D_GREY);
+    }
+    for (s32 r = first; r < first + 2 && r < n; r++) {
+        s32 k = entry[r];
+        switch (kind[r]) {
+        case NEW: DrawMenuEntry(cursor, tNEWGAME[Game.language], &x, &y, &k); break;
+        case LOAD: DrawMenuEntry(cursor, tLOADGAME[Game.language], &x, &y, &k); break;
+        case MODS:
+            Text3D(nw_menu_mods[Game.language], x, y, 1.0f, 0.6f, 0.6f, 0.6f, 0, NW_FONT3D_GREY);
+            y += NW_MENUDY;
+            break;
+        case LANG:
+            SDL_snprintf(tbuf, sizeof(tbuf), "%s: %s", tLANGUAGE[Game.language], LanguageName[Game.language]);
+            DrawMenuEntry(cursor, tbuf, &x, &y, &k);
+            break;
+        case QUIT: nw_menu_draw_quit(cursor, &x, &y, &k); break;
+        }
+    }
+    if (first + 2 < n) {
+        Text3D("V", x, y + NW_MENUDY * 0.25f, 1.0f, 0.4f, 0.4f, 0.4f, 0, NW_FONT3D_GREY);
+    }
+}
+
 /* Retail's menu 0 with a grey MODS (SOON) line under LOAD GAME, one row more to centre. */
 static void nw_menu_title(struct cursor_s *cursor, s32 paused)
 {
@@ -471,6 +521,10 @@ static void nw_menu_title(struct cursor_s *cursor, s32 paused)
     if (pause_dir != 0) {
         f32 size = (25 - paused) * 0.08f;
         x += pause_dir == 1 ? -size : size;
+    }
+    if (nw_opening_title()) {
+        nw_menu_title_scrolled(cursor, x);
+        return;
     }
     /* Leave the extra desktop row the same bottom margin as retail's language row. */
     f32 centre = nw_menu_has_quit(cursor) ? -0.69f : -0.75f;
@@ -515,10 +569,25 @@ void DrawMenu(struct cursor_s *cursor, s32 paused)
 {
     static char id[64]; /* upper case: Text3D draws lower case as models and pad buttons */
 
+    if (nw_opening_skip_hint() && (u32)Game.language < 6) {
+        /* lower case t: the pad's TRIANGLE, drawn as the device in use shows that button (port/font3d.c); on the
+           keyboard ENTER (START's key) */
+        static char *skip[2][6] = {
+            { "PRESS t TO SKIP", "APPUYEZ SUR t POUR PASSER", "t DRUECKEN ZUM UEBERSPRINGEN",
+              "PREMI t PER SALTARE IL FILMATO", "PULSA t PARA SALTAR", "DRUK OP t OM OVER TE SLAAN" },
+            { "PRESS ENTER TO SKIP", "APPUYEZ SUR ENTREE POUR PASSER", "ENTER DRUECKEN ZUM UEBERSPRINGEN",
+              "PREMI INVIO PER SALTARE IL FILMATO", "PULSA INTRO PARA SALTAR", "DRUK OP ENTER OM OVER TE SLAAN" },
+        };
+        bool keyboard = nw_font3d_prompt_style_of() == NW_PROMPTS_KEYBOARD;
+        Text3D(skip[keyboard][Game.language], 0.95f, -0.88f, 1.0f, 0.3f, 0.3f, 0.3f, 8, 2);
+    }
     if (editor_active || cursor->wait || GameMode == 1) {
         DrawMenu__retail(cursor, paused);
         nw_menu_autosave_notice();
         return;
+    }
+    if (cursor->menu == 0 && nw_opening_background_only()) {
+        return; /* SELECT: the station alone */
     }
     nw_savemenu_prepare(cursor);
     if ((cursor->menu == 25 || cursor->menu == 28) && nw_saves_pending() && (u32)Game.language < 6) {

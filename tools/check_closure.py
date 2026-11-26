@@ -14,11 +14,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nwunits  # noqa: E402
 
-# strtod and strtol: glibc's stdlib.h inlines atof and atoi into them.
+# strtod and strtol: glibc's stdlib.h inlines atof and atoi into them. floor and memchr: exact everywhere (an IEEE
+# rounding, a byte search), used by the port's own readers (nutexanm.c).
 HOST_LIBC = frozenset("""
-    abort abs atof atoi calloc exit fflush fprintf fputs free fwrite getenv malloc memcmp memcpy memmove memset
-    printf putchar puts qsort realloc snprintf sprintf strcasecmp strcat strchr strcmp strcpy strlen strncasecmp
-    strncmp strncpy strrchr strstr strtod strtol tolower toupper vfprintf vsnprintf vsprintf
+    abort abs atof atoi calloc exit fflush floor fprintf fputs free fwrite getenv malloc memchr memcmp memcpy memmove
+    memset printf putchar puts qsort realloc snprintf sprintf strcasecmp strcat strchr strcmp strcpy strlen
+    strncasecmp strncmp strncpy strrchr strstr strtod strtol tolower toupper vfprintf vsnprintf vsprintf
 """.split())
 
 

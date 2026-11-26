@@ -88,7 +88,8 @@ static void nw_video_set(const NwSettings *s)
 static void nw_video_render(const NwSettings *s)
 {
     nw_backend_set_options(
-        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .gems = s->gems });
+        &(NwRenderOptions){ .scale = s->scale, .msaa = s->msaa, .filter = s->filter, .gems = s->gems,
+                            .clouds = s->clouds, .silhouettes = s->silhouettes });
 }
 
 static void nw_video_vsync(NwVsync vsync)
@@ -209,6 +210,16 @@ static void nw_video_panel(void *user)
     int gems = s->gems;
     if (nw_debug_combo("Gems and relics", &gems, looks, 2)) {
         s->gems = gems;
+    }
+    static const char *const clouds_names[] = { "Retail", "Volumetric" };
+    int clouds = s->clouds;
+    if (nw_debug_combo("Clouds", &clouds, clouds_names, 2)) {
+        s->clouds = clouds;
+    }
+    static const char *const silhouette_names[] = { "Retail", "Models" };
+    int silhouettes = s->silhouettes;
+    if (nw_debug_combo("Silhouettes", &silhouettes, silhouette_names, 2)) {
+        s->silhouettes = silhouettes;
     }
     nw_debug_slider_int("Draw distance %", &s->draw_distance, 100, NW_DRAW_DISTANCE_MAX);
     nw_debug_tooltip("How far objects are drawn; 100 is the PS2's");
@@ -334,7 +345,8 @@ void nw_video_apply(const NwSettings *s, const NwSettings *was)
     if (s->vsync != was->vsync) {
         nw_video_vsync(s->vsync);
     }
-    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->gems != was->gems) {
+    if (s->scale != was->scale || s->msaa != was->msaa || s->filter != was->filter || s->gems != was->gems ||
+        s->clouds != was->clouds || s->silhouettes != was->silhouettes) {
         nw_video_render(s);
     }
     if (s->draw_distance != was->draw_distance) {

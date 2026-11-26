@@ -73,6 +73,7 @@ extern char vu_load_ptl_mpg[], vu_load_cloud_mpg[];
 void cloudRender(struct nuvec_s *pos, struct nuvec_s *off, f32 size, f32 rng, s32 density, s32 maxc,
                  struct cloud_s *cl, struct numtl_s *mtl, struct nuvec_s *col);
 int NuRndrGobj(struct nugobj_s *gobj, struct numtx_s *wm);
+int NuRndrGScnObj(struct nugobj_s *gobj, struct numtx_s *wm);
 int NuRndrGobjSkin(struct nugobj_s *gobj, struct numtx_s *wm, int njoints, struct numtx_s *joints, u32 *weights,
                    int vis);
 int NuHGobjRndrMtxDwa(struct NUHGOBJ_s *hobj, struct numtx_s *wm, int nlayers, short *layer, struct numtx_s *mtx_array,
@@ -691,6 +692,238 @@ static void test_hgobj(void)
     }
     CHECK(zero);
     NuRndrSwapStreamBuffers();
+}
+
+/* attr & 0x43 picks the VU 0x0C block: the specular UV matrix (row 2 the negated half vector of light and view, offset
+   0.5) or the fx matrix; a skin draw keeps its deformer weights. */
+static void test_instance_draws(void)
+{
+    uint8_t bits[8*8*4] = {0};
+    struct nutex_s spec = {3,8,8,0,bits,NULL};
+    int tid[2] = {NuTexCreate(&spec),NuTexCreate(&spec)};
+    short ids[2] = {(short)tid[0],(short)tid[1]}; NwTexture *array = NULL;
+    nw_tex_set_max_side(2048); nw_tex_set_max_layers(64);
+    CHECK(nw_texture_array(ids,2,NULL,&array) && array);
+    const NwGpuTex *image = nw_texture_gpu(array);
+    struct numtl_s *m = NuMtlCreate(1);
+    m->tid = tid[0]; NuMtlUpdate(m);
+    struct nugeom_s geom = {.mtl=m,.dmastream=(void *)0x123,.skindma=(void *)0x456};
+    struct nufaceongeom_s face = {.mtl=m,.dmastream=(void *)0x789};
+    struct nugobj_s obj = {.geom=&geom,.faceon_geom=&face,.ngobjs=1,
+        .min={-1,-1,-1},.max={1,1,1}};
+    struct numtx_s wm;
+    set_mtx(&wm,0,0,0,0);
+    for (int mode = 0; mode < 6; mode++) {
+        int reversed = mode & 1; bool arrays = mode >= 2, uv = mode >= 4;
+        for (int n = 0; n < 2; n++) {
+            int which = n ^ reversed; wm._30 = (float)n;
+            NwMtlBinding old = nw_rndr_mtl_scope((NwMtlBinding){.material=m,.tid=tid[which],
+                .texture=arrays ? image : NULL,.layer=uv ? 0 : which,
+                .uv={.binding=uv ? (uint32_t)which+1 : 0,.value={uv ? (float)which : 0}}});
+            CHECK(!old.material);
+            CHECK(NuRndrGScnObj(&obj,&wm)); /* Rigid + face-on, same object twice. */
+            NuRndrGobjSkin(&obj,&wm,0,NULL,NULL,1);
+            NwMtlBinding inner = nw_rndr_mtl_scope((NwMtlBinding){.material=m,.tid=tid[1-which],
+                .texture=arrays ? image : NULL,.layer=1-which});
+            NwRecord *r = nw_rndr_record(NW_CMD_DRAW,m,NULL,0);
+            CHECK(r->cmd.texture == (arrays ? image : nw_rndr_texture(tid[1-which])));
+            CHECK(r->cmd.texture_layer == (arrays ? 1-which : 0));
+            nw_rndr_mtl_scope(inner);
+            r = nw_rndr_record(NW_CMD_DRAW,m,NULL,0);
+            CHECK(r->cmd.texture == (arrays ? image : nw_rndr_texture(tid[which])));
+            CHECK(r->cmd.texture_layer == (uv ? 0 : arrays ? which : 0));
+            nw_rndr_mtl_scope(old);
+        }
+        m->tid = tid[1]; /* A late global write must not rewrite either placement. */
+        NuRndrEndScene(); NuRndrVu1Draw();
+        const NwPacket *p = nw_packet_take();
+        CHECK(p->ncmds == 6 && p->nmtls == 2);
+        unsigned seen[3] = {0};
+        for (uint32_t n = 0; n < p->ncmds; n++) {
+            const NwCmd *c = &p->cmds[n];
+            int which = ((int)c->local[12]) ^ reversed;
+            CHECK(c->texture_override && p->mtls[c->mtl].tex == (arrays ? image : nw_rndr_texture(tid[which])));
+            CHECK(p->mtls[c->mtl].layer == (uv ? 0 : arrays ? which : 0));
+            CHECK(p->mtls[c->mtl].uv.binding == (uv ? (uint32_t)which+1 : 0));
+            CHECK(p->mtls[c->mtl].uv.value[0] == (uv ? (float)which : 0));
+            if (c->op == NW_CMD_DRAW) seen[0]++;
+            if (c->op == NW_CMD_SKIN) seen[1]++;
+            if (c->op == NW_CMD_SPRITES) seen[2]++;
+        }
+        CHECK(seen[0] == 2 && seen[1] == 2 && seen[2] == 2);
+        CHECK(!nw_rndr_record(NW_CMD_DRAW,m,NULL,0)->cmd.texture_override);
+        NuRndrSwapStreamBuffers();
+    }
+    nw_rndr_mtl_frame_binding((NwMtlBinding){.material=m,.tid=tid[0]});
+    CHECK(nw_rndr_record(NW_CMD_DRAW,m,NULL,0)->cmd.texture == nw_rndr_texture(tid[0]));
+    NuRndrGobj(&obj,&wm); NuRndrEndScene(); NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take();
+    CHECK(p->ncmds == 2 && p->nmtls == 1 && p->mtls[0].tex == nw_rndr_texture(tid[0]));
+    NuRndrSwapStreamBuffers();
+    CHECK(!nw_rndr_record(NW_CMD_DRAW,m,NULL,0)->cmd.texture_override);
+    NuRndrGobj(&obj,&wm); /* The coordinator supplies its fallback after the character was recorded. */
+    nw_rndr_mtl_frame_binding((NwMtlBinding){.material=m,.texture=image,.layer=1,
+        .uv={.binding=99,.value={.25f,0,1,1,0,.5f,.5f}}});
+    NuRndrEndScene(); NuRndrVu1Draw(); p=nw_packet_take();
+    CHECK(p->nmtls==1 && p->mtls[0].tex==image && p->mtls[0].layer==1 && p->mtls[0].uv.binding==99);
+    NuRndrSwapStreamBuffers();
+    nw_texture_release(array);
+    NuMtlDestroy(m); NuTexDestroy(tid[0]); NuTexDestroy(tid[1]);
+}
+
+static void test_frame_bindings(void)
+{
+    uint8_t bits[8*8*4]={0}; struct nutex_s spec={3,8,8,0,bits,NULL};
+    int tids[2]={NuTexCreate(&spec),NuTexCreate(&spec)};
+    struct numtl_s *a=NuMtlCreate(1), *b=NuMtlCreate(1);
+    a->tid=tids[0]; b->tid=tids[1]; NuMtlUpdate(a); NuMtlUpdate(b);
+    for (int pass=0; pass<4; pass++) {
+        NwMtlBinding values[2]={{.material=a,.tid=tids[1],.uv={.binding=1}},
+                              {.material=b,.tid=tids[0],.uv={.binding=2}}};
+        if (pass&1) { NwMtlBinding swap=values[0]; values[0]=values[1]; values[1]=swap; }
+        nw_rndr_push(&a->rs,nw_rndr_record(NW_CMD_DRAW,a,NULL,0)); /* Draws before publication. */
+        nw_rndr_push(&b->rs,nw_rndr_record(NW_CMD_DRAW,b,NULL,0));
+        NwMtlBinding old=nw_rndr_mtl_scope((NwMtlBinding){.material=a,.tid=tids[0],.uv={.binding=3}});
+        nw_rndr_push(&a->rs,nw_rndr_record(NW_CMD_DRAW,a,NULL,0)); nw_rndr_mtl_scope(old);
+        CHECK(nw_rndr_mtl_frame_bindings(values,2));
+        memset(values,0,sizeof(values)); /* Caller storage is not borrowed. */
+        CHECK(nw_rndr_record(NW_CMD_DRAW,b,NULL,0)->cmd.texture==nw_rndr_texture(tids[0]));
+        NwMtlBinding duplicate[2]={{.material=a,.tid=tids[0]},{.material=a,.tid=tids[0]}};
+        CHECK(!nw_rndr_mtl_frame_bindings(duplicate,2) && !nw_rndr_mtl_frame_bindings(NULL,1));
+        CHECK(nw_rndr_record(NW_CMD_DRAW,a,NULL,0)->cmd.texture==nw_rndr_texture(tids[1]));
+        NuRndrEndScene(); NuRndrVu1Draw(); const NwPacket *p=nw_packet_take();
+        CHECK(p->ncmds==3 && p->nmtls==3);
+        for (uint32_t j=0; j<p->ncmds; j++) {
+            const NwMtlSnap *s=&p->mtls[p->cmds[j].mtl];
+            CHECK(s->uv.binding>=1 && s->uv.binding<=3);
+            CHECK(s->tex==nw_rndr_texture(tids[s->uv.binding==1 ? 1 : 0]));
+        }
+        NuRndrSwapStreamBuffers();
+        CHECK(!nw_rndr_record(NW_CMD_DRAW,a,NULL,0)->cmd.texture_override);
+        CHECK(!nw_rndr_record(NW_CMD_DRAW,b,NULL,0)->cmd.texture_override);
+    }
+    CHECK(nw_rndr_mtl_frame_bindings(NULL,0));
+    NuMtlDestroy(a); NuMtlDestroy(b); NuTexDestroy(tids[0]); NuTexDestroy(tids[1]);
+}
+
+static void test_array_source(void)
+{
+    uint8_t bits[8*8*4] = {0}; struct nutex_s spec = {3,8,8,0,bits,NULL};
+    short ids[2] = {(short)NuTexCreate(&spec),(short)NuTexCreate(&spec)};
+    NwGpuTex *src[2] = {(NwGpuTex *)nw_rndr_texture(ids[0]),(NwGpuTex *)nw_rndr_texture(ids[1])};
+    for (int n = 0; n < 2; n++) {
+        src[n]->tex.ncolours = 256; src[n]->tex.tcc = true;
+        for (int p = 0; p < 64; p++) src[n]->tex.levels[0].texels[p] = (uint8_t)(p % 3);
+        for (int p = 0; p < 3; p++) memcpy(src[n]->tex.clut[p],(uint8_t[]){(uint8_t)(17+n*71),29,43,(uint8_t)(p*64)},4);
+    }
+    NwTexture *a = NULL, *b = NULL;
+    CHECK(!nw_texture_array(NULL,2,NULL,&a) && !a);
+    CHECK(!nw_texture_array(ids,0,NULL,&a) && !a && !nw_texture_array(ids,2,NULL,NULL));
+    short invalid[2] = {ids[0],0}; CHECK(!nw_texture_array(invalid,2,NULL,&a) && !a);
+    CHECK(nw_texture_array(ids,1,NULL,&a) && !a);
+    src[1]->tex.levels[0].width = 4; CHECK(nw_texture_array(ids,2,NULL,&a) && !a);
+    CHECK(!nw_texture_images(ids,2,true,NULL,&a) && !a);
+    src[1]->tex.levels[0].width = 8; src[1]->tex.nlevels = 2;
+    CHECK(nw_texture_array(ids,2,NULL,&a) && !a); src[1]->tex.nlevels = 1;
+    src[1]->tex.rgba8 = true; CHECK(nw_texture_array(ids,2,NULL,&a) && !a); src[1]->tex.rgba8 = false;
+    src[1]->tex.tcc = false; CHECK(nw_texture_array(ids,2,NULL,&a) && !a); src[1]->tex.tcc = true;
+    nw_tex_set_max_layers(1); CHECK(!nw_texture_array(ids,2,NULL,&a) && !a); nw_tex_set_max_layers(64);
+    nw_tex_set_max_side(7); CHECK(!nw_texture_array(ids,2,NULL,&a) && !a); nw_tex_set_max_side(8192);
+    for (int n = 0; n < 2; n++) src[n]->tex.levels[0].width = src[n]->tex.levels[0].height = 8192;
+    CHECK(!nw_texture_array(ids,2,NULL,&a) && !a);
+    for (int n = 0; n < 2; n++) src[n]->tex.levels[0].width = src[n]->tex.levels[0].height = 8;
+    CHECK(nw_texture_array(ids,2,NULL,&a) && a && nw_texture_tid(a) == 0);
+    const NwGpuTex *gpu = nw_texture_gpu(a); CHECK(gpu && gpu->tex.layers == 2 && !gpu->tex.rgba8);
+    for (int n = 0; n < 2; n++) for (int p = 0; p < 64; p++)
+        CHECK(!memcmp(gpu->tex.levels[0].texels+(n*64+p)*4,src[n]->tex.clut[p%3],4));
+    CHECK(nw_texture_array(ids,2,a,&b) && b == a); nw_texture_release(a);
+    short reversed[2] = {ids[1],ids[0]}; CHECK(nw_texture_array(reversed,2,b,&a) && a != b);
+    CHECK(nw_texture_gpu(a)->tex.levels[0].texels[0] == 88); nw_texture_release(a);
+    src[0]->tex.clut[0][0] = 99;
+    CHECK(nw_texture_array(ids,2,b,&a) && a != b && nw_texture_gpu(a)->tex.levels[0].texels[0] == 99);
+    CHECK(gpu->tex.levels[0].texels[0] == 17); nw_texture_release(a);
+    for (int n = 0; n < 2; n++) { nw_rndr_texture_free(ids[n]); NuTexDestroy(ids[n]); }
+    CHECK(gpu->tex.levels[0].texels[3] == 0 && gpu->tex.levels[0].texels[7] == 64 &&
+          gpu->tex.levels[0].texels[11] == 128); nw_texture_release(b);
+}
+
+static void test_mipmaps(void)
+{
+    for (int turn=0; turn<3; turn++) for (int alpha=0; alpha<2; alpha++) {
+        int w=turn==0 ? 3 : turn==1 ? 5 : 1, h=turn==0 ? 5 : turn==1 ? 3 : 8;
+        uint8_t *data=SDL_malloc((size_t)w*h*8);
+        for (int l=0; l<2; l++) for (int p=0; p<w*h; p++)
+            memcpy(data+(l*w*h+p)*4,(uint8_t[]){(uint8_t)(l ? 211 : p*7),29,43,(uint8_t)(p%3*64)},4);
+        NwTex t={.type=3,.tcc=alpha,.rgba8=turn==1,.layers=2,.nlevels=1,.levels={{w,h,data}}};
+        CHECK(!nw_tex_mipmaps(&t,(size_t)w*h*8) && t.nlevels==1 && t.levels[0].texels==data);
+        CHECK(nw_tex_mipmaps(&t,64u<<20) && t.nlevels>1);
+        CHECK(t.levels[t.nlevels-1].width==1 && t.levels[t.nlevels-1].height==1);
+        int dw=SDL_max(1,w/2), dh=SDL_max(1,h/2);
+        for (int l=0; l<2; l++) for (int y=0; y<dh; y++) for (int x=0; x<dw; x++) {
+            double sum[4]={0}, area=(double)w*h/(dw*dh);
+            for (int sy=0; sy<h; sy++) for (int sx=0; sx<w; sx++) {
+                double weight=SDL_max(0,SDL_min((double)(x+1)*w/dw,sx+1)-SDL_max((double)x*w/dw,sx))*
+                              SDL_max(0,SDL_min((double)(y+1)*h/dh,sy+1)-SDL_max((double)y*h/dh,sy));
+                const uint8_t *p=data+(l*w*h+sy*w+sx)*4; sum[3]+=weight*p[3];
+                for (int c=0; c<3; c++) sum[c]+=weight*(alpha ? p[3] : 1)*p[c];
+            }
+            const uint8_t *p=t.levels[1].texels+(l*dw*dh+y*dw+x)*4;
+            for (int c=0; c<3; c++) CHECK(abs((int)p[c]-(int)(sum[c]/(alpha ? sum[3] : area)+.5))<=1);
+            CHECK(abs((int)p[3]-(int)(sum[3]/area+.5))<=1);
+        }
+        nw_tex_free(&t);
+    }
+    uint8_t *base=SDL_calloc(128*128,4); NwTex full={.nlevels=1,.levels={{128,128,base}}};
+    CHECK(nw_tex_mipmaps(&full,64u<<20) && full.nlevels==8 && full.levels[7].width==1); nw_tex_free(&full);
+    base=SDL_calloc(8192,4); full=(NwTex){.nlevels=1,.levels={{8192,1,base}}};
+    CHECK(nw_tex_mipmaps(&full,64u<<20) && full.nlevels==14 && full.levels[13].width==1); nw_tex_free(&full);
+    uint8_t header[16]={8,0,0,0,8,0,0,0,0,0,0,0,3,0,8,1}; NwTex rejected;
+    CHECK(!nw_tex_decode(&rejected,header,sizeof(header)) && strstr(SDL_GetError(),"8 levels"));
+    base=SDL_calloc(4,4); for (int p=0; p<4; p++) base[p*4]=200;
+    full=(NwTex){.tcc=true,.nlevels=1,.levels={{2,2,base}}}; CHECK(nw_tex_mipmaps(&full,64));
+    CHECK(!memcmp(full.levels[1].texels,(uint8_t[4]){0},4)); nw_tex_free(&full);
+}
+
+static void test_png(void)
+{
+    uint8_t pixels[24] = {17,29,43,1, 2,3,4,0, 5,6,7,255, 8,9,10,127, 11,12,13,128, 14,15,16,254};
+    uint8_t png[1024], copy[12];
+    SDL_Surface *surface = SDL_CreateSurfaceFrom(3,2,SDL_PIXELFORMAT_ABGR8888,pixels,12);
+    SDL_IOStream *io = SDL_IOFromMem(png,sizeof(png));
+    CHECK(surface && io && SDL_SavePNG_IO(surface,io,false));
+    size_t size = (size_t)SDL_TellIO(io); SDL_CloseIO(io); SDL_DestroySurface(surface);
+    nw_tex_set_max_side(0); CHECK(!nw_texture_png(png,size));
+    nw_tex_set_max_side(2); CHECK(!nw_texture_png(png,size));
+    nw_tex_set_max_side(2048);
+    NwTexture *image = nw_texture_png(png,size); CHECK(image);
+    if (!image) return;
+    int tid = nw_texture_tid(image);
+    const NwGpuTex *gpu = nw_rndr_texture(tid);
+    CHECK(gpu && gpu->tex.rgba8 && gpu->tex.nlevels == 1);
+    CHECK(gpu->tex.levels[0].width == 3 && gpu->tex.levels[0].height == 2);
+    CHECK(!memcmp(gpu->tex.levels[0].texels,pixels,sizeof(pixels)));
+    nw_tex_rgba(&gpu->tex,0,copy); CHECK(!memcmp(copy,pixels,sizeof(copy)));
+    CHECK(!nw_texture_png(NULL,size) && !nw_texture_png(png,size-1) && !nw_texture_png(png,45));
+    CHECK(!nw_texture_png(png,64u*1024*1024+1));
+    png[24] = 16; CHECK(!nw_texture_png(png,size)); png[24] = 8;
+    uint8_t width = png[19]; png[16] = 1; CHECK(!nw_texture_png(png,size)); png[16] = 0; png[19] = width;
+    struct numtl_s *m = NuMtlCreate(1); NuMtlUpdate(m);
+    NwMtlBinding old = nw_rndr_mtl_scope((NwMtlBinding){.material=m,.tid=tid});
+    mark(&m->rs,0xabc); nw_rndr_mtl_scope(old);
+    CHECK(nw_texture_retain(image)); nw_texture_release(image);
+    NuRndrEndScene(); nw_texture_release(image); NuRndrVu1Draw();
+    const NwPacket *p = nw_packet_take(); const NwCmd *c = marked(p,0xabc);
+    CHECK(c && p->mtls[c->mtl].tex == gpu && !nw_rndr_texture(tid));
+    CHECK(!memcmp(gpu->tex.levels[0].texels,pixels,sizeof(pixels))); /* Deferred GPU free, not an immediate free. */
+    NuRndrSwapStreamBuffers(); NuMtlDestroy(m);
+    extern int tpid, tex_allocmax, nutex_alloc_cnt;
+    unsigned *flags = SDL_malloc((size_t)tex_allocmax*sizeof(*flags));
+    CHECK(flags); if (!flags) return;
+    for (int i = 0; i < tex_allocmax; i++) { flags[i] = tinfo[i].flags; tinfo[i].flags |= 0x10000; }
+    int was = tpid, allocated = nutex_alloc_cnt; tpid = 0;
+    CHECK(!nw_texture_png(png,size) && nutex_alloc_cnt == allocated); tpid = was;
+    for (int i = 0; i < tex_allocmax; i++) tinfo[i].flags = flags[i];
+    SDL_free(flags);
 }
 
 /* attr & 0x43 picks the VU 0x0C block: the specular UV matrix or the fx matrix. */
@@ -1548,6 +1781,11 @@ int main(void)
     test_faceon_dir();
     test_render_target();
     test_hgobj();
+    test_instance_draws();
+    test_frame_bindings();
+    test_array_source();
+    test_mipmaps();
+    test_png();
     test_xuv();
     test_glass();
     test_crate_quad();

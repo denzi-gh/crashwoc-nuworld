@@ -83,6 +83,13 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_WRAP_S 0x2802
 #define GL_TEXTURE_WRAP_T 0x2803
+#define GL_TEXTURE_WRAP_R 0x8072
+#define GL_TEXTURE_3D 0x806F
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
+#define GL_ACTIVE_TEXTURE 0x84E0
+#define GL_TEXTURE_BINDING_2D 0x8069
+#define GL_MAX_ARRAY_TEXTURE_LAYERS 0x88FF
+#define GL_REPEAT 0x2901
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_FUNC_ADD 0x8006
 #define GL_FUNC_SUBTRACT 0x800A
@@ -181,6 +188,9 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLint, glGetUniformLocation, (GLuint program, const GLchar *name)) \
     X(void, glUniformMatrix4fv, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value)) \
     X(void, glUniform1i, (GLint location, GLint v0)) \
+    X(void, glUniform1f, (GLint location, GLfloat v0)) \
+    X(void, glUniform1fv, (GLint location, GLsizei count, const GLfloat *value)) \
+    X(void, glUniform2fv, (GLint location, GLsizei count, const GLfloat *value)) \
     X(void, glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3)) \
     X(void, glUniform2i, (GLint location, GLint v0, GLint v1)) \
     X(void, glUniform4fv, (GLint location, GLsizei count, const GLfloat *value)) \
@@ -209,7 +219,9 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glFramebufferRenderbuffer, \
         (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer)) \
     X(void, glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, \
-        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))
+        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter)) \
+    X(void, glTexImage3D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, \
+        GLsizei depth, GLint border, GLenum format, GLenum type, const void *data))
 
 #define NW_GL_DECLARE(ret, name, params) \
     typedef ret (NW_GLAPI *PFN_nw_##name) params; \
@@ -274,6 +286,9 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glGetUniformLocation nw_glGetUniformLocation
 #define glUniformMatrix4fv nw_glUniformMatrix4fv
 #define glUniform1i nw_glUniform1i
+#define glUniform1f nw_glUniform1f
+#define glUniform1fv nw_glUniform1fv
+#define glUniform2fv nw_glUniform2fv
 #define glUniform4i nw_glUniform4i
 #define glUniform2i nw_glUniform2i
 #define glUniform4fv nw_glUniform4fv
@@ -299,6 +314,7 @@ NW_GL_FUNCTIONS(NW_GL_DECLARE)
 #define glRenderbufferStorageMultisample nw_glRenderbufferStorageMultisample
 #define glFramebufferRenderbuffer nw_glFramebufferRenderbuffer
 #define glBlitFramebuffer nw_glBlitFramebuffer
+#define glTexImage3D nw_glTexImage3D
 
 /* Needs a current GL context. */
 bool nw_gl_load(void);

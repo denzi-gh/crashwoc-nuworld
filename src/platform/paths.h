@@ -27,4 +27,8 @@ bool nw_paths_create_layout(const char *root);
 /* A missing path is not an error. */
 bool nw_paths_remove_tree(const char *path);
 
+/* Puts from in path's place (a rename over it). Windows refuses while another program has path open, as a virus
+   scanner or the search indexer may for a moment after a write: tried again for up to half a second. */
+bool nw_paths_replace(const char *from, const char *path);
+
 #endif

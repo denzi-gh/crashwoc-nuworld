@@ -58,7 +58,8 @@ bool nw_vfs_init(NwVfs *vfs, const char *root);
 bool nw_vfs_mount(NwVfs *vfs, NwVfsSlot slot, const char *dir);
 void nw_vfs_shutdown(NwVfs *vfs);
 
-/* The newest overlay wins and shadowed files go to conflict; needs the disc mounted. */
+/* The newest overlay wins and shadowed files go to conflict; OPENING/ can add a frontend profile and its assets, and
+   an X.LOOKS beside a disc model. Needs the disc mounted. */
 bool nw_vfs_overlay(NwVfs *vfs, const char *dir, void (*conflict)(void *user, const char *key), void *user);
 /* prefix: an archive's key and '/'; fn gets the newest overlay's file per key. */
 void nw_vfs_overlay_each(const NwVfs *vfs, const char *prefix,

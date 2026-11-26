@@ -1,0 +1,25 @@
+;;
+;; Script ATS V2
+;; Vortex
+;; Play the model texture sequence used to form the vortex.
+;; Replaces the retail title script: TITLE.GHG binds it by name.
+;; Follows the cutscene's clock; holds the final image once the cut changes.
+;; formed is the water filling in: 0 to 1 over 54 CUT frames; the first bolt strikes half a second after.
+;;
+
+ats 2 title
+
+time        frames 30
+clock       cut
+
+sequence fill {
+	frames      0..12
+	step        0.6
+	start       864.4
+}
+
+param formed {
+	key         864.4   0       linear
+	key         918.4   1
+	event       bolt.first  at 1    after 0.5
+}

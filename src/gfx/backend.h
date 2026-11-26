@@ -13,6 +13,8 @@ typedef struct NwRenderOptions {
     int msaa;  /* samples of the back buffer and the targets under its Z: 0 off, 2, 4 or 8, at most the GPU's */
     NwTexFilter filter;
     bool gems;
+    bool clouds;      /* the geoms marked as clouds drawn as volumes (gfx/cloudvol.h) instead of their flat cards */
+    bool silhouettes; /* control.cut's heroes as their models against a light, not the picture (port/silhouette.h) */
 } NwRenderOptions;
 
 bool nw_backend_init(void);

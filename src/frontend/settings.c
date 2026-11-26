@@ -301,6 +301,12 @@ static const NwSettingKey nw_settings_keys[] = {
       .names = nw_settings_filters, .help = "texture filter: retail (PS2, per texture), nearest or bilinear" },
     { .table = "video", .name = "gems", .kind = NW_SETTING_BOOL, NW_FIELD(gems),
       .help = "true: gems, crystals and relics as cut stone and polished metal; false: PS2" },
+    { .table = "video", .name = "clouds", .kind = NW_SETTING_BOOL, NW_FIELD(clouds),
+      .help = "true: the intro island's sky live, its clouds volumetric, gathering over the sun as the storm "
+              "comes; false: PS2 (a painted sky, flat clouds)" },
+    { .table = "video", .name = "silhouettes", .kind = NW_SETTING_BOOL, NW_FIELD(silhouettes),
+      .help = "true: the heroes in the door at the intro's end as their own models, black against the light; "
+              "false: PS2 (a picture of them)" },
     { .table = "video", .name = "draw_distance", .kind = NW_SETTING_INT, NW_FIELD(draw_distance), .lo = 100,
       .hi = NW_DRAW_DISTANCE_MAX, .help = "100-400, object draw distance, % of PS2" },
     { .table = "video", .name = "fog", .kind = NW_SETTING_INT, NW_FIELD(fog), .lo = 0, .hi = 100,
@@ -431,6 +437,8 @@ void nw_settings_defaults(NwSettings *s)
     s->msaa = 0;
     s->filter = NW_FILTER_RETAIL;
     s->gems = true;
+    s->clouds = true;
+    s->silhouettes = true;
     s->draw_distance = 400;
     s->fog = 40;
     s->blur = false;
@@ -736,7 +744,7 @@ bool nw_settings_save(const NwSettings *s, const char *root)
         text = ok ? nw_doc_write(&doc, help, &size) : NULL;
         nw_doc_free(&doc);
         ok = text && SDL_SaveFile(tmp, text, size);
-        if (ok && !SDL_RenamePath(tmp, path)) {
+        if (ok && !nw_paths_replace(tmp, path)) {
             char why[256];
             SDL_strlcpy(why, SDL_GetError(), sizeof(why));
             SDL_RemovePath(tmp);

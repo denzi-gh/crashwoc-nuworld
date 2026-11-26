@@ -28,10 +28,12 @@ static bool nw_packet_grow(void **items, uint32_t *cap, uint32_t n, size_t size)
     if (n < *cap) {
         return true;
     }
-    uint32_t c = *cap ? *cap * 2 : 256;
+    uint32_t c = *cap ? *cap : 256;
     while (c <= n) {
+        if (c > UINT32_MAX/2) { if (n == UINT32_MAX) return false; c = n+1; break; }
         c *= 2;
     }
+    if (c > SIZE_MAX/size) return false;
     void *grown = SDL_realloc(*items, c * size);
     if (!grown) {
         return false;
@@ -66,7 +68,7 @@ NwMtlSnap *nw_packet_mtl(NwPacket *p, uint32_t *index)
         return NULL;
     }
     *index = p->nmtls;
-    return &p->mtls[p->nmtls++];
+    NwMtlSnap *m = &p->mtls[p->nmtls++]; memset(m,0,sizeof(*m)); return m;
 }
 
 NwLights *nw_packet_light(NwPacket *p, uint32_t *index)
@@ -193,6 +195,10 @@ void nw_packet_reset(NwPacket *p)
     p->vbcnt = 0;
     p->edge = 0;
     p->snap = false;
+    p->xfade_id = 0;
+    p->xfade = 0.0f;
+    p->sky.on = false;
+    p->clouds.on = false;
     p->ncmds = 0;
     p->nviews = 0;
     p->nmtls = 0;
@@ -214,10 +220,28 @@ NwPacket *nw_packet_building(void)
     return &nw_slots[nw_building];
 }
 
+static uint32_t nw_xfade_id;
+static float nw_xfade;
+
+/* The sky is the packet's own, as its clouds are: the opening sets it while it draws its scene in the frame being built
+   (port/opening/world.c), so a frame that does not draw the scene (a load, another cut's first frame) has none. */
+void nw_packet_sky(const NwSky *sky)
+{
+    nw_slots[nw_building].sky = *sky;
+}
+
+void nw_packet_xfade(uint32_t id, float alpha)
+{
+    nw_xfade_id = id;
+    nw_xfade = alpha;
+}
+
 uint64_t nw_packet_publish(int32_t vbcnt)
 {
     nw_packet_lock();
     NwPacket *p = &nw_slots[nw_building];
+    p->xfade_id = nw_xfade_id;
+    p->xfade = nw_xfade;
     uint64_t seq = p->seq = ++nw_seq;
     p->vbcnt = vbcnt;
     int ready = nw_ready;

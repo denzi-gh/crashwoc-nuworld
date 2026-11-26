@@ -1,0 +1,19 @@
+;;
+;; Script ATS V2
+;; Earth
+;; The logos' film earth gives way to the station's, on the logos cut's frames.
+;; earth.start: the station's earth blends in from 690. mix: the blend, done at 760;
+;; then earth.done, which the clouds start from.
+;;
+
+ats 2 earth
+
+time        frames 30
+clock       cut
+event       earth.start frame 690
+
+param mix {
+	key         690     0       smooth
+	key         760     1
+	event       earth.done  at 1    after 0
+}

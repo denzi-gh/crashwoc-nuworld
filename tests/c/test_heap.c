@@ -53,6 +53,14 @@ static uint32_t take_frees(const void *objs[4])
     return n;
 }
 
+static unsigned cleanups;
+static void cleanup(void *record)
+{
+    CHECK(*(char *)record == 1); /* Callback observes still-live records, before their storage is freed. */
+    *(char *)record = 2;
+    cleanups++;
+}
+
 int main(void)
 {
     NwHeapSide *a = nw_heap_side();
@@ -62,6 +70,7 @@ int main(void)
     CHECK(((uintptr_t)rec & 15) == 0 && ((uintptr_t)big & 63) == 0 && ((uintptr_t)next & 7) == 0);
     CHECK(all_zero(rec, 100) && all_zero(big, 0x30000) && all_zero(next, 8));
     memset(rec, 1, 100);
+    nw_heap_side_cleanup(a, cleanup, rec);
     memset(big, 1, 0x30000);
     CHECK(rec[99] == 1 && next[0] == 0);
     nw_heap_side_own(a, heap, heap + 1024);
@@ -76,6 +85,7 @@ int main(void)
 
     NwHeapSide *again = nw_heap_side();
     nw_heap_side_own(again, heap, heap + 512);
+    CHECK(cleanups == 1);
     CHECK(nw_heap_sides(NULL) == 3);
     NwHeapSide *grown = nw_heap_side();
     nw_heap_side_own(grown, heap + 512, heap + 3072);
@@ -121,11 +131,15 @@ int main(void)
     NwHeapSide *viewed = nw_heap_side();
     nw_heap_side_gpu(viewed, NW_GPU_FREE_MESH, heap + 3);
     char *sc = nw_heap_side_new(viewed, 16, 8);
+    sc[0] = 1;
+    nw_heap_side_cleanup(viewed, cleanup, sc);
     nw_heap_side_own(viewed, heap + 2048, heap + 2112);
     nw_heap_release(sc + 4);
+    CHECK(cleanups == 2);
     CHECK(take_frees(freed) == 1 && freed[0] == heap + 3 && nw_heap_find(sc) == NULL);
     nw_heap_side_own(nw_heap_side(), heap + 2048, heap + 2112);
     CHECK(take_frees(NULL) == 0);
+    CHECK(cleanups == 2); /* The already released load cannot run its callback again. */
 
     int mesh;
     NwHeapSide *drawn = nw_heap_side();

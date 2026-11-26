@@ -1,0 +1,12 @@
+;; The title, behind the menu, in a loop (LOGOS2R.CSP). From game/cut.c's csd_titles[1], LoadCutMovie(0) (the last
+;; cut of the titles loops) and CutSceneNextLogoFunction (the title music), and the opening's opening.txt.
+fpsec           30
+looping
+skip            off
+scene           main    levels\b\intro\spacer.gsc
+play_beside     levels\b\intro2\stationt    looping
+character       levels\b\logos\title.ghg    title
+music           170         ;; GameMusic(0xaa)
+farclip         473.8676
+ptl             levels\b\intro\intror.ptl
+ptl_merge       stuff\general.ptl

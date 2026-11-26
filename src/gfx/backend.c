@@ -9,6 +9,7 @@
 #include "app.h"
 #include "data/image_tables.h"
 #include "frontend/debug.h"
+#include "gfx/cloudvol.h"
 #include "gfx/gem.h"
 #include "gfx/gl.h"
 #include "gfx/interp.h"
@@ -45,6 +46,9 @@ static struct {
     int shown_w, shown_h;  /* the back buffer's size */
     uint64_t drawn;
     float drawn_t;
+    float seconds;         /* the clock's edges at the frame drawn, as seconds at 60 a second, wrapped at 10000 */
+    bool storm_on;         /* the intro's storm runs in the frame drawn */
+    NwCloudSky sky;        /* how far, blended as the frame is, and its sun */
     NwGpuJob *jobs;
     uint32_t jobcap;
     GLuint rect_vao, rect_vbo, rect_ibo;
@@ -76,7 +80,7 @@ static struct {
     uint32_t nsil;
 } nw_be;
 
-static const NwVuMaterial nw_be_default = { { 0 }, { 0 }, { 0 }, NULL, { .ztst = 2 }, NULL, NULL };
+static const NwVuMaterial nw_be_default = { .state = { .ztst = 2 } };
 
 static void nw_be_resolve(NwBeSurf *s);
 
@@ -291,6 +295,7 @@ void nw_backend_shutdown(void)
     glDeleteVertexArrays(1, &nw_be.present_vao);
     glDeleteFramebuffers(NW_BE_SILHOUETTES * NW_BE_SILHOUETTE_SIZES, nw_be.sil_fbo[0]);
     glDeleteTextures(NW_BE_SILHOUETTES * NW_BE_SILHOUETTE_SIZES, nw_be.sil_tex[0]);
+    nw_cloudvol_shutdown();
     nw_vu_shutdown();
     SDL_free(nw_be.jobs);
     SDL_free(nw_be.rect_verts);
@@ -641,27 +646,81 @@ static NwVuMaterial nw_be_material(const NwPacket *p, const NwCmd *c, bool uvrow
     if (c->mtl != NW_MTL_NONE) {
         const NwMtlSnap *s = &p->mtls[c->mtl];
         memcpy(m.diffuse, s->diffuse, sizeof(m.diffuse));
+        memcpy(m.fx, s->fx, sizeof(m.fx));
         memcpy(m.vu, s->vu, sizeof(m.vu));
         m.uvoff[0] = s->vu[0];
         m.uvoff[1] = s->vu[1];
         m.uvoff[2] = uvrow ? (float)s->row[0] : 0.0f;
         m.uvoff[3] = uvrow ? (float)s->row[1] : 0.0f;
         m.tex = s->surf.addr ? nw_be_surf_tex(&s->surf, s->surf.tcc) : s->tex ? &s->tex->gl : NULL;
+        m.layer = s->layer;
+        m.uv = s->uv;
         m.state = s->gs;
     }
     return m;
 }
 
+/* A part's glow (rndr.h NW_MTL_FX_HALO): after the part, its shell added over the frame, under what is nearer, the
+   frame's alpha kept. Begin sets it up for the part's draw (false: it has none); end puts the state back. */
+#define NW_BE_HALO_SHELLS 6
+
+#define NW_BE_HALO_PUSH 0.04f /* how far back (the part's units) the shells go behind it, along the eye's rays */
+
+/* Shell k of NW_BE_HALO_SHELLS, from the nearest: wider each, the colour shared out, so the glow fades outwards. */
+static bool nw_be_halo_begin(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, int k)
+{
+    /* none for the gradient letters (gloss with a negative mode), whose [12-15] are their gradient's */
+    if (m->fx[0] == 0.0f || (m->fx[0] == 3.0f && m->fx[11] < 0.0f) || m->fx[15] <= 0.0f ||
+        (m->fx[12] <= 0.0f && m->fx[13] <= 0.0f && m->fx[14] <= 0.0f)) {
+        return false;
+    }
+    NwVuMaterial h = *m;
+    h.fx[0] = 4.0f; /* NW_MTL_FX_HALO */
+    h.fx[15] = m->fx[15] * (float)(k + 1) / NW_BE_HALO_SHELLS;
+    h.fx[1] = NW_BE_HALO_PUSH;
+
+
+    for (int i = 12; i < 15; i++) {
+        h.fx[i] = m->fx[i] * 2.0f / NW_BE_HALO_SHELLS;
+    }
+    h.state.abe = 0;
+    h.dst = NULL;
+    NwMtlPass pass[2];
+    nw_vu_use(program, o, &h, pass);
+    nw_vu_pass(program, &h, &pass[0]);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ZERO, GL_ONE);
+    glDepthMask(GL_FALSE);
+    return true;
+}
+
+static void nw_be_halo_end(void)
+{
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 static void nw_be_passes(NwVuProgram program, const NwVuObject *o, const NwVuMaterial *m, GLsizei count,
-                         const void *first)
+                         const void *first, bool black)
 {
     NwMtlPass pass[2];
     uint32_t n = nw_vu_use(program, o, m, pass);
+    if (black) {
+        nw_vu_black(program, m->state.abe); /* a silhouette against the light (NwCmd.heroes_black) */
+    }
     for (uint32_t k = 0; k < n; k++) {
         nw_vu_pass(program, m, &pass[k]);
         glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, first);
     }
+    for (int k = 0; k < NW_BE_HALO_SHELLS && nw_be_halo_begin(program, o, m, k); k++) {
+        glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, first);
+        nw_be_halo_end();
+    }
 }
+
+static void nw_sky_draw(int x, int y, int w, int h, int gs_w);
+static void nw_clouds_draw(const NwPacket *p, const NwCmd *c);
 
 /* As the GS clears: sprites over the scissor with ZTST ALWAYS, the alpha test masking colour or Z; 0x80 alpha = 1.0. */
 static void nw_be_clear(const NwPacket *p, const NwCmd *c)
@@ -678,6 +737,10 @@ static void nw_be_clear(const NwPacket *p, const NwCmd *c)
     glClearDepth(1.0 - c->clear.z / 8388607.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDisable(GL_SCISSOR_TEST);
+    if (rgb && nw_be.target && nw_be.target->addr == NW_SURF_BACK) {
+        nw_sky_draw(sc[0] * n, (nw_be.target->th - 1 - sc[3]) * n, (sc[2] - sc[0] + 1) * n, (sc[3] - sc[1] + 1) * n,
+                    sc[2] - sc[0] + 1);
+    }
 }
 
 /* GS coordinates for the unlit program, s and t x4096. */
@@ -746,7 +809,7 @@ static void nw_be_rect(const NwPacket *p, const NwCmd *c, uint32_t index)
     memcpy(o.lv, g, sizeof(o.lv));
     NwVuMaterial m = nw_be_material(p, c, false);
     glBindVertexArray(nw_be.rect_vao);
-    nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)));
+    nw_be_passes(NW_VU_TRICU, &o, &m, 6, (const void *)(uintptr_t)(index * 6 * sizeof(uint32_t)), false);
 }
 
 static void nw_be_verts(const NwPacket *p)
@@ -1026,6 +1089,12 @@ static void nw_be_tris(const NwPacket *p, const NwCmd *c)
         glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
     }
     glDisable(GL_STENCIL_TEST);
+    for (int k = 0; c->mode != NW_VERTS_GS && c->mode != NW_VERTS_SPRITE && k < NW_BE_HALO_SHELLS &&
+                    nw_be_halo_begin(program, &o, &m, k);
+         k++) {
+        glDrawArrays(GL_TRIANGLES, (GLint)c->first, (GLsizei)c->count);
+        nw_be_halo_end();
+    }
 }
 
 /* Retail's NuLgtHSurf[1]: back buffer Z squeezed to the volumes' width, stencil 0x7F as retail's 0x7F sprites. */
@@ -1054,8 +1123,13 @@ static void nw_be_particles(const NwPacket *p, const NwCmd *c)
     _Static_assert(sizeof(NwPtlList) == 132 * 16, "NwPtlList is VU 0x3C-0xBF");
     NwVuObject o;
     nw_be_object(p, c, NW_VU_PTL, &o);
-    o.sprite[0] = 1.0f / (8.0f * (float)nw_be.width);
-    o.sprite[1] = -1.0f / (8.0f * (float)nw_be.height);
+    /* a group port/opening draws in a frame of its own: the sprites as large as its matrix scales its points; retail's
+       groups at their own size whatever their matrix (the intro volcano's smoke has a scaled one) */
+    float ls = c->ptl_own ? SDL_sqrtf(c->local[0] * c->local[0] + c->local[1] * c->local[1] + c->local[2] * c->local[2])
+                          : 1.0f;
+    ls = ls > 0.01f ? ls : 1.0f;
+    o.sprite[0] = ls / (8.0f * (float)nw_be.width);
+    o.sprite[1] = -ls / (8.0f * (float)nw_be.height);
     NwVuMaterial m = nw_be_material(p, c, false);
     const NwGpuTex *tex = c->mtl != NW_MTL_NONE ? p->mtls[c->mtl].tex : NULL;
     if (tex && !nw_vu_texture_rgba((NwVuTexture *)&tex->gl, &tex->tex)) {
@@ -1296,6 +1370,9 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
         nw_be_undrawn(mpg, false);
         return;
     }
+    if (c->heroes_black && !nw_be.opts.silhouettes) {
+        return; /* out of sight, as on the PS2 */
+    }
     NwGemInfo gem;
     NwGemRole role = nw_be_gem_of(p, c, &gem);
     if (role == NW_GEM_HIDE || nw_be_gem_hold(p, c)) {
@@ -1318,14 +1395,59 @@ static void nw_be_draw(const NwPacket *p, const NwCmd *c)
     }
     NwVuObject o;
     nw_be_object(p, c, program, &o);
+    if (mesh->heroes_picture && nw_be.opts.silhouettes) {
+        return; /* their models stand there */
+    }
+    const NwGpuCloud *cloud = c->op == NW_CMD_DRAW && nw_be.opts.clouds ? &mesh->cloud : NULL;
+    if (cloud && cloud->kind == NW_CLOUD_PUFF &&
+        nw_cloudvol_draw(cloud, c->local, o.lv, nw_be.seconds, nw_be.storm_on ? nw_be.sky.storm : 0.0f)) {
+        return;
+    }
+    if (cloud && cloud->kind == NW_CLOUD_SUN && nw_cloudvol_ready()) {
+        return; /* the sky draws the sun */
+    }
     NwVuMaterial m = nw_be_material(p, c, mesh->mesh.uvrow);
     glBindVertexArray(mesh->vao);
     if (c->op == NW_CMD_DRAW_OT) {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, nw_be.ot_ibo);
-        nw_be_passes(program, &o, &m, (GLsizei)c->count, (const void *)(uintptr_t)(c->first * sizeof(uint32_t)));
+        nw_be_passes(program, &o, &m, (GLsizei)c->count, (const void *)(uintptr_t)(c->first * sizeof(uint32_t)),
+                     c->heroes_black);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ibo);
     } else {
-        nw_be_passes(program, &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL);
+        nw_be_passes(program, &o, &m, (GLsizei)(mesh->mesh.ntris * 3), NULL, c->heroes_black);
+    }
+    if (cloud && cloud->kind == NW_CLOUD_SKY) {
+        NwCloudSky sky = nw_be.sky;
+        sky.storm = nw_be.storm_on ? sky.storm : cloud->weather;
+        nw_cloudvol_sky(mesh, c->local, o.lv, nw_be.seconds, &sky);
+    }
+}
+
+/* The sky's sun this frame: the sun card's draw, if the packet has one, which the sky draws in its place. */
+static void nw_be_sky_sun(const NwPacket *p)
+{
+    nw_be.sky.sun_on = false;
+    for (uint32_t i = 0; nw_be.opts.clouds && i < p->ncmds; i++) {
+        const NwCmd *c = &p->cmds[i];
+        const NwGpuCloud *card = c->op == NW_CMD_DRAW && c->mesh ? &c->mesh->cloud : NULL;
+        if (!card || card->kind != NW_CLOUD_SUN) {
+            continue;
+        }
+        float centre[3], half = 0.0f;
+        for (int k = 0; k < 3; k++) {
+            centre[k] = (card->min[k] + card->max[k]) * 0.5f;
+        }
+        for (int k = 0; k < 3; k++) {
+            nw_be.sky.sun_at[k] =
+                centre[0] * c->local[k] + centre[1] * c->local[4 + k] + centre[2] * c->local[8 + k] + c->local[12 + k];
+        }
+        for (int r = 0; r < 2; r++) {
+            const float *row = &c->local[r * 4];
+            float len = sqrtf(row[0] * row[0] + row[1] * row[1] + row[2] * row[2]);
+            half = SDL_max(half, (card->max[r] - card->min[r]) * 0.5f * len);
+        }
+        nw_be.sky.sun_radius = half;
+        nw_be.sky.sun_on = true;
     }
 }
 
@@ -1340,6 +1462,9 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     if (program == NW_VU_PROGRAMS) {
         nw_be_undrawn(mpg, true);
         return;
+    }
+    if (c->heroes_black && !nw_be.opts.silhouettes) {
+        return; /* out of sight, as on the PS2 */
     }
     NwGemInfo gem;
     NwGemRole role = nw_be_gem_of(p, c, &gem);
@@ -1358,6 +1483,9 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     NwMtlPass pass[2];
     glBindVertexArray(s->vao);
     uint32_t n = nw_vu_use(program, &o, &m, pass);
+    if (c->heroes_black) {
+        nw_vu_black(program, m.state.abe); /* against the light */
+    }
     nw_vu_skin(program, c->first, c->weights, s->delta_tex ? c->nweights : 0);
     if (s->delta_tex) {
         glActiveTexture(GL_TEXTURE0 + 5);
@@ -1367,6 +1495,11 @@ static void nw_be_skin(const NwPacket *p, const NwCmd *c)
     for (uint32_t k = 0; k < n; k++) {
         nw_vu_pass(program, &m, &pass[k]);
         glDrawElements(GL_TRIANGLES, (GLsizei)(s->skin.ntris * 3), GL_UNSIGNED_INT, NULL);
+    }
+    for (int k = 0; k < NW_BE_HALO_SHELLS && nw_be_halo_begin(program, &o, &m, k); k++) {
+        nw_vu_skin(program, c->first, c->weights, s->delta_tex ? c->nweights : 0);
+        glDrawElements(GL_TRIANGLES, (GLsizei)(s->skin.ntris * 3), GL_UNSIGNED_INT, NULL);
+        nw_be_halo_end();
     }
 }
 
@@ -1435,7 +1568,8 @@ static void nw_be_sprites(const NwPacket *p, const NwCmd *c)
     }
     NwVuMaterial m = nw_be_material(p, c, false);
     glBindVertexArray(s->vao);
-    nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL);
+    nw_be_passes(s->sprites.facey ? NW_VU_FACEY : NW_VU_FACEON, &o, &m, (GLsizei)(s->sprites.count * 6), NULL,
+                 false);
 }
 
 /* Runs once into GS memory, which keeps what it drew; the front buffer is the back buffer as it ends. */
@@ -1459,6 +1593,7 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
     nw_be_verts(p);
     nw_be_ptls(p);
     nw_be_pool(p);
+    nw_be_sky_sun(p);
     if (p->nidx) {
         if (!nw_be.ot_ibo) {
             glGenBuffers(1, &nw_be.ot_ibo);
@@ -1508,6 +1643,9 @@ static void nw_be_run(const NwPacket *p, NwBeSurf *back)
             break;
         case NW_CMD_VOLUMES:
             nw_be_volumes(c);
+            break;
+        case NW_CMD_CLOUDS:
+            nw_clouds_draw(p, c);
             break;
         case NW_CMD_WAVES:
             if (c->first < p->nwaves) {
@@ -1600,6 +1738,692 @@ static void nw_be_present(NwBeSurf *back, int bw, int bh, int x, int y, int w, i
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
+/* A cross-dissolve (port/opening.c): the first packet drawn of a new xfade_id keeps the frame shown before it (so a
+   packet skipped on the way does not lose it), and every packet with xfade draws that frame over its own at that
+   opacity. The kept frame is the back buffer's whole texture, drawn back
+   1:1, so it lines up whatever part of it the frame uses. */
+#define NW_XF_BLEND_SRC_RGB 0x80C9
+#define NW_XF_BLEND_DST_RGB 0x80C8
+#define NW_XF_BLEND_SRC_ALPHA 0x80CB
+#define NW_XF_BLEND_DST_ALPHA 0x80CA
+#define NW_XF_BLEND_EQUATION_RGB 0x8009
+#define NW_XF_BLEND_EQUATION_ALPHA 0x883D
+#define NW_XF_CURRENT_PROGRAM 0x8B8D
+#define NW_XF_VERTEX_ARRAY_BINDING 0x85B5
+#define NW_XF_TEXTURE_BINDING_2D 0x8069
+#define NW_XF_ACTIVE_TEXTURE 0x84E0
+#define NW_XF_VIEWPORT 0x0BA2
+#define NW_XF_DEPTH_WRITEMASK 0x0B72
+
+static struct {
+    GLuint tex, fbo, prog, vao;
+    GLint alpha;
+    int w, h;
+    uint32_t grabbed; /* the xfade_id it was kept for */
+    bool failed;
+} nw_xf;
+
+static GLuint nw_xf_shader(GLenum type, const char *src)
+{
+    GLuint sh = glCreateShader(type);
+    glShaderSource(sh, 1, &src, NULL);
+    glCompileShader(sh);
+    GLint ok = 0;
+    glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[512] = "";
+        glGetShaderInfoLog(sh, sizeof log, NULL, log);
+        SDL_Log("cross-dissolve shader: %s", log);
+        glDeleteShader(sh);
+        return 0;
+    }
+    return sh;
+}
+
+/* A shader from the executable's shaders folder (assets/shaders), as gfx/vu.c reads its own; 0 if it is missing or
+   does not compile (logged). */
+static GLuint nw_be_file_shader(GLenum type, const char *name)
+{
+    const char *base = SDL_GetBasePath();
+    char *path = NULL, *text = NULL;
+    if (base && SDL_asprintf(&path, "%sshaders/%s", base, name) >= 0) text = SDL_LoadFile(path, NULL);
+    if (!text) SDL_Log("shader %s: %s", path ? path : name, SDL_GetError());
+    GLuint shader = text ? nw_xf_shader(type, text) : 0;
+    SDL_free(text);
+    SDL_free(path);
+    return shader;
+}
+
+static bool nw_xf_program(void)
+{
+    if (nw_xf.prog || nw_xf.failed) {
+        return nw_xf.prog != 0;
+    }
+    GLuint vs = nw_xf_shader(GL_VERTEX_SHADER,
+                             "#version 330 core\nout vec2 uv;\nvoid main() {\n"
+                             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                             "    uv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n");
+    GLuint fs = nw_xf_shader(GL_FRAGMENT_SHADER,
+                             "#version 330 core\nuniform sampler2D kept;\nuniform vec4 alpha;\nin vec2 uv;\n"
+                             "out vec4 colour;\nvoid main() { colour = vec4(texture(kept, uv).rgb, alpha.x); }\n");
+    if (vs && fs) {
+        GLuint pr = glCreateProgram();
+        glAttachShader(pr, vs);
+        glAttachShader(pr, fs);
+        glLinkProgram(pr);
+        GLint ok = 0;
+        glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+        if (ok) {
+            nw_xf.prog = pr;
+            nw_xf.alpha = glGetUniformLocation(pr, "alpha");
+            glUseProgram(pr);
+            glUniform1i(glGetUniformLocation(pr, "kept"), 0);
+            glUseProgram(0);
+            glGenVertexArrays(1, &nw_xf.vao);
+        } else {
+            glDeleteProgram(pr);
+        }
+    }
+    if (vs) {
+        glDeleteShader(vs);
+    }
+    if (fs) {
+        glDeleteShader(fs);
+    }
+    nw_xf.failed = nw_xf.prog == 0;
+    return nw_xf.prog != 0;
+}
+
+/* The back buffer as shown now, before the packet that asks for it draws over it. */
+static void nw_xf_grab(NwBeSurf *back)
+{
+    int w = back->tw * back->n, h = back->th * back->n;
+    nw_be_resolve(back);
+    if (!nw_xf.tex || nw_xf.w != w || nw_xf.h != h) {
+        if (!nw_xf.tex) {
+            glGenTextures(1, &nw_xf.tex);
+            glGenFramebuffers(1, &nw_xf.fbo);
+        }
+        glBindTexture(GL_TEXTURE_2D, nw_xf.tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, nw_xf.fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, nw_xf.tex, 0);
+        nw_xf.w = w;
+        nw_xf.h = h;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, back->fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, nw_xf.fbo);
+    glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+static void nw_xf_draw(NwBeSurf *back, float alpha)
+{
+    if (!nw_xf.tex || nw_xf.w != back->tw * back->n || nw_xf.h != back->th * back->n || !nw_xf_program()) {
+        return;
+    }
+    nw_be_resolve(back);
+    GLint blend, depth, scissor, stencil, src_rgb, dst_rgb, src_a, dst_a, eq_rgb, eq_a, prog, vao, unit, tex, dmask;
+    GLint vp[4];
+    glGetIntegerv(GL_BLEND, &blend);
+    glGetIntegerv(GL_DEPTH_TEST, &depth);
+    glGetIntegerv(GL_SCISSOR_TEST, &scissor);
+    glGetIntegerv(GL_STENCIL_TEST, &stencil);
+    glGetIntegerv(NW_XF_BLEND_SRC_RGB, &src_rgb);
+    glGetIntegerv(NW_XF_BLEND_DST_RGB, &dst_rgb);
+    glGetIntegerv(NW_XF_BLEND_SRC_ALPHA, &src_a);
+    glGetIntegerv(NW_XF_BLEND_DST_ALPHA, &dst_a);
+    glGetIntegerv(NW_XF_BLEND_EQUATION_RGB, &eq_rgb);
+    glGetIntegerv(NW_XF_BLEND_EQUATION_ALPHA, &eq_a);
+    glGetIntegerv(NW_XF_CURRENT_PROGRAM, &prog);
+    glGetIntegerv(NW_XF_VERTEX_ARRAY_BINDING, &vao);
+    glGetIntegerv(NW_XF_ACTIVE_TEXTURE, &unit);
+    glGetIntegerv(NW_XF_DEPTH_WRITEMASK, &dmask);
+    glGetIntegerv(NW_XF_VIEWPORT, vp);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(NW_XF_TEXTURE_BINDING_2D, &tex);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, back->fbo);
+    glViewport(0, 0, nw_xf.w, nw_xf.h);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDepthMask(GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    glUseProgram(nw_xf.prog);
+    float a[4] = { alpha, 0.0f, 0.0f, 0.0f };
+    glUniform4fv(nw_xf.alpha, 1, a);
+    glBindTexture(GL_TEXTURE_2D, nw_xf.tex);
+    glBindVertexArray(nw_xf.vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindVertexArray((GLuint)vao);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)tex);
+    glActiveTexture((GLenum)unit);
+    glUseProgram((GLuint)prog);
+    glBlendFuncSeparate((GLenum)src_rgb, (GLenum)dst_rgb, (GLenum)src_a, (GLenum)dst_a);
+    glBlendEquationSeparate((GLenum)eq_rgb, (GLenum)eq_a);
+    (blend ? glEnable : glDisable)(GL_BLEND);
+    (depth ? glEnable : glDisable)(GL_DEPTH_TEST);
+    (scissor ? glEnable : glDisable)(GL_SCISSOR_TEST);
+    (stencil ? glEnable : glDisable)(GL_STENCIL_TEST);
+    glDepthMask(dmask ? GL_TRUE : GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+}
+
+/* The sky (port/opening.c, NwSky): the title's live space in space.gsc's own blues (its streaked dome's, about
+   10 31 76 deep), drawn for each pixel: no bound, no texels, at any aspect. The nebula gathers round band (where that
+   dome's streaks were), streaked across it as they were, folding and drifting as it evolves, lit from the upper left
+   (the logo's light) at its edges; black elsewhere, as the original's open sky. Its stars as few as the dome's, sharp,
+   twinkling, the field turning slowly against the nebula. Each pixel's direction comes from the camera's axes and the
+   game's projection (tan of the half fields: 0.394 tall, 0.525 across 640 GS pixels). GLSL: shaders/sky.frag.glsl. */
+
+static struct {
+    GLuint prog;
+    GLint right, up, fwd, lens, band;
+    bool failed;
+} nw_sky_gl;
+static NwSky nw_sky_frame; /* the frame's sky, blended between its packets as the frame is */
+
+static bool nw_sky_program(void)
+{
+    if (nw_sky_gl.prog || nw_sky_gl.failed) {
+        return nw_sky_gl.prog != 0;
+    }
+    GLuint vs = nw_xf_shader(GL_VERTEX_SHADER,
+                             "#version 330 core\nout vec2 uv;\nvoid main() {\n"
+                             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                             "    uv = p;\n    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n}\n");
+    GLuint fs = nw_be_file_shader(GL_FRAGMENT_SHADER, "sky.frag.glsl");
+    if (vs && fs) {
+        GLuint pr = glCreateProgram();
+        glAttachShader(pr, vs);
+        glAttachShader(pr, fs);
+        glLinkProgram(pr);
+        GLint ok = 0;
+        glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+        if (ok) {
+            nw_sky_gl.prog = pr;
+            nw_sky_gl.right = glGetUniformLocation(pr, "uright");
+            nw_sky_gl.up = glGetUniformLocation(pr, "uup");
+            nw_sky_gl.fwd = glGetUniformLocation(pr, "ufwd");
+            nw_sky_gl.lens = glGetUniformLocation(pr, "lens");
+            nw_sky_gl.band = glGetUniformLocation(pr, "uband");
+        } else {
+            glDeleteProgram(pr);
+        }
+    }
+    if (vs) {
+        glDeleteShader(vs);
+    }
+    if (fs) {
+        glDeleteShader(fs);
+    }
+    nw_sky_gl.failed = nw_sky_gl.prog == 0;
+    return nw_sky_gl.prog != 0;
+}
+
+/* Over a cleared rectangle of the back buffer (GL pixels), as wide as w GS pixels. */
+static void nw_sky_draw(int x, int y, int w, int h, int gs_w)
+{
+    if (!nw_sky_frame.on || !nw_sky_program()) {
+        return;
+    }
+    GLint blend, depth, scissor, stencil, prog, vao, dmask;
+    GLint vp[4];
+    glGetIntegerv(GL_BLEND, &blend);
+    glGetIntegerv(GL_DEPTH_TEST, &depth);
+    glGetIntegerv(GL_SCISSOR_TEST, &scissor);
+    glGetIntegerv(GL_STENCIL_TEST, &stencil);
+    glGetIntegerv(NW_XF_CURRENT_PROGRAM, &prog);
+    glGetIntegerv(NW_XF_VERTEX_ARRAY_BINDING, &vao);
+    glGetIntegerv(NW_XF_DEPTH_WRITEMASK, &dmask);
+    glGetIntegerv(NW_XF_VIEWPORT, vp);
+    glViewport(x, y, w, h);
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glDepthMask(GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glUseProgram(nw_sky_gl.prog);
+    const NwSky *k = &nw_sky_frame;
+    float lens[4] = { 0.5246f * (float)gs_w / 640.0f, 0.394f, k->time, 2.0f * 0.394f / (float)(h > 0 ? h : 1) };
+    float v[4] = { 0 };
+    SDL_memcpy(v, k->right, sizeof(k->right));
+    glUniform4fv(nw_sky_gl.right, 1, v);
+    SDL_memcpy(v, k->up, sizeof(k->up));
+    glUniform4fv(nw_sky_gl.up, 1, v);
+    SDL_memcpy(v, k->fwd, sizeof(k->fwd));
+    glUniform4fv(nw_sky_gl.fwd, 1, v);
+    glUniform4fv(nw_sky_gl.lens, 1, lens);
+    glUniform4fv(nw_sky_gl.band, 1, (const float[4]){ k->band[0], k->band[1], k->band[2], 0 });
+    if (!nw_xf.vao) {
+        glGenVertexArrays(1, &nw_xf.vao);
+    }
+    glBindVertexArray(nw_xf.vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray((GLuint)vao);
+    glUseProgram((GLuint)prog);
+    (blend ? glEnable : glDisable)(GL_BLEND);
+    (depth ? glEnable : glDisable)(GL_DEPTH_TEST);
+    (scissor ? glEnable : glDisable)(GL_SCISSOR_TEST);
+    (stencil ? glEnable : glDisable)(GL_STENCIL_TEST);
+    glDepthMask(dmask ? GL_TRUE : GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+}
+
+/* The clouds (NwClouds): for each pixel the ray through the shell round the planet, marched; the density a 3D noise
+   on the sphere's directions that drifts and changes with time (puffs form and fade), lit from the sun with a short
+   march towards it for the shade under each puff. Cartoon colours: white tops, soft blue shade. The first point
+   where the clouds show gives the fragment's depth through the command's own view, so what stands in front of them
+   (the station, the logo) keeps them out. GLSL: shaders/clouds.frag.glsl. */
+
+static struct {
+    GLuint prog;
+    GLint lv, inv, c, r, sun;
+    bool failed;
+} nw_clouds_gl;
+
+/* The opening's Universal globe (NwClouds' film fields), in two passes of one program. u_pass.x 0: the globe over
+   the station earth's tiles: for each pixel the ray onto its sphere, the map read by the point's direction turned
+   into the map's frame (it turns with the globe), lit as the Corporate logo's globe (corporate()), the film
+   UNIVERSAL's shadow on it; the point's depth written, so what stands before the earth keeps it out and what comes
+   after behind it stays hidden. u_pass.x 1: the halo, added round the station earth's tiles (u_pass.y their radius)
+   at the depth of its middle, before the globe: the film's blue-white billowing corona, or the station earth's
+   whiter, smoother one (u_e.z between them). GLSL: shaders/earth.frag.glsl. */
+
+static struct {
+    GLuint prog, tex, mask_tex, cap_tex;
+    GLint lv, inv, c, e, rot, pass, map, mask, txt, arc, ty, tkey, look, cam, cap;
+    const uint8_t *map_data, *mask_data, *cap_data; /* the images uploaded */
+    bool failed;
+} nw_earth_gl;
+static NwClouds nw_clouds_frame;
+
+/* The passers-by (NwClouds.fx), drawn before the clouds in the same view: each placed in the world, so the planets,
+   the earth and the station stand in front of it as they should; drawn on the screen from its projection, cartoon
+   style. A comet: a soft head and a long tail behind it; a shooting star: a short quick streak; a saucer: a little
+   flying saucer (a dome on a disc) with lights going round its rim. GLSL: shaders/fx.frag.glsl. */
+
+static struct {
+    GLuint prog;
+    GLint lv, fx, vp;
+    bool failed;
+} nw_fx_gl;
+
+static bool nw_fx_program(void)
+{
+    if (nw_fx_gl.prog || nw_fx_gl.failed) {
+        return nw_fx_gl.prog != 0;
+    }
+    GLuint vs = nw_xf_shader(GL_VERTEX_SHADER,
+                             "#version 330 core\nout vec2 ndc;\nvoid main() {\n"
+                             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                             "    ndc = p * 2.0 - 1.0;\n    gl_Position = vec4(ndc, 0.0, 1.0);\n}\n");
+    GLuint fs = nw_be_file_shader(GL_FRAGMENT_SHADER, "fx.frag.glsl");
+    if (vs && fs) {
+        GLuint pr = glCreateProgram();
+        glAttachShader(pr, vs);
+        glAttachShader(pr, fs);
+        glLinkProgram(pr);
+        GLint ok = 0;
+        glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+        if (ok) {
+            nw_fx_gl.prog = pr;
+            nw_fx_gl.lv = glGetUniformLocation(pr, "u_lv");
+            nw_fx_gl.fx = glGetUniformLocation(pr, "u_fx");
+            nw_fx_gl.vp = glGetUniformLocation(pr, "u_vp");
+        } else {
+            glDeleteProgram(pr);
+        }
+    }
+    if (vs) {
+        glDeleteShader(vs);
+    }
+    if (fs) {
+        glDeleteShader(fs);
+    }
+    nw_fx_gl.failed = nw_fx_gl.prog == 0;
+    return nw_fx_gl.prog != 0;
+}
+
+static bool nw_earth_program(void)
+{
+    if (nw_earth_gl.prog || nw_earth_gl.failed) {
+        return nw_earth_gl.prog != 0;
+    }
+    GLuint vs = nw_xf_shader(GL_VERTEX_SHADER,
+                             "#version 330 core\nout vec2 ndc;\nvoid main() {\n"
+                             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                             "    ndc = p * 2.0 - 1.0;\n    gl_Position = vec4(ndc, 0.0, 1.0);\n}\n");
+    GLuint fs = nw_be_file_shader(GL_FRAGMENT_SHADER, "earth.frag.glsl");
+    if (vs && fs) {
+        GLuint pr = glCreateProgram();
+        glAttachShader(pr, vs);
+        glAttachShader(pr, fs);
+        glLinkProgram(pr);
+        GLint ok = 0;
+        glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+        if (ok) {
+            nw_earth_gl.prog = pr;
+            nw_earth_gl.lv = glGetUniformLocation(pr, "u_lv");
+            nw_earth_gl.inv = glGetUniformLocation(pr, "u_inv");
+            nw_earth_gl.c = glGetUniformLocation(pr, "u_c");
+            nw_earth_gl.e = glGetUniformLocation(pr, "u_e");
+            nw_earth_gl.rot = glGetUniformLocation(pr, "u_rot");
+            nw_earth_gl.pass = glGetUniformLocation(pr, "u_pass");
+            nw_earth_gl.map = glGetUniformLocation(pr, "u_map");
+            nw_earth_gl.mask = glGetUniformLocation(pr, "u_mask");
+            nw_earth_gl.txt = glGetUniformLocation(pr, "u_txt");
+            nw_earth_gl.arc = glGetUniformLocation(pr, "u_arc");
+            nw_earth_gl.ty = glGetUniformLocation(pr, "u_ty");
+            nw_earth_gl.tkey = glGetUniformLocation(pr, "u_tkey");
+            nw_earth_gl.look = glGetUniformLocation(pr, "u_look");
+            nw_earth_gl.cam = glGetUniformLocation(pr, "u_cam");
+            nw_earth_gl.cap = glGetUniformLocation(pr, "u_cap");
+        } else {
+            glDeleteProgram(pr);
+        }
+    }
+    if (vs) {
+        glDeleteShader(vs);
+    }
+    if (fs) {
+        glDeleteShader(fs);
+    }
+    nw_earth_gl.failed = nw_earth_gl.prog == 0;
+    return nw_earth_gl.prog != 0;
+}
+
+/* An RGBA image into tex the first time it comes: linear, wrapping across (wrap) or clamped. */
+static void nw_earth_upload(GLuint *tex, const uint8_t **had, const uint8_t *px, int w, int h, bool wrap, bool mips)
+{
+    if (!px || px == *had) {
+        return;
+    }
+    if (!*tex) {
+        glGenTextures(1, tex);
+    }
+    glBindTexture(GL_TEXTURE_2D, *tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mips ? 1000 : 0);
+    if (mips) {
+        glGenerateMipmap(GL_TEXTURE_2D); /* the Corporate look's blurred land mask (its alpha a few levels down) */
+    }
+    *had = px;
+}
+
+/* The film earth and its halo (nw_earth_fs), its images uploaded the first time they come; on units 5, 6 and 7,
+   given back. */
+static void nw_earth_draw(const NwClouds *k, const float lv[16], const float inv[16])
+{
+    bool film = k->film_a > 0.0f && k->map && k->cap;
+    if ((!film && k->halo <= 0.0f) || !nw_earth_program()) {
+        return;
+    }
+    GLint unit, bound5, bound6, bound7;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &unit);
+    glActiveTexture(GL_TEXTURE0 + 5);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound5);
+    if (film) {
+        nw_earth_upload(&nw_earth_gl.cap_tex, &nw_earth_gl.cap_data, k->cap, k->cap_w, k->cap_h, false, false);
+    }
+    glBindTexture(GL_TEXTURE_2D, nw_earth_gl.cap_tex);
+    glActiveTexture(GL_TEXTURE0 + 6);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound6);
+    nw_earth_upload(&nw_earth_gl.mask_tex, &nw_earth_gl.mask_data, k->mask, k->mask_w, k->mask_h, false, false);
+    glBindTexture(GL_TEXTURE_2D, nw_earth_gl.mask_tex);
+    glActiveTexture(GL_TEXTURE0 + 7);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound7);
+    if (film) {
+        nw_earth_upload(&nw_earth_gl.tex, &nw_earth_gl.map_data, k->map, k->map_w, k->map_h, true, true);
+    }
+    glBindTexture(GL_TEXTURE_2D, nw_earth_gl.tex);
+    glUseProgram(nw_earth_gl.prog);
+    glUniformMatrix4fv(nw_earth_gl.lv, 1, GL_FALSE, lv);
+    glUniformMatrix4fv(nw_earth_gl.inv, 1, GL_FALSE, inv);
+    float c[4] = { k->centre[0], k->centre[1], k->centre[2], k->film_r };
+    float e[4] = { k->film_a, k->halo, k->halo_style, k->time };
+    glUniform4fv(nw_earth_gl.c, 1, c);
+    glUniform4fv(nw_earth_gl.e, 1, e);
+    glUniform4fv(nw_earth_gl.rot, 3, &k->rot[0][0]);
+    glUniform1i(nw_earth_gl.map, 7);
+    glUniform1i(nw_earth_gl.mask, 6);
+    glUniform4fv(nw_earth_gl.txt, 4, &k->text[0][0]);
+    glUniform4fv(nw_earth_gl.arc, 1, k->text_arc);
+    float ty[4] = { k->text_y[0], k->text_y[1], k->mask && nw_earth_gl.mask_tex ? k->text_y[2] : 0.0f, 0.0f };
+    glUniform4fv(nw_earth_gl.ty, 1, ty);
+    glUniform4fv(nw_earth_gl.tkey, 1, (const float[4]){ k->text_key[0], k->text_key[1], k->text_key[2], 0 });
+    glUniform4fv(nw_earth_gl.look, 1, k->look);
+    glUniform4fv(nw_earth_gl.cam, 3, &k->cam[0][0]);
+    glUniform1i(nw_earth_gl.cap, 5);
+    /* the halo first, from the tiles' edge, then the film earth over it: the film sphere's rim, just outside the
+       tiles, fades with it over the halo there */
+    if (k->halo > 0.0f) {
+        glUniform4fv(nw_earth_gl.pass, 1, (const float[4]){ 1, k->r_earth, 0, 0 });
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+    if (film) {
+        glUniform4fv(nw_earth_gl.pass, 1, (const float[4]){ 0, k->r_earth, 0, 0 });
+        glDepthMask(GL_TRUE);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDepthMask(GL_FALSE);
+    }
+    glBindTexture(GL_TEXTURE_2D, (GLuint)bound7);
+    glActiveTexture(GL_TEXTURE0 + 6);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)bound6);
+    glActiveTexture(GL_TEXTURE0 + 5);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)bound5);
+    glActiveTexture((GLenum)unit);
+}
+
+static bool nw_clouds_program(void)
+{
+    if (nw_clouds_gl.prog || nw_clouds_gl.failed) {
+        return nw_clouds_gl.prog != 0;
+    }
+    GLuint vs = nw_xf_shader(GL_VERTEX_SHADER,
+                             "#version 330 core\nout vec2 ndc;\nvoid main() {\n"
+                             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                             "    ndc = p * 2.0 - 1.0;\n    gl_Position = vec4(ndc, 0.0, 1.0);\n}\n");
+    GLuint fs = nw_be_file_shader(GL_FRAGMENT_SHADER, "clouds.frag.glsl");
+    if (vs && fs) {
+        GLuint pr = glCreateProgram();
+        glAttachShader(pr, vs);
+        glAttachShader(pr, fs);
+        glLinkProgram(pr);
+        GLint ok = 0;
+        glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+        if (ok) {
+            nw_clouds_gl.prog = pr;
+            nw_clouds_gl.lv = glGetUniformLocation(pr, "u_lv");
+            nw_clouds_gl.inv = glGetUniformLocation(pr, "u_inv");
+            nw_clouds_gl.c = glGetUniformLocation(pr, "u_c");
+            nw_clouds_gl.r = glGetUniformLocation(pr, "u_r");
+            nw_clouds_gl.sun = glGetUniformLocation(pr, "u_sun");
+        } else {
+            glDeleteProgram(pr);
+        }
+    }
+    if (vs) {
+        glDeleteShader(vs);
+    }
+    if (fs) {
+        glDeleteShader(fs);
+    }
+    nw_clouds_gl.failed = nw_clouds_gl.prog == 0;
+    return nw_clouds_gl.prog != 0;
+}
+
+/* m's inverse (4 x 4, Gauss-Jordan); false when singular. */
+static bool nw_inverse4(const float m[16], float out[16])
+{
+    float a[4][8];
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            a[r][c] = m[r * 4 + c];
+            a[r][4 + c] = r == c ? 1.0f : 0.0f;
+        }
+    }
+    for (int c = 0; c < 4; c++) {
+        int piv = c;
+        for (int r = c + 1; r < 4; r++) {
+            if (SDL_fabsf(a[r][c]) > SDL_fabsf(a[piv][c])) {
+                piv = r;
+            }
+        }
+        if (SDL_fabsf(a[piv][c]) < 1e-12f) {
+            return false;
+        }
+        for (int k = 0; k < 8; k++) {
+            float t = a[c][k];
+            a[c][k] = a[piv][k];
+            a[piv][k] = t;
+        }
+        float inv = 1.0f / a[c][c];
+        for (int k = 0; k < 8; k++) {
+            a[c][k] *= inv;
+        }
+        for (int r = 0; r < 4; r++) {
+            if (r != c && a[r][c] != 0.0f) {
+                float f = a[r][c];
+                for (int k = 0; k < 8; k++) {
+                    a[r][k] -= f * a[c][k];
+                }
+            }
+        }
+    }
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            out[r * 4 + c] = a[r][4 + c];
+        }
+    }
+    return true;
+}
+
+static void nw_clouds_draw(const NwPacket *p, const NwCmd *c)
+{
+    const NwClouds *k = &nw_clouds_frame;
+    if (!k->on || c->view >= p->nviews || !nw_clouds_program()) {
+        return;
+    }
+    float lv[16], inv[16];
+    nw_be_screen(&p->views[c->view], nw_be.width, nw_be.height, lv);
+    if (!nw_inverse4(lv, inv)) {
+        return;
+    }
+    GLint blend, depth, scissor, stencil, prog, vao, dmask, dfunc, src_rgb, dst_rgb, src_a, dst_a, eq_rgb, eq_a;
+    glGetIntegerv(GL_BLEND, &blend);
+    glGetIntegerv(GL_DEPTH_TEST, &depth);
+    glGetIntegerv(GL_SCISSOR_TEST, &scissor);
+    glGetIntegerv(GL_STENCIL_TEST, &stencil);
+    glGetIntegerv(NW_XF_CURRENT_PROGRAM, &prog);
+    glGetIntegerv(NW_XF_VERTEX_ARRAY_BINDING, &vao);
+    glGetIntegerv(NW_XF_DEPTH_WRITEMASK, &dmask);
+    glGetIntegerv(0x0B74 /* GL_DEPTH_FUNC */, &dfunc);
+    glGetIntegerv(NW_XF_BLEND_SRC_RGB, &src_rgb);
+    glGetIntegerv(NW_XF_BLEND_DST_RGB, &dst_rgb);
+    glGetIntegerv(NW_XF_BLEND_SRC_ALPHA, &src_a);
+    glGetIntegerv(NW_XF_BLEND_DST_ALPHA, &dst_a);
+    glGetIntegerv(NW_XF_BLEND_EQUATION_RGB, &eq_rgb);
+    glGetIntegerv(NW_XF_BLEND_EQUATION_ALPHA, &eq_a);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_BLEND);
+    glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    if (!nw_xf.vao) {
+        glGenVertexArrays(1, &nw_xf.vao);
+    }
+    glBindVertexArray(nw_xf.vao);
+    nw_earth_draw(k, lv, inv);
+    bool any = false;
+    for (int i = 0; i < 4; i++) {
+        any |= k->fx[i][0] > 0.5f;
+    }
+    if (any && nw_fx_program()) {
+        GLint vpx[4];
+        glGetIntegerv(NW_XF_VIEWPORT, vpx);
+        float vp[4] = { (float)vpx[2], (float)vpx[3], k->time, 0.0f };
+        glUseProgram(nw_fx_gl.prog);
+        glUniformMatrix4fv(nw_fx_gl.lv, 1, GL_FALSE, lv);
+        glUniform4fv(nw_fx_gl.fx, 8, &k->fx[0][0]);
+        glUniform4fv(nw_fx_gl.vp, 1, vp);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+    glUseProgram(nw_clouds_gl.prog);
+    glUniformMatrix4fv(nw_clouds_gl.lv, 1, GL_FALSE, lv);
+    glUniformMatrix4fv(nw_clouds_gl.inv, 1, GL_FALSE, inv);
+    float cc[4] = { k->centre[0], k->centre[1], k->centre[2], k->r_earth };
+    float rr[4] = { k->r_in, k->r_out, k->time, k->opacity };
+    float ss[4] = { k->sun[0], k->sun[1], k->sun[2], 0.0f };
+    glUniform4fv(nw_clouds_gl.c, 1, cc);
+    glUniform4fv(nw_clouds_gl.r, 1, rr);
+    glUniform4fv(nw_clouds_gl.sun, 1, ss);
+    if (!nw_xf.vao) {
+        glGenVertexArrays(1, &nw_xf.vao);
+    }
+    glBindVertexArray(nw_xf.vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindVertexArray((GLuint)vao);
+    glUseProgram((GLuint)prog);
+    glBlendFuncSeparate((GLenum)src_rgb, (GLenum)dst_rgb, (GLenum)src_a, (GLenum)dst_a);
+    glBlendEquationSeparate((GLenum)eq_rgb, (GLenum)eq_a);
+    (blend ? glEnable : glDisable)(GL_BLEND);
+    (depth ? glEnable : glDisable)(GL_DEPTH_TEST);
+    (scissor ? glEnable : glDisable)(GL_SCISSOR_TEST);
+    (stencil ? glEnable : glDisable)(GL_STENCIL_TEST);
+    glDepthFunc((GLenum)dfunc);
+    glDepthMask(dmask ? GL_TRUE : GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+}
+
+/* The frame's sky from its packets: the axes blended by t as the frame's objects are. */
+static void nw_sky_blend(const NwPacket *prev, const NwPacket *p, float t)
+{
+    nw_sky_frame.on = p && p->sky.on;
+    if (!nw_sky_frame.on) {
+        return;
+    }
+    nw_sky_frame = p->sky;
+    if (!prev || !prev->sky.on || t >= 1.0f) {
+        return;
+    }
+    float *dst[3] = { nw_sky_frame.right, nw_sky_frame.up, nw_sky_frame.fwd };
+    const float *a[3] = { prev->sky.right, prev->sky.up, prev->sky.fwd };
+    for (int k = 0; k < 3; k++) {
+        float l = 0;
+        for (int i = 0; i < 3; i++) {
+            dst[k][i] = a[k][i] + (dst[k][i] - a[k][i]) * t;
+            l += dst[k][i] * dst[k][i];
+        }
+        l = l > 0 ? 1.0f / SDL_sqrtf(l) : 1.0f;
+        for (int i = 0; i < 3; i++) {
+            dst[k][i] *= l;
+        }
+    }
+    nw_sky_frame.time = prev->sky.time + (p->sky.time - prev->sky.time) * t;
+}
+
 const NwPacket *nw_backend_frame(int width, int height, double now)
 {
     const NwPacket *prev;
@@ -1610,6 +2434,17 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
         t = nw_interp_t(prev, p, now);
         run = nw_interp_blend(prev, p, t);
     }
+    if (p) {
+        double edge = run != p && prev ? (double)prev->edge + ((double)p->edge - (double)prev->edge) * t
+                                       : (double)p->edge;
+        nw_be.seconds = (float)fmod(edge / 60.0, 10000.0);
+        nw_be.storm_on = p->storm_on;
+        nw_be.sky.storm = run != p && prev && prev->storm_on && p->storm_on
+                              ? prev->storm + (p->storm - prev->storm) * t
+                              : p->storm;
+    }
+    nw_sky_blend(prev, p, t);
+    nw_clouds_frame = p ? p->clouds : (NwClouds){ 0 };
     uint32_t njobs = nw_gpu_take(p ? p->seq : 0, &nw_be.jobs, &nw_be.jobcap);
     for (uint32_t i = 0; i < njobs; i++) {
         NwGpuOp op = nw_be.jobs[i].op;
@@ -1645,7 +2480,14 @@ const NwPacket *nw_backend_frame(int width, int height, double now)
     glDepthMask(GL_TRUE);
     NwBeSurf *back = nw_be_surf(NW_SURF_BACK, tw, th);
     if (back && p && (p->seq != nw_be.drawn || t != nw_be.drawn_t)) {
+        if (p->xfade > 0.0f && p->xfade_id != nw_xf.grabbed) {
+            nw_xf.grabbed = p->xfade_id;
+            nw_xf_grab(back);
+        }
         nw_be_run(run, back);
+        if (p->xfade > 0.0f) {
+            nw_xf_draw(back, p->xfade);
+        }
         nw_be.drawn_t = t;
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(GL_TRUE);

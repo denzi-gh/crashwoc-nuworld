@@ -298,6 +298,7 @@ static void nw_input_prompts(void)
     nw_input_style = nw_prompts_style(nw_input_controls.prompts, &d);
     nw_prompts_build(nw_input_style, &nw_input_controls, &p);
     nw_font3d_prompts(&p);
+    nw_font3d_prompt_style(nw_input_style);
 }
 
 void nw_input_poll(bool keyboard)

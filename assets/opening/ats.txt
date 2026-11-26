@@ -1,0 +1,15 @@
+;;
+;; ATS V2 effects loaded with each scene, before its retail scripts.
+;; "cut N" and "level N" open a section; indented lines name .ats files.
+;; A V2 with the name of a retail V1 script replaces it.
+;;
+
+cut 0
+	opening/logos.ats
+	opening/vortex.ats
+	opening/meter.ats
+	opening/subtitle.ats
+	opening/button.ats
+	opening/universal.ats
+	opening/earth.ats
+	opening/clouds.ats

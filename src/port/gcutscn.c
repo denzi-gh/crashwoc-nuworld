@@ -6,7 +6,10 @@
 #include <SDL3/SDL.h>
 
 #include "nw_convert.h"
+#include "port/cloudscn.h"
 #include "port/heap.h"
+#include "port/opening.h"
+#include "port/silhouette.h"
 #include "port/xfile.h"
 
 #define gcutscn_srcfile "..\\nu2crash.ps2\\gamelib\\gcutscn.c"
@@ -237,6 +240,7 @@ static void nw_cut_triggers(NwCutLoad *ld, struct NUGCUTSCENE_s *def)
 /* base keeps the file's value: nothing reads it once loaded. */
 struct NUGCUTSCENE_s *NuGCutSceneLoad(char *name, union variptr_u *heap, union variptr_u *heapend)
 {
+    name = nw_opening_data(name);
     heap->charptr = (char *)(((uintptr_t)heap->charptr + 15) & ~(uintptr_t)15);
     int size = NuFileLoadBuffer(name, heap->voidptr, (int)(heapend->charptr - heap->charptr));
     if (size == 0) {
@@ -273,5 +277,7 @@ struct NUGCUTSCENE_s *NuGCutSceneLoad(char *name, union variptr_u *heap, union v
         nw_cut_triggers(&ld, def);
     }
     def->bounds = (struct NUGCUTBBOX_s *)NW_CUT_PTR(&ld, def->bounds, sizeof(nw_ps2_NUGCUTBBOX_s));
+    nw_cloudscn_cut(name, def);
+    nw_silhouette_cut(name, def, heap, heapend);
     return def;
 }

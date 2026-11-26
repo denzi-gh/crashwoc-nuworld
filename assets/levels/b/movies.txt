@@ -1,0 +1,4 @@
+;; The movies the PC cutscenes play (docs/csp-spec.md): game/cut.c's movie number and its first cut; a movie is that cut
+;; and the chain of its next_cut_scene. A movie not listed here is played by the PS2 cutscenes, as on the disc.
+movie   0   levels\b\logos\logosr       ;; the logos and the title (csd_titles)
+movie   1   levels\b\intro2\stationr    ;; the intro (csd_intro1and2), from the station

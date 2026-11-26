@@ -25,6 +25,11 @@ void *nw_heap_side_at(NwHeapSide *side, size_t size, size_t align, const void *a
 
 /* Freed with side's records by the job free, after the frames that draw it. */
 void nw_heap_side_gpu(NwHeapSide *side, NwGpuOp free, void *obj);
+/* Runs once before the load's records are freed; callbacks must neither yield nor release heaps recursively. */
+void nw_heap_side_cleanup(NwHeapSide *side, void (*fn)(void *), void *user);
+/* The room allocated past the superbuffer's retail end made the loads' too (port/opening.c then moves the end into
+   it); its size, 0 without a superbuffer. */
+size_t nw_superbuffer_open_slack(void);
 
 /* side owns [lo, hi) of a game heap; the records of every other load whose range it overlaps are freed. */
 void nw_heap_side_own(NwHeapSide *side, const void *lo, const void *hi);

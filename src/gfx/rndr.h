@@ -20,6 +20,37 @@ typedef struct NwStateBlock {
 } NwStateBlock;
 
 const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl);
+/* Values only: no ATS/player ownership in the renderer. A scope overrides one source material.
+   Save/restore the returned value; an empty scope restores ordinary drawing. */
+typedef struct NwMtlBinding { const struct numtl_s *material; int tid; const NwGpuTex *texture; int layer; NwUV uv; } NwMtlBinding;
+NwMtlBinding nw_rndr_mtl_scope(NwMtlBinding binding);
+/* One frame-wide fallback; also resolves earlier unbound draws at publication.
+   Explicit/scoped snapshots stay fixed. Cleared by NuRndrInitStreams. */
+void nw_rndr_mtl_frame_binding(NwMtlBinding binding);
+/* Replaces the complete frame collection, copied into the frame arena. Failure leaves it unchanged. */
+bool nw_rndr_mtl_frame_bindings(const NwMtlBinding *bindings, size_t count);
+/* A frame snapped: effects not set again within two of them go (gfx/numtl.c). */
+void nw_rndr_mtl_frame(void);
+/* A material drawn by an effect of the port's instead of its texture (port/opening.c): fx[0] the kind (NW_MTL_FX_*),
+   the rest its parameters, as the VU programs' u_fx[4]; [12-14] a glow's colour (0: none) and [15] its width, drawn
+   as a second pass (NW_MTL_FX_HALO); NULL takes it off. */
+enum { NW_MTL_FX_NONE, NW_MTL_FX_VORTEX, NW_MTL_FX_METAL, NW_MTL_FX_GLOSS, NW_MTL_FX_HALO, NW_MTL_FX_FADE };
+#define NW_MTL_FX_LEN 16
+void nw_rndr_mtl_fx(struct numtl_s *mtl, const float fx[NW_MTL_FX_LEN]);
+/* Copies mtl's effect into fx (zeros: none). */
+void nw_rndr_mtl_fx_of(const struct numtl_s *mtl, float fx[NW_MTL_FX_LEN]);
+
+typedef struct NwTexture NwTexture;
+/* PNG <=8 bits/channel, <=64 MiB compressed and RGBA pixels; requires a published GPU limit. */
+NwTexture *nw_texture_png(const void *bytes, size_t size);
+/* Success with *output=NULL: valid images incompatible with arrays. Other failures report SDL_GetError.
+   Copies native colours/alpha, <=64 MiB; reuse is borrowed, output owns one reference. */
+bool nw_texture_array(const short *tids, int count, NwTexture *reuse, NwTexture **output);
+bool nw_texture_images(const short *tids, int count, bool mips, NwTexture *reuse, NwTexture **output);
+const NwGpuTex *nw_texture_gpu(const NwTexture *texture);
+bool nw_texture_retain(NwTexture *texture);
+void nw_texture_release(NwTexture *texture);
+int nw_texture_tid(const NwTexture *texture);
 
 /* gpu NULL: none; queues its upload and frees the slot's previous texture. */
 void nw_ps2tx_set(struct nups2tex_s *tex, NwGpuTex *gpu);
@@ -54,6 +85,11 @@ typedef struct NwRecord {
 
 /* Latches the VU 0x0C block by attr & 0x43 as retail: 1 the RT lights, 2 the specular UV matrix, 0x40 the fx matrix. */
 NwCmd *nw_rndr_cmd(struct rndrstream_s *stream, NwCmdOp op);
+/* Groups of these effect lists (port/opening), NULL none: not drawn when hidden, else drawn through their own transform
+   after their matrix when one is set (particles living in a frame of their own). */
+extern const void *nw_rndr_particle_own[4];
+extern const float *nw_rndr_particle_own_xform[4];
+extern bool nw_rndr_particle_own_hidden[4];
 /* The same as a VERTS record of n vertices, three a triangle, which the caller writes at *v. */
 NwCmd *nw_rndr_verts(struct rndrstream_s *stream, NwVertsMode mode, uint32_t n, NwVuSpriteVertex **v);
 NwCmd *nw_rndr_particles(struct rndrstream_s *stream, uint32_t n, NwPtlList **list, NwPtl **ptls);

@@ -1,0 +1,314 @@
+;;
+;; Looks of TITLE.GHG
+;; The port's shader recipes on the title logo's materials, and the signals that move them.
+;; Colours are RGB factors, 1 1 1 neutral. The fields: docs/ats-format.md.
+;; Signals: sky.seconds and bolt.first from the engine, opening.txt's settings by name,
+;; and the ATS tracks as EFFECT.TRACK (title.formed, meter.flash, subtitle.reveal, button.glow...).
+;;
+
+looks 1
+
+;; CRASH and BANDICOOT: a gradient up their letters, darker on the sides.
+material crash gloss {
+	mode        gradient
+	height      .24
+	lit         .97 .95 .06
+	shade       .96 .80 .03
+	sides       .70 .55 .20
+	rim         .08
+	highlight   .3
+	power       22
+	drive       motion  sky.seconds     offset 1    when wobble
+}
+
+material bandicoot gloss {
+	mode        gradient
+	height      .05
+	lit         1 .62 .12
+	shade       .85 .30 .02
+	sides       .45 .22 .10
+	rim         .06
+	highlight   .3
+	power       22
+}
+
+;; THE WRATH OF CORTEX: the texture's gradient, its two faces flipped; it grows in after the first bolt.
+material subtitle-front gloss {
+	mode        wrath
+	flip        0
+	lit         .28 .44 .50
+	shade       .10 .19 .21
+	rim         .06
+	highlight   .25
+	power       24
+	flash       1
+	drive       pulse   meter.flash     scale .3
+	drive       reveal  subtitle.reveal
+	drive       flash   subtitle.flash
+}
+
+material subtitle-back gloss {
+	mode        wrath
+	flip        1
+	lit         .28 .44 .50
+	shade       .10 .19 .21
+	rim         .06
+	highlight   .25
+	power       24
+	flash       1
+	drive       pulse   meter.flash     scale .3
+	drive       reveal  subtitle.reveal
+	drive       flash   subtitle.flash
+}
+
+;; The metal ring, with the panel's electricity while elec is on, and the tubes.
+material ring metal {
+	softbox     1
+	tint        1 1 1
+	texture     .05
+	width       .025
+	drive       clock        sky.seconds    when elec
+	drive       electricity  elec           when elec
+	drive       strike       bolt.first     when elec
+}
+
+material tubes metal {
+	softbox     1
+	tube        1
+	tint        1 1 1
+}
+
+material blue-arc gloss {
+	lit         .10 .30 .90
+	shade       .02 .04 .30
+	rim         .08
+	highlight   .3
+	power       24
+}
+
+;; The button: red paint, its lamp and glow flashing with button.ats.
+material button gloss {
+	lit         .95 .10 .05
+	shade       .35 0 0
+	rim         .06
+	highlight   .4
+	power       30
+	lamp        .15
+	glow        .6 .05 .02
+	width       .035
+	drive       lamp    button.glow
+	drive       glow    button.glow     multiply
+}
+
+material panel gloss {
+	lit         .06 .07 .08
+	shade       0 0 .01
+	rim         .2
+	highlight   .25
+	power       40
+}
+
+;; The vortex as water forming: its plane, then the strengths of its effects; vortex.ats fills it.
+material water vortex {
+	water       1
+	drain       0 -.317
+	axes        .955 .675
+	bolts       1
+	rocks       1
+	fire        .8
+	clouds      1
+	splash      1
+	drive       clock   sky.seconds
+	drive       fill    title.formed
+	drive       strike  bolt.first
+}
+
+;; The LEDs of the meter: each of the joints Dot_1..Dot_15 gets its own copy of material 2, the group "meter";
+;; LED n wears its lit colour while meter.level is above n - 0.5. Dark, then fifteen colours from green to red.
+split       2       Dot_1..15       meter
+count       meter   meter.level     off led-off     lit led-01..15
+
+material led-off gloss {
+	lit         .05 .05 .05
+	shade       .02 .02 .02
+	rim         .05
+	highlight   .3
+	power       24
+}
+
+material led-01 gloss {
+	lit         .25 .95 .08
+	shade       .1125 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .125 .475 .04
+	width       .012
+}
+
+material led-02 gloss {
+	lit         .35714284 .95 .08
+	shade       .16071427 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .17857142 .475 .04
+	width       .012
+}
+
+material led-03 gloss {
+	lit         .4642857 .95 .08
+	shade       .20892856 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .23214285 .475 .04
+	width       .012
+}
+
+material led-04 gloss {
+	lit         .57142854 .95 .08
+	shade       .2571428 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .28571427 .475 .04
+	width       .012
+}
+
+material led-05 gloss {
+	lit         .6785714 .95 .08
+	shade       .3053571 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .3392857 .475 .04
+	width       .012
+}
+
+material led-06 gloss {
+	lit         .7857142 .95 .08
+	shade       .35357136 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .3928571 .475 .04
+	width       .012
+}
+
+material led-07 gloss {
+	lit         .8928571 .95 .08
+	shade       .40178567 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .44642854 .475 .04
+	width       .012
+}
+
+material led-08 gloss {
+	lit         1 .95 .08
+	shade       .45 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .475 .04
+	width       .012
+}
+
+material led-09 gloss {
+	lit         1 .95 .08
+	shade       .45 .42749998 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .475 .04
+	width       .012
+}
+
+material led-10 gloss {
+	lit         1 .86428577 .08
+	shade       .45 .38892856 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .43214288 .04
+	width       .012
+}
+
+material led-11 gloss {
+	lit         1 .7214287 .08
+	shade       .45 .3246429 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .36071435 .04
+	width       .012
+}
+
+material led-12 gloss {
+	lit         1 .5785715 .08
+	shade       .45 .26035714 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .28928575 .04
+	width       .012
+}
+
+material led-13 gloss {
+	lit         1 .43571442 .08
+	shade       .45 .19607148 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .21785721 .04
+	width       .012
+}
+
+material led-14 gloss {
+	lit         1 .29285723 .08
+	shade       .45 .13178574 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .14642861 .04
+	width       .012
+}
+
+material led-15 gloss {
+	lit         1 .15000004 .08
+	shade       .45 .06750001 .035999995
+	rim         .05
+	highlight   .3
+	power       24
+	lamp        .55
+	glow        .5 .07500002 .04
+	width       .012
+}
+
+;; TITLE.GHG's materials and the recipe each wears.
+slot        0       crash
+slot        1       bandicoot
+slot        2       subtitle-front
+slot        3       subtitle-back
+slot        4       water
+slot        5       ring
+slot        6       blue-arc
+slot        7       button
+slot        8       panel
+slot        9       tubes

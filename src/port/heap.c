@@ -39,6 +39,11 @@ struct NwHeapSide {
         void *obj;
     } *gpu;
     size_t ngpu, gpucap;
+    struct NwHeapCleanup {
+        struct NwHeapCleanup *next;
+        void (*fn)(void *);
+        void *user;
+    } *cleanup;
 };
 
 /* EE threads pass a baton, so no lock. */
@@ -141,9 +146,17 @@ void nw_heap_side_gpu(NwHeapSide *side, NwGpuOp free, void *obj)
     nw_heap_ngpu++;
 }
 
+void nw_heap_side_cleanup(NwHeapSide *side, void (*fn)(void *), void *user)
+{
+    struct NwHeapCleanup *c = nw_heap_side_new(side, sizeof(*c), _Alignof(struct NwHeapCleanup));
+    *c = (struct NwHeapCleanup){side->cleanup, fn, user};
+    side->cleanup = c;
+}
+
 static void nw_heap_side_free(size_t i)
 {
     NwHeapSide *side = nw_heap_live[i];
+    for (struct NwHeapCleanup *c = side->cleanup; c; c = c->next) c->fn(c->user);
     for (size_t g = 0; g < side->ngpu; g++) {
         nw_gpu_queue(side->gpu[g].free, side->gpu[g].obj);
     }
@@ -250,15 +263,32 @@ bool nw_load_buffer_room(const void *p, size_t *room)
     return false;
 }
 
-/* Never freed, as retail's. */
+#define NW_SUPERBUFFER_SLACK (32u << 20) /* room past retail's end, used only by the opening's larger scenes */
+
+static char *nw_superbuffer;
+static size_t nw_superbuffer_size;
+
+size_t nw_superbuffer_open_slack(void)
+{
+    if (!nw_superbuffer) {
+        return 0;
+    }
+    nw_load_buffer(nw_superbuffer, nw_superbuffer_size + NW_SUPERBUFFER_SLACK);
+    return NW_SUPERBUFFER_SLACK;
+}
+
+/* Never freed, as retail's. NW_SUPERBUFFER_SLACK more is allocated past the size retail asks for: its end, and the
+   room loads get, stay retail's unless the streamlined opening (port/opening.c) opens it. */
 void *nw_superbuffer_alloc(int size, char *file, int line)
 {
-    char *p = NuMemAllocFn(size + (int)NW_SUPERBUFFER_ALIGN, file, line);
+    char *p = NuMemAllocFn(size + (int)NW_SUPERBUFFER_ALIGN + (int)NW_SUPERBUFFER_SLACK, file, line);
     if (!p) {
         return NULL;
     }
     uintptr_t want = NW_SUPERBUFFER_PS2 % NW_SUPERBUFFER_ALIGN, have = (uintptr_t)p % NW_SUPERBUFFER_ALIGN;
     p += (want - have + NW_SUPERBUFFER_ALIGN) % NW_SUPERBUFFER_ALIGN;
+    nw_superbuffer = p;
+    nw_superbuffer_size = (size_t)size;
     nw_load_buffer(p, (size_t)size);
     return p;
 }

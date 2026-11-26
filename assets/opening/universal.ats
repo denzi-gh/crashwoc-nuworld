@@ -1,0 +1,21 @@
+;;
+;; Script ATS V2
+;; Universal
+;; UNIVERSAL's way round the globe, on the logos cut's frames: in comes out from behind it,
+;; out goes back behind it. The opening bends the text's ring from them.
+;;
+
+ats 2 universal
+
+time        frames 30
+clock       cut
+
+param in {
+	key         495     0       linear
+	key         560     1
+}
+
+param out {
+	key         630     0       smooth
+	key         700     1
+}

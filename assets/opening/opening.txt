@@ -1,0 +1,99 @@
+;;
+;; Opening direction: one "key value..." line each; ';' starts a comment.
+;; The world is LOGOS's (logos1.cut's units): the station's distances are 6.8/28.7 of station.cut's (build_logos.py).
+;; Settings are the names of src/port/opening/params.def; vectors take their values in a row.
+;; An overlay's OPENING/OPENING.TXT (or NUWORLD_OPENING_TXT) overrides these lines; docs/opening-txt.md.
+;;
+
+presentation enhanced
+
+;; The remastered scenes and effects, in place of the original files.
+replace levels\b\logos\logos.gsc levels\b\intro\spacer.gsc
+replace levels\b\logos\logos1.cut levels\b\logos\logosr.cut
+replace levels\b\logos\logos2.cut levels\b\logos\logos2r.cut
+replace levels\b\intro2\station.cut levels\b\intro2\stationr.cut
+replace levels\b\intro\space.gsc levels\b\intro\spacer.gsc
+replace levels\b\intro\intro.ptl levels\b\intro\intror.ptl
+
+;; The Universal text, the earth and the film.
+uis_r0          10.95
+uis_back        1.03
+uis_squeeze     .25
+uis_scale       .92
+island_fade     -.6 -3
+xf_frames       40
+earth_c         -9.3115 -7.4397 -2.5826
+earth_r         6.8
+logos_r         6.8
+farclip         473.8676
+film_r          6.8592
+halo            1
+globe_bevel     .02
+globe_coast     .4
+text_shadow     .55
+text_arc        527.3922 538.0635 -.02954 .05881
+text_y          -4.7838 6.2096
+
+;; The sky, the sun and the ships crossing it.
+sky_live        1
+sky_scale       15
+cloud_in        .012
+cloud_out       .020
+clouds          1
+cloud_r         6.8948 7.3213
+sun             -.208 -.469 -.858
+passers         1
+flyers          1
+flyer_size      2.3693
+flyer_bow       21.324 -14.216    ;; a way's middle bowed this much farther (odd passes) and nearer (even), in depth
+flyer_bank      .6
+ox_shots        1
+ox_far          .3
+
+;; The ships crossing the title's sky one at a time, Oxide every third. "anim": it plays flyer_anim as it flies.
+flyer_model     chars\d\ufo\nginb.ghg           anim
+flyer_model     chars\d\ufo\tinyb.ghg           anim
+flyer_model     chars\d\ufo\dingob.ghg          anim
+flyer_model     chars\d\ufo\ntrophyb.ghg        anim
+flyer_model     chars\d\dropship\dropship.ghg
+flyer_anim      chars\d\ufo\revolve.ani
+flyer_pass      4.5             ;; seconds a ship takes across
+flyer_gap       3.5             ;; seconds between two
+flyer_first     3               ;; seconds after the station shows
+ox_frames       410 486         ;; Oxide's pass in the logos cut: his speed and turns in the title
+;; Their ways, in the title camera's view (640 x 512, off the screen): from x y depth, to x y depth.
+flyer_way       -200 160 40.2787    840 60 40.2787      ;; left to right, rising
+flyer_way       840 300 47.3868    -200 170 47.3868      ;; right to left
+flyer_way       520 -120 61.6028    120 640 33.1707      ;; down from the top, nearer
+flyer_way       -200 30 71.0801    840 260 37.9094      ;; across and down, nearer
+flyer_way       240 640 33.1707    560 -140 71.0801      ;; up from below, away
+flyer_way       840 40 35.5401    -200 120 61.6028      ;; right to left, away
+flyer_way       700 -160 75.8188    -160 360 42.6481      ;; corner to corner
+flyer_way       -160 440 61.6028    820 120 47.3868      ;; low left to high right
+
+;; The sky's passers-by, from the station's arrival: kind, from x y, to x y, depth, size, seconds across,
+;; every (seconds), first after (seconds). At most four.
+passer          comet 700 -30 360 150 142.1603 0.5686 14 46 2
+passer          star 600 0 330 170 165.8537 0.4739 1.8 11 1
+passer          star 260 10 40 200 165.8537 0.4739 1.6 17 5
+passer          star 520 120 300 260 165.8537 0.4265 1.5 23 13
+
+;; The logo. The skip opens at logos.ats's skip.open and lands on this frame of the logos cut.
+skip_to         800
+logo_look       1
+elec            1
+wobble          1
+meter_wait      1
+
+;; New Game into the intro.
+go_text         20
+go_wait         8
+go_frames       30
+reveal_frames   4
+on new_game intro.dissolve
+
+;; Events on the logos cut's frames: the skip and the switch to the station in logos.ats; the first bolt and what
+;; follows it in vortex.ats, meter.ats, subtitle.ats; the earths' blend and the clouds in earth.ats and clouds.ats.
+scene station levels\b\intro2\stationt.cut loop
+
+;; Where the PTL effects draw in each scene: the cuts' PtlFrame locators (LOGOSR.CUT, LOGOS2R.CUT).

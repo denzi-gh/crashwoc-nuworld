@@ -269,7 +269,24 @@ static bool nw_vfs_fixed(const char *key)
            SDL_strcmp(key, "DUMMY.DAT") == 0 || SDL_strncmp(key, "DUMMY.DAT/", 10) == 0;
 }
 
-/* The newest overlay (slot 0) only replaces: disc files, or entries of the disc's archives. */
+/* X.LOOKS beside a model the disc has (X.GHG or X.GSC): the port's file of its looks, which an overlay may add. */
+static bool nw_vfs_beside_model(const NwVfsMount *disc, const char *key)
+{
+    size_t n = SDL_strlen(key);
+    char model[NW_VFS_PATH_MAX];
+    if (n < 6 || n >= sizeof(model) || SDL_strcmp(key + n - 6, ".LOOKS") != 0) {
+        return false;
+    }
+    SDL_memcpy(model, key, n - 6);
+    SDL_strlcpy(model + n - 6, ".GHG", 5);
+    if (nw_vfs_lookup(disc, model)) {
+        return true;
+    }
+    SDL_strlcpy(model + n - 6, ".GSC", 5);
+    return nw_vfs_lookup(disc, model) != NULL;
+}
+
+/* Validate replacements against the disc and allow additional frontend files under OPENING/, and .LOOKS files. */
 static bool nw_vfs_check_overlay(const NwVfs *vfs, void (*conflict)(void *user, const char *key), void *user)
 {
     const NwVfsMount *m = &vfs->mounts[NW_VFS_OVERLAY];
@@ -288,7 +305,8 @@ static bool nw_vfs_check_overlay(const NwVfs *vfs, void (*conflict)(void *user, 
         } else if (SDL_strncmp(key, "SFX.DAT/", 8) == 0) {
             /* Only ATS.DAT and CHARS.DAT entries go through NuDat (src/port/nudat.c); NUSOUND reads SFX.DAT itself. */
             ok = SDL_SetError("%s: the sound driver reads SFX.DAT whole; replace SFX.DAT itself", path);
-        } else if (!nw_vfs_lookup(&vfs->mounts[NW_VFS_DISC], key)) {
+        } else if (!nw_vfs_lookup(&vfs->mounts[NW_VFS_DISC], key) && SDL_strncmp(key, "OPENING/", 8) != 0 &&
+                   !nw_vfs_beside_model(&vfs->mounts[NW_VFS_DISC], key)) {
             if (!dat_end) {
                 ok = SDL_SetError("%s: not on the disc (an overlay only replaces)", path);
                 break;

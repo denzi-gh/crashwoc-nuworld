@@ -1100,9 +1100,32 @@ _Static_assert(sizeof(NwPtl) == sizeof(struct debpart_s), "debpart_s");
 _Static_assert(sizeof(((NwPtlList *)0)->tri) == sizeof(((struct debdma_s *)0)->tri), "debdma_s.tri");
 
 /* Sets are linked by NEXT tags (LinkDmaParticalSets' offset), RET on the last; mode's screen clamp is moot here. */
+const void *nw_rndr_particle_own[4];
+const float *nw_rndr_particle_own_xform[4];
+bool nw_rndr_particle_own_hidden[4];
+
 void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct numtl_s *mtl, struct numtx_s *mtx,
                          int mode, float time)
 {
+    struct numtx_s moved;
+    bool own = false;
+    for (int k = 0; k < 4; k++) {
+        if (nw_rndr_particle_own[k] && nw_rndr_particle_own[k] == (const void *)list && nw_rndr_particle_own_hidden[k]) {
+            return;
+        }
+        if (nw_rndr_particle_own[k] && nw_rndr_particle_own[k] == (const void *)list && nw_rndr_particle_own_xform[k]) {
+            const float *a = &mtx->_00, *b = nw_rndr_particle_own_xform[k];
+            float *d = &moved._00;
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) {
+                    d[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
+                }
+            }
+            mtx = &moved;
+            own = true;
+            break;
+        }
+    }
     NwPtlList *l;
     NwPtl *ptls;
     (void)mode;
@@ -1120,7 +1143,7 @@ void NuRndrParticleGroup(struct debchunk_s *chunk, struct debdma_s *list, struct
     NuRndrSetLocalMtx(mtx, 1);
     NuRndrStreamAddMtl(rndrstream_ptl, mtl);
     NwInterpScope scope = nw_interp_begin(chunk, list, mtx, 0.0f);
-    nw_rndr_particles(rndrstream_ptl, n * 32, &l, &ptls);
+    nw_rndr_particles(rndrstream_ptl, n * 32, &l, &ptls)->ptl_own = own;
     nw_interp_end(scope);
     memset(l, 0, sizeof(*l));
     l->head[1] = list->grav;

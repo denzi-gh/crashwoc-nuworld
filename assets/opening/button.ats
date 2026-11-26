@@ -1,0 +1,18 @@
+;;
+;; Script ATS V2
+;; Button
+;; Every period the button flashes twice, after a random delay
+;; of up to a third of the period. Fixed seed: same pattern on restart.
+;; The period is 2.6 s as the old float math truncated it: 155 frames.
+;;
+
+ats 2 button
+
+time        frames 60
+
+param glow {
+	period      155
+	jitter      1/3     2246822519      ;; maximum delay, seed
+	pulse       sine    2   14  9       ;; count, spacing, width
+	range       0.08    1.18
+}

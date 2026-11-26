@@ -8,10 +8,13 @@
 #include "gfx/packet.h"
 #include "gfx/rndr.h"
 #include "nw_convert.h"
+#include "port/cloudscn.h"
 #include "port/heap.h"
 #include "port/nuanim.h"
+#include "port/nutexanm.h"
 #include "port/nugscn.h"
 #include "port/nw_newlib.h"
+#include "port/silhouette.h"
 #include "port/xfile.h"
 
 #define nugscn_srcfile "..\\nu2crash.ps2\\nu3d\\nugscn.c"
@@ -143,6 +146,7 @@ void NuPs2DestroyRenderStream(struct nugobj_s *gobj)
 
 void nw_gscn_remove(struct nugscn_s *scene)
 {
+    nw_texanim_release_list(&scene->texanims);
     NuGScnRemove(scene);
     for (int i = 0; i < scene->numtid; i++) {
         nw_rndr_texture_free(scene->tids[i]);
@@ -412,6 +416,7 @@ void ReadTexAnimSet(int fh)
         }
         tex->ntaname = gscene->nametable + NW_FILE_IX(tex->ntaname);
         char *scriptname = nw_gscn_in(gscene->nametable + NW_FILE_IX(tex->scriptname), 1, 1);
+        tex->scriptname = scriptname;
         tex->mtl = gscene->mtls[nw_gscn_ix(NW_FILE_IX(tex->mtl), gscene->nummtl)];
         tex->dynalloc = 0;
         struct nutexanimprog_s *prog = NuTexAnimProgFind(scriptname);
@@ -426,7 +431,16 @@ void ReadTexAnimSet(int fh)
         gscene->texanims[i].succ = &gscene->texanims[i] + 1;
         gscene->texanims[i + 1].prev = &gscene->texanims[i];
     }
+    if (!nw_texanim_own_list(gscene_side, &gscene->texanims))
+        NuErrorProlog(nugscn_srcfile, 0xB95)("%s: %s", gsc_load_context.filename, nw_texanim_error()->message);
     NuTexAnimAddList(gscene->texanims);
+}
+
+void NuSceneReAssignTexAnims(struct nutexanim_s *anims, int count)
+{
+    for (int i = 0; anims && i < count; i++)
+        if (!nw_texanim_bind(&anims[i], NuTexAnimProgFind(anims[i].scriptname)))
+            NuErrorProlog(nugscn_srcfile, 0xB95)("%s", nw_texanim_error()->message);
 }
 
 /* Read in place instead of retail's temp copy. */
@@ -583,6 +597,8 @@ struct nugscn_s *NuGScnLoadFix(void)
             *buffer = (char *)(((uintptr_t)*buffer + 0xF) & ~(uintptr_t)0xF);
             nw_heap_side_own(gscene_side, data, *buffer);
             NuRndrSplineSearch(gscene);
+            nw_cloudscn_mark(gscene, filename);
+            nw_silhouette_mark(gscene, filename);
         }
     }
     return gscene;

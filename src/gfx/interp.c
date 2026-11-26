@@ -1063,7 +1063,7 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
     memset(nw_ir.keys, 0, cap * sizeof(*nw_ir.keys));
     for (uint32_t i = 0; i < a->nmtls; i++) {
         uint64_t k = (uintptr_t)a->mtls[i].key;
-        uint32_t h = (uint32_t)nw_mix(0, k) & (cap - 1);
+        uint32_t h = (uint32_t)nw_mix(a->mtls[i].uv.binding, k) & (cap - 1);
         while (nw_ir.keys[h]) {
             h = (h + 1) & (cap - 1);
         }
@@ -1072,12 +1072,15 @@ static bool nw_interp_pair(const NwPacket *a, const NwPacket *b)
     }
     for (uint32_t i = 0; i < b->nmtls; i++) {
         uint64_t k = (uintptr_t)b->mtls[i].key;
-        uint32_t h = (uint32_t)nw_mix(0, k) & (cap - 1);
-        while (nw_ir.keys[h] && nw_ir.keys[h] != k) {
+        uint32_t h = (uint32_t)nw_mix(b->mtls[i].uv.binding, k) & (cap - 1);
+        while (nw_ir.keys[h]) {
+            const NwMtlSnap *s = &a->mtls[nw_ir.at[h]];
+            if (nw_ir.keys[h] == k && s->tex == b->mtls[i].tex && s->layer == b->mtls[i].layer &&
+                s->uv.binding == b->mtls[i].uv.binding) break;
             h = (h + 1) & (cap - 1);
         }
         /* A texture animation's swap shows at once. */
-        nw_ir.mpair[i] = k && nw_ir.keys[h] == k && a->mtls[nw_ir.at[h]].tex == b->mtls[i].tex ? nw_ir.at[h] : NW_NONE;
+        nw_ir.mpair[i] = k && nw_ir.keys[h] ? nw_ir.at[h] : NW_NONE;
     }
     nw_ir.a = a->seq;
     nw_ir.b = b->seq;
@@ -1129,6 +1132,13 @@ static void nw_interp_view_blend(NwView *out, const NwView *a, const NwView *b, 
 /* NuMtlAnimate's UV offset; a scrolling one blends the short way round 1. */
 static void nw_interp_uv(NwMtlSnap *out, const NwMtlSnap *a, const NwMtlSnap *b, float t)
 {
+    if (b->uv.binding) for (int axis=0; axis<3; axis++) {
+        if (!(b->uv.linear & a->uv.linear & (1u<<axis)) || b->uv.segment[axis]<0 ||
+            a->uv.segment[axis]!=b->uv.segment[axis] || a->uv.owner[axis]!=b->uv.owner[axis] ||
+            a->uv.cycle[axis]!=b->uv.cycle[axis]) continue;
+        for (int j=axis*2; j<axis*2+(axis==2 ? 1 : 2); j++)
+            out->uv.value[j]=a->uv.value[j]+(b->uv.value[j]-a->uv.value[j])*t;
+    }
     for (int i = 0; i < 2; i++) {
         if (a->vu[i] == b->vu[i] && a->row[i] == b->row[i]) {
             continue;

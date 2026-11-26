@@ -1,0 +1,21 @@
+;;
+;; Script ATS V2
+;; Subtitle
+;; THE WRATH OF CORTEX grows in; its flash fades as the reveal completes.
+;; It starts 0.25 s after the first bolt; the letters' clip with it.
+;;
+
+ats 2 subtitle
+
+time        seconds
+start       bolt.first  after 0.25
+
+param reveal {
+	key         0       0       linear
+	key         0.45    1
+}
+
+param flash {
+	key         0       1       linear
+	key         0.45    0
+}

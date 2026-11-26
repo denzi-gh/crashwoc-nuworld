@@ -103,10 +103,16 @@ function(nw_embed target name file)
 endfunction()
 # Every PNG of a directory: build/gen/<name>.c defines <name>[] ({ name, data, size }) and <name>_count.
 function(nw_embed_dir target name dir)
-  file(GLOB files CONFIGURE_DEPENDS ${dir}/*.png)
+  set(bundle OFF)
+  if(ARGV3 STREQUAL "ALL")
+    set(bundle ON)
+    file(GLOB_RECURSE files CONFIGURE_DEPENDS LIST_DIRECTORIES false ${dir}/*)
+  else()
+    file(GLOB files CONFIGURE_DEPENDS ${dir}/*.png)
+  endif()
   set(out ${CMAKE_CURRENT_BINARY_DIR}/gen/${name}.c)
   add_custom_command(OUTPUT ${out}
-    COMMAND ${CMAKE_COMMAND} -DDIR=${dir} -DOUT=${out} -DNAME=${name} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_dir.cmake
+    COMMAND ${CMAKE_COMMAND} -DDIR=${dir} -DOUT=${out} -DNAME=${name} -DBUNDLE=${bundle} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_dir.cmake
     DEPENDS ${files} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_dir.cmake
     VERBATIM)
   target_sources(${target} PRIVATE ${out})
@@ -132,6 +138,7 @@ add_executable(crashwoc-nuworld
   src/platform/gpu.c
   src/platform/log.c
   src/platform/platform.c
+  src/gfx/cloudvol.c
   src/gfx/gl.c
   src/gfx/vu.c
   src/frontend/debug.cpp
@@ -139,6 +146,46 @@ add_executable(crashwoc-nuworld
   src/frontend/ui.cpp
   src/frontend/wizard.cpp)
 set_target_properties(crashwoc-nuworld PROPERTIES OUTPUT_NAME NuWorld)
+set(nw_shader_files
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vu.vert.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/vu.frag.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gem.frag.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sky.frag.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/clouds.frag.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/earth.frag.glsl
+  ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/fx.frag.glsl)
+# Copy on every build, including shader-only edits that do not relink the executable.
+add_custom_target(nuworld_shaders
+  COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:crashwoc-nuworld>/shaders
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${nw_shader_files} $<TARGET_FILE_DIR:crashwoc-nuworld>/shaders
+  SOURCES ${nw_shader_files}
+  VERBATIM)
+add_dependencies(crashwoc-nuworld nuworld_shaders)
+# The ATS curve and burst samplers (src/script), pure C.
+add_library(nuworld_script STATIC src/script/curves.c src/script/bursts.c)
+target_include_directories(nuworld_script PUBLIC src)
+if(NOT WIN32)
+  target_link_libraries(nuworld_script PUBLIC m)
+endif()
+# The PC cutscenes (src/port/gcutpc, docs/csp-spec.md): pure C, nothing of the decomp or of the PS2 cutscenes.
+add_library(nuworld_gcutpc STATIC
+  src/port/gcutpc/arena.c
+  src/port/gcutpc/camera.c
+  src/port/gcutpc/config.c
+  src/port/gcutpc/curve.c
+  src/port/gcutpc/error.c
+  src/port/gcutpc/file.c
+  src/port/gcutpc/movies.c
+  src/port/gcutpc/rigid.c
+  src/port/gcutpc/scene.c
+  src/port/gcutpc/schema.c
+  src/port/gcutpc/transform.c
+  src/port/gcutpc/txt.c)
+target_include_directories(nuworld_gcutpc PUBLIC src)
+target_compile_options(nuworld_gcutpc PRIVATE -Wall -Wextra)
+if(NOT WIN32)
+  target_link_libraries(nuworld_gcutpc PUBLIC m)
+endif()
 add_library(nuworld_fonts STATIC)
 nw_embed(nuworld_fonts nw_font_regular ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Regular.ttf)
 nw_embed(nuworld_fonts nw_font_bold ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/AtkinsonHyperlegible-Bold.ttf)
@@ -311,6 +358,17 @@ add_dependencies(crashwoc-nuworld nuworld-updater)
 
 if(NUWORLD_TESTS)
   enable_testing()
+  add_executable(nuworld_test_bursts tests/c/test_bursts.c)
+  target_link_libraries(nuworld_test_bursts PRIVATE nuworld_script)
+  add_test(NAME bursts COMMAND nuworld_test_bursts)
+  add_executable(nuworld_test_gcutpc tests/c/test_gcutpc.c)
+  target_link_libraries(nuworld_test_gcutpc PRIVATE nuworld_gcutpc)
+  target_compile_options(nuworld_test_gcutpc PRIVATE -Wall -Wextra)
+  add_test(NAME gcutpc COMMAND nuworld_test_gcutpc)
+  add_executable(nuworld_test_gcutpc_txt tests/c/test_gcutpc_txt.c)
+  target_link_libraries(nuworld_test_gcutpc_txt PRIVATE nuworld_gcutpc)
+  target_compile_options(nuworld_test_gcutpc_txt PRIVATE -Wall -Wextra)
+  add_test(NAME gcutpc-txt COMMAND nuworld_test_gcutpc_txt ${CMAKE_CURRENT_SOURCE_DIR}/assets/levels)
   add_executable(nuworld_test_vfs tests/c/test_vfs.c)
   target_compile_options(nuworld_test_vfs PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_vfs PRIVATE nuworld_frontend)
@@ -332,6 +390,7 @@ if(NUWORLD_TESTS)
   add_executable(nuworld_test_particle_gl tests/c/test_particle_gl.c src/gfx/gl.c src/gfx/vu.c)
   target_compile_options(nuworld_test_particle_gl PRIVATE -Wall -Wextra)
   target_link_libraries(nuworld_test_particle_gl PRIVATE nuworld_gfx)
+  add_dependencies(nuworld_test_particle_gl nuworld_shaders)
   add_test(NAME particle-gl COMMAND nuworld_test_particle_gl)
   set_tests_properties(particle-gl PROPERTIES SKIP_RETURN_CODE 77)
   add_executable(nuworld_test_settings tests/c/test_settings.c)

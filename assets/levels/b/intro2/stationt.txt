@@ -1,0 +1,5 @@
+;; The title's station, played beside the logos and the title (STATIONT.CSP: station.cut's camera held on its first
+;; frame, its rings in a loop). From the opening's opening.txt ("scene station ... loop").
+fpsec   30
+looping
+scene   main    levels\b\intro\spacer.gsc

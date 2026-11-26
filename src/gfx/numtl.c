@@ -42,6 +42,60 @@ const NwStateBlock *nw_rndr_state(const struct numtl_s *mtl)
     return (const NwStateBlock *)mtl->sbdata;
 }
 
+/* The port's per-material fades and effects (port/opening.c), keyed by the material's address. Each holds only while
+   it is set again (the opening does every frame it draws them): NW_MTL_HOLD frames after that it goes, so a scene
+   freed and another allocated at the same addresses (a load, a level, the warp room) never inherits them. */
+#define NW_MTL_HOLD 2u
+static uint32_t nw_mtl_frame; /* the frames the renderer has snapped (nw_rndr_mtl_frame) */
+
+void nw_rndr_mtl_frame(void)
+{
+    nw_mtl_frame++;
+}
+
+static struct {
+    const struct numtl_s *mtl;
+    float fx[NW_MTL_FX_LEN];
+    uint32_t set;
+} nw_mtl_fxs[48];
+
+void nw_rndr_mtl_fx(struct numtl_s *mtl, const float fx[NW_MTL_FX_LEN])
+{
+    int slot = -1;
+    for (int i = 0; i < 48; i++) {
+        if (nw_mtl_fxs[i].mtl == mtl) {
+            slot = i;
+            break;
+        }
+        if ((!nw_mtl_fxs[i].mtl || nw_mtl_frame - nw_mtl_fxs[i].set > NW_MTL_HOLD) && slot < 0) {
+            slot = i;
+        }
+    }
+    if (slot < 0) {
+        return;
+    }
+    nw_mtl_fxs[slot].mtl = fx ? mtl : NULL;
+    nw_mtl_fxs[slot].set = nw_mtl_frame;
+    if (fx) {
+        memcpy(nw_mtl_fxs[slot].fx, fx, sizeof(nw_mtl_fxs[slot].fx));
+    }
+}
+
+void nw_rndr_mtl_fx_of(const struct numtl_s *mtl, float fx[NW_MTL_FX_LEN])
+{
+    for (int i = 0; i < 48; i++) {
+        if (nw_mtl_fxs[i].mtl == mtl) {
+            if (nw_mtl_frame - nw_mtl_fxs[i].set > NW_MTL_HOLD) {
+                nw_mtl_fxs[i].mtl = NULL; /* not set again: gone */
+                break;
+            }
+            memcpy(fx, nw_mtl_fxs[i].fx, sizeof(nw_mtl_fxs[i].fx));
+            return;
+        }
+    }
+    memset(fx, 0, NW_MTL_FX_LEN * sizeof(float));
+}
+
 void NuMtlBuildRenderList(void)
 {
     for (struct numtl_s *mtl = NuMtlIterate(1); mtl; mtl = mtl->snext) {

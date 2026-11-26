@@ -3,7 +3,9 @@
 #include "game/cut.retail.h"
 #include "gameplay/bosscut.h"
 #include "gameplay/titlemenu.h"
+#include "port/cutstart.h"
 #include "port/level.h"
+#include "port/silhouette.h"
 
 extern u16 new_lev_flags;
 extern s32 cutmovie, GameMode;
@@ -14,7 +16,7 @@ void StartCutMovie(void)
         GameMode = 0;
     }
     bool menu = nw_title_menu_starting();
-    StartCutMovie__retail();
+    nw_cut_start_movie();
     if (menu) {
         nw_title_menu_started();
     }
@@ -39,7 +41,8 @@ void SetCutMovieRate(void)
 void AppCutSceneCharacterRender(struct instNUGCUTSCENE_s *icutscene, struct NUGCUTSCENE_s *cutscene,
                                 struct instNUGCUTCHAR_s *icutchar, struct NUGCUTCHAR_s *cutchar, f32 current_frame)
 {
-    if (!nw_title_menu_render(icutscene, cutscene, icutchar, cutchar, current_frame)) {
+    if (!nw_title_menu_render(icutscene, cutscene, icutchar, cutchar, current_frame) &&
+        !nw_silhouette_render(icutscene, cutscene, icutchar, cutchar, current_frame)) {
         AppCutSceneCharacterRender__retail(icutscene, cutscene, icutchar, cutchar, current_frame);
     }
 }

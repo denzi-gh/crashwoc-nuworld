@@ -1,0 +1,15 @@
+;;
+;; Script ATS V2
+;; Clouds
+;; The station earth's clouds form over four seconds once it stands still (earth.done).
+;;
+
+ats 2 clouds
+
+time        frames 60
+start       earth.done
+
+param form {
+	key         0       0       smooth
+	key         240     1
+}

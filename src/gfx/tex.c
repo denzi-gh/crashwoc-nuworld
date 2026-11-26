@@ -8,6 +8,12 @@
 #define NW_PSMCT24 0x01
 #define NW_PSMT8 0x13
 #define NW_PSMT4 0x14
+static SDL_AtomicInt nw_max_side;
+static SDL_AtomicInt nw_max_layers;
+void nw_tex_set_max_side(int side) { SDL_SetAtomicInt(&nw_max_side, SDL_min(8192, SDL_max(0, side))); }
+int nw_tex_max_side(void) { return SDL_GetAtomicInt(&nw_max_side); }
+void nw_tex_set_max_layers(int layers) { SDL_SetAtomicInt(&nw_max_layers, SDL_max(0, layers)); }
+int nw_tex_max_layers(void) { return SDL_GetAtomicInt(&nw_max_layers); }
 
 /* GS local memory: the block order in a page and the pixel order in a block, as the GS manual tabulates them. */
 static const uint8_t nw_gs_block32[4][8] = {
@@ -275,7 +281,7 @@ static bool nw_tex_read(NwTex *t, const uint8_t *p, size_t size)
     if (psm != nw_tex_psm[t->type][0] || uppsm != nw_tex_psm[t->type][1]) {
         return SDL_SetError("tex: type %u with psm 0x%x uploaded as 0x%x", t->type, psm, uppsm);
     }
-    if (mips == 0 || mips > NW_TEX_LEVELS || w == 0 || h == 0 || w > 1024 || h > 1024) {
+    if (mips == 0 || mips > NW_TEX_NATIVE_LEVELS || w == 0 || h == 0 || w > 1024 || h > 1024) {
         return SDL_SetError("tex: %ux%u with %u levels", w, h, mips);
     }
     const uint8_t *c = p + 16;
@@ -328,6 +334,41 @@ bool nw_tex_decode(NwTex *t, const void *data, size_t size)
     return true;
 }
 
+bool nw_tex_mipmaps(NwTex *t, size_t budget)
+{
+    uint32_t layers=t->layers ? t->layers : 1, w=t->levels[0].width, h=t->levels[0].height, count=1;
+    NwTexLevel levels[NW_TEX_LEVELS]={t->levels[0]};
+    if (t->nlevels!=1 || t->ncolours || !w || !h || w>8192 || h>8192 || !levels[0].texels ||
+        (uint64_t)w*h > budget/4/layers) return SDL_SetError("invalid mip base or budget");
+    size_t bytes=(size_t)w*h*layers*4;
+    while (w>1 || h>1) {
+        uint32_t dw=SDL_max(1,w/2), dh=SDL_max(1,h/2);
+        if (count==NW_TEX_LEVELS || (uint64_t)dw*dh > (budget-bytes)/4/layers) goto failed;
+        size_t size=(size_t)dw*dh*layers*4; uint8_t *data=SDL_malloc(size);
+        if (!data) goto failed;
+        levels[count]=(NwTexLevel){dw,dh,data};
+        for (uint32_t l=0; l<layers; l++) for (uint32_t y=0; y<dh; y++) for (uint32_t x=0; x<dw; x++) {
+            uint64_t sum[4]={0}, area=(uint64_t)w*h;
+            for (uint32_t sy=y*h/dh; sy<((y+1)*h+dh-1)/dh; sy++)
+                for (uint32_t sx=x*w/dw; sx<((x+1)*w+dw-1)/dw; sx++) {
+                    uint64_t weight=(uint64_t)(SDL_min((x+1)*w,(sx+1)*dw)-SDL_max(x*w,sx*dw))*
+                                              (SDL_min((y+1)*h,(sy+1)*dh)-SDL_max(y*h,sy*dh));
+                    const uint8_t *p=levels[count-1].texels+(((size_t)l*h+sy)*w+sx)*4;
+                    sum[3]+=weight*p[3];
+                    for (int c=0; c<3; c++) sum[c]+=weight*(t->tcc ? p[3] : 1)*p[c];
+                }
+            uint8_t *p=data+(((size_t)l*dh+y)*dw+x)*4; uint64_t divisor=t->tcc ? sum[3] : area;
+            for (int c=0; c<3; c++) p[c]=divisor ? (uint8_t)((sum[c]+divisor/2)/divisor) : 0;
+            p[3]=(uint8_t)((sum[3]+area/2)/area);
+        }
+        bytes+=size; count++; w=dw; h=dh;
+    }
+    memcpy(t->levels,levels,sizeof(levels)); t->nlevels=count; return true;
+failed:
+    for (uint32_t n=1; n<NW_TEX_LEVELS; n++) SDL_free(levels[n].texels);
+    return SDL_SetError("mip chain exceeds memory or level budget");
+}
+
 void nw_tex_free(NwTex *t)
 {
     for (uint32_t i = 0; i < NW_TEX_LEVELS; i++) {
@@ -344,6 +385,6 @@ void nw_tex_rgba(const NwTex *t, uint32_t y, uint8_t *out)
         out[0] = c[0];
         out[1] = c[1];
         out[2] = c[2];
-        out[3] = (uint8_t)SDL_min(255, c[3] * 2);
+        out[3] = t->rgba8 ? c[3] : (uint8_t)SDL_min(255, c[3] * 2);
     }
 }

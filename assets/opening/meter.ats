@@ -1,0 +1,34 @@
+;;
+;; Script ATS V2
+;; Meter
+;; The LED bar fills green to red, blinks full five times, rests, restarts.
+;; flash is the slow glow shared with the subtitle letters.
+;; It starts 0.8 s after the first bolt.
+;;
+
+ats 2 meter
+
+time        seconds
+start       bolt.first  after 0.8
+
+param level {
+	playback    loop
+	duration    2.05
+
+	key         0       0       linear
+	key         0.9     15
+	key         1       0
+	key         1.1     15
+	key         1.2     0
+	key         1.3     15
+	key         1.4     0
+	key         1.5     15
+	key         1.6     0
+	key         1.7     15
+	key         1.8     0
+}
+
+param flash {
+	wave        cosine  1.02
+	range       0       1
+}

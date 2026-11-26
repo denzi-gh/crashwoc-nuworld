@@ -64,6 +64,8 @@ typedef struct NwSettings {
     int msaa;
     NwTexFilter filter;
     bool gems;
+    bool clouds;      /* the intro island's sky live and its clouds volumetric, not the PS2's pictures */
+    bool silhouettes; /* the intro's heroes in the door as their models against the light, not a picture */
     int draw_distance; /* percent of the PS2's */
     int fog;
     bool blur; 

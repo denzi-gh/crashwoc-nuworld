@@ -1,0 +1,19 @@
+;; The logos: Traveller's Tales, Universal, Konami, up to the title (LOGOSR.CSP). From game/cut.c's csd_titles[0],
+;; LoadCutMovie(0), StartCutMovie and CutSceneNextLogoFunction, and the opening's opening.txt and ats.txt.
+fpsec               30          ;; SetCutMovieRate: 0.6 cut frames a 50 Hz game frame
+resume_before_end   6           ;; back at the title with the logos seen: TITLESTARTTIME before the end, with the music
+skip                on to 800 hint 4
+fade_in             0.51        ;; PlayCutMovie: fadeval 255 down 10 a game frame
+scene               main    levels\b\intro\spacer.gsc
+play_beside         levels\b\intro2\stationt    looping
+character           levels\b\logos\ttchar.ghg   ttchar
+character           levels\b\logos\title.ghg    title
+sfx                 172
+farclip             473.8676
+ptl                 levels\b\intro\intror.ptl
+ptl_merge           stuff\general.ptl
+ats                 ats\levels\pal\title.ats opening/logos.ats opening/vortex.ats opening/meter.ats opening/subtitle.ats opening/button.ats opening/universal.ats opening/earth.ats opening/clouds.ats
+tex_anim            2 on        ;; the logos playing; resuming the title turns 2 off and 4 on
+tex_anim            4 off
+next_cut_scene      levels\b\logos\logos2r
+on_end              title_menu  ;; the menu opens as the title starts

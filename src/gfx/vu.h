@@ -68,6 +68,9 @@ typedef struct NwLights {
 typedef struct NwVuTexture {
     unsigned int index, clut;
     bool tcc; /* TEX0.TCC */
+    bool rgba8;
+    uint32_t layers;
+    uint32_t levels;
     bool surface;
     bool filtered;
     unsigned int rgba; /* particle-only RGBA8UI cache: GS bytes with the palette already applied */
@@ -85,11 +88,23 @@ typedef struct NwVuZClut {
 } NwVuZClut;
 
 /* diffuse is VU 0x13 (x128); tex NULL or 0 and zclut NULL mean none; dst NULL: GL's blend. */
+typedef struct NwUV {
+    float value[7]; /* offset xy, scale xy, clockwise degrees, pivot xy */
+    uint32_t binding, linear;
+    int segment[3], address; /* -1 material, 0 repeat, 1 clamp, 2 mirror */
+    uint32_t mips;
+    uint32_t owner[3]; /* Stable curve owners, independent of the composed material binding. */
+    int64_t cycle[3]; /* Loop/half-cycle: equal key segments can still cross a discontinuity. */
+} NwUV;
+
 typedef struct NwVuMaterial {
     float diffuse[4];
+    float fx[16];  /* nw_rndr_mtl_fx's: u_fx */
     float uvoff[4]; /* VU 0x14 u, v; the STROW row u, v (x4096) when the geom unpacks its texcoords under STMOD 1 */
     float vu[8];    /* VU 0x14-0x15 as the material uploads them (numtl_s.vuattr) */
     const NwVuTexture *tex;
+    int layer;
+    NwUV uv;
     NwMtlState state;
     const NwVuZClut *zclut;
     const NwVuTexture *dst;
@@ -130,6 +145,9 @@ uint32_t nw_vu_use(NwVuProgram program, const NwVuObject *o, const NwVuMaterial 
 void nw_vu_alpha_writes(bool on);
 void nw_vu_filter(NwTexFilter filter);
 void nw_vu_pass(NwVuProgram program, const NwVuMaterial *m, const NwMtlPass *pass);
+/* After nw_vu_use: the draw is a silhouette, black where it covers (a blended material as far as its As does).
+   Reset by nw_vu_use. */
+void nw_vu_black(NwVuProgram program, bool blended);
 void nw_vu_texture(NwVuTexture *tex, const NwTex *t);
 void nw_vu_texture_free(NwVuTexture *tex);
 /* Lazily expands a particle texture's palette; keeps GS alpha (0x80 = 1), including values above 0x80. */

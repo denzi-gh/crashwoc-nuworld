@@ -686,7 +686,11 @@ static void test_overlay(void)
     CHECK(SDL_SaveFile(AT("disc/LEVELS/A.GSC"), "disc", 4) && SDL_SaveFile(AT("disc/SYSTEM.CNF"), "cnf", 3));
     CHECK(SDL_SaveFile(AT("disc/TEST.DAT"), d.data, d.size) && SDL_SaveFile(AT("disc/" NW_DISC_STAMP), "", 0));
     CHECK(SDL_SaveFile(AT("old/LEVELS/A.GSC"), "old", 3) && SDL_SaveFile(AT("new/levels/a.gsc"), "new", 3));
+    CHECK(SDL_CreateDirectory(AT("new/opening")) && SDL_SaveFile(AT("new/opening/opening.txt"), "elec 1", 6));
     CHECK(SDL_SaveFile(AT("entry/test.dat/arc/a/y.bin"), "loose y", 7));
+    /* The port's looks beside a model the disc has (A.GSC), and beside one it has not. */
+    CHECK(SDL_CreateDirectory(AT("entry/levels")) && SDL_SaveFile(AT("entry/levels/a.looks"), "looks 1", 7));
+    CHECK(SDL_CreateDirectory(AT("nolooks/levels")) && SDL_SaveFile(AT("nolooks/levels/b.looks"), "looks 1", 7));
     CHECK(SDL_SaveFile(AT("bad/test.dat/arc/nope.bin"), "x", 1) && SDL_SaveFile(AT("extra/NEW.GSC"), "x", 1));
     CHECK(SDL_SaveFile(AT("fixed/system.cnf"), "x", 1) && SDL_SaveFile(AT("sfx/sfx.dat/x.vag"), "x", 1));
     if (!nw_vfs_init(&vfs, root)) {
@@ -696,6 +700,9 @@ static void test_overlay(void)
 
     CHECK(nw_vfs_overlay(&vfs, AT("old"), overlay_conflict, &each) && each.conflicts == 0);
     CHECK(nw_vfs_overlay(&vfs, AT("new"), overlay_conflict, &each) && each.conflicts == 1);
+    f = nw_vfs_open(&vfs, "OPENING/OPENING.TXT", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 6 && memcmp(buf, "elec 1", 6) == 0);
+    nw_vfs_close(f);
     f = nw_vfs_open(&vfs, "cdrom0:\\LEVELS\\A.GSC;1", NW_VFS_READ);
     CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 3 && memcmp(buf, "new", 3) == 0);
     nw_vfs_close(f);
@@ -703,8 +710,12 @@ static void test_overlay(void)
     CHECK(nw_vfs_overlay(&vfs, AT("entry"), overlay_conflict, &each));
     nw_vfs_overlay_each(&vfs, "TEST.DAT/", overlay_each, &each);
     CHECK(each.count == 1 && strcmp(each.seen[0], "ARC/A/Y.BIN") == 0);
+    f = nw_vfs_open(&vfs, "LEVELS/A.LOOKS", NW_VFS_READ);
+    CHECK(f && nw_vfs_read(f, buf, sizeof(buf)) == 7 && memcmp(buf, "looks 1", 7) == 0);
+    nw_vfs_close(f);
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("bad"), NULL, NULL), "no such entry in TEST.DAT");
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("extra"), NULL, NULL), "not on the disc");
+    CHECK_FAILS(nw_vfs_overlay(&vfs, AT("nolooks"), NULL, NULL), "not on the disc");
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("fixed"), NULL, NULL), "never replaces");
     CHECK_FAILS(nw_vfs_overlay(&vfs, AT("sfx"), NULL, NULL), "reads SFX.DAT whole");
     CHECK(nw_vfs_overlay(&vfs, AT("old"), NULL, NULL));

@@ -508,6 +508,16 @@ int main(int argc, char *argv[])
     CHECK(s.gems);
     CHECK(read_text("[video]\ngems = false\n", &s) && !s.gems);
 
+    /* The intro's clouds: volumes unless the file asks for the PS2's cards. */
+    nw_settings_defaults(&s);
+    CHECK(s.clouds);
+    CHECK(read_text("[video]\nclouds = false\n", &s) && !s.clouds);
+
+    /* The intro's heroes in the door: their models unless the file asks for the PS2's picture. */
+    nw_settings_defaults(&s);
+    CHECK(s.silhouettes);
+    CHECK(read_text("[video]\nsilhouettes = false\n", &s) && !s.silhouettes);
+
     NwResolution res = { 1, 1 };
     CHECK(nw_settings_resolution("auto", &res) && res.w == 0 && res.h == 0);
     CHECK(nw_settings_resolution("2560x1440", &res) && res.w == 2560 && res.h == 1440);

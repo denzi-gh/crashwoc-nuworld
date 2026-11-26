@@ -10,7 +10,7 @@ schema = 1
 
 [units]
 "nucore/nufile" = { treatment = "compile", override = ["NuDat*"], keep = ["NuDatOpen", "NuDatSet"] }
-"nucore/nufpar" = { treatment = "compile" }
+"nucore/nufpar" = { treatment = "compile", override = ["NuFParOpen", "NuFParGetLine", "NuFParGetWord", "NuFParUnGetWord"] }
 # NuErrorProlog: the file and line NuErrorFunction prints are nuerror.c statics
 "nucore/nuerror" = { treatment = "compile", override = ["NuErrorProlog", "NuErrorFunction"] }
 "nucore/numem" = { treatment = "compile" }
@@ -53,7 +53,7 @@ schema = 1
     "NuRndrShadowOnOff", "NuRndrAddShadow", "NuRndrAnglesZX", "NuRndrAddFootPrint", "NuRndrAddWaterRipple",
     "NuRndrWaterRippleUpdate", "NuRndrWaterLevelTint", "NuRndrShadPolys", "NuRndrWaterRip", "NuRndrFx", "NuRndrClose",
     "NuRndrShadowStencil", "NuRndrShadowDirCol", "RotateCyl", "DeRotateVectorAngles", "NuRndrFog*", "NuRndrLine3dDbg*",
-    "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"], wrap = ["NuHGobjEval"] }
+    "NuRndrTest", "NuRndrQuad3d", "NuRndrStarfield"], wrap = ["NuHGobjEval", "NuHGobjEvalAnim2"] }
 "nu3d/nufont" = { treatment = "compile" }
 "nu3d/nulight" = { treatment = "compile", override = ["NuLightHaze", "NuLightPolyHaze", "NuLightFogDraw",
     "NuLgtArcLaserDraw", "NuLightProcessSpot", "NuLightFxSetup"] }
@@ -63,7 +63,8 @@ schema = 1
 # dead: the CvtNuIFF* converter path, NuGScnDuplicate (sceneman), the Read*Set helpers of NuGScnLoadFix
 "nu3d/nugscn" = { treatment = "compile", override = ["NuGScnLoad", "NuGScnLoadFix", "ReadObjSet", "ReadAnimationLibrary",
     "CvtNuIFF*", "CvtNodes", "MakeFaceOnDma", "NuGScnConvertScene", "NuGScnSetTmpWkspc", "NuGScnDuplicate", "NuNodeRead",
-    "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet"] }
+    "ReadNuIFFTexAnimSet", "ReadTextureSet", "ReadMaterialSet", "ReadTexAnimSet", "ReadSplineSet", "NuSceneReAssignTexAnims"],
+    wrap = ["NuGScnRndr3", "NuGScnRead"] }
 "nu3d/asmstrm" = { treatment = "hle" }
 # NuGHGFixupGobj (an int base): done by NuGHGRead; NuHGobjDestroy frees the port's records; the rest is dead
 "nu3d/nuhgobj" = { treatment = "compile", override = ["NuGHGRead", "NuGHGFixupGobj", "NuHGobjDestroy", "NuGHGWrite*",
@@ -74,7 +75,10 @@ schema = 1
 # NuCvtSknInstFix: done by NuGHGRead's skin DMA decode
 "nu3d/nucvtskn" = { treatment = "dead", called = ["NuPs2CreateSkin"] }
 "nu3d/asmgobj" = { treatment = "hle" }
-"nu3d/nutexanm" = { treatment = "compile" }
+"nu3d/nutexanm" = { treatment = "compile", expose = ["sys_progs"], wrap = ["NuTexAnimProgReadScript",
+    "NuTexAnimProgDestroy", "NuTexAnimProgSysInit", "NuTexAnimProgRelease", "NuTexAnimProgRead", "NuTexAnimProgWrite",
+    "NuTexAnimEnvCreate", "NuTexAnimEnvProc", "NuTexAnimEnvReset", "NuTexAnimEnvDestroy", "NuTexAnimCreate",
+    "NuTexAnimProcess"] }
 "nu3d/nufpatch" = { treatment = "dead" }
 "nu3d/nutexcmp" = { treatment = "dead" }
 "nu3d/nuwater" = { treatment = "compile", override = ["animateWater", "animateWaterTables"], expose = [
@@ -94,7 +98,7 @@ schema = 1
 "gamelib/terrain" = { treatment = "compile", override = ["ReadTerrain"], wrap = ["NewTerrainScaleY", "TerrainImpact",
     "HitWallSpline"] }
 "gamelib/debris" = { treatment = "compile", wrap = ["DebrisCollisionCheck"] }
-"gamelib/edptl" = { treatment = "editor", runtime = ["ParticleReset", "edppDestroyAll*",
+"gamelib/edptl" = { treatment = "editor", wrap = ["edppLoadEffects"], runtime = ["ParticleReset", "edppDestroyAll*",
     "edppRegisterPointerToGameCharLocation", "edppLoadEffects", "edppMergeEffects", "edppRestartAllEffectsInLevel",
     "FileLoadSingleEffectType", "UpdateTotalPtls", "TidyAllEffects", "edppDetermineNearest"], drop = ["*MemCard*"] }
 "gamelib/edobj" = { treatment = "editor", runtime = ["edobjUpdateObjects", "edobjRenderObjects", "edobjRenderCutoffTest",
@@ -112,7 +116,8 @@ schema = 1
 "gamelib/saveload" = { treatment = "dead", drop = ["*"] }
 # The *FixPtrs (an int base) are done by the port's NuGCutSceneLoad
 "gamelib/gcutscn" = { treatment = "compile", override = ["NuGCutSceneLoad", "NuGCut*SysFixPtrs",
-                      "StateAnimFixPtrs"], wrap = ["NuGCutSceneFixUp"] }
+                      "StateAnimFixPtrs"], wrap = ["NuGCutSceneFixUp", "NuGCutRigidCalcMtx", "NuGCutCharAnimProcess",
+                      "instNuGCutCamSysUpdate", "instNuGCutSceneUpdate"] }
 # dead: NuTriggerSysLoad, called only by sceneman's NuSceneDataLoad; the disc has no .trg
 "gamelib/trigger" = { treatment = "compile", override = ["NuTriggerSysLoad"] }
 # called: from the trigger systems, which only sceneman creates
@@ -131,7 +136,7 @@ schema = 1
 "nusound/nusound" = { treatment = "compile" }
 
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" }, wrap = ["MiniGameReset", "MiniGame",
-    "MiniGameRender", "MiniGameRenderScore", "DoInput"] }
+    "MiniGameRender", "MiniGameRenderScore", "DoInput", "BGLoadCutMovie"] }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
 "game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
@@ -173,8 +178,9 @@ schema = 1
 # NuWorld's saves draw the slots (port/savemenu.c); the card's load and save requests are gone
 "game/loadsave" = { treatment = "replace", drop = ["UpdateSaveSlots", "loadsaveCallEachFrame", "LoadGameSlots", "SaveGameSlots"] }
 "game/bgload" = { treatment = "compile" }
-"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst", "ghg_insts", "ghg_inst_count"], wrap = [
-               "StartCutMovie", "SetCutMovieRate", "AppCutSceneCharacterRender", "GetSpaceCut"] }
+"game/cut" = { treatment = "compile", expose = ["cutworldix", "CutInst", "CutScene", "CutAudio", "cutdebgroups",
+               "ghg_insts", "ghg_inst_count"], wrap = ["StartCutMovie", "SetCutMovieRate", "AppCutSceneCharacterRender",
+               "GetSpaceCut", "LoadCutMovie"] }
 "game/bug" = { treatment = "compile" }
 "game/game_deb" = { treatment = "compile" }
 "game/credits" = { treatment = "compile", wrap = ["InitCredits"] }

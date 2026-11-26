@@ -1,0 +1,31 @@
+;;
+;; Looks of SPACER.GSC
+;; The logos scene's UNIVERSAL: painted letters bent on their ring round the globe.
+;; The opening sets the ring's fields each frame. The fields: docs/ats-format.md.
+;;
+
+looks 1
+
+material universal-face gloss {
+	mode        ring
+	highlight   .30
+	power       18
+	lit         1 .97 1
+	rim         .10
+	shade       .72 .70 .80
+}
+
+material universal-bevel gloss {
+	mode        ring
+	highlight   .45
+	power       22
+	lit         1 .95 .92
+	rim         .12
+	shade       .78 .64 .56
+}
+
+;; The UIS object: its bevel is the scene's material 51, the rest its face.
+object UIS {
+	slot        51      universal-bevel
+	default     universal-face
+}

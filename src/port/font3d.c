@@ -66,6 +66,18 @@ static struct {
 static int nw_font3d_nicons;
 static struct numtl_s *nw_font3d_grey[2]; /* forced table: the letters' special_id 1 */
 
+static SDL_AtomicInt nw_font3d_style;
+
+void nw_font3d_prompt_style(NwPromptStyle style)
+{
+    SDL_SetAtomicInt(&nw_font3d_style, (int)style);
+}
+
+NwPromptStyle nw_font3d_prompt_style_of(void)
+{
+    return (NwPromptStyle)SDL_GetAtomicInt(&nw_font3d_style);
+}
+
 /* This frame's and the last frame's strings, for stable interpolation keys. */
 #define NW_FONT3D_TEXTS 256
 typedef struct NwFont3DText {

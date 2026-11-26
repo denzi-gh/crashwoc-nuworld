@@ -75,6 +75,17 @@ static SDL_EnumerationResult SDLCALL nw_paths_collect(void *user, const char *di
     return list->names[list->count++] ? SDL_ENUM_CONTINUE : SDL_ENUM_FAILURE;
 }
 
+bool nw_paths_replace(const char *from, const char *path)
+{
+    for (int tries = 0; !SDL_RenamePath(from, path); tries++) {
+        if (tries == 25) {
+            return false;
+        }
+        SDL_Delay(20);
+    }
+    return true;
+}
+
 bool nw_paths_remove_tree(const char *path)
 {
     SDL_PathInfo info;

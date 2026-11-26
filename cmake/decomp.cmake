@@ -149,10 +149,13 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/gfx/numtl.c src/gfx/nutex.c src/gfx/nuwater.c src/gfx/ps2txtr.c src/gfx/ptl.c src/hle/asmmem.c src/hle/asmstrm.c
   src/hle/eefloat.c src/hle/nuanim.c src/hle/nucamvu0.c src/hle/numath.c src/hle/numtxvu0.c src/hle/nuplnvu0.c
   src/hle/nuvecvu0.c src/port/fptrap.c src/port/game.c src/port/gcutscn.c src/port/heap.c src/port/nuanim.c
-  src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nugscn.c src/port/rev.c
+  src/port/hz.c src/port/nudat.c src/port/nuerror.c src/port/nufpar.c src/port/nugscn.c src/port/nutexanm.c src/port/rev.c
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c src/port/presence.c
   src/port/capture.c src/port/disc.c src/port/dump.c src/port/ps2video.c src/port/saves.c src/port/scene.c src/port/shadcom.c
-  src/port/autosave.c src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
+  src/port/silhouette.c src/port/signals.c
+  src/port/autosave.c src/port/cloudfx.c src/port/cloudscn.c src/port/crate.c src/port/cutstart.c src/port/cutplay.c src/port/lookfile.c
+  src/port/opening/opening.c src/port/opening/camera.c src/port/opening/world.c src/port/opening/flyers.c
+  src/port/opening/particles.c src/port/opening/title.c src/port/opening/config.c src/port/opening/looks.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
   src/port/text.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosscut.c src/gameplay/bosshealth.c
   src/gameplay/bosspics.c
@@ -170,6 +173,8 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
 list(FILTER nw_game_sources INCLUDE REGEX "\\.c$")
 add_library(nuworld_game STATIC $<TARGET_OBJECTS:nuworld_decomp> ${nw_game_sources})
 nw_embed_dir(nuworld_game nw_prompt_icons ${CMAKE_CURRENT_SOURCE_DIR}/assets/prompts)
+nw_embed_dir(nuworld_game nw_opening_assets ${CMAKE_CURRENT_SOURCE_DIR}/assets/opening ALL)
+nw_embed_dir(nuworld_game nw_level_assets ${CMAKE_CURRENT_SOURCE_DIR}/assets/levels ALL)
 nw_embed(nuworld_game nw_hubgem_toml ${CMAKE_CURRENT_SOURCE_DIR}/assets/hubgem.toml)
 set(nw_title_logo ${nw_gen}/nw_title_logo.ghg)
 add_custom_command(OUTPUT ${nw_title_logo}
@@ -183,12 +188,15 @@ add_dependencies(nuworld_game nuworld_gen nuworld_types)
 target_include_directories(nuworld_game PRIVATE ${nw_decomp_includes} ${nw_gen})
 target_compile_options(nuworld_game PRIVATE ${nw_decomp_flags} -Wall -Wextra)
 # The EE's double rounding.
-set_target_properties(nuworld_decomp nuworld_game PROPERTIES
+set_target_properties(nuworld_decomp nuworld_game nuworld_script PROPERTIES
   C_COMPILER_LAUNCHER "${Python3_EXECUTABLE};${nw_tools}/softdouble.py")
-set_property(SOURCE ${nw_sources} ${nw_game_sources} APPEND PROPERTY OBJECT_DEPENDS ${nw_tools}/softdouble.py)
+set_property(SOURCE ${nw_sources} ${nw_game_sources} src/script/curves.c src/script/bursts.c APPEND PROPERTY OBJECT_DEPENDS ${nw_tools}/softdouble.py)
+# The ATS curves are sampled on the EE game thread, whose hardware float mode rounds toward zero.
+target_compile_options(nuworld_script PRIVATE -ffp-contract=off -ffp-exception-behavior=maytrap)
+target_link_libraries(nuworld_script PRIVATE nuworld_port)
 # LINK_ONLY: nuworld_data's decomp flags must not reach the executable's own (C++) sources.
 target_link_libraries(nuworld_game PUBLIC $<LINK_ONLY:nuworld_data> nuworld_audio nuworld_gfx nuworld_port nuworld_save
-  nuworld_vfs)
+  nuworld_vfs nuworld_script)
 target_link_libraries(crashwoc-nuworld PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
 # The renderer draws the game thread's frame packets, so it comes with the decomp.
 target_sources(crashwoc-nuworld PRIVATE src/frontend/cheatpanel.c src/frontend/controlpanel.c src/frontend/profiles.c src/frontend/saveexport.c src/frontend/saveimport.c src/frontend/video.c src/gfx/backend.c src/gfx/view.c src/platform/input.c)
@@ -436,6 +444,22 @@ if(NUWORLD_TESTS)
   target_link_libraries(nuworld_test_texanim PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME texanim COMMAND nuworld_test_texanim ${CMAKE_CURRENT_BINARY_DIR}/test-texanim)
   add_test(NAME texanim-retail COMMAND nuworld_test_texanim retail)
+  add_executable(nuworld_test_looks tests/c/test_looks.c)
+  add_dependencies(nuworld_test_looks nuworld_types)
+  target_include_directories(nuworld_test_looks PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_looks PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_looks PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME looks COMMAND nuworld_test_looks ${CMAKE_CURRENT_SOURCE_DIR}/assets/levels
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/opening)
+
+  # Production camera/clip bridge on local opening CUT/GHG assets (not distributed with tests).
+  add_executable(nuworld_test_cutplay tests/c/test_cutplay.c)
+  add_dependencies(nuworld_test_cutplay nuworld_types)
+  target_include_directories(nuworld_test_cutplay PRIVATE ${nw_decomp_includes} ${nw_gen})
+  target_compile_options(nuworld_test_cutplay PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_cutplay PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME cutplay-assets COMMAND nuworld_test_cutplay)
+  set_tests_properties(cutplay-assets PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 90)
   set_tests_properties(texanim-retail PROPERTIES SKIP_RETURN_CODE 77)
 
   add_executable(nuworld_test_font3d tests/c/test_font3d.c)
