@@ -855,6 +855,8 @@ static void nw_boot_audio(void *user)
         nw_options_set_volume(false, sfx);
     }
     nw_debug_slider_int("Voice", &s->voice_volume, 0, 100);
+    nw_debug_checkbox("Subtitles", &s->subtitles);
+    nw_debug_checkbox("Subtitles on title screen", &s->title_subtitles);
 }
 
 static const char *const nw_movement_profiles[] = { "Retail", "N. Hanced", "Custom" };
@@ -1056,6 +1058,8 @@ static void nw_boot_request(const NwSettings *s, bool hitboxes, bool boss_pics)
                                      .hub_gem = s->hub_gem,
                                      .first_boss_cut = s->first_boss_cut,
                                      .vehicle_hints = s->vehicle_hints,
+                                     .subtitles = s->subtitles,
+                                     .title_subtitles = s->title_subtitles,
                                      .bug_fixes = s->bug_fixes,
                                      .hitboxes = hitboxes,
                                      .boss_pics = boss_pics });
@@ -1230,6 +1234,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                                        .hub_gem = settings.hub_gem,
                                        .first_boss_cut = settings.first_boss_cut,
                                        .vehicle_hints = settings.vehicle_hints,
+                                       .subtitles = settings.subtitles,
+                                       .title_subtitles = settings.title_subtitles,
                                        .bug_fixes = settings.bug_fixes,
                                        .boss_pics = true });
     }
@@ -1362,6 +1368,8 @@ static int nw_boot(const char *data_dir, int hardware_speed, float aspect, NwPla
                  settings.hub_gem != applied.hub_gem ||
                  settings.first_boss_cut != applied.first_boss_cut ||
                  settings.vehicle_hints != applied.vehicle_hints ||
+                 settings.subtitles != applied.subtitles ||
+                 settings.title_subtitles != applied.title_subtitles ||
                  settings.bug_fixes != applied.bug_fixes)) {
                 nw_boot_request(&settings, hitboxes, boss_pics);
                 hitboxes_shown = hitboxes;

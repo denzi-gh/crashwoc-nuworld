@@ -153,7 +153,7 @@ set(nw_game_sources ${nw_dataimage} src/gfx/dma.c src/gfx/fx2.c src/gfx/nulight.
   src/port/nuhgobj.c src/port/level.c src/port/options.c src/port/padscript.c src/port/presence.c
   src/port/capture.c src/port/disc.c src/port/dump.c src/port/ps2video.c src/port/saves.c src/port/scene.c src/port/shadcom.c
   src/port/autosave.c src/port/cloudfx.c src/port/crate.c src/port/font3d.c src/port/menu.c src/port/nameentry.c src/port/names.c src/port/savemenu.c src/port/nubridge.c src/port/terrain.c
-  src/port/text.c src/port/trace.c src/port/wide.c
+  src/port/text.c src/port/subtitles.c src/port/trace.c src/port/wide.c
   src/gameplay/ai.c src/gameplay/air.c src/gameplay/airindicator.c src/gameplay/atlasphere.c src/gameplay/bosscut.c src/gameplay/bosshealth.c
   src/gameplay/bosspics.c
   src/gameplay/camera.c src/gameplay/chase.c src/gameplay/cheats.c src/gameplay/crash.c src/gameplay/creature.c src/gameplay/credits.c src/gameplay/cut.c src/gameplay/debris.c
@@ -345,6 +345,11 @@ if(NUWORLD_TESTS)
   target_compile_options(nuworld_test_menu PRIVATE ${nw_decomp_flags} -Wall -Wextra)
   target_link_libraries(nuworld_test_menu PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
   add_test(NAME menu COMMAND nuworld_test_menu)
+  add_executable(nuworld_test_subtitles tests/c/test_subtitles.c)
+  target_include_directories(nuworld_test_subtitles PRIVATE ${nw_decomp_includes})
+  target_compile_options(nuworld_test_subtitles PRIVATE ${nw_decomp_flags} -Wall -Wextra)
+  target_link_libraries(nuworld_test_subtitles PRIVATE $<LINK_LIBRARY:WHOLE_ARCHIVE,nuworld_game>)
+  add_test(NAME subtitles COMMAND nuworld_test_subtitles)
   # NUWORLD_FP_TRAPS: a NaN on the game thread stops the program with where it was made; "all" goes on past it.
   add_executable(nuworld_test_fptrap tests/c/test_fptrap.c)
   target_compile_options(nuworld_test_fptrap PRIVATE -Wall -Wextra)

@@ -5,6 +5,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#define NW_LEVEL_HUB 0x25
+#define NW_LEVEL_GAMEOVER 0x26
+#define NW_LEVEL_SPACE 0x28
+
 int nw_level_count(void);
 /* The English name, NULL for a level the disc lacks. */
 const char *nw_level_name(int level);

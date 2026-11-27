@@ -102,6 +102,15 @@ static int failures;
         } \
     } while (0)
 
+static void close_creature_models(void)
+{
+    CRemap[0] = 0;
+    CRemap[0xA7] = 1;
+    CloseCreatures();
+    CHECK(CRemap[0] == -1);
+    CHECK(CRemap[0xA7] == -1);
+}
+
 static bool dangle(float speed)
 {
     return CrashMoveInfo.DANGLESPEED == speed && CocoMoveInfo.DANGLESPEED == speed;
@@ -3611,6 +3620,7 @@ static void tropy_credits(void)
 int main(void)
 {
     NuTrigInit();
+    close_creature_models();
     monkey_bars(50, 0.015599999f);
     monkey_bars(60, 0.013f);
     monkey_bar_anim();

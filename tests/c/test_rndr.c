@@ -471,9 +471,15 @@ static void test_2d(void)
         CHECK(c[5].material == m && c[5].rect.st[0] == 0.25f && c[5].rect.st[2] == 0.75f);
         CHECK(c[5].rect.xy[3] == (0x800 - 256) * 16 + (256 << 4) && c[5].rect.rgba[0] == 0x40);
     }
+    /* A HUD depth clear must finish world materials before queuing its text. */
+    mark(&m->rs, 52);
     NuRndrClear(2, 0, 1.0f);
+    mark(&m->rs, 53);
     NuRndrEndScene();
-    CHECK(p->ncmds == 9 && p->cmds[7].clear.mask == 1 && p->cmds[8].clear.mask == 2);
+    CHECK(p->ncmds == 11 && p->cmds[7].clear.mask == 1 &&
+          p->cmds[8].op == NW_CMD_DRAW && (uintptr_t)p->cmds[8].mesh == 52 &&
+          p->cmds[9].op == NW_CMD_CLEAR && p->cmds[9].clear.mask == 2 &&
+          p->cmds[10].op == NW_CMD_DRAW && (uintptr_t)p->cmds[10].mesh == 53);
     NuRndrSwapStreamBuffers();
 }
 

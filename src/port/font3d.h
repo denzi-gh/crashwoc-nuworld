@@ -9,5 +9,7 @@
 void nw_font3d_prompts(const NwPrompts *p);
 /* NuMtlRelease: the icons' materials and textures went with the level's. */
 void nw_font3d_release(void);
+/* Game thread: restore the returned punctuation state after drawing subtitles. */
+bool nw_font3d_subtitle_punctuation(bool enabled);
 
 #endif

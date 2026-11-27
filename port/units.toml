@@ -131,7 +131,7 @@ schema = 1
 "nusound/nusound" = { treatment = "compile" }
 
 "game/main" = { treatment = "compile", rename = { main = "nw_game_main" }, wrap = ["MiniGameReset", "MiniGame",
-    "MiniGameRender", "MiniGameRenderScore", "DoInput"] }
+    "MiniGameRender", "MiniGameRenderScore", "DoInput", "DrawFade"] }
 "game/particle" = { treatment = "compile" }
 "game/listman" = { treatment = "compile" }
 "game/creature" = { treatment = "compile", wrap = ["CloseCreatures", "DrawCreatures", "LoadCharacterModels",
@@ -158,7 +158,7 @@ schema = 1
 "game/font3d" = { treatment = "compile", override = ["Text3D"] }
 "game/glass" = { treatment = "compile" }
 "game/panel" = { treatment = "compile", wrap = ["DrawGameMessage", "DrawPanelDebris", "DrawPanel3DTempCharacter",
-    "ResetPanelDebris"] }
+    "ResetPanelDebris", "DrawPanel"] }
 "game/text" = { treatment = "compile", override = ["NewLanguage"] }
 "game/edlight" = { treatment = "editor" }
 "game/lights" = { treatment = "compile" }

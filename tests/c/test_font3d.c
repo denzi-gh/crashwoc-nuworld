@@ -12,6 +12,7 @@
 #include "game/gametypes.h"
 #include "port/rev.h"
 #include "nu3d/nucamera.h"
+#include "nu3d/nugobj.h"
 #include "nu3d/nugscn.h"
 #include "nu3d/numtl.h"
 #include "nu3d/nurndr.h"
@@ -270,6 +271,81 @@ static int retail_main(int argc, char **argv)
     }
     retail_draws = p->ncmds;
     NuRndrSwapStreamBuffers();
+
+    /* The fallback must share the question mark's dot width, baseline, colours and depth. */
+    const struct nugobj_s *question = sc->gobjs[Font3DTab[Font3DRemap['?']].obj.special->instance->objid];
+    float height = question->max.y - question->min.y;
+    float cut = question->min.y + height * 0.30f;
+    float left = 1, right = -1;
+    for (const struct nugeom_s *g = question->geom; g; g = g->next) {
+        const NwGpuMesh *gpu = g->dmastream;
+        for (uint32_t j = 0; j < gpu->mesh.nverts; j++) {
+            const NwVifVertex *v = &gpu->mesh.verts[j];
+            if (v->pos[1] < cut) {
+                left = SDL_min(left, v->pos[0]);
+                right = SDL_max(right, v->pos[0]);
+            }
+        }
+    }
+    bool marks = nw_font3d_subtitle_punctuation(true);
+    const char *punctuation[] = { "!", "\xad" };
+    PANEL3DMULX = 640.0f / 1200.0f;
+    PANEL3DMULY = 448.0f / 1200.0f;
+    for (int colour = 0; colour < 5; colour++) {
+        for (int i = 0; i < 2; i++) {
+            Text3D((char *)punctuation[i], 0, 0, 1, 1, 1, 1, 0, colour);
+            NuRndrEndScene();
+            p = nw_rndr_packet();
+            CHECK(p->ncmds > 0);
+            float low[2] = { 1, 1 }, high[2] = { -1, -1 };
+            float xlow = 1, xhigh = -1;
+            float front_low = 1, front_high = -1, uv_bottom = 0, uv_top = 4096;
+            for (uint32_t j = 0; j < p->ncmds; j++) {
+                const NwCmd *cmd = &p->cmds[j];
+                CHECK(cmd->op == NW_CMD_VERTS);
+                CHECK(cmd->material == question->geom->mtl || cmd->material == Font3DMtlTab[colour][1]);
+                for (uint32_t k = 0; k < cmd->count; k++) {
+                    const NwVuSpriteVertex *v = &p->verts[cmd->first + k];
+                    float py = i ? question->min.y + question->max.y - v->pos[1] : v->pos[1];
+                    float px = i ? left + right - v->pos[0] : v->pos[0];
+                    int stem = py > cut;
+                    low[stem] = SDL_min(low[stem], py);
+                    high[stem] = SDL_max(high[stem], py);
+                    xlow = SDL_min(xlow, v->pos[0]);
+                    xhigh = SDL_max(xhigh, v->pos[0]);
+                    if (cmd->material == Font3DMtlTab[colour][1]) {
+                        if (v->pos[1] < front_low) {
+                            front_low = v->pos[1];
+                            uv_bottom = v->tex[1];
+                        }
+                        if (v->pos[1] > front_high) {
+                            front_high = v->pos[1];
+                            uv_top = v->tex[1];
+                        }
+                    }
+                    bool native = false;
+                    for (const struct nugeom_s *g = question->geom; g; g = g->next) {
+                        const NwGpuMesh *gpu = g->dmastream;
+                        for (uint32_t n = 0; n < gpu->mesh.nverts; n++) {
+                            const NwVifVertex *src = &gpu->mesh.verts[n];
+                            if (src->pos[1] < cut && SDL_fabsf(src->pos[0] - px) < 0.00001f && src->pos[2] == v->pos[2] &&
+                                memcmp(src->col, v->col, sizeof(v->col)) == 0) native = true;
+                        }
+                    }
+                    CHECK(native);
+                }
+            }
+            CHECK(SDL_fabsf(xlow - left) < 0.0001f && SDL_fabsf(xhigh - right) < 0.0001f);
+            CHECK(SDL_fabsf(low[0] - question->min.y) < 0.0001f);
+            CHECK(SDL_fabsf(high[1] - question->max.y) < 0.0001f);
+            CHECK(low[1] > high[0]);
+            CHECK(uv_top <= 64 && uv_bottom >= 4000); /* Full light-to-dark font texture, also for ¡. */
+            NuRndrSwapStreamBuffers();
+        }
+    }
+
+    CHECK(nw_font3d_subtitle_punctuation(marks));
+
     return 0;
 }
 

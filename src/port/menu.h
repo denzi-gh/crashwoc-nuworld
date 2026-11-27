@@ -17,5 +17,8 @@ void nw_menu_buttons(uint32_t pressed);
 bool nw_menu_quit(struct cursor_s *cursor, int confirm, int cancel);
 void nw_menu_autosave_loaded(struct cursor_s *cursor);
 void nw_menu_autosave_notice(void);
+/* Game thread: upper edge of the notice if it reaches the centred HUD area. */
+void nw_menu_autosave_hud_reset(void);
+float nw_menu_autosave_hud_top(void);
 
 #endif

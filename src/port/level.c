@@ -10,9 +10,6 @@
 #include "vfs/vfs.h"
 
 #define NW_LEVEL_TITLES 0x23
-#define NW_LEVEL_HUB 0x25
-#define NW_LEVEL_GAMEOVER 0x26
-#define NW_LEVEL_SPACE 0x28
 #define NW_LEVEL_ROUTE 8
 
 /* game.c's warp rooms: each room's levels in the game's order, the boss last. */

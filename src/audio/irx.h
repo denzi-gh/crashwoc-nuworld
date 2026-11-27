@@ -49,6 +49,7 @@ typedef struct STREAMDATA {
     uint32_t FileSize;
     uint32_t FileRemainder;
     uint32_t FileSeek;
+    uint32_t SampleOffset; /* source samples skipped at the start of playback */
     uint32_t FileHandle;
     uint8_t Status;
     uint8_t iStatus;

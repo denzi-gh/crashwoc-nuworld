@@ -320,6 +320,18 @@ static void test_spu_mix(void)
     CHECK(mix.tapped[0] > 0 && mix.tapped[1] == 0);
 
     mix_reset();
+    nw_spu2_fade_in(0, 12, 8);
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(11);
+    CHECK(nw_spu2_voice_lead_in(0) && !nw_spu2_voice_lead_in(1));
+    CHECK(mix_all(0, 0));
+    spu_samples(1);
+    CHECK(!nw_spu2_voice_lead_in(0));
+    mix_voice(0, loud, 0x3fff, 0);
+    spu_samples(1);
+    CHECK(!nw_spu2_voice_lead_in(0));
+
+    mix_reset();
     mix_voice(NW_SPU2_VOICES + 5, loud, 0, 0x3fff);
     spu_samples(40);
     CHECK(mix_all(0, 4074));

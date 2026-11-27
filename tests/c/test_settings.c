@@ -597,6 +597,19 @@ int main(int argc, char *argv[])
     SDL_free(text);
     CHECK(read_text("[game]\nhub_gem = false\n", &back) && !back.hub_gem);
 
+    CHECK(read_text("[game]\nsubtitles = true\n", &back) && back.subtitles && !back.title_subtitles);
+    CHECK(nw_settings_save(&back, root));
+    nw_settings_defaults(&h);
+    CHECK(!h.subtitles && nw_settings_load(&h, root) && h.subtitles);
+    CHECK(nw_settings_equal(&h, &back));
+    h.subtitles = false;
+    CHECK(!nw_settings_equal(&h, &back));
+    CHECK(read_text("[game]\nsubtitles = true\ntitle_subtitles = true\n", &back) && back.title_subtitles);
+    CHECK(nw_settings_save(&back, root));
+    nw_settings_defaults(&h);
+    CHECK(!h.title_subtitles && nw_settings_load(&h, root) && h.title_subtitles);
+    CHECK(nw_settings_equal(&h, &back));
+
     profiles();
 
     if (failures) {

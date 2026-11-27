@@ -405,6 +405,18 @@ static void nw_menu_options(struct cursor_s *cursor, s32 paused)
     DrawMenuEntry(cursor, tDONE[Game.language], &x, &y, &i);
 }
 
+static f32 nw_menu_autosave_top = -1.0f;
+
+void nw_menu_autosave_hud_reset(void)
+{
+    nw_menu_autosave_top = -1.0f;
+}
+
+float nw_menu_autosave_hud_top(void)
+{
+    return nw_menu_autosave_top;
+}
+
 void nw_menu_autosave_notice(void)
 {
     NwAutosaveStatus status = nw_autosave_status();
@@ -418,6 +430,7 @@ void nw_menu_autosave_notice(void)
     char *text = notice[status - 1][Game.language];
     nw_autosave_notice_presented();
     nw_menu_confirm_text(text, 0.0f, -0.88f, 0.34f, 40);
+    nw_menu_autosave_top = -0.83f;
 }
 
 static void nw_menu_confirm(struct cursor_s *cursor, s32 paused)

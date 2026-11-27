@@ -930,6 +930,7 @@ static int StartStream(int Stream, int SPUChannel, int VolL, int VolR, int Strea
     s->Channel = (uint8_t)SPUChannel;
     s->IOPCurrentRemainder = s->AllocSize;
     s->FileSeek = NW_IRX_VAG_HEADER;
+    s->SampleOffset = 0;
     s->LoopInfo = (uint8_t)(LoopInfo == 2 && FileIndex >= 0 && FileIndex < NW_IRX_FILES
                                 ? irx.ADPCM_FileNames[FileIndex].LoopInfo
                                 : LoopInfo);
@@ -954,11 +955,12 @@ static int StartStream(int Stream, int SPUChannel, int VolL, int VolR, int Strea
         return -1;
     }
     if (LoopInfo != NW_IRX_SPOT && nw_irx_skip > 0.0f) {
-        uint32_t bytes = (uint32_t)(nw_irx_skip * (float)irx.ADPCM_FileNames[FileIndex].Pitch / NW_ADPCM_SAMPLES) *
-                         NW_ADPCM_BLOCK;
+        uint32_t blocks = (uint32_t)(nw_irx_skip * (float)irx.ADPCM_FileNames[FileIndex].Pitch / NW_ADPCM_SAMPLES);
+        uint32_t bytes = blocks * NW_ADPCM_BLOCK;
         if (bytes < s->FileRemainder) {
             s->FileSeek += bytes;
             s->FileRemainder -= bytes;
+            s->SampleOffset = blocks * NW_ADPCM_SAMPLES;
         }
     }
     if (LoopInfo != NW_IRX_SPOT && (nw_irx_quiet > 0.0f || nw_irx_rise > 0.0f)) {

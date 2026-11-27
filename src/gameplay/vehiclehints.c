@@ -6,6 +6,7 @@
 #include "game/gametypes.h"
 #include "gameplay/gameplay.h"
 #include "nu_port.h"
+#include "port/subtitles.h"
 
 extern struct game_s Game;
 extern struct cursor_s Cursor;
@@ -209,6 +210,7 @@ void nw_vehicle_hints_draw(void)
             y += NW_VEHICLE_HINT_STEP * (k + nw_vehicle_hints_scale(lines[i - 1])) * 0.5f;
         }
     }
+    nw_subtitles_hud_line(y);
 }
 
 void nw_vehicle_hints_reset(void)

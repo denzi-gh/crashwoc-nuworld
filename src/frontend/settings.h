@@ -32,6 +32,7 @@ typedef enum NwMovementPart {
 #define NW_PARTS_ALL ((1u << NW_MOVEMENT_PARTS) - 1)
 
 typedef struct NwSettings {
+    bool subtitles, title_subtitles;
     bool hardware_speed;
     bool retail_menu;
     NwMovement movement;

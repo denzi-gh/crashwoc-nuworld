@@ -162,6 +162,15 @@ void nw_spu2_fade_in(unsigned voice, uint32_t quiet, uint32_t rise)
     }
 }
 
+bool nw_spu2_voice_lead_in(unsigned voice)
+{
+    if (voice >= 2 * NW_SPU2_VOICES) {
+        return false;
+    }
+    const NwSpu2Fade *fade = &nw_spu2_fade[voice];
+    return fade->on && fade->at < fade->quiet;
+}
+
 static int32_t nw_spu2_faded(NwSpu2Fade *f, int32_t value)
 {
     uint32_t at = f->at++;
@@ -186,6 +195,11 @@ static NwSpu2Voice *nw_spu2_voice(uint16_t entry)
 {
     unsigned voice = (entry >> 1) & 0x1f;
     return voice < NW_SPU2_VOICES ? &spu.core[entry & 1].voice[voice] : NULL;
+}
+
+uint32_t nw_spu2_voice_samples(unsigned voice)
+{
+    return voice < 2 * NW_SPU2_VOICES ? spu.core[voice / NW_SPU2_VOICES].voice[voice % NW_SPU2_VOICES].played : 0;
 }
 
 static uint16_t *nw_spu2_param(uint16_t entry)

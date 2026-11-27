@@ -2,6 +2,7 @@
 #ifndef NUWORLD_AUDIO_SPU2_H
 #define NUWORLD_AUDIO_SPU2_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define NW_SPU2_VOICES 24
@@ -79,10 +80,14 @@ void nw_spu2_set_gain(unsigned voice, int gain);
 
 /* A voice's (0-47) next key on: silent `quiet` samples (48 kHz), then up over `rise`. Where the SPU runs. */
 void nw_spu2_fade_in(unsigned voice, uint32_t quiet, uint32_t rise);
+/* True during the fade-in's silent lead-in. Where the SPU runs. */
+bool nw_spu2_voice_lead_in(unsigned voice);
 
 /* Each voice's decoded samples (voice 0-47), 4 at a time in the order its decoder reads them. */
 typedef void (*NwSpu2Tap)(void *user, unsigned voice, const int16_t samples[4]);
 void nw_spu2_set_tap(NwSpu2Tap tap, void *user);
+/* Source samples consumed since the voice's last key-on. Where the SPU runs. */
+uint32_t nw_spu2_voice_samples(unsigned voice);
 
 /* Runs the SPU up to IOP cycle `cycle` (36.864 MHz); a cycle it has passed changes nothing. */
 void nw_spu2_run_to(uint64_t cycle);
